@@ -1,0 +1,369 @@
+# Blacksmith shadow jobs for Depot-labeled CI jobs that are too complex to matrix-expand
+# in-place (dynamic matrices, many side effects, etc.). Remove this whole file at end of trial.
+#
+# Gated by repo variable BLACKSMITH_SHADOW_ENABLED (Settings → Variables → Actions → Variables).
+# All jobs:
+#   - run with continue-on-error: true
+#   - strip side effects (no artifact uploads, no PR comments, no commits, no snapshot patches)
+#   - use trimmed matrices where the original has dynamic fan-out
+#   - NOT referenced by any `needs:` list or branch-protection status check
+#
+# Pairs with same-SHA Depot runs in ci-backend.yml.
+# Use compare-ci-runners.py to produce the apples-to-apples comparison report.
+
+name: Blacksmith Shadow
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+    merge_group:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+    REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    TEST: 1
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+    UV_HTTP_TIMEOUT: 120
+    DISPLAY: ':99.0'
+    OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
+
+permissions:
+    contents: read
+
+jobs:
+    # Paper shadow: even though ubuntu-latest is free, we need ONE place that detects paths
+    # so shadow jobs know whether to run. Mirrors the change detection in ci-backend.yml.
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: vars.BLACKSMITH_SHADOW_ENABLED == 'true'
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            - uses: actions/checkout@v6
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              with:
+                  filters: |
+                      backend:
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        # really we should ignore ee/frontend/** but dorny doesn't support that
+                        # - '!ee/frontend/**'
+                        # including the negated rule appears to work
+                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
+                        - 'ee/**/*'
+                        - 'common/__init__.py'
+                        - 'common/hogli/**'
+                        - 'common/hogql_parser/**'
+                        - 'common/hogvm/**'
+                        - 'common/ingestion/**'
+                        - 'common/migration_utils/**'
+                        - 'common/plugin_transpiler/**'
+                        - 'posthog/**/*'
+                        - 'products/**/backend/**/*'
+                        - bin/build-schema-latest-versions.py
+                        - bin/build-taxonomy-json.py
+                        - bin/check_uv_python_compatibility.py
+                        - bin/find_python_dependencies.py
+                        - bin/granian_metrics.py
+                        - bin/ty.py
+                        - bin/unit_metrics.py
+                        - pyproject.toml
+                        - uv.lock
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        - .test_durations # Used for pytest-split sharding
+                        # generates posthog/schema.py
+                        - frontend/src/queries/schema.json
+                        # Operator parity check
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
+                        # Make sure we run if someone is explicitly changing the workflow
+                        - .github/workflows/ci-backend.yml
+                        - .github/clickhouse-versions.json
+                        # We use docker compose for tests, make sure we rerun on
+                        # changes to docker-compose.dev.yml e.g. dependency
+                        # version changes
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        - docker-compose.base.yml
+                        - bin/wait-for-docker
+                        - bin/ci-wait-for-docker
+                        - frontend/public/email/*
+                        - 'docker/clickhouse/**'
+
+    # --- turbo-discover-shadow ---
+    # Original: ci-backend.yml turbo-discover (depot-ubuntu-latest). Has outputs.
+    # Shadow is measurement-only — drops outputs.
+    turbo-discover-shadow:
+        name: Discover product tests (blacksmith shadow)
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: blacksmith-2vcpu-ubuntu-2404
+        continue-on-error: true
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+            - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
+            - run: pnpm install --frozen-lockfile --filter=@posthog/root
+            - name: Discover products to test
+              env:
+                  LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.backend }}
+              run: node .github/scripts/turbo-discover.js
+
+    # --- turbo-tests-shadow ---
+    # Original: ci-backend.yml turbo-tests — matrix via fromJson. Shadow runs a minimal single group
+    # to measure end-to-end turbo-backed product test timing on blacksmith.
+    turbo-tests-shadow:
+        name: Product tests (blacksmith shadow)
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: blacksmith-2vcpu-ubuntu-2404
+        continue-on-error: true
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@v6
+            - run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+            - name: Start services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal,azure
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.8.4
+              run: |
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  bin/ci-wait-for-docker launch --background --down db redis7 clickhouse zookeeper kafka objectstorage feature-flags temporal elasticsearch objectstorage-azure
+            - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
+            - run: pnpm install --frozen-lockfile --filter=@posthog/root
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: 3.12.12
+            - id: setup-uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false # shadow never saves cache
+            - if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+            - uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+            - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend-blacksmith' # separate key from depot
+                  workspaces: rust
+                  save-if: false
+            - uses: ./.github/actions/setup-sqlx-cli
+            - run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
+            - run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+                  ./bin/download-mmdb
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal,azure
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.8.4
+              run: bin/ci-wait-for-docker wait
+            # Run one representative product's tests via turbo (pick a small/medium one).
+            # This doesn't match every PR's matrix but gives runner timing signal.
+            - name: Run a representative product test
+              env:
+                  PYTEST_ADDOPTS: --reuse-db
+              run: pnpm turbo run backend:test --concurrency=1 --output-logs=full --force --log-order=stream --filter='@posthog/data_warehouse'
+
+    # --- check-migrations-shadow ---
+    # Original: ci-backend.yml check-migrations — complex single-shot with many PR side effects.
+    # Shadow runs the same migration/OpenAPI checks but skips: PR comments, migration risk analysis,
+    # OpenAPI commit, artifact uploads.
+    check-migrations-shadow:
+        name: Validate migrations & OpenAPI types (blacksmith shadow)
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: blacksmith-2vcpu-ubuntu-2404
+        continue-on-error: true
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+            - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal,azure
+              run: bin/ci-wait-for-docker launch --background --down
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+            - id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false
+            - if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+            - uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+            - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend-blacksmith'
+                  workspaces: rust
+                  save-if: false
+            - uses: ./.github/actions/setup-sqlx-cli
+            - run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal,azure
+              run: bin/ci-wait-for-docker wait
+            - name: Run migrations
+              run: |
+                  python manage.py migrate
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" sqlx migrate run --source rust/persons_migrations/
+            - name: Check migrations (no PR comment)
+              if: github.event_name != 'push'
+              run: |
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" sqlx migrate info --source rust/persons_migrations/
+                  python manage.py makemigrations --check --dry-run
+            - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
+            - run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+            - name: Build OpenAPI types (no commit)
+              run: |
+                  ./bin/hogli build:openapi
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+
+    # --- django-shadow ---
+    # Original: ci-backend.yml django — dynamic matrix of Python × ClickHouse × segment × shard.
+    # Shadow runs ONE hardcoded shard to measure core pytest timing on blacksmith.
+    django-shadow:
+        name: Django tests (blacksmith shadow, core 1/5)
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: blacksmith-2vcpu-ubuntu-2404
+        continue-on-error: true
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1
+                  lfs: true
+                  clean: false
+            - run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+            - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal,azure
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:24.8
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
+              run: |
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  bin/ci-wait-for-docker launch --background --down-all-profiles
+            - run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.11'
+            - id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false
+            - if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+            - uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+            - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend-blacksmith'
+                  workspaces: rust
+                  save-if: false
+            - uses: ./.github/actions/setup-sqlx-cli
+            - uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
+              with:
+                  packages: libegl1 libdbus-1-3 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 x11-utils libxcb-cursor0 libopengl0
+                  version: 1.0
+            - run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+                  ./bin/download-mmdb
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal,azure
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:24.8
+              run: bin/ci-wait-for-docker wait
+            - name: Run Core tests (shard 1/5)
+              run: |
+                  set +e
+                  pytest -v --tb=short posthog ee/ -m "not async_migrations" \
+                      --ignore=posthog/temporal \
+                      --ignore=posthog/dags \
+                      --ignore=common/hogvm/python/test \
+                      --splits 5 --group 1 \
+                      --durations=100 --durations-min=1.0 \
+                      --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
+                      -r fEsxX
+                  exit_code=$?
+                  [ $exit_code -eq 5 ] && exit 0 || exit $exit_code

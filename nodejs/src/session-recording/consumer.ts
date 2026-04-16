@@ -4,7 +4,13 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
-import { DlqOutput, IngestionWarningsOutput, OverflowOutput, TophogOutput } from '../ingestion/common/outputs'
+import {
+    DlqOutput,
+    IngestionWarningsOutput,
+    LogEntriesOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
@@ -18,6 +24,7 @@ import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { getBlockEncryptor } from '../session-replay/shared/crypto'
+import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
 import { getKeyStore } from '../session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
 import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
@@ -82,7 +89,9 @@ export class SessionRecordingIngester {
     constructor(
         private config: SessionRecordingIngesterConfig,
         postgres: PostgresRouter,
-        outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput>,
+        outputs: IngestionOutputs<
+            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput
+        >,
         kafkaMetadataProducer: KafkaProducerWrapper,
         redisPool: RedisPool,
         restrictionRedisPool: RedisPool
@@ -147,10 +156,13 @@ export class SessionRecordingIngester {
             this.kafkaMetadataProducer,
             this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
         )
-        const consoleLogStore = new SessionConsoleLogStore(
+        const consoleLogStore = new SessionConsoleLogStore(outputs, {
+            messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+        })
+        const featureStore = new SessionFeatureStore(
             this.kafkaMetadataProducer,
-            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
-            { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
+            this.config.SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC,
+            this.config.SESSION_RECORDING_FEATURES_ENABLED
         )
         this.fileStorage = s3Client
             ? new RetentionAwareStorage(
@@ -191,6 +203,7 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            featureStore,
             sessionTracker,
             sessionFilter,
             keyStore: this.keyStore,

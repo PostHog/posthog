@@ -18,6 +18,7 @@ from django.conf import settings
 from posthog.temporal.common.worker import create_worker
 
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -101,6 +102,32 @@ def _django_live_server(django_db_setup, django_db_blocker):
     server.stop()
     django_db_blocker.restore()
     logger.info("Django live server stopped")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
+    """Build local skills once per session; bind-mount into every sandbox.
+
+    Uses a content-hash cache so repeat runs skip the build when nothing has
+    changed. Sets ``SANDBOX_LOCAL_SKILLS_HOST_PATH`` so ``DockerSandbox`` can
+    pick it up when provisioning containers — keeping the base image stable
+    while letting eval authors iterate on skills without rebuilding it.
+
+    Depends on ``_sandbox_settings`` so the ``DEBUG=True`` override is active
+    when the skill renderer runs — some template helpers (e.g. HogQL example
+    rendering) guard on that setting.
+    """
+    cache = LocalSkillsCache()
+    dist_dir = cache.ensure_built()
+    previous = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
+    os.environ[ENV_LOCAL_SKILLS_HOST_PATH] = str(dist_dir)
+    try:
+        yield dist_dir
+    finally:
+        if previous is None:
+            os.environ.pop(ENV_LOCAL_SKILLS_HOST_PATH, None)
+        else:
+            os.environ[ENV_LOCAL_SKILLS_HOST_PATH] = previous
 
 
 @pytest.fixture(scope="session", autouse=True)

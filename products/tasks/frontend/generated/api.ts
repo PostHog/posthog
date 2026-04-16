@@ -620,3 +620,31 @@ export const tasksRepositoryReadinessRetrieve = async (
         method: 'GET',
     })
 }
+
+/**
+ * GET /api/seats/?product_key= -> GET /api/v2/seats/
+ */
+export const getSeatsRetrieveUrl = () => {
+    return `/api/seats/`
+}
+
+export const seatsRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSeatsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * POST /api/seats/ -> POST /api/v2/seats/
+ */
+export const getSeatsCreateUrl = () => {
+    return `/api/seats/`
+}
+
+export const seatsCreate = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSeatsCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}

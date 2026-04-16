@@ -4,6 +4,7 @@ import { z } from 'zod'
 import {
     LogsAttributesRetrieveQueryParams,
     LogsQueryCreateBody,
+    LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
 } from '@/generated/logs/api'
 import { pickResponseFields } from '@/tools/tool-utils'
@@ -42,9 +43,12 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, unknown
             path: `/api/projects/${projectId}/logs/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                filterGroup: params.filterGroup,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                serviceNames: params.serviceNames,
             },
         })
         const filtered = pickResponseFields(result, ['results', 'count']) as typeof result
@@ -64,9 +68,33 @@ const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchem
             path: `/api/projects/${projectId}/logs/values/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                filterGroup: params.filterGroup,
                 key: params.key,
+                serviceNames: params.serviceNames,
                 value: params.value,
             },
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const LogsSparklineQuerySchema = LogsSparklineCreateBody
+
+const logsSparklineQuery = (): ToolBase<typeof LogsSparklineQuerySchema, unknown> => ({
+    name: 'logs-sparkline-query',
+    schema: LogsSparklineQuerySchema,
+    handler: async (context: Context, params: z.infer<typeof LogsSparklineQuerySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/logs/sparkline/`,
+            body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
         return filtered
@@ -77,4 +105,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'query-logs': queryLogs,
     'logs-attributes-list': logsAttributesList,
     'logs-attribute-values-list': logsAttributeValuesList,
+    'logs-sparkline-query': logsSparklineQuery,
 }
