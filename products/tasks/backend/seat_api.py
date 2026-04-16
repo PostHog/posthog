@@ -132,6 +132,14 @@ class SeatViewSet(viewsets.ViewSet):
         if not _is_org_admin(request.user):
             raise PermissionDenied("Only organization admins can perform this action.")
 
+    def _require_org_member(self, distinct_id: str, request: Request) -> None:
+        org = cast(User, request.user).organization
+        if not org or not OrganizationMembership.objects.filter(
+            user__distinct_id=distinct_id,
+            organization=org,
+        ).exists():
+            raise PermissionDenied("Target user is not a member of this organization.")
+
     @staticmethod
     def _filtered_query_params(request: Request) -> dict[str, str]:
         product_key = request.query_params.get("product_key", "")
@@ -168,6 +176,7 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "Invalid user_distinct_id format"}, status=status.HTTP_400_BAD_REQUEST)
         if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
+            self._require_org_member(str(body_distinct_id), request)
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -186,6 +195,8 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
         distinct_id = self._resolve_distinct_id(pk, request)
+        if pk != "me":
+            self._require_org_member(distinct_id, request)
         resp = self._billing_request(
             "GET",
             f"/api/v2/seats/{distinct_id}/",
@@ -204,6 +215,8 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
         distinct_id = self._resolve_distinct_id(pk, request)
+        if pk != "me":
+            self._require_org_member(distinct_id, request)
         resp = self._billing_request(
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
@@ -222,6 +235,8 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
         distinct_id = self._resolve_distinct_id(pk, request)
+        if pk != "me":
+            self._require_org_member(distinct_id, request)
         resp = self._billing_request(
             "DELETE",
             f"/api/v2/seats/{distinct_id}/",
@@ -241,6 +256,8 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
         distinct_id = self._resolve_distinct_id(pk, request)
+        if pk != "me":
+            self._require_org_member(distinct_id, request)
         resp = self._billing_request(
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",
