@@ -780,6 +780,10 @@ class ActivityLoggingMiddleware:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
 
+        client_header = request.headers.get("x-posthog-client")
+        if client_header:
+            activity_storage.set_client(client_header[:200])
+
         try:
             response = self.get_response(request)
         finally:
