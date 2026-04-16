@@ -73,11 +73,13 @@ class ActionabilityAssessment(BaseModel):
             "Reference specific code paths and data points from your research."
         ),
     )
-    actionability: ActionabilityChoice = Field(description="Overall actionability assessment")
+    actionability: ActionabilityChoice = Field(
+        description="Overall actionability assessment. Must be one of the allowed enum values — do not invent new ones.",
+    )
     already_addressed: bool = Field(
         description=(
             "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes."
+            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
         ),
     )
 

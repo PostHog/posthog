@@ -5742,6 +5742,7 @@ export namespace Schemas {
       new: number;
       removed: number;
       unchanged: number;
+      tolerated_matched?: number;
     }
 
     export type RunMetadata = {[key: string]: unknown};
@@ -19516,6 +19517,10 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface MarkToleratedInput {
+      snapshot_id: string;
+    }
+
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
@@ -21867,6 +21872,7 @@ export namespace Schemas {
       id: string;
       identifier: string;
       result: string;
+      classification_reason: string;
       /** @nullable */
       diff_percentage: number | null;
       /** @nullable */
@@ -21875,6 +21881,8 @@ export namespace Schemas {
       /** @nullable */
       reviewed_at: string | null;
       approved_hash: string;
+      /** @nullable */
+      tolerated_hash_id?: string | null;
       metadata?: SnapshotMetadata;
     }
 
@@ -22757,6 +22765,25 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TicketView[];
+    }
+
+    export interface ToleratedHashEntry {
+      id: string;
+      alternate_hash: string;
+      baseline_hash: string;
+      reason: string;
+      created_at: string;
+      /** @nullable */
+      source_run_id: string | null;
+    }
+
+    export interface PaginatedToleratedHashEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ToleratedHashEntry[];
     }
 
     export interface TraceReviewScore {
@@ -37671,6 +37698,21 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
     /**
      * Number of results to return per page.
      */
