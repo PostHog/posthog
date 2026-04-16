@@ -113,11 +113,21 @@ export {
 } from './field'
 export { Input } from './input'
 export {
+    NumberFieldRoot,
+    NumberFieldGroup,
+    NumberFieldInput,
+    NumberFieldIncrement,
+    NumberFieldDecrement,
+    NumberFieldScrubArea,
+    NumberFieldScrubAreaCursor,
+} from './number-field'
+export {
     InputGroup,
     InputGroupAddon,
     InputGroupButton,
     InputGroupText,
     InputGroupInput,
+    InputGroupNumberInput,
     InputGroupTextarea,
 } from './input-group'
 export {

@@ -16,15 +16,25 @@ import {
     startOfDay,
     subMonths,
 } from 'date-fns'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Button, InputGroup, InputGroupInput, ScrollArea, Separator, cn } from '@posthog/quill-primitives'
+import { Button, InputGroup, InputGroupNumberInput, ScrollArea, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { useCalendar } from './use-calendar'
 
-const DATE_TIME_FORMAT = 'MM/dd/yy HH:mm:ss'
+const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
+    MDY: 'MM/dd/yy HH:mm:ss',
+    DMY: 'dd/MM/yy HH:mm:ss',
+    YMD: 'yy-MM-dd HH:mm:ss',
+}
+
+const DATE_FORMAT_LABELS: Record<DateFormatOrder, string> = {
+    MDY: 'MM/DD/YY',
+    DMY: 'DD/MM/YY',
+    YMD: 'YY-MM-DD',
+}
 const WEEK_DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_NAMES = [
     'January',
@@ -47,11 +57,15 @@ export interface DateTimeValue {
     range: DateTimeRange
 }
 
+export type DateFormatOrder = 'MDY' | 'DMY' | 'YMD'
+
 export interface DateTimePickerProps {
     value: DateTimeValue
     onApply: (value: DateTimeValue) => void
     onCancel?: () => void
     maxDate?: Date
+    dateFormat?: DateFormatOrder
+    onDateTimeSettings?: () => void
     className?: string
 }
 
@@ -233,22 +247,18 @@ function Calendar({
 interface DateTimeInputProps {
     date: Date
     onChange: (date: Date) => void
+    dateFormat: DateFormatOrder
 }
 
-function pad(n: number): string {
-    return n < 10 ? `0${n}` : `${n}`
-}
+const PAD_2 = { minimumIntegerDigits: 2 } as const
 
-function DateTimeInput({ date, onChange }: DateTimeInputProps): React.ReactElement {
-    const [touched, setTouched] = React.useState(false)
+function DateTimeInput({ date, onChange, dateFormat }: DateTimeInputProps): React.ReactElement {
     const [month, setMonth] = React.useState(getMonth(date) + 1)
     const [day, setDay] = React.useState(getDate(date))
-    const [year, setYear] = React.useState(getYear(date))
-    const [hour, setHour] = React.useState(date.getHours())
-    const [minute, setMinute] = React.useState(date.getMinutes())
+    const [year, setYear] = React.useState(getYear(date) % 100)
+    const [hour, setHour] = React.useState(getHours(date))
+    const [minute, setMinute] = React.useState(getMinutes(date))
 
-    // Keep onChange in a ref so debounce timer depends only on values, not on
-    // whether the parent passed an inline handler this render.
     const onChangeRef = React.useRef(onChange)
     React.useEffect(() => {
         onChangeRef.current = onChange
@@ -257,118 +267,123 @@ function DateTimeInput({ date, onChange }: DateTimeInputProps): React.ReactEleme
     React.useEffect(() => {
         setMonth(getMonth(date) + 1)
         setDay(getDate(date))
-        setYear(getYear(date))
-        setHour(date.getHours())
-        setMinute(date.getMinutes())
+        setYear(getYear(date) % 100)
+        setHour(getHours(date))
+        setMinute(getMinutes(date))
     }, [date])
 
+    const touched = React.useRef(false)
     React.useEffect(() => {
-        if (!touched) {
+        if (!touched.current) {
             return
         }
         const handle = setTimeout(() => {
-            onChangeRef.current(new Date(year, month - 1, day, hour, minute))
-            setTouched(false)
+            onChangeRef.current(new Date(2000 + year, month - 1, day, hour, minute))
+            touched.current = false
         }, 400)
         return () => clearTimeout(handle)
-    }, [touched, month, day, year, hour, minute])
+    }, [month, day, year, hour, minute])
 
-    const handleMonth = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const v = Number(e.target.value)
-        if (Number.isNaN(v)) {
+    const set = (setter: React.Dispatch<React.SetStateAction<number>>) => (v: number | null) => {
+        if (v === null) {
             return
         }
-        setTouched(true)
-        setMonth(v >= 13 ? 12 : v)
-    }
-    const handleDay = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const v = Number(e.target.value)
-        if (Number.isNaN(v)) {
-            return
-        }
-        const max = getDaysInMonth(new Date(year, month - 1))
-        setTouched(true)
-        setDay(v > max ? max : v)
-    }
-    const handleYear = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const v = Number(e.target.value)
-        if (Number.isNaN(v)) {
-            return
-        }
-        setTouched(true)
-        setYear(Number(`20${v}`))
-    }
-    const handleHour = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const v = Number(e.target.value)
-        if (Number.isNaN(v)) {
-            return
-        }
-        setTouched(true)
-        setHour(v >= 24 ? 23 : v)
-    }
-    const handleMinute = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const v = Number(e.target.value)
-        if (Number.isNaN(v)) {
-            return
-        }
-        setTouched(true)
-        setMinute(v >= 60 ? 59 : v)
+        touched.current = true
+        setter(v)
     }
 
-    // `flex-none` overrides InputGroupInput's `flex-1` so segments stay fixed-width
-    // instead of each input stretching and pushing its neighbours apart. The
-    // separators are plain spans (not InputGroupAddon) because addon's cva assigns
-    // `order-first`/`order-last` via its `align` variant for start/end slots, which
-    // unreliably fights any explicit `order-*` we'd add for middle positions.
     const segmentClass = 'w-7 flex-none text-center tabular-nums p-0'
     const separatorClass = 'text-xs text-muted-foreground select-none'
+    const sep = dateFormat === 'YMD' ? '-' : '/'
+
+    const monthSegment = (
+        <InputGroupNumberInput
+            key="month"
+            aria-label="Month"
+            value={month}
+            onValueChange={set(setMonth)}
+            min={1}
+            max={12}
+            format={PAD_2}
+            className={segmentClass}
+        />
+    )
+    const daySegment = (
+        <InputGroupNumberInput
+            key="day"
+            aria-label="Day"
+            value={day}
+            onValueChange={set(setDay)}
+            min={1}
+            max={getDaysInMonth(new Date(2000 + year, month - 1))}
+            format={PAD_2}
+            className={segmentClass}
+        />
+    )
+    const yearSegment = (
+        <InputGroupNumberInput
+            key="year"
+            aria-label="Year"
+            value={year}
+            onValueChange={set(setYear)}
+            min={0}
+            max={99}
+            format={PAD_2}
+            className={segmentClass}
+        />
+    )
+
+    const dateSegments =
+        dateFormat === 'DMY'
+            ? [daySegment, monthSegment, yearSegment]
+            : dateFormat === 'YMD'
+                ? [yearSegment, monthSegment, daySegment]
+                : [monthSegment, daySegment, yearSegment]
 
     return (
-        <div className="flex items-center gap-2">
-            <InputGroup className="w-auto px-1.5">
-                <InputGroupInput
-                    aria-label="Month"
-                    value={pad(month)}
-                    onChange={handleMonth}
-                    className={segmentClass}
-                    maxLength={2}
-                />
-                <span className={separatorClass}>/</span>
-                <InputGroupInput
-                    aria-label="Day"
-                    value={pad(day)}
-                    onChange={handleDay}
-                    className={segmentClass}
-                    maxLength={2}
-                />
-                <span className={separatorClass}>/</span>
-                <InputGroupInput
-                    aria-label="Year"
-                    value={String(year).slice(-2)}
-                    onChange={handleYear}
-                    className={segmentClass}
-                    maxLength={2}
-                />
-            </InputGroup>
+        <TooltipProvider>
+            <div className="flex items-center gap-2">
+                <Tooltip>
+                    <TooltipTrigger render={
+                        <InputGroup className="w-auto px-1.5">
+                            {dateSegments.map((segment, i) => (
+                                <React.Fragment key={i}>
+                                    {i > 0 && <span className={separatorClass}>{sep}</span>}
+                                    {segment}
+                                </React.Fragment>
+                            ))}
+                        </InputGroup>
+                    }/>
+                    <TooltipContent>
+                        {DATE_FORMAT_LABELS[dateFormat]}
+                    </TooltipContent>
+                </Tooltip>
 
-            <InputGroup className="w-auto px-1.5">
-                <InputGroupInput
-                    aria-label="Hour"
-                    value={pad(hour)}
-                    onChange={handleHour}
-                    className={segmentClass}
-                    maxLength={2}
-                />
-                <span className={separatorClass}>:</span>
-                <InputGroupInput
-                    aria-label="Minute"
-                    value={pad(minute)}
-                    onChange={handleMinute}
-                    className={segmentClass}
-                    maxLength={2}
-                />
-            </InputGroup>
-        </div>
+
+                <InputGroup className="w-auto px-1.5">
+                    <InputGroupNumberInput
+                        aria-label="Hour"
+                        value={hour}
+                        onValueChange={set(setHour)}
+                        min={0}
+                        max={23}
+                        format={PAD_2}
+                        className={segmentClass}
+                    />
+                    <span className={separatorClass}>:</span>
+                    <InputGroupNumberInput
+                        aria-label="Minute"
+                        value={minute}
+                        onValueChange={set(setMinute)}
+                        min={0}
+                        max={59}
+                        format={PAD_2}
+                        className={segmentClass}
+                    />
+                </InputGroup>
+            </div>
+        </TooltipProvider>
+
     )
 }
 
@@ -377,6 +392,8 @@ export function DateTimePicker({
     onApply,
     onCancel,
     maxDate = new Date(),
+    dateFormat = 'MDY',
+    onDateTimeSettings,
     className,
 }: DateTimePickerProps): React.ReactElement {
     const [start, setStart] = React.useState<Date>(value.start)
@@ -457,8 +474,9 @@ export function DateTimePicker({
         setLeftViewing(subMonths(now, 1))
     }
 
-    const presentationalStart = format(start, DATE_TIME_FORMAT)
-    const presentationalEnd = format(end, DATE_TIME_FORMAT)
+    const dateTimeFormat = DATE_TIME_FORMATS[dateFormat]
+    const presentationalStart = format(start, dateTimeFormat)
+    const presentationalEnd = format(end, dateTimeFormat)
 
     // Responsive layout is driven by the card's own width via container queries, not
     // viewport width — so dropping the picker into a narrow Popover collapses it to
@@ -490,12 +508,23 @@ export function DateTimePicker({
                     {/* Inputs */}
                     <div className="hidden @[49rem]:flex justify-center items-center p-4 pb-1">
                         <div className="flex items-center gap-2">
-                            <DateTimeInput date={start} onChange={handleStartChange} />
+                            {onDateTimeSettings && (
+                                <Button
+                                    size="icon-sm"
+                                    onClick={onDateTimeSettings}
+                                    aria-label="Date and time settings"
+                                    title="Date and time settings"
+                                    className="text-muted-foreground hover:text-foreground"
+                                >
+                                    <SettingsIcon className="w-4 h-4" />
+                                </Button>
+                            )}
+                            <DateTimeInput date={start} onChange={handleStartChange} dateFormat={dateFormat} />
                             <span className="text-xs text-muted-foreground">to</span>
-                            <DateTimeInput date={end} onChange={handleEndChange} />
+                            <DateTimeInput date={end} onChange={handleEndChange} dateFormat={dateFormat} />
                             <Button
                                 variant="link"
-                                size="xs"
+                                size="sm"
                                 onClick={handleNow}
                                 aria-label="Set end to now"
                                 title="Set end to now"
@@ -540,18 +569,18 @@ export function DateTimePicker({
                  * horizontal scroll inside the card. */}
                 <div className="order-0 @[49rem]:order-none @[49rem]:relative @[49rem]:border-l @[49rem]:border-border border-b border-border @[49rem]:border-b-0">
                     <ScrollArea className="w-full @[49rem]:absolute @[49rem]:inset-0">
-                        <ul className="flex flex-row @[49rem]:flex-col p-3 gap-1 max-h-[388px]">
+                        <ul className="flex flex-row @[49rem]:flex-col p-3 gap-px max-h-[388px]">
                             {quickRanges.slice(1).map((quick) => (
                                 <li key={quick.id} className="@[49rem]:w-full">
                                     <Button
                                         variant="default"
-                                        size="sm"
                                         left
                                         className="whitespace-nowrap @[49rem]:w-full @[49rem]:justify-start"
                                         aria-selected={range.id === quick.id}
                                         aria-label={`Choose ${quick.name.toLowerCase()}`}
                                         title={quick.name}
                                         onClick={() => handleQuickRange(quick)}
+                                        data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
                                     >
                                         {quick.name}
                                     </Button>
@@ -566,21 +595,20 @@ export function DateTimePicker({
 
             {/* Actions */}
             <div className="flex justify-end p-4 items-center gap-4 bg-muted/30">
-                <span className="text-xs text-muted-foreground">
-                    {range.name === 'Custom' ? `${presentationalStart} to ${presentationalEnd}` : range.name}
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    {range.name === 'Custom' ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
                 </span>
                 {onCancel ? (
-                    <Button variant="default" size="sm" onClick={onCancel} aria-label="Cancel">
+                    <Button variant="default" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
                         Cancel
                     </Button>
                 ) : null}
                 <Button
                     variant="primary"
-                    size="sm"
-                    className="w-[6.5rem]"
                     aria-label="Apply date range"
                     title="Apply date range"
                     onClick={() => onApply({ start, end, range })}
+                    data-attr="date-time-picker-apply-date-range"
                 >
                     Apply
                 </Button>

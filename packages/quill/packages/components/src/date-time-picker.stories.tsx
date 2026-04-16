@@ -83,6 +83,36 @@ export const CustomMaxDate: Story = {
     },
 }
 
+export const EuropeanDateFormat: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        return <DateTimePicker value={value} onApply={setValue} dateFormat="DMY" />
+    },
+}
+
+export const ISODateFormat: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        return <DateTimePicker value={value} onApply={setValue} dateFormat="YMD" />
+    },
+}
+
+export const WithSettingsLink: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        return (
+            <DateTimePicker
+                value={value}
+                onApply={setValue}
+                onDateTimeSettings={() => alert('Open date & time settings')}
+            />
+        )
+    },
+}
+
 export const NarrowContainer: Story = {
     args: baseArgs,
     render: () => {
