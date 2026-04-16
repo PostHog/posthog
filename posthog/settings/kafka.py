@@ -218,7 +218,6 @@ KAFKA_PRODUCER_SETTINGS: dict[str, Any] = _default.producer_settings
 # Misc Kafka settings that don't vary per profile - these are largely only existing for self-hosted instance support
 KAFKA_PREFIX: str = os.getenv("KAFKA_PREFIX", "")
 KAFKA_BASE64_KEYS: bool = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
-KAFKA_HOSTS_FOR_CLICKHOUSE: list[str] = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
 
 # Per-topic overrides for the kafka_client.routing map. Comma-separated
 # "topic=profile" entries; merged over the code-level defaults at lookup time.

@@ -3678,11 +3678,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
         dlq_topic="test-dlq",
     )
 
-    consumer = WebhookS3Sink(
-        config=config,
-        kafka_hosts=["localhost:9092"],
-        kafka_security_protocol="PLAINTEXT",
-    )
+    consumer = WebhookS3Sink(config=config)
     consumer._consumer = mock.MagicMock()
 
     with override_settings(
