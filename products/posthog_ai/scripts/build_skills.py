@@ -63,23 +63,11 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _ALLOWED_SUBDIRS = {"references", "scripts"}
 
-# Community skills have stricter rules: markdown only, no templates, no scripts.
+# Community skills live at products/community/skills/ and have stricter rules:
+# markdown only, no Jinja2 templates, no scripts/.
 # See products/community/skills/CONTRIBUTING.md.
 _COMMUNITY_PRODUCT = "community"
-_COMMUNITY_DISALLOWED_SUBDIRS = {"scripts"}
-
-_SKILL_CATEGORIES = (
-    "analytics",
-    "flags",
-    "experiments",
-    "replay",
-    "errors",
-    "llm",
-    "surveys",
-    "workflows",
-    "data-warehouse",
-    "other",
-)
+_COMMUNITY_ALLOWED_SUBDIRS = {"references"}
 
 
 def _create_jinja_env(**extra_globals: object) -> Environment:
@@ -331,7 +319,13 @@ class SkillBuilder:
         entry_content = renderer.render(entry_path)
         entry_point = SkillFile(path="SKILL.md", content=entry_content)
 
-        allowed_subdirs = _ALLOWED_SUBDIRS - _COMMUNITY_DISALLOWED_SUBDIRS if is_community else _ALLOWED_SUBDIRS
+        allowed_subdirs = _COMMUNITY_ALLOWED_SUBDIRS if is_community else _ALLOWED_SUBDIRS
+
+        if is_community and (skill_dir / "scripts").is_dir():
+            raise ValueError(
+                f"Community skill {skill_dir.name} may not contain a scripts/ directory. "
+                "Community skills are markdown-only."
+            )
 
         files: list[SkillFile] = []
         for subdir_name in sorted(allowed_subdirs):
@@ -349,19 +343,8 @@ class SkillBuilder:
                             f"(found {file_path.relative_to(skill_dir)}). Use plain markdown instead."
                         )
                     content = renderer.render(file_path)
-                    rel_path = str(file_path.relative_to(skill_dir))
-                    if rel_path.endswith(".j2"):
-                        rel_path = rel_path.removesuffix(".j2")
+                    rel_path = str(file_path.relative_to(skill_dir)).removesuffix(".j2")
                     files.append(SkillFile(path=rel_path, content=content))
-
-        # Explicitly reject any subdirectory that community contributions tried to use.
-        if is_community:
-            for disallowed in _COMMUNITY_DISALLOWED_SUBDIRS:
-                if (skill_dir / disallowed).is_dir():
-                    raise ValueError(
-                        f"Community skill {skill_dir.name} may not contain a {disallowed}/ directory. "
-                        "Community skills are markdown-only."
-                    )
 
         return [entry_point, *files]
 
@@ -385,9 +368,7 @@ class SkillBuilder:
                 )
             rendered = renderer.render(skill.source_file)
             entry_content = rendered
-            out_name = skill.source_file.name
-            if out_name.endswith(".j2"):
-                out_name = out_name.removesuffix(".j2")
+            out_name = skill.source_file.name.removesuffix(".j2")
             skill_files = [SkillFile(path=out_name, content=rendered.strip())]
             source = str(skill.source_file.relative_to(self.repo_root))
             source_label = source
@@ -626,11 +607,8 @@ class SkillBuilder:
 
         source_label = str(skill.source_file.relative_to(self.repo_root))
         skill_dir = skill.source_file.parent
-        for disallowed in _COMMUNITY_DISALLOWED_SUBDIRS:
-            if (skill_dir / disallowed).is_dir():
-                errors.append(
-                    f"{source_label}: community skills may not contain a {disallowed}/ directory (markdown-only)."
-                )
+        if (skill_dir / "scripts").is_dir():
+            errors.append(f"{source_label}: community skills may not contain a scripts/ directory (markdown-only).")
         # Any .j2 inside references/ is disallowed too.
         for subdir_name in sorted(_ALLOWED_SUBDIRS):
             subdir = skill_dir / subdir_name
