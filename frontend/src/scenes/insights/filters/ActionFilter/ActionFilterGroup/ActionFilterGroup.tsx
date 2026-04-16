@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -89,7 +89,9 @@ export function ActionFilterGroup({
     ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
-    const { removeLocalFilter, splitLocalFilter, showModal, selectFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { removeLocalFilter, splitLocalFilter, duplicateFilter, showModal, selectFilter } = useActions(
+        entityFilterLogic({ typeKey })
+    )
     const { mathDefinitions } = useValues(mathsLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
@@ -299,6 +301,17 @@ export function ActionFilterGroup({
                                                     showModal()
                                                 },
                                                 'data-attr': `group-filter-rename-${index}`,
+                                            },
+                                            {
+                                                label: 'Duplicate',
+                                                size: 'medium',
+                                                icon: <IconCopy />,
+                                                onClick: () => {
+                                                    if (groupFilter) {
+                                                        duplicateFilter(groupFilter)
+                                                    }
+                                                },
+                                                'data-attr': `group-filter-duplicate-${index}`,
                                             },
                                             {
                                                 label: 'Delete',
