@@ -329,10 +329,8 @@ class SignalReportViewSet(
         return qs
 
     def _scope_signal_report_queryset(self, queryset):
-        # Count via a correlated subquery instead of `Count("artefacts")` so the main
-        # query doesn't LEFT JOIN + GROUP BY the full artefact table. That join is
-        # multiplicative (reports have many signal_finding rows) and gets paid twice
-        # per list call because DRF's pagination runs an extra count query.
+        # Count via a correlated subquery instead of `Count("artefacts")`,
+        # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
             .values("report_id")
