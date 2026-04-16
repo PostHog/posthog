@@ -1,4 +1,3 @@
-import random
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
@@ -8,10 +7,12 @@ from django.db.models.expressions import F
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
-from posthog.schema import ProductIntentContext, ProductKey
+from posthog.schema import ProductIntentContext, ProductItemCategory, ProductKey
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
+
+from products.growth.backend.cross_sell_candidate_selector import DEFAULT_IGNORED_CATEGORIES, CrossSellCandidateSelector
 
 if TYPE_CHECKING:
     from posthog.models.product_intent.product_intent import ProductIntent
@@ -65,7 +66,7 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # Colleagues on the same team have the product in their sidebar
         USED_BY_COLLEAGUES = "used_by_colleagues", "Used by Colleagues"
 
-        # User has a similar product in their sidebar
+        # User has a similar product in their sidebar, DEPRECATED
         USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
 
         # User has this product on another team they belong to
@@ -236,68 +237,32 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         user: "User",
         team: "Team",
         max_products: int = 1,
-        ignored_categories: list[str] | None = None,
+        ignored_categories: list[ProductItemCategory] | None = None,
     ) -> "list[UserProductList]":
         """
         Sync cross-sell products for a user based on products they already have enabled.
-        For each enabled product, finds other products from the same category.
-        Randomly selects up to max_products from all cross-sell candidates across all categories.
-
-        Args:
-            user: The user to sync products for
-            team: The team to sync products in
-            max_products: Maximum number of cross-sell products to suggest (across all categories)
-            ignored_categories: List of category names to ignore when suggesting cross-sell products.
-                               Defaults to ["Tools", "Unreleased"]
-
-        Returns:
-            List of newly created UserProductList entries
+        Delegates candidate selection to CrossSellCandidateSelector, see that for more
+        information on how the selection process works.
         """
         if user.allow_sidebar_suggestions is False:
             return []
 
-        # By default we don't want to add new items from the Tools and Unreleased categories since:
-        # - Tools aren't relevant to cross-sell
-        # - Unreleased products are not yet ready for cross-sell and aren't correlated one to another
-        if ignored_categories is None:
-            ignored_categories = ["Tools", "Unreleased"]
-
-        ignored_categories_set = set(ignored_categories)
-
-        user_enabled_products = UserProductList.objects.filter(user=user, team=team, enabled=True).values_list(
-            "product_path", flat=True
+        ignored_categories_set = (
+            set(ignored_categories) if ignored_categories is not None else DEFAULT_IGNORED_CATEGORIES
         )
 
-        user_existing_products = set(
-            UserProductList.objects.filter(user=user, team=team).values_list("product_path", flat=True)
+        user_rows = UserProductList.objects.filter(user=user, team=team).values_list("product_path", "enabled")
+        user_enabled_products = {path for path, enabled in user_rows if enabled}
+        user_excluded_products = {path for path, _ in user_rows}
+
+        selector = CrossSellCandidateSelector(
+            user_enabled_products=user_enabled_products,
+            ignored_categories=ignored_categories_set,
+            user_excluded_products=user_excluded_products,
         )
-
-        products_by_category = Products.get_products_by_category()
-        product_to_category: dict[str, str] = {}
-        for product in Products.products():
-            if product.category:
-                product_to_category[product.path] = product.category
-
-        all_cross_sell_candidates: set[str] = set()
-        for product_path in user_enabled_products:
-            category = product_to_category.get(product_path)
-            if not category or category in ignored_categories_set:
-                continue
-
-            category_products = set(products_by_category.get(category, []))
-            cross_sell_options = category_products - user_existing_products - {product_path}
-
-            filtered_options = {
-                opt for opt in cross_sell_options if product_to_category.get(opt) not in ignored_categories_set
-            }
-            all_cross_sell_candidates.update(filtered_options)
-
-        if not all_cross_sell_candidates:
+        selected = selector.pick(k=max_products)
+        if not selected:
             return []
-
-        candidates_list = list(all_cross_sell_candidates)
-        random.shuffle(candidates_list)
-        selected = candidates_list[:max_products]
 
         created_items = []
         for product_path in selected:

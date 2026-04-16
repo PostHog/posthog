@@ -4,17 +4,38 @@
 // watched workflow on master. Only alerts when master has been continuously broken
 // for ALERT_THRESHOLD_MINUTES (default 30), filtering out transient flakes.
 //
+// Also checks GitHub API rate limits proactively — if remaining quota is critically
+// low, alerts independently so the team knows CI monitoring may be blind.
+//
 // State structure (persisted via GitHub Actions cache as .alerts-devex):
 // {
-//   failing: { [workflow]: { since: ISO string, sha: string, run_url: string } },
+//   failing: { [workflow]: { since: ISO string, sha: string, run_url: string, workflow_file: string } },
 //   alerted: boolean,
 //   slack_ts: string | null,
 //   slack_channel: string | null,
 //   last_failing_list: string,   // comma-separated, used to detect changes for UPDATE
-//   resolved: boolean
+//   resolved: boolean,
+//   rate_limit_alerted: boolean,
+//   rate_limit_slack_ts: string | null,
+//   rate_limit_slack_channel: string | null,
 // }
 
 const STATE_FILE = '.alerts-devex'
+
+async function checkRateLimit(github) {
+    const { data } = await github.rest.rateLimit.get()
+    const { remaining, limit, reset } = data.resources.core
+    const thresholdPercent = parseInt(process.env.RATE_LIMIT_THRESHOLD_PERCENT || '10', 10)
+    const critical = remaining < limit * (thresholdPercent / 100)
+    return { remaining, limit, reset, critical }
+}
+
+function determineRateLimitAction(state, critical) {
+    const wasAlerted = state?.rate_limit_alerted === true
+    if (critical && !wasAlerted) return 'create'
+    if (!critical && wasAlerted) return 'resolve'
+    return 'none'
+}
 
 async function fetchWorkflowStatus(github, owner, repo, workflowFile) {
     const { data } = await github.rest.actions.listWorkflowRuns({
@@ -36,10 +57,11 @@ async function fetchWorkflowStatus(github, owner, repo, workflowFile) {
         sha: run.head_sha,
         run_url: run.html_url,
         updated_at: run.updated_at,
+        workflow_file: workflowFile,
     }
 }
 
-function updateFailingMap(failing, workflows, now) {
+function updateFailingMap(failing, workflows) {
     const updated = { ...failing }
 
     for (const wf of workflows) {
@@ -47,11 +69,13 @@ function updateFailingMap(failing, workflows, now) {
 
         if (wf.conclusion === 'failure' || wf.conclusion === 'timed_out') {
             if (!updated[wf.name]) {
-                // New failure — start the clock
+                // New failure — use the run's timestamp, not observation time,
+                // so the clock survives state loss (cache eviction, etc.)
                 updated[wf.name] = {
-                    since: now.toISOString(),
+                    since: wf.updated_at,
                     sha: wf.sha,
                     run_url: wf.run_url,
+                    workflow_file: wf.workflow_file,
                 }
             } else {
                 // Still failing — update sha/url but keep the original since
@@ -59,6 +83,7 @@ function updateFailingMap(failing, workflows, now) {
                     ...updated[wf.name],
                     sha: wf.sha,
                     run_url: wf.run_url,
+                    workflow_file: wf.workflow_file,
                 }
             }
         } else if (wf.conclusion === 'success') {
@@ -119,6 +144,7 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
     const repo = context.repo.repo
 
     const workflowFiles = (process.env.WATCHED_WORKFLOWS || '').split(',').filter(Boolean)
+    const criticalWorkflows = new Set((process.env.CRITICAL_WORKFLOWS || '').split(',').filter(Boolean))
     const thresholdMinutes = parseInt(process.env.ALERT_THRESHOLD_MINUTES || '30', 10)
     const thresholdMs = thresholdMinutes * 60 * 1000
 
@@ -129,6 +155,12 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
             const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
             if (raw.resolved) {
                 console.log('Found resolved incident, treating as no active state')
+                state = {
+                    failing: {},
+                    rate_limit_alerted: raw.rate_limit_alerted ?? false,
+                    rate_limit_slack_ts: raw.rate_limit_slack_ts ?? null,
+                    rate_limit_slack_channel: raw.rate_limit_slack_channel ?? null,
+                }
             } else {
                 state = { failing: {}, ...raw }
                 console.log('Loaded existing state')
@@ -136,6 +168,17 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         } catch (e) {
             console.log('Failed to parse state file, treating as fresh')
         }
+    }
+
+    // Check rate limits before polling workflows
+    let rateLimit = null
+    let rateLimitAction = 'none'
+    try {
+        rateLimit = await checkRateLimit(github)
+        console.log(`Rate limit: ${rateLimit.remaining}/${rateLimit.limit} remaining`)
+        rateLimitAction = determineRateLimitAction(state, rateLimit.critical)
+    } catch (err) {
+        console.log(`Failed to check rate limit: ${err.message}`)
     }
 
     // Fetch latest run for each watched workflow
@@ -155,7 +198,7 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
 
     // Update failing map
     const previousFailing = state?.failing || {}
-    const failing = updateFailingMap(previousFailing, results, now)
+    const failing = updateFailingMap(previousFailing, results)
 
     // Determine action
     const { action, failingList, save } = determineAction(state, failing, thresholdMs, now)
@@ -164,6 +207,7 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
     console.log(`Failing: ${failingList || 'none'}`)
 
     // Build new state
+    const saveRateLimit = rateLimitAction !== 'none'
     const newState = {
         failing,
         alerted: action === 'create' || (state?.alerted === true && action !== 'resolve'),
@@ -171,15 +215,19 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         slack_channel: state?.slack_channel || null,
         last_failing_list: failingList,
         resolved: action === 'resolve',
+        rate_limit_alerted:
+            rateLimitAction === 'create' || (state?.rate_limit_alerted === true && rateLimitAction !== 'resolve'),
+        rate_limit_slack_ts: state?.rate_limit_slack_ts || null,
+        rate_limit_slack_channel: state?.rate_limit_slack_channel || null,
     }
 
-    if (save) {
+    if (save || saveRateLimit) {
         fs.writeFileSync(STATE_FILE, JSON.stringify(newState, null, 2))
     }
 
     // Set outputs for the workflow
     core.setOutput('action', action)
-    core.setOutput('save_cache', save ? 'true' : 'false')
+    core.setOutput('save_cache', save || saveRateLimit ? 'true' : 'false')
     core.setOutput('delete_old_caches', action === 'create' ? 'true' : 'false')
     core.setOutput('failing_workflows', failingList)
     core.setOutput('failing_count', String(Object.keys(failing).length))
@@ -190,11 +238,29 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         const mins = Math.round((now.getTime() - oldest) / 60000)
         core.setOutput('duration_mins', String(mins))
 
-        // Build run links for Slack
-        const links = Object.entries(failing)
-            .map(([name, info]) => `<${info.run_url}|${name}>`)
-            .join(', ')
-        core.setOutput('failing_links', links)
+        // Build run links for Slack, split by severity
+        const blocking = []
+        const nonBlocking = []
+        for (const [name, info] of Object.entries(failing)) {
+            const link = `<${info.run_url}|${name}>`
+            if (info.workflow_file && criticalWorkflows.has(info.workflow_file)) {
+                blocking.push(link)
+            } else {
+                nonBlocking.push(link)
+            }
+        }
+        core.setOutput('failing_links', [...blocking, ...nonBlocking].join(', '))
+        core.setOutput('failing_links_blocking', blocking.join(', '))
+        core.setOutput('failing_links_non_blocking', nonBlocking.join(', '))
+
+        // Pre-formatted detail line for Slack, split by severity
+        let detail = ''
+        if (blocking.length > 0) detail += `*Blocking:* ${blocking.join(', ')}`
+        if (nonBlocking.length > 0) {
+            if (detail) detail += '\n'
+            detail += `*Non-blocking:* ${nonBlocking.join(', ')}`
+        }
+        core.setOutput('failing_detail', detail)
     }
 
     if (action === 'resolve') {
@@ -216,5 +282,18 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         const removed = [...prevNames].filter((n) => !currNames.has(n))
         core.setOutput('added_workflows', added.join(', '))
         core.setOutput('removed_workflows', removed.join(', '))
+    }
+
+    // Rate limit outputs
+    core.setOutput('rate_limit_action', rateLimitAction)
+    if (rateLimit) {
+        core.setOutput('rate_limit_remaining', String(rateLimit.remaining))
+        core.setOutput('rate_limit_limit', String(rateLimit.limit))
+        const resetMins = Math.max(0, Math.round((rateLimit.reset * 1000 - now.getTime()) / 60000))
+        core.setOutput('rate_limit_reset_mins', String(resetMins))
+    }
+    if (rateLimitAction === 'resolve') {
+        core.setOutput('rate_limit_slack_ts', state?.rate_limit_slack_ts || '')
+        core.setOutput('rate_limit_slack_channel', state?.rate_limit_slack_channel || '')
     }
 }
