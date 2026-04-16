@@ -2,19 +2,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
+from unittest import mock
 
-from posthog.caching.utils import is_stale
+from posthog.caching.utils import is_stale, stale_cache_invalidation_disabled
 
 
-# Mock Team class and stale_cache_invalidation_disabled function
 class Team:
     def __init__(self, name):
         self.name = name
-
-
-def stale_cache_invalidation_disabled(team):
-    # Mock behavior of stale cache invalidation setting
-    return False
 
 
 team_a = Team("A")
@@ -95,3 +90,35 @@ def test_is_stale_with_target_age(team, date_to, interval, last_refresh, target_
     with pytest.MonkeyPatch.context() as m:
         m.setattr("posthog.caching.utils.stale_cache_invalidation_disabled", lambda t: False)
         assert is_stale(team, date_to, interval, last_refresh, target_age=target_age) == expected
+
+
+class _FakeOrg:
+    def __init__(self):
+        self.id = 42
+        self.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+
+
+class _FakeTeam:
+    def __init__(self):
+        self.uuid = "00000000-0000-0000-0000-000000000001"
+        self.organization = _FakeOrg()
+
+
+@pytest.mark.parametrize(
+    "flag_result, expected_disabled",
+    [
+        # Explicitly enabled -> invalidation not disabled
+        (True, False),
+        # Explicitly disabled -> invalidation disabled (the intended kill switch behavior)
+        (False, True),
+        # Local evaluation inconclusive -> fail open, treat as enabled to avoid silently
+        # serving stale cache for every team the local flag cache can't resolve.
+        (None, False),
+    ],
+)
+def test_stale_cache_invalidation_disabled_fails_open_on_none(flag_result, expected_disabled):
+    with (
+        mock.patch("posthog.caching.utils.is_cloud", lambda: True),
+        mock.patch("posthoganalytics.feature_enabled", return_value=flag_result),
+    ):
+        assert stale_cache_invalidation_disabled(_FakeTeam()) is expected_disabled
