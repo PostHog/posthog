@@ -81,6 +81,7 @@ export function VisualReviewRunScene(): JSX.Element {
         toleratedHashes,
         toleratedHashesLoading,
         repoFullName,
+        isApproving,
     } = useValues(visualReviewRunSceneLogic)
     const { setSelectedSnapshotId, approveChanges, approveSnapshot, markAsTolerated } =
         useActions(visualReviewRunSceneLogic)
@@ -153,7 +154,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 resourceType={{ type: 'visual_review' }}
                 actions={
                     !run.approved && reviewPending > 0 ? (
-                        <LemonButton type="primary" onClick={approveChanges}>
+                        <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
                             Approve all changes
                         </LemonButton>
                     ) : undefined

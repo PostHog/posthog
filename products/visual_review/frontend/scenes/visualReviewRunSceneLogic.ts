@@ -39,6 +39,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         approveChanges: true,
+        approveChangesSuccess: true,
+        approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
@@ -47,6 +49,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        isApproving: [
+            false,
+            {
+                approveChanges: () => true,
+                approveChangesSuccess: () => false,
+                approveChangesFailure: () => false,
             },
         ],
     }),
@@ -172,10 +182,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
                 })
+                actions.approveChangesSuccess()
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
             } catch (e: any) {
+                actions.approveChangesFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
             }
         },

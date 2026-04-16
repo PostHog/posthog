@@ -263,6 +263,17 @@ def get_run(run_id: UUID, team_id: int | None = None) -> Run:
         raise RunNotFoundError(f"Run {run_id} not found") from e
 
 
+def _get_run_for_update(run_id: UUID, team_id: int | None = None) -> Run:
+    """Get a run with a row-level lock on the writer DB. Must be called inside a transaction."""
+    try:
+        qs = Run.objects.using(WRITER_DB).select_for_update().select_related("repo")
+        if team_id is not None:
+            qs = qs.filter(team_id=team_id)
+        return qs.get(id=run_id)
+    except Run.DoesNotExist as e:
+        raise RunNotFoundError(f"Run {run_id} not found") from e
+
+
 def get_run_with_snapshots(run_id: UUID, team_id: int | None = None) -> Run:
     try:
         qs = Run.objects.prefetch_related(
@@ -1205,9 +1216,11 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
+@transaction.atomic(using=WRITER_DB)
 def approve_all(
     run_id: UUID,
     user_id: int,
+    team_id: int | None = None,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
 ) -> tuple[Run, str]:
@@ -1223,7 +1236,7 @@ def approve_all(
 
     Set commit_to_github=False for CLI (writes baseline locally).
     """
-    run = get_run_with_snapshots(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
 
     if run.status != RunStatus.COMPLETED:
@@ -1243,6 +1256,7 @@ def approve_all(
         approve_run(
             run_id=run_id,
             user_id=user_id,
+            team_id=team_id,
             approved_snapshots=needs_approval,
             review_decision=review_decision,
             commit_to_github=commit_to_github,
@@ -1280,13 +1294,13 @@ def approve_all(
 
 
 @transaction.atomic(using=WRITER_DB)
-def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]) -> Run:
+def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
     """Approve specific snapshots within a run (DB only, no GitHub commit).
 
     Used for per-snapshot "Accept change" in the UI. Does not finalize
-    the run — that happens via finalize_run_approval.
+    the run — that happens via approve_run.
     """
-    run = get_run(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
 
     if run.purpose == RunPurpose.OBSERVE:
         raise ValueError("Observational runs cannot be approved")
@@ -1309,10 +1323,12 @@ def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]
     return run
 
 
+@transaction.atomic(using=WRITER_DB)
 def approve_run(
     run_id: UUID,
     user_id: int,
     approved_snapshots: list[dict],
+    team_id: int | None = None,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
 ) -> Run:
@@ -1324,7 +1340,7 @@ def approve_run(
 
     Set commit_to_github=False only for CLI auto-approve (writes locally).
     """
-    run = get_run(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
 
     if run.purpose == RunPurpose.OBSERVE:
@@ -1431,13 +1447,14 @@ def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> lis
     ]
 
 
+@transaction.atomic(using=WRITER_DB)
 def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> RunSnapshot:
     """Mark a changed snapshot as a known tolerated alternate (human decision).
 
     Creates a ToleratedHash entry tied to the current baseline, reclassifies the
     snapshot as UNCHANGED, and recalculates run summary counts.
     """
-    run = get_run(run_id, team_id=team_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     try:
         snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
     except RunSnapshot.DoesNotExist:
