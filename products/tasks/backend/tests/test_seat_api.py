@@ -39,6 +39,7 @@ class BaseSeatAPITest(TestCase):
     team: ClassVar[Team]
     user: ClassVar[User]
     admin_user: ClassVar[User]
+    external_user: ClassVar[User]
 
     @classmethod
     def setUpTestData(cls):
