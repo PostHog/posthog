@@ -76,8 +76,8 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
     partitions = PartitionRange(lower="202401", upper="202403")
 
     def populate_test_data(client: Client) -> None:
-        for date in partitions.iter_dates():
-            dt = datetime(date.year, date.month, date.day)
+        for partition_id in partitions.iter_ids():
+            dt = datetime.strptime(partition_id, PartitionRange.FORMAT)
             client.execute(
                 "INSERT INTO writable_events (timestamp, uuid) VALUES",
                 [(dt, UUID(int=i)) for i in range(100)],
