@@ -23,6 +23,24 @@ from llm_gateway.services.plan_resolver import get_billing_period_number, is_pro
 logger = structlog.get_logger(__name__)
 
 
+@dataclass
+class CostStatus:
+    used_usd: float
+    limit_usd: float
+    remaining_usd: float
+    resets_in_seconds: int
+    exceeded: bool
+
+
+def _is_free_plan_throttled(context: ThrottleContext) -> bool:
+    settings = get_settings()
+    return (
+        context.product == "posthog_code"
+        and settings.plan_aware_throttling_enabled
+        and not is_pro_plan(context.plan_key)
+    )
+
+
 class CostThrottle(Throttle):
     scope: str
 
@@ -126,15 +144,6 @@ class CostThrottle(Throttle):
         )
 
 
-@dataclass
-class CostStatus:
-    used_usd: float
-    limit_usd: float
-    remaining_usd: float
-    resets_in_seconds: int
-    exceeded: bool
-
-
 class ProductCostThrottle(CostThrottle):
     scope = "product_cost"
 
@@ -182,17 +191,12 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:tm{team_mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
-        settings = get_settings()
-        if (
-            context.product == "posthog_code"
-            and settings.plan_aware_throttling_enabled
-            and not is_pro_plan(context.plan_key)
-        ):
+        if _is_free_plan_throttled(context):
             if context.in_trial_period:
                 return FREE_PLAN_TRIAL_COST_LIMIT
             return FREE_PLAN_EXPIRED_COST_LIMIT
 
-        config = settings.user_cost_limits.get(context.product)
+        config = get_settings().user_cost_limits.get(context.product)
         if not config:
             if context.end_user_id and context.product not in self._warned_products:
                 self._warned_products.add(context.product)
@@ -241,13 +245,8 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         base_key = super()._get_cache_key(context)
         if not base_key:
             return base_key
-        settings = get_settings()
-        if (
-            context.product == "posthog_code"
-            and settings.plan_aware_throttling_enabled
-            and not is_pro_plan(context.plan_key)
-        ):
-            period = get_billing_period_number(context.seat_created_at, settings.free_plan_trial_period_days)
+        if _is_free_plan_throttled(context):
+            period = get_billing_period_number(context.seat_created_at, get_settings().free_plan_trial_period_days)
             return f"{base_key}:period:{period}"
         return base_key
 

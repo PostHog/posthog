@@ -33,7 +33,7 @@ def _to_cost_limit_status(status: CostStatus) -> CostLimitStatus:
     if status.limit_usd > 0:
         used_percent = min(100.0, (status.used_usd / status.limit_usd) * 100)
     else:
-        used_percent = 100.0 if status.used_usd > 0 else 0.0
+        used_percent = 100.0
     return CostLimitStatus(
         used_percent=round(used_percent, 1),
         resets_in_seconds=status.resets_in_seconds,

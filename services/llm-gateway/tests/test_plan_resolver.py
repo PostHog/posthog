@@ -164,7 +164,7 @@ class TestPlanResolver:
             "https://app.posthog.com/api/seats/me/",
             params={"product_key": "posthog_code"},
             headers={"Authorization": "Bearer phx_test"},
-            timeout=5.0,
+            timeout=2.0,
         )
 
     async def test_forwards_auth_header(self, resolver: PlanResolver) -> None:

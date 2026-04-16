@@ -165,7 +165,7 @@ class PlanResolver:
                 url,
                 params={"product_key": "posthog_code"},
                 headers={"Authorization": auth_header},
-                timeout=5.0,
+                timeout=2.0,
             )
             if resp.status_code == 404:
                 return None, None
@@ -173,5 +173,5 @@ class PlanResolver:
             data = resp.json()
             return data.get("plan_key"), data.get("created_at")
         except Exception:
-            logger.warning("seat_fetch_failed")
+            logger.warning("seat_fetch_failed", exc_info=True)
             return None, None

@@ -88,9 +88,9 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["burst"]["used_percent"] == 0
+        assert data["burst"]["used_percent"] == 100.0
         assert data["burst"]["exceeded"] is True
-        assert data["sustained"]["used_percent"] == 0
+        assert data["sustained"]["used_percent"] == 100.0
         assert data["sustained"]["exceeded"] is True
         assert data["is_rate_limited"] is True
         get_settings.cache_clear()
