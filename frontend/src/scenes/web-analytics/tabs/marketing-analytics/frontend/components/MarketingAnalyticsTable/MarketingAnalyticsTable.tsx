@@ -13,6 +13,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
+    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
@@ -64,26 +65,36 @@ export const MarketingAnalyticsTable = ({
                 }
                 return {}
             },
-            columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
-                (acc, column) => {
-                    const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
-                        (c) => c.columnAlias
-                    )
-                    const isGroupingColumn = allGroupingAliases.includes(column)
-                    acc[column] = {
-                        render: (props) => (
-                            <MarketingAnalyticsCell
-                                {...props}
-                                style={{
-                                    maxWidth: isGroupingColumn ? '200px' : undefined,
-                                }}
-                            />
-                        ),
-                    }
-                    return acc
-                },
-                {} as Record<string, QueryContextColumn>
-            ),
+            columns: (() => {
+                const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
+                    (c) => c.columnAlias
+                )
+                // Include every column the backend could ever return, not just the current select.
+                // When drill-down level changes, stale response data lingers briefly; without a
+                // render fn for those columns, cells fall through to the raw JSON viewer.
+                const allKnownColumns = new Set<string>([
+                    ...Object.values(MarketingAnalyticsBaseColumns),
+                    ...allGroupingAliases,
+                    ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
+                ])
+                return Array.from(allKnownColumns).reduce(
+                    (acc, column) => {
+                        const isGroupingColumn = allGroupingAliases.includes(column)
+                        acc[column] = {
+                            render: (props) => (
+                                <MarketingAnalyticsCell
+                                    {...props}
+                                    style={{
+                                        maxWidth: isGroupingColumn ? '200px' : undefined,
+                                    }}
+                                />
+                            ),
+                        }
+                        return acc
+                    },
+                    {} as Record<string, QueryContextColumn>
+                )
+            })(),
         }),
         [insightProps, query.source, searchTerm]
     )
