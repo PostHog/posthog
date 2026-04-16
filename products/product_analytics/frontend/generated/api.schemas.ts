@@ -3091,6 +3091,7 @@ export const StickinessOperatorApi = {
 
 export interface StickinessCriteriaApi {
     operator: StickinessOperatorApi
+    /** @minimum 1 */
     value: number
 }
 
@@ -3139,6 +3140,7 @@ export interface StickinessQueryApi {
     interval?: IntervalTypeApi | null
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @minimum 1
      * @nullable
      */
     intervalCount?: number | null
