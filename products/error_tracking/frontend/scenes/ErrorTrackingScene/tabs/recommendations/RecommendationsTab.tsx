@@ -3,8 +3,20 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { AlertsRecommendationCard } from './AlertsRecommendationCard'
 import { CrossSellRecommendationCard } from './CrossSellRecommendationCard'
-import { isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
+import { isAlertsRecommendation, isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
+import type { ErrorTrackingRecommendation } from './types'
+
+function renderRecommendation(recommendation: ErrorTrackingRecommendation, dismissed?: boolean): JSX.Element | null {
+    if (isCrossSellRecommendation(recommendation)) {
+        return <CrossSellRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    if (isAlertsRecommendation(recommendation)) {
+        return <AlertsRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    return null
+}
 
 export function RecommendationsTab(): JSX.Element {
     const {
@@ -37,14 +49,15 @@ export function RecommendationsTab(): JSX.Element {
             {activeRecommendations.length > 0 && (
                 <div className="columns-1 md:columns-2 xl:columns-3 gap-4">
                     {activeRecommendations.map((recommendation) => {
-                        if (isCrossSellRecommendation(recommendation)) {
-                            return (
-                                <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                    <CrossSellRecommendationCard recommendation={recommendation} />
-                                </div>
-                            )
+                        const card = renderRecommendation(recommendation)
+                        if (!card) {
+                            return null
                         }
-                        return null
+                        return (
+                            <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                {card}
+                            </div>
+                        )
                     })}
                 </div>
             )}
@@ -69,14 +82,15 @@ export function RecommendationsTab(): JSX.Element {
                     {dismissedExpanded && (
                         <div className="columns-1 md:columns-2 xl:columns-3 gap-4 mt-2 opacity-60">
                             {ignoredRecommendations.map((recommendation) => {
-                                if (isCrossSellRecommendation(recommendation)) {
-                                    return (
-                                        <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                            <CrossSellRecommendationCard recommendation={recommendation} dismissed />
-                                        </div>
-                                    )
+                                const card = renderRecommendation(recommendation, true)
+                                if (!card) {
+                                    return null
                                 }
-                                return null
+                                return (
+                                    <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                        {card}
+                                    </div>
+                                )
                             })}
                         </div>
                     )}
