@@ -13,16 +13,19 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertSnapshot,
@@ -270,6 +273,42 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
     threshold_operator = serializers.CharField(help_text="Threshold operator used for evaluation.")
 
 
+class LogsAlertCreateDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["slack", "webhook"], help_text="Destination type — slack or webhook.")
+    slack_workspace_id = serializers.IntegerField(
+        required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
+    )
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID. Required when type=slack.")
+    slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, help_text="Human-readable channel name for display."
+    )
+    webhook_url = serializers.URLField(
+        required=False, help_text="HTTPS endpoint to POST to. Required when type=webhook."
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        destination_type = attrs["type"]
+        if destination_type == "slack":
+            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
+                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
+        elif destination_type == "webhook":
+            if not attrs.get("webhook_url"):
+                raise ValidationError("webhook_url is required for webhook destinations.")
+        return attrs
+
+
+class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        help_text="HogFunction IDs to delete as one atomic destination group.",
+    )
+
+
+class LogsAlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
+
+
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -374,6 +413,85 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
+
+    @extend_schema(
+        request=LogsAlertCreateDestinationSerializer,
+        responses={201: LogsAlertDestinationResponseSerializer},
+        description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations")
+    def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        serializer = LogsAlertCreateDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            hog_functions = [self._build_and_create_hog_function(alert, data, kind) for kind in EVENT_KINDS]
+
+        report_user_action(
+            request.user,
+            "logs alert destination created",
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+        )
+        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        return Response(response.data, status=201)
+
+    @extend_schema(
+        request=LogsAlertDeleteDestinationSerializer,
+        responses={204: None},
+        description="Delete a notification destination by deleting its HogFunction group atomically.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/delete")
+    def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        hog_function_ids = serializer.validated_data["hog_function_ids"]
+
+        with transaction.atomic():
+            updated = HogFunction.objects.filter(
+                team_id=self.team_id,
+                id__in=hog_function_ids,
+                filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
+            ).update(deleted=True)
+            if updated != len(hog_function_ids):
+                # Ownership check: if the filtered UPDATE touched fewer rows than we were asked
+                # to delete, something in the list doesn't belong to this alert. Roll back.
+                raise ValidationError("One or more HogFunctions do not belong to this alert.")
+
+        report_user_action(
+            request.user,
+            "logs alert destination deleted",
+            {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+        )
+        return Response(status=204)
+
+    def _build_and_create_hog_function(
+        self,
+        alert: LogsAlertConfiguration,
+        data: dict,
+        kind: EventKind,
+    ) -> HogFunction:
+        if data["type"] == "slack":
+            config = build_slack_config(
+                alert,
+                kind,
+                slack_workspace_id=data["slack_workspace_id"],
+                slack_channel_id=data["slack_channel_id"],
+                slack_channel_name=data.get("slack_channel_name"),
+            )
+        else:
+            config = build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
+
+        # Route through HogFunctionSerializer so template lookup and bytecode compilation run.
+        team = config.pop("team")
+        serializer = HogFunctionSerializer(
+            data=config,
+            context={"request": self.request, "get_team": lambda: team, "is_create": True},
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer.save(team=team)
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,

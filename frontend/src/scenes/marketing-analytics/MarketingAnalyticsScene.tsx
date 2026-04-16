@@ -7,7 +7,6 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posth
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,6 +19,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
@@ -76,7 +77,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
-    const { loadSources } = useActions(externalDataSourcesLogic)
+    const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)

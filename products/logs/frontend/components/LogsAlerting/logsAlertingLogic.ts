@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -57,6 +58,18 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        loadAlertsSuccess: () => {
+            const params = router.values.searchParams
+            if (params.alertId && typeof params.alertId === 'string') {
+                const alert = values.alerts.find((a) => a.id === params.alertId)
+                if (alert) {
+                    actions.setEditingAlert(alert)
+                }
+                // Clear alertId from URL regardless of whether we found the alert
+                const { alertId: _, ...rest } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
+            }
+        },
         deleteAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
             try {

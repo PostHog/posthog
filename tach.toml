@@ -2,8 +2,8 @@ layers = [
     "modules",
 ]
 exclude = [
-    ".*__pycache__",
-    ".*egg-info",
+    "**/*__pycache__",
+    "**/*egg-info",
     "docs",
     "tests",
 ]
@@ -280,6 +280,21 @@ depends_on = []
 layer = "modules"
 
 [[modules]]
+path = "products.marketing_analytics"
+depends_on = [
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.mcp_analytics"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.mcp_store"
 depends_on = [
     "ee",
@@ -288,10 +303,16 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.marketing_analytics"
+path = "products.messaging"
 depends_on = [
     "posthog",
-    "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.metrics"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -313,8 +334,10 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.product_analytics"
-depends_on = []
+path = "products.platform_features"
+depends_on = [
+    "posthog",
+]
 layer = "modules"
 
 [[modules]]
@@ -327,6 +350,11 @@ depends_on = [
     "products.llm_analytics",
     "products.logs",
 ]
+layer = "modules"
+
+[[modules]]
+path = "products.product_analytics"
+depends_on = []
 layer = "modules"
 
 [[modules]]
@@ -398,6 +426,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.tracing"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.user_interviews"
 depends_on = [
     "ee",
@@ -428,47 +463,17 @@ depends_on = [
 ]
 layer = "modules"
 
-
-[[modules]]
-path = "products.tracing"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[modules]]
-path = "products.metrics"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[modules]]
-path = "products.messaging"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[modules]]
-path = "products.mcp_analytics"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[modules]]
-path = "products.platform_features"
-depends_on = ["posthog"]
-layer = "modules"
-
-# ============================================================================
-# Interface definitions
-# ============================================================================
-# These enforce facade-only access: external consumers can only import from
-# the expose patterns listed here. Internal modules are hidden.
-#
-# The expose patterns are relative to the module path and support regex.
-# ============================================================================
-
 # Facade + views: the canonical public surface for all isolated products.
 [[interfaces]]
-expose = ["backend\\.facade.*", "backend\\.presentation\\.views.*"]
-from = ["products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)"]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+]
 
-# TODO: legacy leaks — core (posthog/ee) imports these internals directly.
+# Legacy leaks — core (posthog/ee) imports these internals directly.
 # Each block below should shrink as imports migrate to the facade.
 # These products have had backend:contract-check removed from package.json
 # so CI treats them as non-isolated until the leaks are cleaned up.
@@ -482,12 +487,23 @@ expose = [
     "backend\\.models.*",
     "stats\\..*",
 ]
-from = ["products.experiments"]
+from = [
+    "products.experiments",
+]
 
 [[interfaces]]
-expose = ["backend\\.models.*", "backend\\.oauth.*"]
-from = ["products.mcp_store"]
+expose = [
+    "backend\\.models.*",
+    "backend\\.oauth.*",
+]
+from = [
+    "products.mcp_store",
+]
 
 [[interfaces]]
-expose = ["backend\\.logic.*"]
-from = ["products.tracing"]
+expose = [
+    "backend\\.logic.*",
+]
+from = [
+    "products.tracing",
+]

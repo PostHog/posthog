@@ -803,6 +803,19 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
+    const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+
+    if (hasError) {
+        return (
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
+        )
+    }
+
     if (activeTab === OutputTab.Visualization) {
         if (!response && !responseLoading && !insightLoading) {
             return (
@@ -843,17 +856,6 @@ const Content = ({
                     progress={progress}
                 />
             </div>
-        )
-    }
-
-    if (responseError) {
-        return (
-            <ErrorState
-                responseError={responseError}
-                sourceQuery={sourceQuery}
-                queryCancelled={queryCancelled}
-                response={response}
-            />
         )
     }
 
