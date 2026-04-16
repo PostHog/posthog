@@ -601,11 +601,10 @@ class ErrorTrackingSpikeEvent(UUIDModel):
 class ErrorTrackingRecommendation(UUIDTModel):
     """Materialized recommendation for a team, computed live on API request."""
 
-    class Type(models.TextChoices):
-        CROSS_SELL = "cross_sell", "Cross sell"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
-    type = models.CharField(max_length=64, choices=Type.choices)
+    # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
+    # so adding new recommendations doesn't require a Django migration each time
+    type = models.CharField(max_length=64)
     meta = models.JSONField(default=dict, blank=True)
     computed_at = models.DateTimeField(null=True, blank=True)
     dismissed_at = models.DateTimeField(null=True, blank=True)

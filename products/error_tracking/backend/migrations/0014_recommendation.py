@@ -25,10 +25,7 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                (
-                    "type",
-                    models.CharField(choices=[("cross_sell", "Cross sell")], max_length=64),
-                ),
+                ("type", models.CharField(max_length=64)),
                 ("meta", models.JSONField(blank=True, default=dict)),
                 ("computed_at", models.DateTimeField(blank=True, null=True)),
                 ("dismissed_at", models.DateTimeField(blank=True, null=True)),
