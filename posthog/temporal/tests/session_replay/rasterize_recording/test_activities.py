@@ -21,12 +21,14 @@ def _make_asset(
     pk: int = 42,
     team_id: int = 1,
     export_context: dict | None = None,
+    export_format: str = "video/mp4",
 ) -> MagicMock:
     asset = MagicMock()
     asset.pk = pk
     asset.id = pk
     asset.team_id = team_id
     asset.export_context = export_context
+    asset.export_format = export_format
     asset.content_location = None
     asset.save = MagicMock()
     return asset
@@ -45,8 +47,8 @@ class TestBuildRasterizationInput:
                 "show_metadata_footer": True,
                 "width": 1920,
                 "height": 1080,
-                "start_timestamp": 1000,
-                "end_timestamp": 2000,
+                "start_offset_s": 10.0,
+                "end_offset_s": 70.0,
                 "skip_inactivity": False,
                 "mouse_tail": False,
                 "max_virtual_time": 300.0,
@@ -73,8 +75,9 @@ class TestBuildRasterizationInput:
         assert result.show_metadata_footer is True
         assert result.viewport_width == 1920
         assert result.viewport_height == 1080
-        assert result.start_timestamp == 1000
-        assert result.end_timestamp == 2000
+        assert result.start_offset_s == 10.0
+        assert result.end_offset_s == 70.0
+        assert result.output_format == "mp4"
         assert result.skip_inactivity is False
         assert result.mouse_tail is False
         assert result.max_virtual_time == 300.0
@@ -104,8 +107,9 @@ class TestBuildRasterizationInput:
         assert result.show_metadata_footer is False
         assert result.viewport_width is None
         assert result.viewport_height is None
-        assert result.start_timestamp is None
-        assert result.end_timestamp is None
+        assert result.start_offset_s is None
+        assert result.end_offset_s is None
+        assert result.output_format == "mp4"
         assert result.skip_inactivity is True
         assert result.mouse_tail is True
 
@@ -136,6 +140,159 @@ class TestBuildRasterizationInput:
         ):
             with pytest.raises(ValueError, match="no session_recording_id"):
                 build_rasterization_input(100)
+
+    def test_timestamp_and_duration_mapped_to_offsets(self):
+        asset = _make_asset(
+            pk=50,
+            export_context={
+                "session_recording_id": "s1",
+                "timestamp": 10,
+                "duration": 30,
+            },
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.start_offset_s == 10
+        assert result.end_offset_s == 40
+
+    def test_duration_without_timestamp(self):
+        asset = _make_asset(
+            pk=50,
+            export_context={
+                "session_recording_id": "s1",
+                "duration": 30,
+            },
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.start_offset_s is None
+        assert result.end_offset_s == 30
+
+    def test_webm_export_format(self):
+        asset = _make_asset(
+            pk=50,
+            export_format="video/webm",
+            export_context={"session_recording_id": "s1"},
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.output_format == "webm"
+        assert result.s3_key_prefix == "exports/webm/team-1/task-50"
+
+    def test_gif_export_format(self):
+        asset = _make_asset(
+            pk=50,
+            export_format="image/gif",
+            export_context={"session_recording_id": "s1"},
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.output_format == "gif"
+        assert result.s3_key_prefix == "exports/gif/team-1/task-50"
+
+    def test_start_offset_zero_not_treated_as_falsy(self):
+        asset = _make_asset(
+            pk=50,
+            export_context={
+                "session_recording_id": "s1",
+                "start_offset_s": 0,
+                "timestamp": 999,
+            },
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.start_offset_s == 0
+
+    def test_viewport_dimensions_clamped(self):
+        asset = _make_asset(
+            pk=50,
+            export_context={
+                "session_recording_id": "s1",
+                "width": 200,
+                "height": 5000,
+            },
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.viewport_width == 400
+        assert result.viewport_height == 2160
+
+    @parameterized.expand(
+        [
+            ("short_clip_uses_1x", {"session_recording_id": "s1", "duration": 5}, 1),
+            ("long_recording_uses_4x", {"session_recording_id": "s1", "duration": 60}, 4),
+            ("no_duration_uses_4x", {"session_recording_id": "s1"}, 4),
+            ("explicit_speed_overrides", {"session_recording_id": "s1", "duration": 3, "playback_speed": 8}, 8),
+        ]
+    )
+    def test_playback_speed_defaults(self, _name, export_context, expected_speed):
+        asset = _make_asset(pk=50, export_context=export_context)
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value.get.return_value = asset
+
+        with (
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.ExportedAsset.objects", mock_qs),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.settings", MOCK_SETTINGS),
+            patch("posthog.temporal.session_replay.rasterize_recording.activities.close_old_connections"),
+        ):
+            result = build_rasterization_input(50)
+
+        assert result.playback_speed == expected_speed
 
     @parameterized.expand(
         [

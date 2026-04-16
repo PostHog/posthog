@@ -176,8 +176,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, or from suppressed)
-            case (S.IN_PROGRESS | S.SUPPRESSED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
+            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if snooze_for is not None:
@@ -236,4 +236,6 @@ class SignalReportArtefact(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["report"], name="signals_sig_report__idx"),
+            # For JOINs involving matching a report to artifact of a certain type
+            models.Index(fields=["report", "type"], name="signals_sig_report_type_idx"),
         ]

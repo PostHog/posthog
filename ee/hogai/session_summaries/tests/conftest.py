@@ -307,6 +307,7 @@ def get_mock_enriched_llm_json_response(session_id: str) -> dict[str, Any]:
             "description": "Concise session outcome description focusing on conversion attempts, feature usage, and critical issues",
             "success": True,
         },
+        "sentiment": None,
     }
 
 

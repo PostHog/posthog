@@ -936,7 +936,35 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze."
         ),
-    skip_weekend: zod.boolean().nullish().describe('Skip alert evaluation on weekends (Saturday and Sunday).'),
+    skip_weekend: zod
+        .boolean()
+        .nullish()
+        .describe('Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).'),
+    schedule_restriction: zod
+        .object({
+            blocked_windows: zod
+                .array(
+                    zod.object({
+                        start: zod
+                            .string()
+                            .describe(
+                                'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                            ),
+                        end: zod
+                            .string()
+                            .describe(
+                                'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                            ),
+                    })
+                )
+                .describe(
+                    'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                ),
+        })
+        .nullish()
+        .describe(
+            'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
+        ),
 })
 
 export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -1888,7 +1916,35 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze."
         ),
-    skip_weekend: zod.boolean().nullish().describe('Skip alert evaluation on weekends (Saturday and Sunday).'),
+    skip_weekend: zod
+        .boolean()
+        .nullish()
+        .describe('Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).'),
+    schedule_restriction: zod
+        .object({
+            blocked_windows: zod
+                .array(
+                    zod.object({
+                        start: zod
+                            .string()
+                            .describe(
+                                'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                            ),
+                        end: zod
+                            .string()
+                            .describe(
+                                'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                            ),
+                    })
+                )
+                .describe(
+                    'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                ),
+        })
+        .nullish()
+        .describe(
+            'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
+        ),
 })
 
 export const AlertsDestroyParams = /* @__PURE__ */ zod.object({

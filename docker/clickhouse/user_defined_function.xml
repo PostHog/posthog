@@ -320,4 +320,15 @@
         <command>aggregate_funnel_array_trends_test.py</command>
         <lifetime>600</lifetime>
     </function>
+
+    <function>
+        <type>executable</type>
+        <name>JSONDropKeys</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>String</type>
+        </argument>
+        <format>Raw</format>
+        <command>json_drop_keys_udf {keys_parameter:Array(String)}</command>
+    </function>
 </functions>

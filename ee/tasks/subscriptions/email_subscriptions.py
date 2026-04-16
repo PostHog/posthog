@@ -45,6 +45,7 @@ def send_email_subscription_report(
     invite_message: Optional[str] = None,
     total_asset_count: Optional[int] = None,
     send_async: bool = True,
+    change_summary: Optional[str] = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -60,7 +61,12 @@ def send_email_subscription_report(
         raise NotImplementedError("This type of subscription resource is not supported")
 
     subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
-    campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
+    # Subscription id scopes MessagingRecord dedupe per subscription; without it, shared recipients only get
+    # one send per (resource kind, next_delivery_date) because campaign_key collided across subscriptions.
+    campaign_key = (
+        f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_"
+        f"{subscription.next_delivery_date.isoformat()}"
+    )
 
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
@@ -89,6 +95,7 @@ def send_email_subscription_report(
             "invite_message": invite_message,
             "invite_summary": invite_summary,
             "total_asset_count": total_asset_count,
+            "change_summary": change_summary,
         },
     )
     message.add_recipient(email=email)

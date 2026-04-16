@@ -224,6 +224,7 @@ class TestApproveRunAPI:
             logic.complete_run(create_result.run_id)
         logic.mark_run_completed(create_result.run_id)
 
+        # Per-snapshot approval is DB only — no run-level finalization
         result = api.approve_run(
             ApproveRunInput(
                 run_id=create_result.run_id,
@@ -232,11 +233,12 @@ class TestApproveRunAPI:
             )
         )
 
-        assert result.approved is True
-        assert result.approved_at is not None
+        assert result.approved is False  # Run not finalized
+        assert result.approved_at is None
 
-        # Check snapshot approval fields were set but result was NOT mutated
+        # Snapshot-level approval fields were set, result preserved
         snapshots = api.get_run_snapshots(create_result.run_id)
         button_snap = next(s for s in snapshots if s.identifier == "Button")
-        assert button_snap.result == SnapshotResult.CHANGED  # Result preserved
-        assert button_snap.approved_hash == "new_hash"  # Approval recorded
+        assert button_snap.result == SnapshotResult.CHANGED
+        assert button_snap.approved_hash == "new_hash"
+        assert button_snap.review_state == "approved"
