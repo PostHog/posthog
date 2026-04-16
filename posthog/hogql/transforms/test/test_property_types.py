@@ -382,7 +382,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         )
         assert "toTimeZone" in sql, f"Expected toTimeZone preserved inside if(), got:\n{sql}"
 
-        # Mix: WHERE comparison (stripped) + nested in if() (preserved)
+        # Mix: WHERE comparison (stripped) + nested in if() in SELECT (preserved)
         sql, _ = self._compile_hogql(
             "SELECT if(timestamp >= '2024-01-01', 'new', 'old') FROM events "
             "WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
@@ -392,6 +392,35 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone preserved in SELECT if(), got:\n{select_clause}"
+
+    def test_subquery_in_where_does_not_inherit_stripping(self):
+        """A subquery's SELECT inside a WHERE should NOT inherit stripping from the outer WHERE."""
+        sql, _ = self._compile_hogql(
+            "SELECT count() FROM events "
+            "WHERE timestamp >= (SELECT min(timestamp) FROM events WHERE timestamp >= '2024-01-01')",
+            timezone="America/New_York",
+        )
+        # The outer WHERE >= should strip toTimeZone from events.timestamp
+        assert re.search(r"greaterOrEquals\(events\.timestamp,", sql), (
+            f"Expected bare events.timestamp in outer WHERE, got:\n{sql}"
+        )
+        # The inner subquery's SELECT min(timestamp) should still have toTimeZone
+        assert re.search(r"min\(toTimeZone\(", sql), f"Expected toTimeZone preserved in subquery SELECT, got:\n{sql}"
+        # The inner WHERE should also strip toTimeZone
+        assert re.search(r"greaterOrEquals\(events\.timestamp, toDateTime64", sql), (
+            f"Expected bare events.timestamp in inner WHERE too, got:\n{sql}"
+        )
+
+    def test_toTimeZone_preserved_in_having(self):
+        """HAVING should preserve toTimeZone — only WHERE/PREWHERE benefits from pruning."""
+        sql, _ = self._compile_hogql(
+            "SELECT event, max(timestamp) as max_ts FROM events "
+            "WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01' "
+            "GROUP BY event HAVING max(timestamp) >= '2024-03-15'",
+            timezone="America/New_York",
+        )
+        # The HAVING max(timestamp) comparison should preserve toTimeZone
+        assert re.search(r"HAVING.*toTimeZone", sql), f"Expected toTimeZone preserved in HAVING, got:\n{sql}"
 
     def _assert_correct_results(self, hogql: str, timezone: str, expected_count: int):
         self.team.timezone = timezone
