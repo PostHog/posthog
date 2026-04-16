@@ -200,20 +200,9 @@ KAFKA_PROFILES: dict[str, KafkaProfileSettings] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Back-compat shims
-#
-# ClickHouse migrations read `settings.KAFKA_HOSTS` to set up Kafka-engine tables,
-# and `_KafkaProducer` still reads `settings.KAFKA_PRODUCER_SETTINGS` as a fallback
-# when no explicit profile producer_settings are passed. Both mirror the DEFAULT
-# profile. Other per-profile values should be read from
-# `settings.KAFKA_PROFILES[profile.value]` directly.
-# ---------------------------------------------------------------------------
-
-_default = KAFKA_PROFILES[KafkaClusterProfile.DEFAULT.value]
-
-KAFKA_HOSTS: list[str] = _default.hosts
-KAFKA_PRODUCER_SETTINGS: dict[str, Any] = _default.producer_settings
+# ClickHouse migrations read `settings.KAFKA_HOSTS` to set up Kafka-engine tables.
+# Other per-profile values should be read from `settings.KAFKA_PROFILES[profile.value]`.
+KAFKA_HOSTS: list[str] = KAFKA_PROFILES[KafkaClusterProfile.DEFAULT.value].hosts
 
 # Misc Kafka settings that don't vary per profile - these are largely only existing for self-hosted instance support
 KAFKA_PREFIX: str = os.getenv("KAFKA_PREFIX", "")

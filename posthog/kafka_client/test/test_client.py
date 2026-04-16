@@ -128,6 +128,8 @@ class KafkaClientTestCase(TestCase):
                 "topic_metadata_refresh_interval_ms": 60000,
                 "queue_buffering_max_messages": 1000000,
                 "sticky_partitioning_linger_ms": 25,
+                "enable_idempotence": True,
+                "compression_type": "gzip",
             }
         )
     )
@@ -151,6 +153,11 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(config["topic.metadata.refresh.interval.ms"], 60000)
         self.assertEqual(config["queue.buffering.max.messages"], 1000000)
         self.assertEqual(config["sticky.partitioning.linger.ms"], 25)
+        self.assertEqual(config["enable.idempotence"], True)
+        self.assertEqual(config["compression.type"], "gzip")
+        # Snake-case originals must not leak through to librdkafka.
+        self.assertNotIn("enable_idempotence", config)
+        self.assertNotIn("compression_type", config)
 
     @override_settings(KAFKA_PROFILES=_make_profiles(producer_settings={"partitioner": "murmur2_random"}))
     @patch("posthog.kafka_client.client.ConfluentProducer")
@@ -185,7 +192,7 @@ class KafkaClientTestCase(TestCase):
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_base64_keys_merges_ssl_config(self, mock_producer_class: MagicMock, mock_ssl_cert_config: MagicMock):
         """Self-hosted base64 mode overrides security.protocol with SSL and
-        adds cert paths, but still honours KAFKA_PRODUCER_SETTINGS tuning."""
+        adds cert paths, but still honours the profile's producer_settings tuning."""
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]

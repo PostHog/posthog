@@ -136,6 +136,8 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "topic_metadata_refresh_interval_ms": "topic.metadata.refresh.interval.ms",
     "queue_buffering_max_messages": "queue.buffering.max.messages",
     "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",
+    "enable_idempotence": "enable.idempotence",
+    "compression_type": "compression.type",
 }
 
 
