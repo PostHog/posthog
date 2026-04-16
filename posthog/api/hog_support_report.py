@@ -17,14 +17,16 @@ from posthog.utils import capture_exception
 
 logger = structlog.get_logger(__name__)
 
-CheckStatus = Literal["ok", "warning", "info", "error", "skipped"]
+CheckStatus = Literal["ok", "skipped"]
+CheckLevel = Literal["warning", "info", "error"]
 
 
 @dataclasses.dataclass
 class DiagnosticResult:
     id: str
     label: str
-    status: CheckStatus
+    status: CheckStatus | None = None
+    level: CheckLevel | None = None
     value: str | None = None
     detail: str | None = None
 
@@ -47,7 +49,7 @@ def check_custom_api_host(team: Team) -> DiagnosticResult:
         return DiagnosticResult(
             id="custom_api_host",
             label="Custom API host",
-            status="info",
+            level="info",
             value=", ".join(unique[:3]),
         )
     return DiagnosticResult(
@@ -89,7 +91,7 @@ def check_reverse_proxy(team: Team) -> DiagnosticResult:
         return DiagnosticResult(
             id="reverse_proxy",
             label="Reverse proxy",
-            status="info",
+            level="info",
             value="; ".join(parts),
             detail=detail,
         )
@@ -98,7 +100,7 @@ def check_reverse_proxy(team: Team) -> DiagnosticResult:
         return DiagnosticResult(
             id="reverse_proxy",
             label="Reverse proxy",
-            status="warning",
+            level="warning",
             value="Proxy record exists but not yet valid",
             detail=f"domains: {', '.join(other_domains)}",
         )
@@ -149,7 +151,7 @@ def check_sdk_versions(team: Team) -> DiagnosticResult:
         return DiagnosticResult(
             id="sdk_versions",
             label="SDK versions",
-            status="warning",
+            level="warning",
             value=f"{len(outdated)} outdated: {', '.join(outdated[:5])}",
             detail=f"up to date: {', '.join(current[:5])}" if current else None,
         )
@@ -189,7 +191,8 @@ def hog_support_report(request: Request) -> Response:
                 {
                     "id": check.__name__,
                     "label": check.__name__,
-                    "status": "error",
+                    "status": None,
+                    "level": "error",
                     "value": "Check failed",
                     "detail": None,
                 }

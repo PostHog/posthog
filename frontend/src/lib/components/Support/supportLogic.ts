@@ -393,7 +393,8 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
 export type HogSupportReportCheck = {
     id: string
     label: string
-    status: 'ok' | 'warning' | 'info' | 'error' | 'skipped'
+    status: 'ok' | 'skipped' | null
+    level: 'warning' | 'info' | 'error' | null
     value: string | null
     detail: string | null
 }
