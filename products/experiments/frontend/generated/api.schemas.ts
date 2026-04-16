@@ -505,7 +505,7 @@ export interface ExperimentApi {
     name: string
     /**
      * Description of the experiment hypothesis and expected outcomes.
-     * @maxLength 400
+     * @maxLength 3000
      * @nullable
      */
     description?: string | null
@@ -603,7 +603,7 @@ export interface PatchedExperimentApi {
     name?: string
     /**
      * Description of the experiment hypothesis and expected outcomes.
-     * @maxLength 400
+     * @maxLength 3000
      * @nullable
      */
     description?: string | null

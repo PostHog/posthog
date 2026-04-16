@@ -14,6 +14,10 @@ class ThrottleRunner:
     def __init__(self, throttles: list[Throttle]):
         self._throttles = throttles
 
+    @property
+    def throttles(self) -> list[Throttle]:
+        return self._throttles
+
     async def check(self, context: ThrottleContext) -> ThrottleResult:
         results = await asyncio.gather(*[t.allow_request(context) for t in self._throttles])
 

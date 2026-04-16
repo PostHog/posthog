@@ -37,7 +37,7 @@ export const ExperimentsCreateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsCreateBodyNameMax = 400
 
-export const experimentsCreateBodyDescriptionMax = 400
+export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
@@ -1148,7 +1148,7 @@ export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsPartialUpdateBodyNameMax = 400
 
-export const experimentsPartialUpdateBodyDescriptionMax = 400
+export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
 export const experimentsPartialUpdateBodyArchivedDefault = false
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`

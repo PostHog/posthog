@@ -24,16 +24,18 @@ logger = structlog.get_logger(__name__)
 SDK_VERSIONS_SQL = """
 SELECT
     team_id,
-    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$lib'), ''), 'null'), '^"|"$', '') AS lib,
-    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$lib_version'), ''), 'null'), '^"|"$', '') AS lib_version,
+    `mat_$lib` AS lib,
+    `mat_$lib_version` AS lib_version,
     max(timestamp) AS max_timestamp,
     count(*) AS event_count
 FROM events
 WHERE
     team_id IN %(team_ids)s
     AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-    AND lib != ''
-    AND lib_version != ''
+    AND `mat_$lib` IS NOT NULL
+    AND `mat_$lib` != ''
+    AND `mat_$lib_version` IS NOT NULL
+    AND `mat_$lib_version` != ''
 GROUP BY team_id, lib, lib_version
 ORDER BY
     team_id,

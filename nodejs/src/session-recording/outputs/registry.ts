@@ -1,4 +1,10 @@
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT, TOPHOG_OUTPUT } from '../../ingestion/common/outputs'
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '../../ingestion/common/outputs'
 import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
 
 /** Register all session replay outputs on the builder. Call `.build(registry, config)` to resolve. */
@@ -19,5 +25,9 @@ export function createOutputsRegistry() {
         .register(TOPHOG_OUTPUT, {
             topicKey: 'SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC',
             producerKey: 'SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER',
+        })
+        .register(LOG_ENTRIES_OUTPUT, {
+            topicKey: 'SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC',
+            producerKey: 'SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER',
         })
 }
