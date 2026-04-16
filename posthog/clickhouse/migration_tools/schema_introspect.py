@@ -47,9 +47,12 @@ class TableSchema:
 class SchemaDiff:
     table: str
     column: str | None
-    diff_type: (
-        str  # missing_table, extra_table, missing_column, extra_column, type_mismatch, engine_mismatch, key_mismatch
-    )
+    # fmt: off
+    diff_type: str  # missing_table | extra_table | engine_mismatch | key_mismatch
+                    # | partition_key_mismatch | primary_key_mismatch | engine_full_mismatch
+                    # | dict_layout_mismatch | dict_source_mismatch | dict_lifetime_mismatch
+                    # | missing_column | extra_column | type_mismatch
+    # fmt: on
     host: str = ""
     expected: str = ""
     actual: str = ""
@@ -396,10 +399,12 @@ def compare_schemas(
             # Only `type` is compared here. `default_kind`, `default_expression`,
             # and `codec` are collected by introspection but intentionally deferred:
             # CH renders codec aliases inconsistently across versions (e.g.
-            # "LZ4" vs "lz4hc(9)") which would produce false-positive drift
-            # reports before a normalization layer is in place. `as_select`
-            # (for Materialized columns) carries the same risk. When column-level
-            # default/codec drift checking is added, normalise both sides first.
+            # "LZ4" vs "lz4hc(9)"), which produces false-positive drift without
+            # a normalisation layer. When column-level default/codec drift checking
+            # is added, normalise both sides first.
+            # Note: TableSchema.as_select (Materialized View SELECT text) is a
+            # separate table-level field, also deferred — kept distinct from the
+            # column-level fields above.
             if exp_cols[col_name].type != act_cols[col_name].type:
                 diffs.append(
                     SchemaDiff(
