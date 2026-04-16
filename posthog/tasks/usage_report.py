@@ -373,6 +373,9 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
 
 
 def get_org_user_count(organization_id: str) -> int:
+    # nosemgrep: organization-membership-regular-manager
+    # Usage reports count every member row, including guests — switching billing semantics
+    # (to exclude guests) is a product decision tracked for a follow-up, not a PR #1 concern.
     return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
@@ -1755,6 +1758,9 @@ def capture_report(
         "has_non_zero_usage": full_report_dict.get("has_non_zero_usage"),
     }
 
+    # nosemgrep: organization-membership-regular-manager
+    # Sending billing properties to customer.io for every member (including guests) preserves
+    # existing behavior; narrowing to `.regular` is a product decision tracked for a follow-up.
     for membership in OrganizationMembership.objects.filter(organization_id=organization_id).select_related("user"):
         distinct_id = membership.user.distinct_id
         if not distinct_id:

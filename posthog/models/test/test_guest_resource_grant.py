@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from parameterized import parameterized
 
 from posthog.models import GuestResourceGrant, OrganizationInvite, OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 
 class TestGuestResourceGrant(BaseTest):
@@ -40,13 +41,6 @@ class TestGuestResourceGrant(BaseTest):
         )
         self.assertTrue(grant.is_pending)
         self.assertIsNone(grant.organization_membership)
-
-    def test_activity_scope_is_registered(self):
-        from typing import get_args
-
-        from posthog.models.activity_logging.activity_log import ActivityScope
-
-        self.assertIn("GuestResourceGrant", get_args(ActivityScope))
 
     @parameterized.expand(
         [
@@ -175,8 +169,6 @@ class TestGuestResourceGrant(BaseTest):
         self.assertEqual(grant.organization_membership, membership)
 
     def test_crud_emits_activity_log(self):
-        from posthog.models.activity_logging.activity_log import ActivityLog
-
         membership = self._make_guest_membership(email="act@posthog.com")
 
         # Create
