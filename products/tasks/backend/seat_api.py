@@ -140,7 +140,7 @@ class SeatViewSet(viewsets.ViewSet):
     def _filtered_query_params(request: Request) -> dict[str, str]:
         product_key = request.query_params.get("product_key", "")
         if product_key and product_key not in ALLOWED_PRODUCT_KEYS:
-            raise ParseError(f"Invalid product_key: {product_key}")
+            raise ParseError("Invalid product_key")
         if product_key:
             return {"product_key": product_key}
         return {}
@@ -176,6 +176,8 @@ class SeatViewSet(viewsets.ViewSet):
         body_distinct_id = request.data.get("user_distinct_id")
         if not body_distinct_id:
             return Response({"detail": "user_distinct_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not _SAFE_PK_PATTERN.match(str(body_distinct_id)):
+            return Response({"detail": "Invalid user_distinct_id format"}, status=status.HTTP_400_BAD_REQUEST)
         if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
 

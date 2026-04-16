@@ -65,10 +65,14 @@ export function CodeSeatsSection(): JSX.Element {
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h3 className="mb-1 text-lg font-semibold">Code seats</h3>
-                    <span className="text-muted text-sm">
-                        {activeCount} active{cancelingCount > 0 ? `, ${cancelingCount} canceling` : ''} &middot;{' '}
-                        <Tooltip title="Reflects the monthly rate, not prorated charges">${monthlyTotal}/mo</Tooltip>
-                    </span>
+                    {isAdmin && (
+                        <span className="text-muted text-sm">
+                            {activeCount} active{cancelingCount > 0 ? `, ${cancelingCount} canceling` : ''} &middot;{' '}
+                            <Tooltip title="Reflects the monthly rate, not prorated charges">
+                                ${monthlyTotal}/mo
+                            </Tooltip>
+                        </span>
+                    )}
                 </div>
             </div>
             <LemonTable
