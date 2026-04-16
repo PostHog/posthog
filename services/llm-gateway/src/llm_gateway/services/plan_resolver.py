@@ -78,9 +78,8 @@ async def resolve_plan_info(
     user_id: int,
     product: str,
 ) -> PlanInfo:
-    """Resolve plan info, returning safe defaults if disabled or on failure."""
-    settings = get_settings()
-    if product != POSTHOG_CODE_PRODUCT or not settings.plan_aware_throttling_enabled:
+    """Resolve plan info, returning safe defaults on failure."""
+    if product != POSTHOG_CODE_PRODUCT:
         return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
 
     plan_resolver: PlanResolver = request.app.state.plan_resolver
