@@ -1252,8 +1252,9 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
+        action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
         try:
-            action = Action.objects.get(pk=entity.id, team=team)
+            action = Action.objects.get(pk=action_id, team=team)
         except Action.DoesNotExist:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         event_expr = action_to_expr(action)
