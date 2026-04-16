@@ -1,3 +1,5 @@
+import './SessionTimeline.scss'
+
 import { cva } from 'cva'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
@@ -147,30 +149,32 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
             <div
                 ref={setContainerRef}
                 data-attr="session-timeline-scroll-container"
-                className="h-full w-full overflow-y-auto relative"
-                style={{ scrollbarGutter: 'stable' }}
+                className="SessionTimeline__scroll-container h-full w-full overflow-y-auto relative"
+                style={{ scrollbarGutter: 'stable both-edges' }}
             >
-                {(showInitialLoadingRow || scrollLoading === 'before') && <LoadingRow />}
-                {filteredItems.map((item) => {
-                    const renderer = collector.getRenderer(item.category)
-                    if (!renderer) {
-                        return null
-                    }
-                    return (
-                        <SessionTimelineItemContainer
-                            renderer={renderer}
-                            key={item.id}
-                            item={item}
-                            sessionId={collector.sessionId}
-                            selected={item.id === selectedItemId}
-                            onTimeClick={onTimeClick}
-                        />
-                    )
-                })}
-                {!loading && scrollLoading === 'after' && <LoadingRow />}
-                {!isLoading && filteredItems.length === 0 && (
-                    <EmptyTimelineState title={emptyState.title} description={emptyState.description} />
-                )}
+                <div className="pr-3">
+                    {(showInitialLoadingRow || scrollLoading === 'before') && <LoadingRow />}
+                    {filteredItems.map((item) => {
+                        const renderer = collector.getRenderer(item.category)
+                        if (!renderer) {
+                            return null
+                        }
+                        return (
+                            <SessionTimelineItemContainer
+                                renderer={renderer}
+                                key={item.id}
+                                item={item}
+                                sessionId={collector.sessionId}
+                                selected={item.id === selectedItemId}
+                                onTimeClick={onTimeClick}
+                            />
+                        )
+                    })}
+                    {!loading && scrollLoading === 'after' && <LoadingRow />}
+                    {!isLoading && filteredItems.length === 0 && (
+                        <EmptyTimelineState title={emptyState.title} description={emptyState.description} />
+                    )}
+                </div>
             </div>
         </div>
     )

@@ -7,9 +7,9 @@ import {
 } from 'lib/components/Errors/exceptionStepsValidation'
 import { ErrorEventProperties, ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { PropertiesTable } from 'products/error_tracking/frontend/components/PropertiesTable'
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
 import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '..'
@@ -33,11 +33,9 @@ export const exceptionStepRenderer: ItemRenderer<ExceptionStepItem> = {
         return <StandardizedPreview primaryText={item.payload.message} secondaryText={item.payload.type} />
     },
     renderExpanded: ({ item }): JSX.Element => {
-        const entries: [string, unknown][] = item.payload.stepProperties
-            ? Object.entries(item.payload.stepProperties)
-            : [['error', 'No step properties available']]
+        const stepProperties = getRenderableStepProperties(item.payload.stepProperties)
 
-        return <PropertiesTable entries={entries} alternatingColors={false} />
+        return <SimpleKeyValueList item={stepProperties} emptyMessage="No additional step properties" />
     },
 }
 
@@ -158,4 +156,14 @@ function parseStepTimestamp(value: unknown): Dayjs | null {
 
     const parsed = dayjs.utc(value)
     return parsed.isValid() ? parsed : null
+}
+
+const INTERNAL_STEP_FIELD_SET = new Set<string>(Object.values(EXCEPTION_STEP_INTERNAL_FIELDS))
+
+function getRenderableStepProperties(stepProperties?: Record<string, unknown>): Record<string, unknown> {
+    if (!stepProperties) {
+        return {}
+    }
+
+    return Object.fromEntries(Object.entries(stepProperties).filter(([key]) => !INTERNAL_STEP_FIELD_SET.has(key)))
 }

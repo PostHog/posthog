@@ -8,17 +8,57 @@ import { SessionEventDetails } from 'scenes/sessions/components/SessionEventDeta
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingEventType } from '~/types'
 
-import { RendererProps, TimelineItem } from '..'
+import { ItemCategory, RendererProps, TimelineItem } from '..'
 import { escapeHogQLString, parseRecordIfJSONString } from './parsing'
 
 const eventDetailsCache = new Map<string, RecordingEventType | null>()
 const eventDetailsInFlight = new Map<string, Promise<RecordingEventType | null>>()
 const EVENT_DETAILS_CACHE_MAX_ENTRIES = 200
+const EVENT_DETAILS_QUERY_WINDOW_MS = 1000
+const EVENT_DETAILS_QUERY_LIMIT = 100
 
 type EventDetailsRow = [uuid: unknown, eventName: unknown, timestamp: unknown, properties: unknown]
 
 interface EventDetailsQueryResponse {
     results?: unknown[]
+}
+
+function getCategoryWhereClause(category: TimelineItem['category']): string | null {
+    switch (category) {
+        case ItemCategory.ERROR_TRACKING:
+            return "equals(event, '$exception')"
+        case ItemCategory.PAGE_VIEWS:
+            return "equals(event, '$pageview')"
+        case ItemCategory.CUSTOM_EVENTS:
+            return "notEquals(left(event, 1), '$')"
+        default:
+            return null
+    }
+}
+
+function shouldFilterBySessionId(item: TimelineItem, sessionId?: string): boolean {
+    if (!sessionId) {
+        return false
+    }
+
+    // In no-session fallback timelines, collector.sessionId is the exception UUID.
+    // Avoid treating that synthetic value as a real session filter.
+    return sessionId !== item.id
+}
+
+function buildEventDetailsWhere(item: TimelineItem, sessionId?: string): string[] {
+    const where: string[] = [`equals(uuid, '${escapeHogQLString(item.id)}')`]
+
+    if (shouldFilterBySessionId(item, sessionId)) {
+        where.push(`equals($session_id, '${escapeHogQLString(sessionId)}')`)
+    }
+
+    const categoryWhereClause = getCategoryWhereClause(item.category)
+    if (categoryWhereClause) {
+        where.push(categoryWhereClause)
+    }
+
+    return where
 }
 
 function buildEventFromRow(row: unknown): RecordingEventType | null {
@@ -69,7 +109,9 @@ function setCachedEvent(itemId: string, event: RecordingEventType | null): void 
     }
 }
 
-async function fetchEventDetails(itemId: string): Promise<RecordingEventType | null> {
+async function fetchEventDetails(item: TimelineItem, sessionId?: string): Promise<RecordingEventType | null> {
+    const itemId = item.id
+
     if (eventDetailsCache.has(itemId)) {
         return eventDetailsCache.get(itemId) ?? null
     }
@@ -82,12 +124,17 @@ async function fetchEventDetails(itemId: string): Promise<RecordingEventType | n
         .query({
             kind: NodeKind.EventsQuery,
             select: ['uuid', 'event', 'timestamp', 'properties'],
-            where: [`equals(uuid, '${escapeHogQLString(itemId)}')`],
-            limit: 1,
+            where: buildEventDetailsWhere(item, sessionId),
+            after: item.timestamp.subtract(EVENT_DETAILS_QUERY_WINDOW_MS, 'millisecond').toISOString(),
+            before: item.timestamp.add(EVENT_DETAILS_QUERY_WINDOW_MS, 'millisecond').toISOString(),
+            orderBy: ['timestamp ASC'],
+            limit: EVENT_DETAILS_QUERY_LIMIT,
         })
         .then((response) => {
             const parsedResponse = parseEventDetailsQueryResponse(response)
-            return buildEventFromRow(parsedResponse.results?.[0])
+            const results = parsedResponse.results ?? []
+            const exactUuidMatch = results.find((row) => Array.isArray(row) && String(row[0]) === itemId)
+            return buildEventFromRow(exactUuidMatch ?? results[0])
         })
         .catch(() => null)
         .then((event) => {
@@ -102,7 +149,7 @@ async function fetchEventDetails(itemId: string): Promise<RecordingEventType | n
     return await request
 }
 
-export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = ({ item }): JSX.Element => {
+export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = ({ item, sessionId }): JSX.Element => {
     const [event, setEvent] = useState<RecordingEventType | null>(() => eventDetailsCache.get(item.id) ?? null)
     const [loading, setLoading] = useState<boolean>(() => !eventDetailsCache.has(item.id))
 
@@ -118,7 +165,7 @@ export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = (
         setEvent(null)
         setLoading(true)
 
-        fetchEventDetails(item.id)
+        fetchEventDetails(item, sessionId)
             .then((result) => {
                 if (!mounted) {
                     return
@@ -135,7 +182,7 @@ export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = (
         return () => {
             mounted = false
         }
-    }, [item.id])
+    }, [item.id, item.category, item.timestamp, sessionId])
 
     if (loading) {
         return (
