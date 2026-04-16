@@ -112,7 +112,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 ChartDisplayType.ActionsAreaGraph,
                 ChartDisplayType.ActionsBar,
                 ChartDisplayType.ActionsUnstackedBar,
-                ChartDisplayType.ActionsStackedBar,
             ].includes(display || ChartDisplayType.ActionsLineGraph)) ||
         (isFunnels && isTrendsFunnel) ||
         (isRetention &&
