@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.guest_resource_grant import GuestResourceGrant
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
@@ -366,4 +367,28 @@ def handle_experiment_holdout_delete(sender, instance, **kwargs):
         scope="Experiment",
         activity="deleted",
         detail=Detail(name=instance.name, type="holdout"),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=GuestResourceGrant)
+def handle_guest_resource_grant_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+) -> None:
+    grant = after_update or before_update
+
+    if not grant:
+        return
+
+    log_activity(
+        organization_id=grant.team.organization_id,
+        team_id=grant.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=grant.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=f"{grant.resource}/{grant.resource_id}",
+        ),
     )

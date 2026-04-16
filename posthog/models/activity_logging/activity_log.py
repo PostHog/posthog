@@ -579,6 +579,13 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "latest_error",
         "last_synced_at",
     ],
+    "GuestResourceGrant": [
+        # FK relation objects are not JSON-serializable; exclude them from change diffs.
+        "organization_membership",
+        "invite",
+        "team",
+        "created_by",
+    ],
 }
 
 
