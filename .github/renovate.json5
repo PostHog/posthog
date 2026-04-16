@@ -3,13 +3,12 @@
 
   "extends": [
     "config:best-practices",
+    // Gate every update behind a checkbox on the dashboard -- no auto-PRs
+    ":dependencyDashboardApproval",
     ":separateMultipleMajorReleases"
   ],
 
   "enabledManagers": ["pep621", "npm", "github-actions", "gomod", "cargo"],
-
-  // Gate every update behind a checkbox on the dashboard -- no auto-PRs
-  "dependencyDashboardApproval": true,
 
   "dependencyDashboardTitle": "Renovate: Dependency Status",
   "dependencyDashboardLabels": ["dependencies"],
