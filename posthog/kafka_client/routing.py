@@ -33,6 +33,7 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_SOURCES_JOBS,
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
 )
+from posthog.settings.kafka import KafkaProfileSettings
 
 
 @dataclass(frozen=True)
@@ -132,7 +133,7 @@ def get_profile_settings(
     *,
     topic: Optional[str] = None,
     profile: Optional[KafkaClusterProfile] = None,
-):
+) -> KafkaProfileSettings:
     """Return the fully-resolved `KafkaProfileSettings` for a topic or profile.
 
     Use this from Kafka consumer classes that keep their own consumer
