@@ -2034,7 +2034,8 @@ export namespace Schemas {
 
     export interface TrendsQueryResponse {
       /**
-       * Box plot data when display type is BoxPlot
+       * Deprecated: box plot data is now returned in results. This field is no longer populated.
+       * @deprecated
        * @nullable
        */
       boxplot_data?: BoxPlotDatum[] | null;
@@ -30107,7 +30108,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative66 {
       /**
-       * Box plot data when display type is BoxPlot
+       * Deprecated: box plot data is now returned in results. This field is no longer populated.
+       * @deprecated
        * @nullable
        */
       boxplot_data?: BoxPlotDatum[] | null;

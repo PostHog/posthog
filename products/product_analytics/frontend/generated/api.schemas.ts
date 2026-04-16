@@ -1000,7 +1000,8 @@ export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
     /**
-     * Box plot data when display type is BoxPlot
+     * Deprecated: box plot data is now returned in results. This field is no longer populated.
+     * @deprecated
      * @nullable
      */
     boxplot_data?: BoxPlotDatumApi[] | null
