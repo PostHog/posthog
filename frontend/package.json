@@ -106,6 +106,7 @@
         "@posthog/products-visual-review": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
         "@posthog/products-workflows": "workspace:*",
+        "@posthog/react": "catalog:",
         "@posthog/replay-shared": "workspace:*",
         "@posthog/rrweb": "0.0.26",
         "@posthog/rrweb-plugin-console-record": "0.0.26",

@@ -329,7 +329,18 @@ class SignalReportViewSet(
         return qs
 
     def _scope_signal_report_queryset(self, queryset):
-        return queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
+        # Count via a correlated subquery instead of `Count("artefacts")`,
+        # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
+        artefact_count_subquery = Subquery(
+            SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
+            .values("report_id")
+            .annotate(count=Count("*"))
+            .values("count"),
+            output_field=IntegerField(),
+        )
+        return queryset.filter(team=self.team).annotate(
+            artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+        )
 
     def _exclude_deleted_signal_reports(self, queryset):
         # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)

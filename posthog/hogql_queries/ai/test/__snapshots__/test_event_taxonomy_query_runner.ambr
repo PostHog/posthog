@@ -45,7 +45,7 @@
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'), ''))) ARRAY
      JOIN (kv).1 AS key,
           (kv).2 AS value
-     WHERE ifNull(notEquals(value, ''), 1)
+     WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))
      GROUP BY key,
               value
      ORDER BY count DESC)
