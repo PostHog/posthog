@@ -69,6 +69,16 @@ enum_glob_use = "deny"
 [patch.crates-io]
 js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev = "abea51a0e74840a8d1ec96a61ff36b488994f68c" }
 
+# Emit DWARF line tables in release builds so backtrace-rs can resolve frame
+# symbols for continuous profiling (pyroscope). Without this, release binaries
+# on Linux expose raw _ZN…E names in the pyroscope UI because gimli-symbolize
+# has no debug info to read from. line-tables-only is the cheapest level that
+# still gives usable function names + file:line info at sample time; expect
+# roughly 5–15% binary size increase on Linux. Debug info must stay embedded
+# (no split-debuginfo) since backtrace-rs reads it at runtime.
+[profile.release]
+debug = "line-tables-only"
+
 [workspace.dependencies]
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
