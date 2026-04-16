@@ -1406,6 +1406,13 @@ class ExperimentService:
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
+        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
+        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
+            raise ValidationError(
+                "Cannot restore experiment: the linked feature flag has been deleted. "
+                "Restore the feature flag first, then restore the experiment."
+            )
+
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
             allowed_fields = {"name", "description", "end_date", "deleted"}
@@ -1425,21 +1432,8 @@ class ExperimentService:
             if "end_date" in update_data:
                 self.validate_experiment_date_range(experiment.start_date, update_data["end_date"])
 
-            # Prevent restoring a deleted experiment if the linked feature flag is also deleted
-            if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-                raise ValidationError(
-                    "Cannot restore experiment: the linked feature flag has been deleted. "
-                    "Restore the feature flag first, then restore the experiment."
-                )
-
             # If only allowed fields are being updated, skip the rest of the validation
             return
-
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
 
         expected_keys = {
             "name",
