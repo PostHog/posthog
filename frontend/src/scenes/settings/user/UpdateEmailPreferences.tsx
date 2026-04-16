@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiRequest, CountedPaginatedResponse, PaginatedResponse } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -217,6 +217,17 @@ type PipelineItem = {
     teamName: string
 }
 
+async function fetchAllResults<T>(initial: CountedPaginatedResponse<T> | PaginatedResponse<T>): Promise<T[]> {
+    let all: T[] = [...initial.results]
+    let next = initial.next
+    while (next) {
+        const page: PaginatedResponse<T> = await api.get(next)
+        all = all.concat(page.results)
+        next = page.next
+    }
+    return all
+}
+
 function PipelineNotificationSelector(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
@@ -225,53 +236,83 @@ function PipelineNotificationSelector(): JSX.Element {
     const [pipelines, setPipelines] = useState<PipelineItem[]>([])
     const [loading, setLoading] = useState(false)
     const [loaded, setLoaded] = useState(false)
+    const orgId = currentOrganization?.id
+
+    useEffect(() => {
+        // Reset cache when org changes — the previous fetch is for a different org.
+        setLoaded(false)
+        setPipelines([])
+    }, [orgId])
 
     useEffect(() => {
         if (!expanded || loaded || !currentOrganization?.teams) {
             return
         }
 
+        let cancelled = false
+        const teams = currentOrganization.teams
+
         const fetchPipelines = async (): Promise<void> => {
             setLoading(true)
-            const items: PipelineItem[] = []
-
-            for (const team of currentOrganization.teams) {
-                try {
-                    const [hogFunctions, batchExports] = await Promise.all([
-                        api.hogFunctions.list({
-                            types: ['destination', 'site_destination'],
-                            limit: 100,
-                        }),
-                        api.batchExports.list({ limit: 100 }),
-                    ])
-
-                    for (const hf of hogFunctions.results) {
-                        items.push({
-                            id: `hog_function:${hf.id}`,
-                            name: hf.name,
-                            teamId: team.id,
-                            teamName: team.name,
-                        })
+            const perTeamResults = await Promise.all(
+                teams.map(async (team) => {
+                    try {
+                        const [hogFunctionsPage, batchExportsPage] = await Promise.all([
+                            new ApiRequest()
+                                .hogFunctions(team.id)
+                                .withQueryString({
+                                    type: ['destination', 'site_destination'].join(','),
+                                    limit: 100,
+                                })
+                                .get() as Promise<CountedPaginatedResponse<HogFunctionType>>,
+                            new ApiRequest().batchExports(team.id).withQueryString({ limit: 100 }).get() as Promise<
+                                CountedPaginatedResponse<BatchExportConfiguration>
+                            >,
+                        ])
+                        const [hogFunctions, batchExports] = await Promise.all([
+                            fetchAllResults(hogFunctionsPage),
+                            fetchAllResults(batchExportsPage),
+                        ])
+                        const teamItems: PipelineItem[] = []
+                        for (const hf of hogFunctions) {
+                            teamItems.push({
+                                id: `hog_function:${hf.id}`,
+                                name: hf.name,
+                                teamId: team.id,
+                                teamName: team.name,
+                            })
+                        }
+                        for (const be of batchExports) {
+                            teamItems.push({
+                                id: `batch_export:${be.id}`,
+                                name: be.name,
+                                teamId: team.id,
+                                teamName: team.name,
+                            })
+                        }
+                        return teamItems
+                    } catch {
+                        // Skip teams the user doesn't have access to
+                        return []
                     }
-                    for (const be of batchExports.results) {
-                        items.push({
-                            id: `batch_export:${be.id}`,
-                            name: be.name,
-                            teamId: team.id,
-                            teamName: team.name,
-                        })
-                    }
-                } catch {
-                    // Skip teams the user doesn't have access to
-                }
+                })
+            )
+
+            if (cancelled) {
+                return
             }
 
+            const items = perTeamResults.flat()
             setPipelines(items.sort((a, b) => a.teamName.localeCompare(b.teamName) || a.name.localeCompare(b.name)))
             setLoading(false)
             setLoaded(true)
         }
 
         void fetchPipelines()
+
+        return () => {
+            cancelled = true
+        }
     }, [expanded, loaded, currentOrganization?.teams])
 
     const isPipelineDisabled = (pipelineId: string): boolean =>
