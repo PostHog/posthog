@@ -2560,7 +2560,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         message: 'Leave feature flag?\nChanges you made will be discarded.',
         onConfirm: () => {
-            logic.actions.resetFeatureFlag(logic.values.originalFeatureFlag ?? undefined)
+            logic.actions.resetFeatureFlag((logic.values.originalFeatureFlag as any) ?? undefined)
         },
     })),
 
