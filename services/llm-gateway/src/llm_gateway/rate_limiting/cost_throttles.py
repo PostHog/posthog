@@ -72,9 +72,15 @@ class CostThrottle(Throttle):
     def _get_limit_exceeded_detail(self) -> str: ...
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        limit, window = self._get_limit_and_window(context)
+        if limit <= 0:
+            return ThrottleResult.deny(
+                detail=self._get_limit_exceeded_detail(),
+                scope=self.scope,
+                retry_after=window,
+            )
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
-        limit, window = self._get_limit_and_window(context)
 
         current = await limiter.get_current(key)
         ttl = await limiter.get_ttl(key)
@@ -127,9 +133,17 @@ class CostThrottle(Throttle):
         )
 
     async def get_status(self, context: ThrottleContext) -> CostStatus:
+        limit, window = self._get_limit_and_window(context)
+        if limit <= 0:
+            return CostStatus(
+                used_usd=0.0,
+                limit_usd=0.0,
+                remaining_usd=0.0,
+                resets_in_seconds=window,
+                exceeded=True,
+            )
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
-        limit, _ = self._get_limit_and_window(context)
 
         current = await limiter.get_current(key)
         ttl = await limiter.get_ttl(key)
@@ -246,6 +260,9 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         if not base_key:
             return base_key
         if _is_free_plan_throttled(context):
+            # Each billing period gets a fresh key so the sustained budget
+            # resets. In-flight requests near a period boundary may land on
+            # the old key and not count against the new window.
             period = get_billing_period_number(context.seat_created_at, get_settings().free_plan_trial_period_days)
             return f"{base_key}:period:{period}"
         return base_key
