@@ -11,11 +11,13 @@ import type { LogRecord } from './log-record-avro'
 
 describe('log-pii-scrub', () => {
     describe('isSensitiveAttributeKey', () => {
-        it('detects common sensitive substrings case-insensitively', () => {
-            expect(isSensitiveAttributeKey('user_password')).toBe(true)
-            expect(isSensitiveAttributeKey('Authorization')).toBe(true)
-            expect(isSensitiveAttributeKey('my_api_key')).toBe(true)
-            expect(isSensitiveAttributeKey('level')).toBe(false)
+        it.each([
+            ['user_password', true],
+            ['Authorization', true],
+            ['my_api_key', true],
+            ['level', false],
+        ])('isSensitiveAttributeKey(%s) === %s', (key, expected) => {
+            expect(isSensitiveAttributeKey(key)).toBe(expected)
         })
     })
 
