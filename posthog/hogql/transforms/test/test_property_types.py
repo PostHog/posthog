@@ -13,6 +13,8 @@ from posthog.test.base import (
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -296,7 +298,8 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         )
         assert primary_key.get("Condition") != "true"
 
-    def test_toTimeZone_breaks_partition_and_pk_pruning(self):
+    @parameterized.expand(["UTC", "America/New_York"])
+    def test_toTimeZone_breaks_partition_and_pk_pruning(self, tz):
         """toTimeZone(timestamp, tz) breaks partition pruning and PK date usage.
 
         If this test starts failing, ClickHouse has learned to derive
@@ -304,23 +307,21 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         comparisons, and we can remove the toTimeZone-stripping workaround
         entirely (PropertySwapper.visit_compare_operation).
         """
-        for tz in ("UTC", "America/New_York"):
-            with self.subTest(tz=tz):
-                sql = (
-                    f"SELECT count() FROM events "
-                    f"WHERE team_id = {self.team.pk} "
-                    f"AND toTimeZone(timestamp, '{tz}') >= '2024-03-01' "
-                    f"AND toTimeZone(timestamp, '{tz}') < '2024-04-01'"
-                )
-                indexes = get_indexes_from_explain(sql)
+        sql = (
+            f"SELECT count() FROM events "
+            f"WHERE team_id = {self.team.pk} "
+            f"AND toTimeZone(timestamp, '{tz}') >= '2024-03-01' "
+            f"AND toTimeZone(timestamp, '{tz}') < '2024-04-01'"
+        )
+        indexes = get_indexes_from_explain(sql)
 
-                partition = _get_index_by_type(indexes, "Partition")
-                assert partition is not None
-                assert partition.get("Condition") == "true", (
-                    f"tz={tz}: ClickHouse is now pruning partitions with toTimeZone — "
-                    f"the workaround may be removable. "
-                    f"Partition Condition={partition.get('Condition')!r}"
-                )
+        partition = _get_index_by_type(indexes, "Partition")
+        assert partition is not None
+        assert partition.get("Condition") == "true", (
+            f"tz={tz}: ClickHouse is now pruning partitions with toTimeZone — "
+            f"the workaround may be removable. "
+            f"Partition Condition={partition.get('Condition')!r}"
+        )
 
     def test_hogql_compiled_query_has_partition_pruning(self):
         """The HogQL pipeline strips toTimeZone from WHERE comparisons to restore pruning."""
