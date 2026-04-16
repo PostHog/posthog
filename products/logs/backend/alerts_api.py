@@ -1,12 +1,12 @@
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final
+from typing import Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -34,13 +34,14 @@ from products.logs.backend.alert_state_machine import (
     NotificationAction,
     evaluate_alert_check,
 )
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 
 ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 _SENTINEL: Final = object()
+_NOT_ANNOTATED: Final = object()
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -62,15 +63,38 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
+    last_error_message = serializers.SerializerMethodField(
+        help_text=(
+            "Error message from the most recent errored check, or null if the alert's "
+            "most recent check was successful. Sourced from LogsAlertCheck without "
+            "denormalization so retention-aware cleanup rules stay the only source of truth."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
+        # The viewset annotates `_latest_error_message` via Subquery to avoid N+1 on list.
+        # Fallback direct query covers callers that construct this serializer outside the
+        # viewset (tests, admin actions).
+        annotated = getattr(obj, "_latest_error_message", _NOT_ANNOTATED)
+        if annotated is not _NOT_ANNOTATED:
+            # Subquery annotation yields either the error_message string or None.
+            return cast(str | None, annotated)
+        return (
+            LogsAlertCheck.objects.filter(alert=obj, error_message__isnull=False)
+            .order_by("-created_at")
+            .values_list("error_message", flat=True)
+            .first()
+        )
 
     class Meta:
         model = LogsAlertConfiguration
@@ -92,6 +116,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "last_checked_at",
             "consecutive_failures",
+            "last_error_message",
             "created_at",
             "created_by",
             "updated_at",
@@ -104,6 +129,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "last_checked_at",
             "consecutive_failures",
+            "last_error_message",
             "created_at",
             "created_by",
             "updated_at",
@@ -217,13 +243,13 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="Total check periods in the N-of-M evaluation window (M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods must breach to fire (N in N-of-M).",
     )
     cooldown_minutes = serializers.IntegerField(
@@ -412,7 +438,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        # Correlated subquery so list/retrieve can surface `last_error_message` in a
+        # single round-trip instead of one extra query per alert.
+        latest_error = (
+            LogsAlertCheck.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
+            .order_by("-created_at")
+            .values("error_message")[:1]
+        )
+        return queryset.filter(team_id=self.team_id).annotate(_latest_error_message=Subquery(latest_error))
 
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,

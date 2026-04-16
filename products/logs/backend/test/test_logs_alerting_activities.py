@@ -4,10 +4,12 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db.models import F
+
 from parameterized import parameterized
 
 from products.logs.backend.alert_check_query import AlertCheckCountResult
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 from products.logs.backend.temporal.activities import CheckAlertsOutput, _check_alerts_sync, _evaluate_single_alert
 
 
@@ -185,6 +187,37 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         alert.refresh_from_db()
         assert alert.next_check_at is not None and alert.next_check_at > now
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_inline_cap_trims_oldest_non_event_rows(self, _mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert()
+
+        # Seed MAX_EVALUATION_PERIODS non-event rows (the allowed headroom).
+        for _ in range(MAX_EVALUATION_PERIODS):
+            LogsAlertCheck.objects.create(
+                alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
+            )
+        # Seed an event row the activity should never touch.
+        errored = LogsAlertCheck.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="Old CH timeout",
+        )
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        # Cap is MAX_EVALUATION_PERIODS + the new check that was just inserted.
+        non_event_count = LogsAlertCheck.objects.filter(
+            alert=alert, error_message__isnull=True, state_before=F("state_after")
+        ).count()
+        assert non_event_count == MAX_EVALUATION_PERIODS
+        # The errored row survives the cap — events are retention-managed, not count-managed.
+        assert LogsAlertCheck.objects.filter(pk=errored.pk).exists()
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")

@@ -6,7 +6,7 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 
 import structlog
 import temporalio.activity
@@ -25,7 +25,7 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
 
 logger = structlog.get_logger(__name__)
@@ -225,6 +225,29 @@ def _evaluate_single_alert(
             update_fields.append("last_notified_at")
 
         alert.save(update_fields=update_fields)
+
+    # Per-alert cap on non-event rows, enforced inline so the table stays bounded between
+    # daily cleanup runs. Errored rows and state transitions survive (event-retention task).
+    # Best-effort and deliberately outside the transaction above: a missed check would skew
+    # the alert's N-of-M window, a missed prune just leaves one extra row that the next
+    # tick's prune will mop up. Prefer the eventual-consistency failure mode.
+    # Upper-bound the slice so a one-time backlog (e.g. first deploy, or a disabled alert
+    # that accumulated rows) doesn't materialize thousands of IDs in one tick — subsequent
+    # ticks finish the job.
+    try:
+        prunable_ids = list(
+            LogsAlertCheck.objects.filter(
+                alert=alert,
+                error_message__isnull=True,
+                state_before=F("state_after"),
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)[MAX_EVALUATION_PERIODS : MAX_EVALUATION_PERIODS + 500]
+        )
+        if prunable_ids:
+            LogsAlertCheck.objects.filter(id__in=prunable_ids).delete()
+    except Exception:
+        logger.exception("Failed to prune non-event check rows", alert_id=str(alert.id))
 
     transitioned_to_broken = committed_state == AlertState.BROKEN and state_before != AlertState.BROKEN.value
     if transitioned_to_broken:
