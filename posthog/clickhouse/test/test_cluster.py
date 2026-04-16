@@ -661,3 +661,14 @@ class TestClusterRegistry:
             mock_get_cluster.return_value = sentinel.cluster
             get_cluster_by_name("logs", client_settings={"custom": "value"})
         assert mock_get_cluster.call_args.kwargs["client_settings"] == {"custom": "value"}
+
+    def test_get_cluster_by_name_raises_on_missing_setting(self):
+        # If a registry entry references a Django setting that doesn't exist in
+        # this deployment, getattr must raise AttributeError — not silently fall
+        # back to the main cluster. Regression guard for the removed getattr defaults.
+        with patch.dict(
+            "posthog.clickhouse.cluster._CLUSTER_REGISTRY",
+            {"phantom": ("NONEXISTENT_HOST_SETTING", "CLICKHOUSE_CLUSTER")},
+        ):
+            with pytest.raises(AttributeError):
+                get_cluster_by_name("phantom")
