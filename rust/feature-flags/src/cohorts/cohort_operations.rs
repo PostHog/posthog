@@ -15,6 +15,14 @@ use crate::{api::errors::FlagError, properties::property_models::PropertyFilter}
 use common_database::PostgresReader;
 use common_types::TeamId;
 
+/// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
+const COHORT_COLUMNS: &str = r#"
+    c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
+    c.query, c.version, c.pending_version, c.count, c.is_calculating,
+    c.is_static, c.errors_calculating, c.groups, c.created_by_id,
+    c.cohort_type, c.last_backfill_person_properties_at
+"#;
+
 impl Cohort {
     /// Returns all cohorts for a given team
     pub async fn list_from_pg(
@@ -32,30 +40,57 @@ impl Cohort {
                 CohortFetchError::DatabaseUnavailable
             })?;
 
-        let query = r#"
-            SELECT c.id,
-                  c.name,
-                  c.description,
-                  c.team_id,
-                  c.deleted,
-                  c.filters,
-                  c.query,
-                  c.version,
-                  c.pending_version,
-                  c.count,
-                  c.is_calculating,
-                  c.is_static,
-                  c.errors_calculating,
-                  c.groups,
-                  c.created_by_id,
-                  c.cohort_type,
-                  c.last_backfill_person_properties_at
-              FROM posthog_cohort AS c
-              JOIN posthog_team AS t ON (c.team_id = t.id)
-            WHERE t.id = $1
-            AND c.deleted = false
-        "#;
-        let cohorts = sqlx::query_as::<_, Cohort>(query)
+        let query = format!(
+            "SELECT {COHORT_COLUMNS} FROM posthog_cohort AS c \
+             JOIN posthog_team AS t ON (c.team_id = t.id) \
+             WHERE t.id = $1 AND c.deleted = false"
+        );
+        let cohorts = sqlx::query_as::<_, Cohort>(&query)
+            .bind(team_id)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to fetch cohorts from database for team {}: {}",
+                    team_id,
+                    e
+                );
+                CohortFetchError::QueryFailed(format!("Database query error: {e}"))
+            })?;
+
+        Ok(cohorts)
+    }
+
+    /// Fetch cohorts by a set of IDs, filtered to non-deleted cohorts for the given team.
+    /// Used by the cache builder for BFS cohort dependency resolution.
+    pub async fn list_by_ids_from_pg(
+        client: &PostgresReader,
+        team_id: TeamId,
+        ids: &[CohortId],
+    ) -> Result<Vec<Cohort>, CohortFetchError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut conn =
+            get_connection_with_metrics(client, "non_persons_reader", "fetch_cohorts_for_cache")
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        "Failed to get database connection for team {}: {}",
+                        team_id,
+                        e
+                    );
+                    CohortFetchError::DatabaseUnavailable
+                })?;
+
+        let query = format!(
+            "SELECT {COHORT_COLUMNS} FROM posthog_cohort AS c \
+             WHERE c.id = ANY($1) AND c.deleted = false AND c.team_id = $2"
+        );
+
+        let cohorts = sqlx::query_as::<_, Cohort>(&query)
+            .bind(ids)
             .bind(team_id)
             .fetch_all(&mut *conn)
             .await

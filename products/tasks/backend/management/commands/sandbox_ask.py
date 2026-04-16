@@ -6,7 +6,8 @@ from django.core.management.base import BaseCommand
 from pydantic import BaseModel
 
 from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
-from products.tasks.backend.services.custom_prompt_runner import resolve_sandbox_context_for_local_dev, run_prompt
+from products.tasks.backend.services.custom_prompt_runner import run_prompt
+from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 
 
 class StructuredAnswer(BaseModel):

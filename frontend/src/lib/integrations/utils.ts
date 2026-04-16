@@ -5,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
@@ -58,6 +59,9 @@ export const ICONS: Record<IntegrationKind, any> = {
     firebase: IconFirebase,
     jira: IconJira,
     'pinterest-ads': IconPinterest,
+    'customerio-app': IconCustomerIO,
+    'customerio-webhook': IconCustomerIO,
+    'customerio-track': IconCustomerIO,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

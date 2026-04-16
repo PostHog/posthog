@@ -66,10 +66,6 @@ from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
     WORKFLOWS as EXPORT_WORKFLOWS,
 )
-from posthog.temporal.exports_video import (
-    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
-    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
-)
 from posthog.temporal.health_checks import (
     ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
     WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
@@ -172,6 +168,10 @@ from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
+from products.web_analytics.backend.temporal import (
+    ACTIVITIES as WA_DIGEST_ACTIVITIES,
+    WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
 
 # When adding modules to a queue, also update the corresponding CI trigger
 # in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
@@ -264,14 +264,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS
-        + VIDEO_SEGMENT_CLUSTERING_WORKFLOWS
-        + SIGNALS_PRODUCT_WORKFLOWS
-        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES
-        + VIDEO_SEGMENT_CLUSTERING_ACTIVITIES
-        + SIGNALS_PRODUCT_ACTIVITIES
-        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        VIDEO_SEGMENT_CLUSTERING_WORKFLOWS + SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        VIDEO_SEGMENT_CLUSTERING_ACTIVITIES + SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -294,8 +288,8 @@ _task_queue_specs = [
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS,
-        MESSAGING_ACTIVITIES,
+        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,

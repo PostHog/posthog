@@ -80,6 +80,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         addPersonToCreateStaticCohort,
         removePersonFromCreateStaticCohort,
         setCreationPersonQuery,
+        setStaticCohortMode,
         submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
@@ -94,6 +95,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         canRemovePersonFromCohort,
         isPendingCalculation,
         isCalculatingOrPending,
+        staticCohortMode,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -312,6 +314,38 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         )}
                                     </LemonField>
 
+                                    {cohort.is_static && (
+                                        <div className="flex flex-col gap-y-2">
+                                            <h2 className="text-base mb-0">Populate from</h2>
+                                            <p className="text-sm text-secondary my-0 max-w-prose">
+                                                {staticCohortMode === 'criteria'
+                                                    ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
+                                                    : 'Manually add people via CSV upload or by selecting them individually.'}
+                                            </p>
+                                            <LemonSelect
+                                                disabledReason={
+                                                    isNewCohort
+                                                        ? undefined
+                                                        : 'Create a new cohort to change how a static cohort is populated.'
+                                                }
+                                                options={[
+                                                    {
+                                                        label: 'Criteria · One-time snapshot',
+                                                        value: 'criteria' as const,
+                                                    },
+                                                    {
+                                                        label: 'Upload or add people',
+                                                        value: 'people' as const,
+                                                    },
+                                                ]}
+                                                value={staticCohortMode}
+                                                onChange={(value) => setStaticCohortMode(value)}
+                                                fullWidth
+                                                data-attr="static-cohort-mode"
+                                            />
+                                        </div>
+                                    )}
+
                                     {!isNewCohort && !cohort?.is_static && (
                                         <div className="flex flex-col gap-y-2">
                                             <div className="flex items-center gap-x-2 my-0">
@@ -365,7 +399,40 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                 </div>
                             </div>
                         </SceneSection>
-                        {cohort.is_static ? (
+                        {cohort.is_static && staticCohortMode === 'criteria' ? (
+                            <>
+                                <SceneDivider />
+                                <SceneSection hideTitleAndDescription>
+                                    {!isNewCohort && (
+                                        <LemonBanner type="info" className="mb-4">
+                                            This static cohort was snapshotted from criteria at creation time. Editing
+                                            these criteria is not supported. Create a new cohort to use different
+                                            criteria.
+                                        </LemonBanner>
+                                    )}
+                                    <AndOrFilterSelect
+                                        value={cohort.filters.properties.type}
+                                        onChange={(value) => {
+                                            setOuterGroupsType(value)
+                                        }}
+                                        topLevelFilter={true}
+                                        suffix={['criterion', 'criteria']}
+                                        disabledReason={
+                                            isNewCohort ? undefined : 'Create a new cohort to use different criteria.'
+                                        }
+                                    />
+                                    <div
+                                        className={cn(
+                                            'w-full [&>div]:my-0 [&>div]:w-full',
+                                            !isNewCohort && 'pointer-events-none opacity-60'
+                                        )}
+                                        aria-disabled={!isNewCohort}
+                                    >
+                                        <CohortCriteriaGroups id={logicProps.id} />
+                                    </div>
+                                </SceneSection>
+                            </>
+                        ) : cohort.is_static ? (
                             <>
                                 <SceneDivider />
                                 <SceneSection

@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { LineChart } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
@@ -43,6 +43,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         showPercentStackView,
         supportsPercentStackView,
         yAxisScaleType,
+        showMultipleYAxes,
         goalLines,
         getTrendsColor,
         currentPeriodResult,
@@ -80,7 +81,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? []).map((r: IndexedTrendResult) => {
+            (indexedResults ?? []).map((r: IndexedTrendResult, index: number) => {
                 const isActiveSeries = !r.compare || r.compare_label !== 'previous'
                 const dashedFromIndex =
                     isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
@@ -91,6 +92,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
                     dashedFromIndex,
+                    yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
                     meta: {
                         action: r.action,
                         breakdown_value: r.breakdown_value,
@@ -101,7 +103,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     },
                 }
             }),
-        [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd]
+        [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd, showMultipleYAxes]
     )
 
     const chartConfig: LineChartConfig = useMemo(() => {
@@ -211,6 +213,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
         </LineChart>

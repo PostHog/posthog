@@ -74,18 +74,6 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert datum.mean == 0.0
         assert response.results == []
 
-    @snapshot_clickhouse_queries
-    def test_empty_results_when_no_series(self):
-        query = TrendsQuery(
-            dateRange=DateRange(date_from="2023-12-08", date_to="2023-12-15"),
-            trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT),
-            series=[],
-        )
-        runner = BoxPlotTrendsQueryRunner(team=self.team, query=query)
-        response = runner.calculate()
-
-        assert response.results == []
-
     @parameterized.expand(
         [
             (

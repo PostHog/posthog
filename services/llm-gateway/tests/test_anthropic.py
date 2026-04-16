@@ -508,6 +508,71 @@ class TestAnthropicMessagesEndpoint:
         assert "Expected: true or false" in response.json()["error"]["message"]
 
 
+class TestStripServerSideTools:
+    """Unit tests for strip_server_side_tools helper."""
+
+    CUSTOM_TOOL: dict[str, Any] = {
+        "name": "read_data",
+        "description": "Reads data",
+        "input_schema": {"type": "object", "properties": {}},
+    }
+    WEB_SEARCH_TOOL: dict[str, Any] = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+    TEXT_EDITOR_TOOL: dict[str, Any] = {"type": "text_editor_20250124", "name": "text_editor"}
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tools
+
+        strip_server_side_tools(data, model="test-model", product="test")
+
+    def test_strips_server_side_keeps_custom(self) -> None:
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL]}
+        self._call(data)
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "read_data"
+
+    def test_keeps_explicit_custom_type(self) -> None:
+        explicit = {**self.CUSTOM_TOOL, "type": "custom"}
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, explicit]}
+        self._call(data)
+        assert len(data["tools"]) == 2
+
+    def test_keeps_function_type(self) -> None:
+        fn_tool = {**self.CUSTOM_TOOL, "type": "function"}
+        data: dict[str, Any] = {"tools": [fn_tool]}
+        self._call(data)
+        assert len(data["tools"]) == 1
+
+    def test_removes_tools_key_when_all_stripped(self) -> None:
+        data: dict[str, Any] = {"tools": [self.WEB_SEARCH_TOOL]}
+        self._call(data)
+        assert "tools" not in data
+
+    def test_noop_when_no_tools_key(self) -> None:
+        data: dict[str, Any] = {"model": "test"}
+        self._call(data)
+        assert "tools" not in data
+
+    def test_logs_warning_per_stripped_tool(self) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tools
+
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL, self.TEXT_EDITOR_TOOL]}
+        with patch("llm_gateway.api.anthropic.logger") as mock_logger:
+            strip_server_side_tools(data, model="test-model", product="test")
+
+            assert mock_logger.warning.call_count == 2
+            warned_tool_names = {call.kwargs["tool_name"] for call in mock_logger.warning.call_args_list}
+            assert warned_tool_names == {"web_search", "text_editor"}
+
+    def test_strips_multiple_server_side_tool_types(self) -> None:
+        code_exec_tool: dict[str, Any] = {"type": "code_execution_20250522", "name": "code_execution"}
+        data: dict[str, Any] = {
+            "tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL, self.TEXT_EDITOR_TOOL, code_exec_tool]
+        }
+        self._call(data)
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "read_data"
+
+
 class TestAnthropicCountTokensEndpoint:
     @pytest.fixture
     def valid_request_body(self) -> dict[str, Any]:
