@@ -7,6 +7,7 @@ import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-
 
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
 import { quickRanges } from './date-time-ranges'
+import { Day } from './use-calendar'
 
 // Layout is `padded` (block flow) not `centered` (flex): the picker uses CSS
 // container queries with `container-type: inline-size`, and inside a flex parent
@@ -110,6 +111,14 @@ export const WithSettingsLink: Story = {
                 onDateTimeSettings={() => alert('Open date & time settings')}
             />
         )
+    },
+}
+
+export const WeekStartsMonday: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        return <DateTimePicker value={value} onApply={setValue} weekStartsOn={Day.THURSDAY} />
     },
 }
 

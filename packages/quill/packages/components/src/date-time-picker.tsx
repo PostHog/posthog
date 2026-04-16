@@ -22,7 +22,7 @@ import * as React from 'react'
 import { Button, InputGroup, InputGroupNumberInput, ScrollArea, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
-import { useCalendar } from './use-calendar'
+import { Day, useCalendar } from './use-calendar'
 
 const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
     MDY: 'MM/dd/yy HH:mm:ss',
@@ -65,6 +65,7 @@ export interface DateTimePickerProps {
     onCancel?: () => void
     maxDate?: Date
     dateFormat?: DateFormatOrder
+    weekStartsOn?: Day
     onDateTimeSettings?: () => void
     className?: string
 }
@@ -139,6 +140,7 @@ interface CalendarProps {
     onSelect: (day: Date) => void
     onViewChange: (month: Date) => void
     siblingViewing?: Date
+    weekStartsOn?: Day
 }
 
 function Calendar({
@@ -149,9 +151,11 @@ function Calendar({
     onSelect,
     onViewChange,
     siblingViewing,
+    weekStartsOn,
 }: CalendarProps): React.ReactElement {
     const { calendar, viewing, setViewing, viewPreviousMonth, viewNextMonth } = useCalendar({
         viewing: defaultViewing,
+        weekStartsOn,
     })
 
     // Keep viewing in sync if parent-controlled defaultViewing changes (e.g. when
@@ -393,6 +397,7 @@ export function DateTimePicker({
     onCancel,
     maxDate = new Date(),
     dateFormat = 'MDY',
+    weekStartsOn,
     onDateTimeSettings,
     className,
 }: DateTimePickerProps): React.ReactElement {
@@ -545,6 +550,7 @@ export function DateTimePicker({
                                 onSelect={handleSelect}
                                 onViewChange={setLeftViewing}
                                 siblingViewing={rightViewing}
+                                weekStartsOn={weekStartsOn}
                             />
                         </div>
                         <div className="p-3">
@@ -556,6 +562,7 @@ export function DateTimePicker({
                                 onSelect={handleSelect}
                                 onViewChange={setRightViewing}
                                 siblingViewing={leftViewing}
+                                weekStartsOn={weekStartsOn}
                             />
                         </div>
                     </div>
