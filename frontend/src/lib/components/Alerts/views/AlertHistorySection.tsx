@@ -9,6 +9,7 @@ import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsMod
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { formatDate } from 'lib/utils'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../alertLogic'
@@ -34,14 +35,8 @@ export function AlertHistorySectionSkeleton({ showChartArea = true }: { showChar
 }
 
 /** Check history in the alert modal: status, empty state, chart/table toggle (when enabled), and paginated table. */
-export function AlertHistorySection({
-    alertId,
-    historyChartEnabled,
-}: {
-    alertId: AlertType['id']
-    /** `FEATURE_FLAGS.ALERTS_HISTORY_CHART` — chart + toggle; table-only history when false. */
-    historyChartEnabled: boolean
-}): JSX.Element | null {
+export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): JSX.Element | null {
+    const historyChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
     const logic = alertLogic({ alertId, historyChartEnabled })
     const {
         alert,

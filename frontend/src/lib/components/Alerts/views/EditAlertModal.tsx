@@ -707,10 +707,7 @@ export function EditAlertModal({
 
                         {!creatingNewAlert && alertId ? (
                             alert ? (
-                                <AlertHistorySection
-                                    alertId={alert.id}
-                                    historyChartEnabled={alertsHistoryChartEnabled}
-                                />
+                                <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (
                                 <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
                             ) : null
