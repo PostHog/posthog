@@ -1,5 +1,8 @@
+import { expectLogic } from 'kea-test-utils'
+
 import * as libUtils from 'lib/utils'
 import {
+    entityFilterLogic,
     singleFilterToGroupFilter,
     splitGroupFilterToLocalFilters,
     toLocalFilters,
@@ -7,7 +10,7 @@ import {
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { EntityTypes, FilterLogicalOperator } from '~/types'
+import { EntityTypes, FilterLogicalOperator, FilterType } from '~/types'
 
 describe('ActionFilterGroup - Combining and Splitting Events', () => {
     beforeEach(() => {
@@ -379,6 +382,73 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
 
             expect(split).toHaveLength(10)
             expect(split.map((f) => f.id)).toEqual(Array.from({ length: 10 }, (_, i) => `event-${i}`))
+        })
+    })
+
+    describe('duplicating a group filter', () => {
+        it('inserts a new group with a fresh uuid and same nested filters after the original', async () => {
+            let uuidCounter = 0
+            ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
+
+            const setFilters = jest.fn()
+            const filters: Partial<FilterType> = {
+                groups: [
+                    {
+                        id: null,
+                        type: EntityTypes.GROUPS,
+                        name: 'group',
+                        order: 0,
+                        operator: FilterLogicalOperator.Or,
+                        nestedFilters: [
+                            {
+                                id: '$pageview',
+                                type: EntityTypes.EVENTS,
+                                name: '$pageview',
+                                order: 0,
+                            },
+                            {
+                                id: '$exception',
+                                type: EntityTypes.EVENTS,
+                                name: '$exception',
+                                order: 1,
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const logic = entityFilterLogic({
+                setFilters,
+                filters: filters as FilterType,
+                typeKey: 'duplicate_group_test',
+            })
+            logic.mount()
+
+            const originalGroup = logic.values.localFilters[0]
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateFilter(originalGroup)
+            }).toDispatchActions(['duplicateFilter', 'setFilters'])
+
+            expect(logic.values.localFilters).toHaveLength(2)
+
+            const [first, duplicate] = logic.values.localFilters
+            expect(first.uuid).toBe(originalGroup.uuid)
+            expect(duplicate.uuid).not.toBe(originalGroup.uuid)
+            expect(duplicate.type).toBe(EntityTypes.GROUPS)
+            expect(duplicate.order).toBe(1)
+            expect(duplicate.nestedFilters).toEqual(originalGroup.nestedFilters)
+
+            expect(setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    groups: expect.arrayContaining([
+                        expect.objectContaining({ order: 0, type: EntityTypes.GROUPS }),
+                        expect.objectContaining({ order: 1, type: EntityTypes.GROUPS }),
+                    ]),
+                })
+            )
+
+            logic.unmount()
         })
     })
 
