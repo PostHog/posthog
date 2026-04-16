@@ -66,9 +66,9 @@ describe('playerMetaLogic', () => {
     })
 
     describe('summaryDisabledReason', () => {
-        it('returns an error string when the session has no autocapture events', () => {
+        it('returns an error string when events are not yet loaded', () => {
             expectLogic(logic).toMatchValues({
-                summaryDisabledReason: expect.stringContaining('autocapture events'),
+                summaryDisabledReason: expect.stringContaining('Session events are not available yet'),
             })
         })
     })
