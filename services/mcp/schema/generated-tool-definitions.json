@@ -360,7 +360,7 @@
         }
     },
     "cdp-functions-logs-retrieve": {
-        "description": "Retrieve execution logs for a specific function (destination, transformation, site app, etc.) by its ID. Returns timestamped log entries with level (DEBUG, LOG, INFO, WARN, ERROR) and message. Use to debug function execution issues, check for errors, or monitor function behavior. Filter by time range, log level, search term, or specific invocation instance ID.",
+        "description": "Retrieve execution logs for a specific function (destination, transformation, site app, etc.) by its ID. Returns timestamped log entries with level (DEBUG, LOG, INFO, WARN, ERROR) and message. Use to debug function execution issues, check for errors, or monitor function behavior. Filter by time range, log level, or specific invocation instance ID.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Get function logs",

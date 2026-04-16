@@ -272,6 +272,7 @@ const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsListParams.omit({ project
         created_by: true,
         enabled: true,
         offset: true,
+        search: true,
         type: true,
         updated_at: true,
     }).shape
@@ -295,7 +296,6 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
-                search: params.search,
             },
         })
         return result
