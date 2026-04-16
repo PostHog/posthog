@@ -32,6 +32,9 @@ CSRF_TRUSTED_ORIGINS = (
     if raw_site_url
     else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
+# Extra entries for dev proxies (e.g. Coder wildcard hosts). Django 4+ supports wildcard
+# patterns like `https://*.coder.dev.posthog.dev` in CSRF_TRUSTED_ORIGINS.
+CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)

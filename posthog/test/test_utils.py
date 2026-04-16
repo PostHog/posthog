@@ -11,7 +11,7 @@ from unittest.mock import call, patch
 
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -32,6 +32,7 @@ from posthog.utils import (
     get_default_event_info,
     get_default_event_name,
     get_ip_address,
+    get_js_url,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
@@ -822,3 +823,32 @@ class TestSharingOverrideProtection(TestCase):
         result = tile_filters_override_requested_by_client(request, tile)
 
         assert result == {"breakdown": "region"}
+
+
+class TestGetJsUrl(SimpleTestCase):
+    @override_settings(DEBUG=True, JS_URL="http://localhost:8234")
+    def test_localhost_unchanged(self) -> None:
+        request = RequestFactory().get("/", HTTP_HOST="localhost:8010")
+        self.assertEqual(get_js_url(request), "http://localhost:8234")
+
+    @override_settings(DEBUG=True, JS_URL="http://localhost:8234")
+    def test_non_localhost_http_scheme_aware(self) -> None:
+        request = RequestFactory().get("/", HTTP_HOST="192.168.1.5:8010")
+        self.assertEqual(get_js_url(request), "http://192.168.1.5:8234")
+
+    @override_settings(DEBUG=True, JS_URL="http://localhost:8234")
+    def test_coder_host_slug_swap(self) -> None:
+        request = RequestFactory().get(
+            "/",
+            HTTP_HOST="posthog--dev--ws--user.coder.dev.posthog.dev",
+            secure=True,
+        )
+        self.assertEqual(
+            get_js_url(request),
+            "https://vite--dev--ws--user.coder.dev.posthog.dev",
+        )
+
+    @override_settings(DEBUG=False, JS_URL="https://vite--prod.example.com")
+    def test_non_debug_returns_settings_unchanged(self) -> None:
+        request = RequestFactory().get("/", HTTP_HOST="anything.example.com")
+        self.assertEqual(get_js_url(request), "https://vite--prod.example.com")

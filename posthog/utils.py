@@ -369,13 +369,24 @@ def get_js_url(request: HttpRequest) -> str:
     from urllib.parse import urlparse
 
     parsed = urlparse(settings.JS_URL)
-    if settings.DEBUG and parsed.hostname == "localhost":
-        # Rewrite the JS_URL hostname to match the request origin so the browser
-        # can reach the Vite dev server when accessed via a non-localhost address
-        # (e.g. from a Docker container or remote host).
+    if not (settings.DEBUG and parsed.hostname == "localhost"):
+        return settings.JS_URL
+
+    request_host = request.get_host().split(":")[0]
+    scheme = request.scheme
+
+    # Coder maps each coder_app to its own subdomain slug (e.g. posthog--dev--ws--user.<base>).
+    # When the incoming host uses the `posthog--…` slug, swap it for the Vite app's `vite--…`
+    # slug and drop the port — Coder routes by slug on :443, not by explicit port.
+    first_label, _, rest = request_host.partition(".")
+    if rest and first_label.startswith("posthog--"):
+        vite_host = "vite--" + first_label[len("posthog--") :] + "." + rest
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"http://{request.get_host().split(':')[0]}:{parsed.port}"
-    return settings.JS_URL
+        return f"{scheme}://{vite_host}"
+
+    # Generic non-localhost dev (bare IP, docker host, etc.) — keep :port behavior, honor scheme.
+    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+    return f"{scheme}://{request_host}:{parsed.port}"
 
 
 def get_context_for_template(

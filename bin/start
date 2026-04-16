@@ -24,6 +24,16 @@ export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
+# Zero-config defaults when running inside a Coder workspace. CODER_WILDCARD_ACCESS_URL
+# must be re-exported to the agent via coder_agent.env in the workspace template.
+if [[ -n "${CODER_WORKSPACE_NAME:-}" && -n "${CODER_WORKSPACE_OWNER:-}" && -n "${CODER_WILDCARD_ACCESS_URL:-}" ]]; then
+    coder_base="${CODER_WILDCARD_ACCESS_URL#\*.}"
+    export SITE_URL="${SITE_URL:-https://posthog--dev--${CODER_WORKSPACE_NAME}--${CODER_WORKSPACE_OWNER}.${coder_base}}"
+    export JS_URL="${JS_URL:-https://vite--dev--${CODER_WORKSPACE_NAME}--${CODER_WORKSPACE_OWNER}.${coder_base}}"
+    export EXTRA_CSRF_TRUSTED_ORIGINS="${EXTRA_CSRF_TRUSTED_ORIGINS:-https://*.${coder_base}}"
+    export IS_BEHIND_PROXY="${IS_BEHIND_PROXY:-1}"
+fi
+
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
     export RUSTC_WRAPPER="sccache"
