@@ -133,6 +133,7 @@ class Snapshot:
     id: UUID
     identifier: str
     result: str
+    classification_reason: str  # exact, tolerated_hash, below_threshold, or ""
     current_artifact: Artifact | None
     baseline_artifact: Artifact | None
     diff_artifact: Artifact | None
@@ -142,6 +143,7 @@ class Snapshot:
     review_state: str  # pending, approved, (future: rejected)
     reviewed_at: datetime | None
     approved_hash: str
+    tolerated_hash_id: UUID | None = None
     # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -155,6 +157,7 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    tolerated_matched: int = 0
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,18 @@ class AutoApproveResult:
 
     run: Run
     baseline_content: str
+
+
+@dataclass(frozen=True)
+class ToleratedHashEntry:
+    """A known tolerated alternate hash for a snapshot identifier."""
+
+    id: UUID
+    alternate_hash: str
+    baseline_hash: str
+    reason: str
+    created_at: datetime
+    source_run_id: UUID | None
 
 
 @dataclass(frozen=True)

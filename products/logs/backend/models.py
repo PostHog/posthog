@@ -37,6 +37,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         PENDING_RESOLVE = "pending_resolve", "Pending resolve"
         ERRORED = "errored", "Errored"
         SNOOZED = "snoozed", "Snoozed"
+        BROKEN = "broken", "Broken"
 
     class ThresholdOperator(models.TextChoices):
         ABOVE = "above", "Above"
@@ -106,7 +107,9 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         updated: list[str] = []
         if reset_state:
             self.state = self.State.NOT_FIRING
+            self.consecutive_failures = 0
             updated.append("state")
+            updated.append("consecutive_failures")
         self.next_check_at = None
         updated.append("next_check_at")
         return updated

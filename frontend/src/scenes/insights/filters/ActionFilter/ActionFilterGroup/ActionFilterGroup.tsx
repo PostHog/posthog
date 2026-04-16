@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -89,7 +89,9 @@ export function ActionFilterGroup({
     ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
-    const { removeLocalFilter, splitLocalFilter, showModal, selectFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { removeLocalFilter, splitLocalFilter, duplicateFilter, showModal, selectFilter } = useActions(
+        entityFilterLogic({ typeKey })
+    )
     const { mathDefinitions } = useValues(mathsLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
@@ -117,11 +119,7 @@ export function ActionFilterGroup({
                 transition,
             }}
         >
-            <div
-                className={clsx('flex flex-col overflow-hidden min-w-0', {
-                    'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
-                })}
-            >
+            <div className="flex flex-col overflow-hidden min-w-0 border border-primary rounded hover:border-secondary">
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
@@ -153,30 +151,20 @@ export function ActionFilterGroup({
 
                         {mathAvailability !== MathAvailability.None &&
                             mathAvailability !== MathAvailability.FunnelsOnly && (
-                                // we use flex-wrap when the math name is long so "Math:" and the
-                                // select can stack, but flex-nowrap for short names so they stay together.
-                                // CSS can't solve this because the select width varies by content.
-                                // Remove after insight-editor-panel experiment ends
-                                <div
-                                    className={clsx(
-                                        'flex items-center gap-2',
-                                        (mathDefinitions[filter.math || BaseMathType.TotalCount]?.name?.length ?? 0) >
-                                            25
-                                            ? 'flex-wrap'
-                                            : ''
-                                    )}
-                                >
-                                    <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
-                                    <MathSelector
-                                        size="small"
-                                        math={filter.math}
-                                        mathGroupTypeIndex={filter.math_group_type_index}
-                                        index={index}
-                                        onMathSelect={(_, math) => setMath(math, defaultMathHogQLExpression)}
-                                        disabled={disabled || readOnly}
-                                        mathAvailability={mathAvailability}
-                                        trendsDisplayCategory={trendsDisplayCategory}
-                                    />
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
+                                        <MathSelector
+                                            size="small"
+                                            math={filter.math}
+                                            mathGroupTypeIndex={filter.math_group_type_index}
+                                            index={index}
+                                            onMathSelect={(_, math) => setMath(math, defaultMathHogQLExpression)}
+                                            disabled={disabled || readOnly}
+                                            mathAvailability={mathAvailability}
+                                            trendsDisplayCategory={trendsDisplayCategory}
+                                        />
+                                    </div>
                                     {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.PropertyValue && (
                                         <TaxonomicStringPopover
@@ -301,6 +289,17 @@ export function ActionFilterGroup({
                                                 'data-attr': `group-filter-rename-${index}`,
                                             },
                                             {
+                                                label: 'Duplicate',
+                                                size: 'medium',
+                                                icon: <IconCopy />,
+                                                onClick: () => {
+                                                    if (groupFilter) {
+                                                        duplicateFilter(groupFilter)
+                                                    }
+                                                },
+                                                'data-attr': `group-filter-duplicate-${index}`,
+                                            },
+                                            {
                                                 label: 'Delete',
                                                 size: 'medium',
                                                 status: 'danger',
@@ -325,7 +324,7 @@ export function ActionFilterGroup({
                 </div>
 
                 {/* Events list */}
-                <ul className="ActionFilterGroup--events-list flex flex-col px-4 py-2.5">
+                <ul className="ActionFilterGroup--events-list flex flex-col px-4 py-2.5 bg-primary [&_.ActionFilterRow]:!border-0 [&_.ActionFilterRow]:!rounded-none [&_.ActionFilterRow]:!p-0">
                     {nestedFilters.map((eventFilter, eventIndex) => {
                         const nestedLogicInstance = nestedFilterLogic({
                             groupFilterUuid: filter.uuid,
@@ -375,7 +374,7 @@ export function ActionFilterGroup({
 
                 {/* Add event button */}
                 {!readOnly && nestedFilters.length < 10 && (
-                    <div className="ActionFilterGroup--footer px-4 py-2.5">
+                    <div className="ActionFilterGroup--footer px-4 py-2.5 bg-primary">
                         <TaxonomicPopover
                             data-attr={`add-group-event-${index}`}
                             groupType={TaxonomicFilterGroupType.Events}
