@@ -267,7 +267,7 @@ def _forward_comment_to_task(
     user: User = task_run.task.created_by
     org_id = user.current_organization_id
     if not posthoganalytics.feature_enabled(
-        "github_comment_auto_resume",
+        "github-comment-auto-resume",
         user.distinct_id,
         groups={"organization": org_id},
         group_properties={"organization": {"id": org_id}},
