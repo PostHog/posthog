@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { SessionFeatureBlock, SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '../../session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor, SessionKey } from '../../session-replay/shared/types'
@@ -10,6 +11,7 @@ import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFeatureRecorder } from './session-feature-recorder'
 import { SessionFilter } from './session-filter'
 import { SessionRateLimiter } from './session-rate-limiter'
 import { SessionTracker } from './session-tracker'
@@ -61,7 +63,7 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
 export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<
         number,
-        Map<string, [SnappySessionRecorder, SessionConsoleLogRecorder, SessionKey]>
+        Map<string, [SnappySessionRecorder, SessionConsoleLogRecorder, SessionFeatureRecorder, SessionKey]>
     >()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
@@ -73,6 +75,7 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
+        private readonly featureStore: SessionFeatureStore,
         private readonly sessionTracker: SessionTracker,
         private readonly sessionFilter: SessionFilter,
         private readonly keyStore: KeyStore,
@@ -165,7 +168,7 @@ export class SessionBatchRecorder {
         const existingBatchState = sessions.get(teamSessionKey)
 
         if (existingBatchState) {
-            const [sessionBlockRecorder, _, existingSessionKey] = existingBatchState
+            const [sessionBlockRecorder, _logRecorder, _featureRecorder, existingSessionKey] = existingBatchState
             if (sessionBlockRecorder.teamId !== teamId) {
                 logger.warn('🔁', 'session_batch_recorder_team_id_mismatch', {
                     sessionId,
@@ -188,13 +191,15 @@ export class SessionBatchRecorder {
             sessions.set(teamSessionKey, [
                 new SnappySessionRecorder(sessionId, teamId, this.batchId),
                 new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
+                new SessionFeatureRecorder(sessionId, teamId, this.batchId),
                 sessionKey,
             ])
         }
 
-        const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(teamSessionKey)!
+        const [sessionBlockRecorder, consoleLogRecorder, featureRecorder] = sessions.get(teamSessionKey)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
+        featureRecorder.recordMessage(message.message)
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
@@ -272,6 +277,7 @@ export class SessionBatchRecorder {
         const writer = this.storage.newBatch()
 
         const blockMetadata: SessionBlockMetadata[] = []
+        const featureBlocks: SessionFeatureBlock[] = []
 
         let totalEvents = 0
         let totalSessions = 0
@@ -279,7 +285,12 @@ export class SessionBatchRecorder {
 
         try {
             for (const sessions of this.partitionSessions.values()) {
-                for (const [sessionBlockRecorder, consoleLogRecorder, sessionKey] of sessions.values()) {
+                for (const [
+                    sessionBlockRecorder,
+                    consoleLogRecorder,
+                    featureRecorder,
+                    sessionKey,
+                ] of sessions.values()) {
                     const {
                         buffer,
                         eventCount,
@@ -297,6 +308,17 @@ export class SessionBatchRecorder {
                         snapshotLibrary,
                         batchId,
                     } = await sessionBlockRecorder.end()
+
+                    const features = featureRecorder.end()
+                    if (features) {
+                        featureBlocks.push({
+                            sessionId: sessionBlockRecorder.sessionId,
+                            teamId: sessionBlockRecorder.teamId,
+                            distinctId: sessionBlockRecorder.distinctId,
+                            batchId,
+                            features,
+                        })
+                    }
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
@@ -348,6 +370,7 @@ export class SessionBatchRecorder {
 
             await writer.finish()
             await this.consoleLogStore.flush()
+            await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
             await this.offsetManager.commit()
 

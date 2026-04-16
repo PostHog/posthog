@@ -40,8 +40,13 @@ env:
 
 jobs:
     rust-flags-integration:
-        name: Rust /flags Integration Tests
-        runs-on: depot-ubuntu-latest
+        name: Rust /flags Integration Tests (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 30
 
         services:

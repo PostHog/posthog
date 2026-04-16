@@ -97,6 +97,12 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.invite_message !== undefined) {
             body['invite_message'] = params.invite_message
         }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
+        }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'POST',
             path: `/api/projects/${projectId}/subscriptions/`,
@@ -178,6 +184,12 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.invite_message !== undefined) {
             body['invite_message'] = params.invite_message
+        }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
         }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'PATCH',

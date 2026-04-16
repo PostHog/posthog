@@ -46,7 +46,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
         ],
         actions: [
             llmAnalyticsSharedLogic({ tabId: props.tabId }),
-            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),
 
@@ -100,6 +100,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
 
@@ -114,6 +115,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                 setDates: () => ({}),
                 setPropertyFilters: () => ({}),
                 setShouldFilterTestAccounts: () => ({}),
+                applyUrlState: () => ({}),
             },
         ],
     }),
