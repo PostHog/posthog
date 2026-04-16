@@ -455,6 +455,9 @@ impl HyperCacheReader {
     ) -> Result<(Option<T>, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
+        // S3 NotFound is the only authoritative miss signal; infra errors are
+        // tracked separately so callers don't tombstone keys whose backing store
+        // may recover.
         let mut s3_confirmed_miss = false;
         let mut infra_error: Option<HyperCacheError> = None;
 
@@ -1574,7 +1577,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_typed_with_source_json_parse_error_falls_to_s3() {
+    async fn test_get_typed_with_source_redis_json_error_yields_cache_miss_via_s3() {
         // When Redis returns invalid JSON, the reader falls through to S3.
         // With dummy S3 (always NotFound), this results in a confirmed CacheMiss.
         let invalid_json = "not valid json {{{";
@@ -1595,6 +1598,45 @@ mod tests {
             matches!(result.unwrap_err(), HyperCacheError::CacheMiss),
             "should be CacheMiss when S3 confirms NotFound"
         );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_with_source_redis_json_error_falls_through_to_s3_hit() {
+        // Happy-path counterpart: Redis JSON parse error must not short-circuit —
+        // the reader must still consult S3, and return S3 data on hit.
+        let expected = make_test_flags();
+        let json_string = serde_json::to_string(&expected).unwrap();
+
+        let invalid_json = "not valid json {{{";
+        let pickled = serde_pickle::to_vec(&invalid_json, Default::default()).unwrap();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
+
+        let mut mock_s3 = MockS3Client::new();
+        let s3_key = create_test_config().get_s3_cache_key(&KeyType::int(42));
+        let json_clone = json_string.clone();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket".to_string()),
+                predicate::eq(s3_key),
+            )
+            .returning(move |_, _| {
+                let val = json_clone.clone();
+                Box::pin(async move { Ok(val) })
+            });
+
+        let reader = create_test_reader_with_mocks(mock_redis, Arc::new(mock_s3));
+        let (data, source) = reader
+            .get_typed_with_source::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, Some(expected));
     }
 
     #[tokio::test]

@@ -4,16 +4,17 @@ use crate::{
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
-        TEAM_NEGATIVE_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER,
+        TEAM_NEGATIVE_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER, TOMBSTONE_COUNTER,
     },
     team::team_models::Team,
 };
 use common_cache::NegativeCache;
 use common_database::PostgresReader;
-use common_hypercache::{CacheSource, HyperCacheReader, KeyType};
+use common_hypercache::{CacheSource, HyperCacheError, HyperCacheReader, KeyType};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
+use metrics::counter;
 use std::sync::Arc;
 
 /// Result of fetching feature flags, including cache source information.
@@ -179,26 +180,44 @@ impl FlagService {
         team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
         let key = KeyType::int(team_id);
-        let pg_client = self.pg_client.clone();
 
-        let (data, source) = self
+        let (data, source) = match self
             .flags_hypercache_reader
-            .get_typed_with_source_or_fallback::<HypercacheFlagsWrapper, _, _, FlagError>(
-                &key,
-                || async move {
-                    // PG has no dependency metadata, so all flags go in a single stage.
-                    let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
-                    let evaluation_metadata =
-                        crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
-                    let wrapper = HypercacheFlagsWrapper {
-                        flags,
-                        cohorts: None,
-                        evaluation_metadata,
-                    };
-                    Ok::<Option<HypercacheFlagsWrapper>, FlagError>(Some(wrapper))
-                },
-            )
-            .await?;
+            .get_typed_with_source::<HypercacheFlagsWrapper>(&key)
+            .await
+        {
+            Ok(ok) => ok,
+            Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
+                // Cache corruption is a data problem, not a transient infra issue.
+                // Emit a tombstone for visibility and hard-fail rather than paper over
+                // with PG data that lacks dependency metadata. team_id goes in the log,
+                // not the metric label, to avoid high-cardinality series.
+                tracing::error!("Failed to parse hypercache data for team {team_id}: {e}");
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "feature_flags",
+                    "operation" => "hypercache_parse_error",
+                    "component" => "flag_service",
+                )
+                .increment(1);
+                return Err(FlagError::DataParsingErrorWithContext(format!(
+                    "Failed to parse feature flags for team {team_id}: {e}"
+                )));
+            }
+            Err(_) => {
+                // CacheMiss or infra error: fall back to PG for resilience.
+                // PG has no dependency metadata, so all flags go in a single stage.
+                let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
+                let evaluation_metadata =
+                    crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
+                let wrapper = HypercacheFlagsWrapper {
+                    flags,
+                    cohorts: None,
+                    evaluation_metadata,
+                };
+                (Some(wrapper), CacheSource::Fallback)
+            }
+        };
 
         let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
 
