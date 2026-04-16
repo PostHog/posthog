@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -12,63 +12,68 @@ const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Elem
     return <RawLemonSwitch {...props} checked={isChecked} onChange={setIsChecked} />
 }
 
-type Story = StoryObj<typeof RawLemonSwitch>
-const meta: Meta<typeof LemonSwitch> = {
+type Story = StoryObj<LemonSwitchProps>
+const meta: Meta<LemonSwitchProps> = {
     title: 'Lemon UI/Lemon Switch',
     component: LemonSwitch,
     args: {
         label: 'Switch this!',
     },
     tags: ['autodocs'],
+    render: (props) => {
+        return <LemonSwitch {...props} />
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof RawLemonSwitch> = (props: LemonSwitchProps) => {
-    return <LemonSwitch {...props} />
+export const Basic: Story = {
+    args: {},
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {}
+export const Overview: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <LemonSwitch label="Unchecked" checked={false} />
+                <LemonSwitch label="Checked" checked />
 
-export const Overview = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <LemonSwitch label="Unchecked" checked={false} />
-            <LemonSwitch label="Checked" checked />
+                <LemonSwitch label="Bordered Unchecked" bordered />
+                <LemonSwitch label="Bordered Checked" checked bordered />
 
-            <LemonSwitch label="Bordered Unchecked" bordered />
-            <LemonSwitch label="Bordered Checked" checked bordered />
+                <LemonSwitch label="Bordered FullWidth" fullWidth bordered />
+                <LemonSwitch label="Bordered disabled" bordered disabled />
 
-            <LemonSwitch label="Bordered FullWidth" fullWidth bordered />
-            <LemonSwitch label="Bordered disabled" bordered disabled />
-
-            <div className="w-20">
-                <LemonSwitch label="Bordered with a really long label" bordered />
+                <div className="w-20">
+                    <LemonSwitch label="Bordered with a really long label" bordered />
+                </div>
+                <div className="w-20">
+                    <LemonSwitch label="extra extra small" size="xxsmall" bordered />
+                </div>
+                <div className="w-20">
+                    <LemonSwitch label="extra small" size="xsmall" bordered />
+                </div>
+                <div className="w-20">
+                    <LemonSwitch label="small" size="small" bordered />
+                </div>
+                <div className="w-20">
+                    <LemonSwitch label="medium (default)" size="medium" bordered />
+                </div>
             </div>
-            <div className="w-20">
-                <LemonSwitch label="extra extra small" size="xxsmall" bordered />
-            </div>
-            <div className="w-20">
-                <LemonSwitch label="extra small" size="xsmall" bordered />
-            </div>
-            <div className="w-20">
-                <LemonSwitch label="small" size="small" bordered />
-            </div>
-            <div className="w-20">
-                <LemonSwitch label="medium (default)" size="medium" bordered />
-            </div>
-        </div>
-    )
+        )
+    },
 }
 
-export const Standalone: Story = Template.bind({})
-Standalone.args = { label: undefined }
+export const Standalone: Story = {
+    args: { label: undefined },
+}
 
-export const Bordered: Story = Template.bind({})
-Bordered.args = { bordered: true }
+export const Bordered: Story = {
+    args: { bordered: true },
+}
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = { disabled: true }
+export const Disabled: Story = {
+    args: { disabled: true },
+}
 
 const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
     return (
@@ -78,66 +83,72 @@ const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
     )
 }
 
-export const Sizes = (): JSX.Element => {
-    return (
-        <table className="table-auto border-collapse border-bg-3000 border-4">
-            <tbody>
-                <tr>
-                    <SwitchCell size="xxsmall" bordered={false} />
-                    <SwitchCell size="xsmall" bordered={false} />
-                    <SwitchCell size="small" bordered={false} />
-                    <SwitchCell size="medium" bordered={false} />
-                </tr>
-                <tr>
-                    <SwitchCell size="xxsmall" bordered={true} />
-                    <SwitchCell size="xsmall" bordered={true} />
-                    <SwitchCell size="small" bordered={true} />
-                    <SwitchCell size="medium" bordered={true} />
-                </tr>
-            </tbody>
-        </table>
-    )
+export const Sizes: Story = {
+    render: () => {
+        return (
+            <table className="table-auto border-collapse border-bg-3000 border-4">
+                <tbody>
+                    <tr>
+                        <SwitchCell size="xxsmall" bordered={false} />
+                        <SwitchCell size="xsmall" bordered={false} />
+                        <SwitchCell size="small" bordered={false} />
+                        <SwitchCell size="medium" bordered={false} />
+                    </tr>
+                    <tr>
+                        <SwitchCell size="xxsmall" bordered={true} />
+                        <SwitchCell size="xsmall" bordered={true} />
+                        <SwitchCell size="small" bordered={true} />
+                        <SwitchCell size="medium" bordered={true} />
+                    </tr>
+                </tbody>
+            </table>
+        )
+    },
 }
 
-export const SizesLoading = (): JSX.Element => {
-    return (
-        <table className="table-auto border-collapse border-bg-3000 border-4">
-            <tbody>
-                <tr>
-                    <SwitchCell size="xxsmall" checked={false} loading={true} />
-                    <SwitchCell size="xsmall" checked={false} loading={true} />
-                    <SwitchCell size="small" checked={false} loading={true} />
-                    <SwitchCell size="medium" checked={false} loading={true} />
-                </tr>
-                <tr>
-                    <SwitchCell size="xxsmall" checked={true} loading={true} />
-                    <SwitchCell size="xsmall" checked={true} loading={true} />
-                    <SwitchCell size="small" checked={true} loading={true} />
-                    <SwitchCell size="medium" checked={true} loading={true} />
-                </tr>
-            </tbody>
-        </table>
-    )
+export const SizesLoading: Story = {
+    render: () => {
+        return (
+            <table className="table-auto border-collapse border-bg-3000 border-4">
+                <tbody>
+                    <tr>
+                        <SwitchCell size="xxsmall" checked={false} loading={true} />
+                        <SwitchCell size="xsmall" checked={false} loading={true} />
+                        <SwitchCell size="small" checked={false} loading={true} />
+                        <SwitchCell size="medium" checked={false} loading={true} />
+                    </tr>
+                    <tr>
+                        <SwitchCell size="xxsmall" checked={true} loading={true} />
+                        <SwitchCell size="xsmall" checked={true} loading={true} />
+                        <SwitchCell size="small" checked={true} loading={true} />
+                        <SwitchCell size="medium" checked={true} loading={true} />
+                    </tr>
+                </tbody>
+            </table>
+        )
+    },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
-SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 
-export const WithAccessControl = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Project}
-                minAccessLevel={AccessControlLevel.Admin}
-                userAccessLevel={AccessControlLevel.Admin}
-            >
-                <LemonSwitch label="Enabled (admin ≥ admin)" checked={true} onChange={() => {}} />
-            </AccessControlAction>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Project}
-                minAccessLevel={AccessControlLevel.Admin}
-                userAccessLevel={AccessControlLevel.Viewer}
-            >
-                <LemonSwitch label="Disabled (viewer < admin)" checked={false} onChange={() => {}} />
-            </AccessControlAction>
-        </div>
-    )
+export const WithAccessControl: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Project}
+                    minAccessLevel={AccessControlLevel.Admin}
+                    userAccessLevel={AccessControlLevel.Admin}
+                >
+                    <LemonSwitch label="Enabled (admin ≥ admin)" checked={true} onChange={() => {}} />
+                </AccessControlAction>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Project}
+                    minAccessLevel={AccessControlLevel.Admin}
+                    userAccessLevel={AccessControlLevel.Viewer}
+                >
+                    <LemonSwitch label="Disabled (viewer < admin)" checked={false} onChange={() => {}} />
+                </AccessControlAction>
+            </div>
+        )
+    },
 }

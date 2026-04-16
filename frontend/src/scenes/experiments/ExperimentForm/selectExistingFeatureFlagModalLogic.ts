@@ -128,9 +128,9 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                     offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
                 }
 
-                // Add evaluation tags filter if required by team
+                // Add evaluation contexts filter if required by team
                 if (currentTeam?.require_evaluation_contexts) {
-                    params.has_evaluation_tags = true
+                    params.has_evaluation_contexts = true
                 }
 
                 return params

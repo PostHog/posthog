@@ -43,7 +43,6 @@ env:
     # Database names passed to the plugins Docker service via env var substitution
     POSTHOG_DB_NAME: posthog_e2e_test
     POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test
-    PLUGIN_SERVER_MODE: ingestion-v2
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -165,7 +164,9 @@ jobs:
         if: needs.changes.outputs.shouldRun == 'true'
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
-        timeout-minutes: 30
+        timeout-minutes: 45
+        outputs:
+            vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -213,9 +214,9 @@ jobs:
                     exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -254,7 +255,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -284,7 +285,7 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -320,14 +321,14 @@ jobs:
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: capture
+                  COMPOSE_PROFILES: capture,temporal
               run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: capture
-              run: bin/ci-wait-for-docker wait capture
+                  COMPOSE_PROFILES: capture,temporal
+              run: bin/ci-wait-for-docker wait capture temporal
 
             - name: Build frontend
               run: |
@@ -376,13 +377,38 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Start PostHog web, Celery worker & ingestion
+            - name: Resolve Node.js container image tag
+              id: node-image
+              run: |
+                  # ci-nodejs-container.yml tags images as pr-<number> for PRs
+                  if [ -n "${{ github.event.pull_request.number }}" ]; then
+                    TAG="pr-${{ github.event.pull_request.number }}"
+                  else
+                    TAG="${{ github.sha }}"
+                  fi
+                  if docker manifest inspect "ghcr.io/posthog/posthog-node:${TAG}" > /dev/null 2>&1; then
+                    echo "posthog-node image found: ${TAG}"
+                    echo "POSTHOG_NODE_TAG=${TAG}" >> "$GITHUB_ENV"
+                  else
+                    echo "posthog-node image not found for ${TAG}, using master"
+                    echo "POSTHOG_NODE_TAG=master" >> "$GITHUB_ENV"
+                  fi
+
+            - name: Start PostHog web, Celery worker, Temporal worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
-                  # Start the Node.js ingestion container now that the database exists and migrations have run.
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins
+                  # Start the Node.js containers now that the database exists and migrations have run.
+                  # plugins: CDP (no mode = default capabilities)
+                  # ingestion-general: event ingestion (ingestion-v2-combined mode)
+                  # ingestion-sessionreplay: session replay ingestion (recordings-blob-ingestion-v2 mode)
+                  # recording-api: session replay API (recording-api mode)
+                  # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
+                  # ingestion-logs: logs ingestion (ingestion-logs mode)
+                  # ingestion-traces: traces ingestion (ingestion-traces mode)
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -396,11 +422,11 @@ jobs:
                   interval: 2000
                   verbose: true
 
-            - name: Wait for ingestion service to be ready
+            - name: Wait for node services to be ready
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -456,6 +482,44 @@ jobs:
                   git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
                   .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
+            # Visual Review: create run + upload snapshots directly from the test job.
+            # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
+            - name: Install VR CLI
+              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+
+            - name: Create VR run
+              id: vr-create
+              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+              run: |
+                  RUN_ID=$(vr run create \
+                    --type playwright \
+                    --baseline playwright/snapshots.yml \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR" \
+                    --token "$VR_TOKEN")
+                  echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+            - name: Upload snapshots to Visual Review
+              if: always() && steps.vr-create.outputs.run_id != ''
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
+              run: |
+                  vr run upload \
+                    --run-id "$VR_RUN_ID" \
+                    --dir playwright/__snapshots__/ \
+                    --baseline playwright/snapshots.yml \
+                    --token "$VR_TOKEN"
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
@@ -505,6 +569,12 @@ jobs:
                   docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
                   docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
                   docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
+                  docker logs posthog-ingestion-general-1 > playwright/test-results/docker-ingestion-general.log 2>&1 || echo "No ingestion-general container" > playwright/test-results/docker-ingestion-general.log
+                  docker logs posthog-ingestion-sessionreplay-1 > playwright/test-results/docker-ingestion-sessionreplay.log 2>&1 || echo "No ingestion-sessionreplay container" > playwright/test-results/docker-ingestion-sessionreplay.log
+                  docker logs posthog-recording-api-1 > playwright/test-results/docker-recording-api.log 2>&1 || echo "No recording-api container" > playwright/test-results/docker-recording-api.log
+                  docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
+                  docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
+                  docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
 
             - name: Archive test artifacts
               if: always()
@@ -518,6 +588,7 @@ jobs:
                       playwright/test-results-attempt-*/
                       /tmp/celery.log
                       /tmp/server.log
+                      /tmp/temporal-worker.log
                       /tmp/playwright-output-attempt-*.log
                   retention-days: 30
                   if-no-files-found: ignore
@@ -683,6 +754,17 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Playwright tests pass'
+                  runner: 'depot'
 
     # Aggregate all screenshot artifacts and commit once
     handle-screenshots:
@@ -737,30 +819,33 @@ jobs:
                     echo "Screenshot changes detected in patches"
                   fi
 
-            # Visual Review: submit snapshots and auto-approve baseline
-            - name: Install VR CLI deps
-              run: cd products/visual_review/cli && npm ci
+            # Uses --index so changes are staged for the downstream commit action
+            - name: Apply screenshot patches
+              if: steps.check-screenshots.outputs.has-changes == 'true'
+              run: |
+                  for patch in $(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c | sort); do
+                    echo "Applying $patch"
+                    git apply --index "$patch"
+                  done
 
-            - name: Submit to Visual Review
+            # Visual Review: complete the run (test job already uploaded snapshots)
+            - name: Install VR CLI
+              if: needs.playwright.outputs.vr_run_id != ''
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+
+            - name: Complete Visual Review run
+              if: needs.playwright.outputs.vr_run_id != ''
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
-                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
-                  VR_PR: ${{ github.event.pull_request.number }}
                   VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
-                  npx tsx products/visual_review/cli/src/index.ts submit \
-                    --dir playwright/__snapshots__/ \
-                    --type playwright \
+                  vr run complete \
+                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
                     --baseline playwright/snapshots.yml \
                     $VR_AUTO_APPROVE \
-                    --token "$VR_TOKEN" \
-                    --branch "$VR_BRANCH" \
-                    --commit "$VR_COMMIT" \
-                    --pr "$VR_PR"
+                    --token "$VR_TOKEN"
 
-            # Stage baseline if updated by VR submit — included in the screenshot commit
             - name: Check baseline changes
               id: check-baseline
               run: |
@@ -771,7 +856,7 @@ jobs:
                     git add playwright/snapshots.yml
                   fi
 
-            # UPDATE mode: commit PNGs + baseline together
+            # UPDATE mode: commit PNGs + baseline together in a single commit
             - name: Commit screenshot changes
               if: (steps.check-screenshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots

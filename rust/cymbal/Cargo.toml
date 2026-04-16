@@ -20,9 +20,7 @@ common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
-limiters = { path = "../common/limiters" }
 posthog-symbol-data = { path = "../common/symbol_data" }
-common-geoip = { path = "../common/geoip" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
@@ -47,6 +45,7 @@ once_cell = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tower.workspace = true
+tiktoken-rs.workspace = true
 
 
 [dev-dependencies]

@@ -21,14 +21,14 @@ operations = [
     # Add lc_query column to writable_sharded_query_log_archive distributed table
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
         is_alter_on_replicated_table=False,
         sharded=False,
     ),
     # Add lc_query column to query_log_archive distributed table
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(QUERY_LOG_ARCHIVE_DATA_TABLE),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         is_alter_on_replicated_table=False,
         sharded=False,
     ),
@@ -39,10 +39,10 @@ operations = [
         is_alter_on_replicated_table=False,
         sharded=False,
     ),
-    # Update dist_query_log_archive_mv on COORDINATOR and ENDPOINTS
+    # Update dist_query_log_archive_mv on ENDPOINTS
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(DIST_QUERY_LOG_ARCHIVE_MV),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
         is_alter_on_replicated_table=False,
         sharded=False,
     ),

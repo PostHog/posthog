@@ -16,7 +16,7 @@ from posthog.models.tophog.sql import (
 #
 # Architecture:
 # - sharded_tophog: Sharded MergeTree on DATA nodes
-# - tophog: Distributed read table on DATA + COORDINATOR nodes
+# - tophog: Distributed read table on DATA nodes
 # - writable_tophog: Distributed write table on INGESTION_MEDIUM nodes
 # - kafka_tophog: Kafka engine table on INGESTION_MEDIUM nodes
 # - tophog_mv: Materialized view on INGESTION_MEDIUM nodes
@@ -30,7 +30,7 @@ operations = [
     # 2. Create distributed read table on all nodes
     run_sql_with_exceptions(
         DISTRIBUTED_TOPHOG_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # 3. Create writable distributed table on ingestion nodes
     run_sql_with_exceptions(

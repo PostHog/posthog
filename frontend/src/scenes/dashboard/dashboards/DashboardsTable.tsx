@@ -24,7 +24,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
@@ -36,18 +35,6 @@ import {
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
-
-export function getDashboardFolderLabelFromItems(
-    itemsByRef: Record<string, { path?: string }>,
-    id: DashboardType['id']
-): string {
-    const entry = itemsByRef[`dashboard::${id}`]
-    const folderParts = splitPath(entry?.path).slice(0, -1)
-    if (folderParts.length === 0) {
-        return '—'
-    }
-    return folderParts.join(' / ')
-}
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -146,13 +133,6 @@ export function DashboardsTable({
                 return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        {
-            title: 'Folder',
-            key: 'folder',
-            render: function RenderFolder(_, { id }: DashboardType) {
-                return getDashboardFolderLabelFromItems(itemsByRef, id)
-            },
-        },
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<

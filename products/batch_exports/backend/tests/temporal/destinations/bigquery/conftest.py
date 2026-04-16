@@ -93,6 +93,11 @@ async def integration(
         case "impersonated":
             if not await has_valid_aws_credentials():
                 pytest.skip("AWS credentials not available. Credentials are required to impersonate a service account")
+            if not all(
+                setting in os.environ
+                for setting in ("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", "BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD")
+            ):
+                pytest.skip("BigQuery settings not available. These are required to impersonate a service account.")
 
             integration = await impersonated_integration(ateam, bigquery_config)
             await set_service_account_description_for_integration(integration, service_account_description)

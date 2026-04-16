@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use uuid::Uuid;
 
@@ -10,6 +13,7 @@ use crate::{
     types::{
         batch::Batch,
         stage::{Stage, StageResult},
+        OutputErrProps,
     },
 };
 
@@ -35,21 +39,23 @@ impl Stage for SpikeAlertStage {
     }
 
     async fn process(self, batch: Batch<ExceptionEventPipelineItem>) -> StageResult<Self> {
-        // Implement spike alert logic here
-        let issues: Vec<Issue> = batch
-            .inner_ref()
-            .iter()
-            .filter_map(|res| match res {
-                Ok(evt) => match &evt.issue {
-                    Some(issue) => Some(issue.clone()),
-                    None => {
-                        error!("no issue associated with event");
-                        None
-                    }
-                },
-                Err(_) => None,
-            })
-            .collect::<Vec<Issue>>();
+        let mut issues: Vec<Issue> = Vec::new();
+        let mut issue_props_by_id: HashMap<Uuid, OutputErrProps> = HashMap::new();
+
+        for res in batch.inner_ref() {
+            let Ok(evt) = res else { continue };
+            let Some(issue) = &evt.issue else {
+                error!("no issue associated with event");
+                continue;
+            };
+            // Keep one OutputErrProps per issue (they share the same stack shape)
+            if let Entry::Vacant(e) = issue_props_by_id.entry(issue.id) {
+                if let Ok(props) = evt.to_output(issue.id) {
+                    e.insert(props);
+                }
+            }
+            issues.push(issue.clone());
+        }
 
         let issues_count_by_id: HashMap<Uuid, u32> =
             issues.iter().fold(HashMap::new(), |mut acc, issue| {
@@ -62,7 +68,13 @@ impl Stage for SpikeAlertStage {
             .map(|issue| (issue.id, issue))
             .collect::<HashMap<_, _>>();
 
-        do_spike_detection(self.context, issues_by_id, issues_count_by_id).await?;
+        do_spike_detection(
+            self.context,
+            issues_by_id,
+            issue_props_by_id,
+            issues_count_by_id,
+        )
+        .await?;
 
         Ok(batch)
     }

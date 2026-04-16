@@ -178,7 +178,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    is_member_join_email_enabled = models.BooleanField(default=True)
+
+    is_member_join_email_enabled = models.BooleanField(
+        default=True
+    )  # DEPRECATED in favor of User.partial_notification_settings
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
@@ -212,6 +215,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)

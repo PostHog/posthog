@@ -46,20 +46,37 @@ GROUP_TYPE_ACCOUNT = "account"  # Properties: name, industry, used_mb, file_coun
 
 # Feature flags
 
-FILE_PREVIEWS_FLAG_KEY = "file-previews"
+FLAG_FILE_PREVIEWS = "file-previews"
 
-# Legacy experiment (complete)
-ONBOARDING_EXPERIMENT_FLAG_KEY = "onboarding-test-v1"
+# Experiments
+
+# Completed experiment (won, legacy format)
+FLAG_ONBOARDING_EXPERIMENT = "onboarding-test-v1"
 ONBOARDING_CONTROL_RATE = 0.487
 ONBOARDING_RED_RATE = 0.560
 ONBOARDING_BLUE_RATE = 0.516
 
-# New experiment (running)
-FILE_ENGAGEMENT_FLAG_KEY = "file-engagement-v2"
+# Running experiment
+FLAG_FILE_ENGAGEMENT_EXPERIMENT = "file-engagement-v2"
 FILE_ENGAGEMENT_RED_UPLOAD_MULTIPLIER = 1.25
 FILE_ENGAGEMENT_RED_SHARE_MULTIPLIER = 1.15
 FILE_ENGAGEMENT_BLUE_UPLOAD_MULTIPLIER = 1.18
 FILE_ENGAGEMENT_BLUE_SHARE_MULTIPLIER = 1.35
+
+# Completed experiment (inconclusive)
+FLAG_PRICING_PAGE_EXPERIMENT = "pricing-page-v3"
+
+# Completed experiment (lost)
+FLAG_SHARING_INCENTIVE_EXPERIMENT = "sharing-incentive-v1"
+
+# Running experiment (recent)
+FLAG_UPGRADE_PROMPT_EXPERIMENT = "upgrade-prompt-v1"
+
+# Draft experiment (not started)
+FLAG_RETENTION_NUDGE_EXPERIMENT = "retention-nudge-v1"
+
+# Completed experiment (stopped early)
+FLAG_TEAM_COLLAB_EXPERIMENT = "team-collab-v1"
 
 # Fallback signup rate (used outside experiments)
 SIGNUP_SUCCESS_RATE_CONTROL = 0.4887

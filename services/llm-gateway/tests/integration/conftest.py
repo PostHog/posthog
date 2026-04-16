@@ -17,7 +17,11 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY")
-
+BEDROCK_REGION = (
+    os.environ.get("LLM_GATEWAY_BEDROCK_REGION_NAME")
+    or os.environ.get("AWS_REGION")
+    or os.environ.get("AWS_DEFAULT_REGION")
+)
 TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
 
 MOCK_MODEL_COSTS = {
@@ -114,7 +118,7 @@ def create_mock_db_pool():
 
 
 @contextmanager
-def run_gateway_server(configure_all_providers: bool = False):
+def run_gateway_server(configure_all_providers: bool = False, bedrock_region_name: str | None = None):
     from llm_gateway.config import get_settings
     from llm_gateway.rate_limiting.model_cost_service import ModelCostService
     from llm_gateway.services.model_registry import ModelRegistryService
@@ -123,6 +127,8 @@ def run_gateway_server(configure_all_providers: bool = False):
     port = get_free_port()
 
     env_patches = {}
+    if bedrock_region_name:
+        env_patches["LLM_GATEWAY_BEDROCK_REGION_NAME"] = bedrock_region_name
     if configure_all_providers:
         # Set both prefixed (for settings) and unprefixed (for direct env check) keys
         env_patches["LLM_GATEWAY_OPENAI_API_KEY"] = "sk-test-fake-key"
@@ -206,4 +212,19 @@ def anthropic_client(gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
         base_url=gateway_url,
+    )
+
+
+@pytest.fixture
+def bedrock_gateway_url():
+    with run_gateway_server(bedrock_region_name=BEDROCK_REGION) as url:
+        yield url
+
+
+@pytest.fixture
+def bedrock_anthropic_client(bedrock_gateway_url):
+    return Anthropic(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=bedrock_gateway_url,
+        default_headers={"X-PostHog-Provider": "bedrock"},
     )

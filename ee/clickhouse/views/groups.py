@@ -17,12 +17,16 @@ from rest_framework import mixins, request, response, serializers, status, views
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
 
+from posthog.schema import ProductKey
+
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -691,15 +695,15 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
         actor_id = request.GET.get("id")
-        variant = request.GET.get("variant", "control")
         if not actor_id:
             raise ValidationError({"id": ["This query parameter is required."]})
 
-        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run(variant=variant)
+        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
+        tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
         rows = sync_execute(
             f"""
             SELECT group_type_index, tupleElement(keysAndValues, 1) as key, count(*) as count
@@ -720,7 +724,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        with tracer.start_as_current_span("groups_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
+            tracer.start_as_current_span("groups_api_property_values") as span,
+        ):
             value_filter = request.GET.get("value")
             group_type_index = request.GET.get("group_type_index")
             if not group_type_index:
@@ -735,17 +742,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("has_value_filter", value_filter is not None)
 
             query = f"""
-                SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-                FROM groups
-                ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-                WHERE team_id = %(team_id)s
-                  AND group_type_index = %(group_type_index)s
-                  AND tupleElement(keysAndValues, 1) = %(key)s
-                  {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-                GROUP BY value
-                ORDER BY count DESC, value ASC
-                LIMIT 20
-            """
+                    SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
+                    FROM groups
+                    ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+                    WHERE team_id = %(team_id)s
+                      AND group_type_index = %(group_type_index)s
+                      AND tupleElement(keysAndValues, 1) = %(key)s
+                      {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+                    GROUP BY value
+                    ORDER BY count DESC, value ASC
+                    LIMIT 20
+                """
 
             params = {
                 "team_id": self.team.pk,
@@ -756,6 +763,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             if value_filter:
                 params["value_filter"] = f"%{value_filter}%"
 
+            tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
             rows = sync_execute(query, params)
 
             span.set_attribute("result_count", len(rows))

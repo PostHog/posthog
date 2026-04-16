@@ -61,7 +61,16 @@ const SOURCE_PRODUCT_COLORS = [
     'var(--link)',
 ] as const
 
+const KNOWN_SOURCE_PRODUCT_COLORS: Record<string, string> = {
+    error_tracking: 'var(--color-product-error-tracking-light)',
+    session_replay: 'var(--color-product-session-replay-light)',
+}
+
 export function sourceProductColor(product: string): string {
+    const known = KNOWN_SOURCE_PRODUCT_COLORS[product]
+    if (known) {
+        return known
+    }
     return SOURCE_PRODUCT_COLORS[sourceProductHue(product) % SOURCE_PRODUCT_COLORS.length]
 }
 

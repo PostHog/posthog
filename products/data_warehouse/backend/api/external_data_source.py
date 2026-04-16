@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 import dataclasses
 from typing import Any
@@ -14,7 +16,16 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+from posthog.schema import (
+    ProductKey,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
 
 from posthog.hogql.database.database import Database
 
@@ -34,6 +45,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
@@ -43,6 +55,7 @@ from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
+    is_cdc_enabled_for_team,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
@@ -53,11 +66,13 @@ from products.data_warehouse.backend.direct_postgres import (
 )
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
+    delete_webhook_and_hog_function,
     get_or_create_webhook_hog_function,
     get_webhook_url,
 )
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
+    DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
@@ -66,19 +81,103 @@ from products.data_warehouse.backend.models.external_data_schema import sync_old
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 
 logger = structlog.get_logger(__name__)
 
 
-def get_password_field_names(fields: list[FieldType]) -> set[str]:
-    """Extract field names that have PASSWORD type from a source config's fields."""
-    password_fields: set[str] = set()
+def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
+    """Extract field names that contain sensitive data from a source config's fields."""
+    sensitive: set[str] = set()
     for field in fields:
         if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
-            password_fields.add(field.name)
+            sensitive.add(field.name)
+        elif isinstance(field, SourceFieldFileUploadConfig):
+            sensitive.add(field.name)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
-            password_fields.update(get_password_field_names(field.fields))
-    return password_fields
+            sensitive.update(get_sensitive_field_names(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    sensitive.update(get_sensitive_field_names(option.fields))
+    return sensitive
+
+
+def _add_name_variants(target: set[str], name: str) -> None:
+    """Add a field name and its underscore variant to a set.
+
+    Source field names may use hyphens (e.g. "temporary-dataset") while
+    dataclasses.asdict() persists the snake_case field name ("temporary_dataset").
+    We need to recognise both forms when classifying persisted job_inputs.
+    """
+    target.add(name)
+    normalised = name.replace("-", "_")
+    if normalised != name:
+        target.add(normalised)
+
+
+def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
+    """Classify source config field names as nonsensitive or sensitive.
+
+    Returns (nonsensitive, sensitive) sets of field names, flattened across all nesting levels.
+    """
+    nonsensitive: set[str] = set()
+    sensitive: set[str] = set()
+
+    for field in fields:
+        if isinstance(field, SourceFieldInputConfig):
+            if field.type == SourceFieldInputConfigType.PASSWORD:
+                _add_name_variants(sensitive, field.name)
+            else:
+                _add_name_variants(nonsensitive, field.name)
+        elif isinstance(field, SourceFieldFileUploadConfig):
+            _add_name_variants(sensitive, field.name)
+        elif isinstance(field, SourceFieldSelectConfig):
+            _add_name_variants(nonsensitive, field.name)
+            for option in field.options:
+                if option.fields:
+                    ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
+                    nonsensitive.update(ns)
+                    sensitive.update(s)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            _add_name_variants(nonsensitive, field.name)
+            ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
+            nonsensitive.update(ns)
+            sensitive.update(s)
+        elif isinstance(field, SourceFieldOauthConfig):
+            _add_name_variants(nonsensitive, field.name)
+        elif isinstance(field, SourceFieldSSHTunnelConfig):
+            _add_name_variants(nonsensitive, field.name)
+            # SSH tunnel has a known nested structure not declared in the field tree.
+            # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
+            sensitive.update({"password", "passphrase", "private_key"})
+
+    return nonsensitive, sensitive
+
+
+# Config metadata keys that are always safe to include in nested dicts
+_CONFIG_META_KEYS = {"selection", "enabled"}
+
+
+def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set[str]) -> dict:
+    """Return a copy of data with sensitive and unknown keys removed.
+
+    Keys in the nonsensitive set or config metadata keys are kept.
+    Keys in the sensitive set or not in any known set are stripped.
+    Nested dicts are processed recursively.
+    """
+    result: dict = {}
+    for key, value in data.items():
+        if key in sensitive:
+            continue
+        if key not in nonsensitive and key not in _CONFIG_META_KEYS:
+            continue
+        if isinstance(value, dict):
+            result[key] = strip_sensitive_from_dict(value, nonsensitive, sensitive)
+        else:
+            result[key] = value
+    return result
 
 
 def get_direct_postgres_connection_metadata(
@@ -93,9 +192,9 @@ def get_direct_postgres_connection_metadata(
     if not callable(metadata_fetcher):
         return fallback or {}
 
-    from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+    from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
-    require_ssl = source_model is not None and source_model.created_at >= SSL_REQUIRED_AFTER_DATE
+    require_ssl = source_model is not None and source_requires_ssl(source_model, source_config)
 
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
@@ -265,94 +364,38 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
         ]
 
-    """
-    This method is used to remove sensitive fields from the response.
-    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
-    """
-
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        # non-sensitive fields
-        job_inputs_allowed_keys = {
-            # stripe
-            "stripe_account_id",
-            # sql
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            # vitally
-            "region",
-            # chargebee
-            "site_name",
-            # zendesk
-            "subdomain",
-            "email_address",
-            # hubspot
-            "hubspot_integration_id",
-            "custom_properties",
-            # snowflake
-            "account_id",
-            "warehouse",
-            "role",
-            # bigquery
-            "dataset_id",
-            "temporary_dataset",
-            "dataset_project",
-            # google ads
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            # google sheets
-            "spreadsheet_url",
-            # linkedin ads
-            "linkedin_ads_integration_id",
-            # meta ads
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            # reddit ads
-            "reddit_integration_id",
-            # salesforce
-            "salesforce_integration_id",
-            # github
-            "repository",
-            # shopify
-            "shopify_store_id",
-            # temporal
-            "namespace",
-            # convex
-            "deploy_url",
-        }
         job_inputs = representation.get("job_inputs", {})
-        if isinstance(job_inputs, dict):
-            # Reconstruct ssh_tunnel (if needed) structure for UI handling
-            if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
-                existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
-                # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
-                existing_auth: dict = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
-                ssh_tunnel = {
-                    "enabled": existing_ssh_tunnel.get("enabled", False),
-                    "host": existing_ssh_tunnel.get("host", None),
-                    "port": existing_ssh_tunnel.get("port", None),
-                    "auth": {
-                        # Check both 'type' (new format) and 'selection' (legacy format)
-                        "selection": existing_auth.get("type") or existing_auth.get("selection"),
-                        "username": existing_auth.get("username", None),
-                        # Note: password, passphrase, private_key intentionally omitted
-                        # to prevent them being sent back as null and overwriting stored values
-                    },
-                }
-                job_inputs["ssh_tunnel"] = ssh_tunnel
+        if not isinstance(job_inputs, dict):
+            return representation
 
-            # Remove sensitive fields
-            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
-                if key not in job_inputs_allowed_keys:
-                    job_inputs.pop(key, None)
+        # Derive allowed keys dynamically from source config field definitions
+        try:
+            source_type_model = ExternalDataSourceType(instance.source_type)
+            source = SourceRegistry.get_source(source_type_model)
+            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+        except (ValueError, KeyError):
+            representation["job_inputs"] = {}
+            return representation
 
+        # Normalize SSH tunnel legacy format before stripping
+        if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
+            tunnel = job_inputs["ssh_tunnel"]
+            # Normalize 'auth_type' (legacy from migration 0807) -> 'auth'
+            if "auth_type" in tunnel and "auth" not in tunnel:
+                tunnel["auth"] = tunnel.pop("auth_type")
+            if isinstance(tunnel.get("auth"), dict):
+                auth = tunnel["auth"]
+                # Normalize 'type' (legacy) -> 'selection'
+                if "type" in auth and "selection" not in auth:
+                    auth["selection"] = auth.pop("type")
+            # Backfill require_tls default for sources created before the toggle existed
+            if "require_tls" not in tunnel:
+                tunnel["require_tls"] = {"enabled": True}
+
+        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
@@ -433,17 +476,35 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
-        password_fields = get_password_field_names(source.get_source_config.fields)
+        sensitive_fields = get_sensitive_field_names(source.get_source_config.fields)
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
-        for key in password_fields:
+        for key in sensitive_fields:
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+
+        # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
+        existing_auth_method = existing_job_inputs.get("auth_method")
+        incoming_auth_method = incoming_job_inputs.get("auth_method")
+        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
+            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
+        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
+            selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
+            if selection_changed:
+                # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
+                new_job_inputs["auth_method"] = incoming_auth_method
+            else:
+                merged_auth_method = {**existing_auth_method, **incoming_auth_method}
+                for key in sensitive_fields:
+                    if existing_auth_method.get(key) and not incoming_auth_method.get(key):
+                        merged_auth_method[key] = existing_auth_method[key]
+                new_job_inputs["auth_method"] = merged_auth_method
+
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
             # Deep-merge: start with existing, overlay incoming top-level keys
@@ -641,6 +702,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
         )
 
+        # CDC: create slot + publication for PostHog-managed sources
+        cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
+        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
+            if cdc_result is not None:
+                return cdc_result
+
         source_schemas = source.get_schemas(source_config, self.team_id)
         if is_direct_postgres:
             new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
@@ -651,6 +719,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         schema_names = [schema.name for schema in source_schemas]
+        schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -670,12 +739,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         active_schemas: list[ExternalDataSchema] = []
 
+        # Pre-fetch PK column names for CDC tables
+        pk_columns_by_table: dict[str, list[str]] = {}
+        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+            cdc_table_names = [
+                s.get("name") for s in payload_schemas if s.get("sync_type") == "cdc" and s.get("should_sync", False)
+            ]
+            if cdc_table_names:
+                from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
+                from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns
+
+                db_schema = payload.get("schema", "public")
+                with cdc_pg_connection(new_source_model) as conn:
+                    pk_columns_by_table = get_primary_key_columns(conn, db_schema, cdc_table_names)
+
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
             requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
 
@@ -706,6 +790,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 else {}
             )
 
+            is_cdc_schema = sync_type == "cdc"
+            if requires_incremental_fields and new_source_model.supports_scheduled_sync:
+                sync_type_config = {
+                    "incremental_field": incremental_field,
+                    "incremental_field_type": incremental_field_type,
+                    "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
+                }
+            elif is_cdc_schema:
+                cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
+                sync_type_config = {
+                    "cdc_mode": "snapshot",
+                    "primary_key_columns": pk_columns_by_table.get(schema_name, []),
+                    "schema_metadata": schema_metadata,
+                    "cdc_table_mode": cdc_table_mode,
+                }
+            else:
+                sync_type_config = {"schema_metadata": schema_metadata}
+
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
                 team=self.team,
@@ -713,17 +816,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 should_sync=should_sync,
                 sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
                 sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
-                sync_type_config=(
-                    {
-                        "incremental_field": incremental_field,
-                        "incremental_field_type": incremental_field_type,
-                        "schema_metadata": schema_metadata,
-                    }
-                    if requires_incremental_fields and new_source_model.supports_scheduled_sync
-                    else {"schema_metadata": schema_metadata}
-                ),
+                sync_type_config=sync_type_config,
                 description=source_schema.description if source_schema else None,
+                label=schema_label_by_name.get(schema_name),
             )
+
+            # For CDC schemas with PostHog-managed mode, add table to publication
+            if is_cdc_schema and should_sync and cdc_enabled:
+                cdc_config = PostgresCDCConfig.from_source(new_source_model)
+                if cdc_config.management_mode == "posthog" and cdc_config.publication_name:
+                    # `schema` is the postgres database schema name, not a CDC field — read raw.
+                    db_schema_name = (new_source_model.job_inputs or {}).get("schema", "public")
+                    self._add_table_to_cdc_publication(
+                        new_source_model, cdc_config.publication_name, db_schema_name, schema_name
+                    )
 
             if new_source_model.is_direct_postgres and should_sync:
                 schema_model.table = upsert_direct_postgres_table(
@@ -744,14 +850,126 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
+        # Start CDC extraction schedule if any CDC schemas are active
+        if cdc_enabled:
+            try:
+                from products.data_warehouse.backend.data_load.service import (
+                    ensure_cdc_slot_cleanup_schedule,
+                    sync_cdc_extraction_schedule,
+                )
+
+                sync_cdc_extraction_schedule(new_source_model, create=True)
+                ensure_cdc_slot_cleanup_schedule()
+            except Exception as e:
+                logger.exception("Could not create CDC schedules", exc_info=e)
+
         if new_source_model.revenue_analytics_config_safe.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
+            ensure_person_join(self.team.pk, new_source_model.prefix)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
+
+    def _setup_cdc_slot(
+        self, source_impl, source_config, source_model: ExternalDataSource, payload: dict
+    ) -> Response | None:
+        """Create replication slot + publication for PostHog-managed CDC sources.
+
+        For self-managed mode, validates that the provided slot/publication exist.
+        Updates source_model.job_inputs with CDC config.
+        Returns a Response on error, None on success.
+        """
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
+
+        management_mode = payload.get("cdc_management_mode", "posthog")
+        slot_name = payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}"
+        pub_name = payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
+
+        # Store CDC config in job_inputs
+        job_inputs = source_model.job_inputs or {}
+        job_inputs.update(
+            {
+                "cdc_enabled": True,
+                "cdc_management_mode": management_mode,
+                "cdc_slot_name": slot_name,
+                "cdc_publication_name": pub_name,
+                "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
+                "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
+                "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+            }
+        )
+
+        if management_mode == "posthog":
+            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import create_slot_and_publication
+
+            try:
+                with cdc_pg_connection(source_model) as conn:
+                    consistent_point = create_slot_and_publication(
+                        conn, slot_name, pub_name, source_config.schema, tables=[]
+                    )
+                    job_inputs["cdc_consistent_point"] = consistent_point
+            except Exception as e:
+                source_model.delete()
+                logger.exception("Failed to create CDC slot and publication", error=str(e))
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Failed to create replication slot: {e}",
+                        "detail": str(e),
+                    },
+                )
+
+        elif management_mode == "self_managed":
+            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import publication_exists, slot_exists
+
+            try:
+                with cdc_pg_connection(source_model) as conn:
+                    if not slot_exists(conn, slot_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Replication slot '{slot_name}' does not exist"},
+                        )
+                    if not publication_exists(conn, pub_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Publication '{pub_name}' does not exist"},
+                        )
+            except Exception as e:
+                source_model.delete()
+                logger.exception("Failed to validate self-managed CDC slot", error=str(e))
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Failed to validate replication slot: {e}"},
+                )
+
+        source_model.job_inputs = job_inputs
+        source_model.save(update_fields=["job_inputs", "updated_at"])
+        return None
+
+    def _add_table_to_cdc_publication(
+        self, source_model: ExternalDataSource, pub_name: str, db_schema: str, table_name: str
+    ) -> None:
+        """Best-effort add a table to the CDC publication during source creation."""
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+            add_table_to_publication,
+            cdc_pg_connection,
+        )
+
+        try:
+            with cdc_pg_connection(source_model) as conn:
+                add_table_to_publication(conn, pub_name, db_schema, table_name)
+        except Exception as e:
+            logger.exception(
+                "Failed to add table to CDC publication",
+                table=table_name,
+                pub_name=pub_name,
+                error=str(e),
+            )
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -779,14 +997,38 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
-        # Soft-delete source, schemas, and tables atomically first so DB state
-        # is consistent even if the external cleanup below fails
+        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
+        # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
             for schema in schemas:
                 if schema.table:
                     schema.table.soft_delete()
                 schema.soft_delete()
+
+            # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
+            # DataWarehouseTable records linked to the source but not to schema.table.
+            DataWarehouseTable.objects.filter(
+                external_data_source_id=instance.id,
+                team_id=self.team_id,
+                deleted=False,
+            ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
+
             instance.soft_delete()
+
+        # Best-effort webhook cleanup — soft-deletes are already committed
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+        if isinstance(source, WebhookSource) and instance.job_inputs:
+            try:
+                config = source.parse_config(instance.job_inputs)
+                delete_webhook_and_hog_function(
+                    team=self.team,
+                    source=source,
+                    config=config,
+                    source_id=str(instance.pk),
+                )
+            except Exception as e:
+                capture_exception(e)
 
         # Best-effort external cleanup — soft-deletes are already committed
         latest_running_job = (
@@ -879,7 +1121,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if instance.is_direct_postgres
                 else instance.connection_metadata
             )
-            schema_names = [s.name for s in schemas]
+            schema_names = {s.name: s.label for s in schemas}
             logger.info(
                 "refresh_schemas fetched from source",
                 source_id=str(instance.id),
@@ -968,6 +1210,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
+                "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -976,6 +1219,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
+                "available_columns": [
+                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    for col_name, col_type, nullable in schema.columns
+                ],
+                "detected_primary_keys": schema.detected_primary_keys,
             }
             for schema in schemas
         ]
@@ -1079,12 +1327,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
 
+        table_prefix = external_data_source.prefix or ""
+
         if config.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
+            ensure_person_join(self.team.pk, table_prefix)
         else:
             try:
                 managed_viewset = DataWarehouseManagedViewSet.objects.get(
@@ -1095,6 +1346,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             except DataWarehouseManagedViewSet.DoesNotExist:
                 pass
+            remove_person_join(self.team.pk, table_prefix)
 
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
@@ -1138,7 +1390,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url)
+                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
             except Exception as e:
                 capture_exception(e)
 
@@ -1203,7 +1455,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         db_schemas = ExternalDataSchema.objects.filter(
             source=instance,
             team_id=self.team_id,
-            sync_type="incremental",
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
             should_sync=True,
         ).exclude(deleted=True)
 
@@ -1276,7 +1528,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSchema.objects.filter(
                 source=instance,
                 team_id=self.team_id,
-                sync_type="incremental",
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
                 should_sync=True,
             )
             .exclude(deleted=True)
@@ -1294,6 +1546,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team=self.team,
                 type="warehouse_source_webhook",
                 inputs__source_id__value=str(instance.pk),
+                deleted=False,
             )
         except HogFunction.DoesNotExist:
             return Response(
@@ -1309,6 +1562,83 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @action(methods=["POST"], detail=True)
+    def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+
+        if not isinstance(source, WebhookSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This source type does not support webhooks"},
+            )
+
+        # Check that no schemas are still relying on the webhook — deleting it
+        # would break their sync pipeline.
+        webhook_schemas = ExternalDataSchema.objects.filter(
+            source=instance,
+            team_id=self.team_id,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            should_sync=True,
+        ).exclude(deleted=True)
+
+        if webhook_schemas.exists():
+            schema_names = list(webhook_schemas.values_list("name", flat=True))
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Cannot delete webhook while tables are using webhook sync: {', '.join(schema_names)}. Switch them to full refresh, incremental, or disable syncing first.",
+                },
+            )
+
+        if not instance.job_inputs:
+            # No config means we can't call the external API, but we can still
+            # clean up the HogFunction.
+            try:
+                hog_function = HogFunction.objects.get(
+                    team=self.team,
+                    type="warehouse_source_webhook",
+                    inputs__source_id__value=str(instance.pk),
+                    deleted=False,
+                )
+                hog_function.deleted = True
+                hog_function.enabled = False
+                hog_function.save(update_fields=["deleted", "enabled"])
+            except HogFunction.DoesNotExist:
+                pass
+
+            return Response(
+                status=status.HTTP_200_OK,
+                data={"success": True, "external_deleted": False},
+            )
+
+        try:
+            config = source.parse_config(instance.job_inputs)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Failed to parse source configuration"},
+            )
+
+        result = delete_webhook_and_hog_function(
+            team=self.team,
+            source=source,
+            config=config,
+            source_id=str(instance.pk),
+        )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "success": result.success,
+                "external_deleted": result.external_deleted,
+                "error": result.error,
+            },
+        )
 
 
 @dataclasses.dataclass(frozen=True)

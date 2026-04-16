@@ -7,6 +7,7 @@ from parameterized import parameterized
 from pydantic import ValidationError
 
 from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.prompts import PROPERTY_TYPES_PROMPT
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 
@@ -32,6 +33,27 @@ class ConcreteTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAg
 
 class ConcreteTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState]):
     pass
+
+
+class TestPropertyTypesPrompt(BaseTest):
+    @parameterized.expand(
+        [
+            ("survey_dismissed", "$survey_dismissed/{survey_id}"),
+            ("survey_responded", "$survey_responded/{survey_id}"),
+            ("feature_enrollment", "$feature_enrollment/{flag_key}"),
+            ("feature_flag_value", "$feature/{flag_key}"),
+            ("feature_interaction", "$feature_interaction/{feature_key}"),
+            ("product_tour_dismissed", "$product_tour_dismissed/{tour_id}"),
+            ("product_tour_shown", "$product_tour_shown/{tour_id}"),
+            ("product_tour_completed", "$product_tour_completed/{tour_id}"),
+        ]
+    )
+    def test_dynamic_person_properties_section_contains_pattern(self, _name, pattern):
+        self.assertIn(pattern, PROPERTY_TYPES_PROMPT)
+
+    def test_dynamic_person_properties_section_exists(self):
+        self.assertIn("<dynamic_person_properties>", PROPERTY_TYPES_PROMPT)
+        self.assertIn("</dynamic_person_properties>", PROPERTY_TYPES_PROMPT)
 
 
 class TestTaxonomyAgentNode(BaseTest):

@@ -28,7 +28,10 @@ export class DashboardPage {
     }
 
     async createNew(dashboardName?: string): Promise<DashboardPage> {
-        await this.page.goto(urls.dashboards())
+        // CI occasionally hits net::ERR_NETWORK_CHANGED on goto; retry the navigation only.
+        await expect(async () => {
+            await this.page.goto(urls.dashboards())
+        }).toPass({ timeout: 60000 })
         await this.page.getByTestId('new-dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
         await expect(this.page.locator('.dashboard')).toBeVisible()
@@ -52,16 +55,20 @@ export class DashboardPage {
     }
 
     async createFromTemplate(): Promise<DashboardPage> {
-        await this.page.goto(urls.dashboards())
+        await expect(async () => {
+            await this.page.goto(urls.dashboards())
+        }).toPass({ timeout: 60000 })
         await this.page.getByTestId('new-dashboard').click()
 
-        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Create a dashboard' })
-        await expect(modal).toBeVisible()
+        // New dashboard modal uses DialogPrimitive, not LemonModal (see NewDashboardModal.tsx).
+        await expect(this.page.getByTestId('new-dashboard-chooser')).toBeVisible()
 
         // Pick a template with no variables — `.first()` can hit e.g. AARRR or Product Analytics,
         // which open the variable picker instead of creating and never leave #newDashboard=modal.
         const templateOption = this.page
-            .getByTestId('create-dashboard-from-template')
+            .locator(
+                '[data-attr="create-dashboard-from-template"], [data-attr="create-dashboard-from-template-featured"]'
+            )
             .filter({ hasText: 'Website Metrics' })
         await expect(templateOption).toBeVisible()
         await templateOption.click()
@@ -71,7 +78,7 @@ export class DashboardPage {
     }
 
     async addInsightToNewDashboard(insightName?: string): Promise<void> {
-        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        await this.page.getByTestId('dashboard-add-graph-header').click()
         const row = insightName
             ? this.page.locator('.LemonModal .LemonTable tbody tr').filter({ hasText: insightName }).first()
             : this.page.locator('.LemonModal .LemonTable tbody tr').first()
@@ -87,9 +94,8 @@ export class DashboardPage {
 
         await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
 
-        const modal = this.page.locator('.LemonModal').filter({
-            has: this.page.getByTestId('text-card-edit-area'),
-        })
+        // Text card edit UI uses DialogPrimitive, not LemonModal (see TextCardModal.tsx).
+        const modal = this.page.getByTestId('text-card-modal')
         await expect(modal).toBeVisible()
 
         const textEditor = modal

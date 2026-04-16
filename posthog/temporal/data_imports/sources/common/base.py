@@ -127,6 +127,12 @@ class WebhookCreationResult:
 
 
 @dataclasses.dataclass
+class WebhookDeletionResult:
+    success: bool
+    error: str | None = None
+
+
+@dataclasses.dataclass
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
@@ -167,13 +173,23 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         table name mapped to the Stripe object type"""
         raise NotImplementedError()
 
-    def get_external_webhook_info(self, config: ConfigType, webhook_url: str) -> ExternalWebhookInfo | None:
+    def get_external_webhook_info(
+        self, config: ConfigType, webhook_url: str, team_id: int
+    ) -> ExternalWebhookInfo | None:
         """Check the external source for webhook status.
 
         Returns None if the source doesn't support checking webhook info.
         Sources should override this to query their API (e.g. list Stripe webhook endpoints).
         """
         return None
+
+    def delete_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+        """Delete the webhook on the external source that matches webhook_url.
+
+        Sources should override this to call their API (e.g. delete Stripe webhook endpoint).
+        Returns a WebhookDeletionResult indicating success or failure.
+        """
+        return WebhookDeletionResult(success=False, error="This source does not support automatic webhook deletion.")
 
 
 AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData] | WebhookSource[ConfigType]

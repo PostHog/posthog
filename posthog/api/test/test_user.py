@@ -23,12 +23,14 @@ from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.models import Dashboard, Team, User
+from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -112,6 +114,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -122,6 +125,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
             ],
         )
@@ -1421,6 +1425,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
+                "organization_member_join_email_disabled": {},
             },
         )
 
@@ -1437,6 +1443,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
+                "organization_member_join_email_disabled": {},
             },
         )
 
@@ -1456,6 +1464,38 @@ class TestUserAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(
             response_data["notification_settings"]["project_weekly_digest_disabled"], {"123": True, "456": True}
+        )
+
+    def test_notification_settings_organization_member_join_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000001": True}
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different organization
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000002": True}
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["organization_member_join_email_disabled"],
+            {
+                "00000000-0000-0000-0000-000000000001": True,
+                "00000000-0000-0000-0000-000000000002": True,
+            },
         )
 
     def test_invalid_notification_settings_returns_error(self):
@@ -1486,7 +1526,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
+                "detail": "Notification setting values must be boolean, got <class 'str'> instead",
                 "attr": "notification_settings",
             },
         )
@@ -1507,37 +1547,17 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "web_analytics_weekly_digest": True,  # Default value
+                "organization_member_join_email_disabled": {},  # Default value
             },
         )
-
-
-class TestUserSlackWebhook(APIBaseTest):
-    ENDPOINT: str = "/api/user/test_slack_webhook/"
-
-    def send_request(self, payload):
-        return self.client.post(self.ENDPOINT, payload)
-
-    def test_slack_webhook_no_webhook(self):
-        response = self.send_request({})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "no webhook URL")
-
-    def test_slack_webhook_bad_url(self):
-        response = self.send_request({"webhook": "blabla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
-
-    def test_slack_webhook_bad_url_full(self):
-        response = self.send_request({"webhook": "http://localhost/bla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
 
 
 class TestSessionAuthEndpoints(APIBaseTest):
     """
     Tests that certain endpoints require session authentication and reject Personal API Keys.
 
-    These endpoints (redirect_to_site, test_slack_webhook, etc.) are browser-interactive
+    These endpoints (redirect_to_site, etc.) are browser-interactive
     features that should not be accessible via API keys.
     """
 
@@ -1568,23 +1588,6 @@ class TestSessionAuthEndpoints(APIBaseTest):
         response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-    def test_test_slack_webhook_rejects_personal_api_key(self):
-        """Personal API Keys should not be able to call test_slack_webhook."""
-        self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
-
-        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "https://hooks.slack.com/test"})
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
-
-    def test_test_slack_webhook_works_with_session_auth(self):
-        """Session authentication should still work for test_slack_webhook."""
-        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "invalid"})
-
-        # Returns 200 with error message (not 401) - endpoint is accessible
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_prepare_toolbar_preloaded_flags_rejects_personal_api_key(self):
         """Personal API Keys should not be able to call prepare_toolbar_preloaded_flags."""

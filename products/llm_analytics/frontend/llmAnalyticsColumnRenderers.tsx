@@ -475,7 +475,8 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <PersonColumnCell person={null} />
         },
     },
-    sentiment: {
+    // Uses __llm_sentiment to avoid collision with user-defined 'sentiment' columns in SQL queries
+    __llm_sentiment: {
         title: 'Sentiment',
         render: ({ record }) => {
             if (!record || typeof record !== 'object' || Array.isArray(record)) {
@@ -528,7 +529,8 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <ToolsDisplay tools={tools} />
         },
     },
-    tools: {
+    // Uses __llm_tools to avoid collision with user-defined 'tools' columns in SQL queries
+    __llm_tools: {
         title: 'Tools',
         render: ({ record }) => {
             const row = record as LLMTrace

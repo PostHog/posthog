@@ -22,17 +22,18 @@ from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
-from .dashboard import Dashboard
-from .dashboard_templates import DashboardTemplate
+from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckgresServer, DuckLakeCatalog
-from .dashboard_tile import ButtonTile, DashboardTile, Text
+from ..ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
+
+# TODO: remove noqa once the event filters API imports from posthog.models
+from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .exported_asset import ExportedAsset
@@ -113,18 +114,19 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
-    "ButtonTile",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
     "DuckgresServer",
+    "DuckLakeBackfill",
     "DuckLakeCatalog",
     "Element",
     "ElementGroup",
@@ -211,7 +213,6 @@ __all__ = [
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
-    "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",

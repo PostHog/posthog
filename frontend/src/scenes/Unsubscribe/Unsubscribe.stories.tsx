@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { Unsubscribe } from './Unsubscribe'
 
@@ -10,4 +10,9 @@ const meta: Meta = {
     },
 }
 export default meta
-export const UnsubscribeScene = (): JSX.Element => <Unsubscribe />
+
+type Story = StoryObj<{}>
+
+export const UnsubscribeScene: Story = {
+    render: () => <Unsubscribe />,
+}

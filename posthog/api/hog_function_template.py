@@ -17,6 +17,11 @@ class HogFunctionMappingTemplateSerializer(serializers.Serializer):
     include_by_default = serializers.BooleanField(
         required=False, allow_null=True, help_text="Whether this mapping is enabled by default."
     )
+    use_all_events_by_default = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this mapping should match all events by default, hiding the event filter UI.",
+    )
     filters = serializers.JSONField(
         required=False, allow_null=True, help_text="Event filters specific to this mapping."
     )

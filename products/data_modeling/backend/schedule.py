@@ -36,6 +36,7 @@ def _short_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: st
         calendars=[
             ScheduleCalendarSpec(
                 comment=f"Every {base_min}th minute in the {interval_mins}min interval window (bucketed)",
+                hour=[ScheduleRange(start=0, end=23)],
                 minute=[ScheduleRange(start=m, end=m) for m in mins],
             )
         ],

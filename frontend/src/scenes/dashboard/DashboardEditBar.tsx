@@ -58,7 +58,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             }
         >
             {showDateFilter && (
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
                     <AppShortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}

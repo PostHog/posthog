@@ -33,17 +33,17 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
     )
 
     return (
-        <div className="flex items-center gap-2" data-attr="funnel-conversion-window-filter">
+        <div className="flex items-center gap-2 flex-wrap" data-attr="funnel-conversion-window-filter">
             <span className="flex whitespace-nowrap">
                 Conversion window limit
                 <Tooltip
                     title={
                         <>
                             Limit to {aggregationTargetLabel.plural}{' '}
-                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
+                            {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} converted within a
                             specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in
-                            this time frame will be considered as drop-offs.
+                            {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} do not convert in this
+                            time frame will be considered as drop-offs.
                         </>
                     }
                 >

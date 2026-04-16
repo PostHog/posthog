@@ -1,6 +1,6 @@
 use crate::{
     api::errors::FlagError,
-    flags::flag_models::FeatureFlagList,
+    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
@@ -118,30 +118,23 @@ impl FlagService {
 
         let (data, source) = self
             .team_hypercache_reader
-            .get_with_source_or_fallback(&key, || async move {
-                // This closure only runs on a genuine CacheMiss (key not found
-                // in Redis and S3). Transient errors (timeouts, parse failures)
-                // are propagated directly by HyperCache and never reach here.
+            .get_typed_with_source_or_fallback::<Team, _, _, FlagError>(&key, || async move {
+                // This closure runs on cache miss (key not found in Redis and
+                // S3) or infrastructure errors (timeouts, connection failures)
+                // as a resilience fallback.
                 if skip_pg {
                     inc(PG_TEAM_FALLBACK_SKIPPED_COUNTER, &[], 1);
                     return Err(FlagError::TokenValidationError);
                 }
 
-                // Fallback: load from PostgreSQL and convert to JSON Value
                 let team = Team::from_pg(pg_client, &token_owned).await?;
                 inc(DB_TEAM_READS_COUNTER, &[], 1);
 
-                // Convert team to JSON value for consistency with cache format
-                let value = serde_json::to_value(&team).map_err(|e| {
-                    tracing::error!("Failed to serialize team from PG: {}", e);
-                    FlagError::Internal(format!("Failed to serialize team: {e}"))
-                })?;
-                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
+                Ok::<Option<Team>, FlagError>(Some(team))
             })
             .await?;
 
-        // Parse the result (from cache or fallback)
-        let team = Team::from_hypercache_value(data)?;
+        let team = data.ok_or(FlagError::TokenValidationError)?;
         let cache_hit = !matches!(source, CacheSource::Fallback);
 
         with_canonical_log(|log| log.team_cache_source = Some(source.as_log_str()));
@@ -171,29 +164,24 @@ impl FlagService {
 
         let (data, source) = self
             .flags_hypercache_reader
-            .get_with_source_or_fallback(&key, || async move {
-                // Fallback: load from PostgreSQL and convert to JSON Value
-                let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
-                let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
-                    flags,
-                    evaluation_metadata: None,
-                    cohorts: None,
-                };
-                let value = serde_json::to_value(&wrapper).map_err(|e| {
-                    tracing::error!(
-                        "Failed to serialize flags from PG for team {}: {}",
-                        team_id,
-                        e
-                    );
-                    FlagError::Internal(format!("Failed to serialize flags: {e}"))
-                })?;
-                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
-            })
+            .get_typed_with_source_or_fallback::<HypercacheFlagsWrapper, _, _, FlagError>(
+                &key,
+                || async move {
+                    // PG has no dependency metadata, so all flags go in a single stage.
+                    let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
+                    let evaluation_metadata =
+                        crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
+                    let wrapper = HypercacheFlagsWrapper {
+                        flags,
+                        cohorts: None,
+                        evaluation_metadata,
+                    };
+                    Ok::<Option<HypercacheFlagsWrapper>, FlagError>(Some(wrapper))
+                },
+            )
             .await?;
 
-        // Parse the result (from cache or fallback)
-        let (flags, evaluation_metadata, cohorts) =
-            FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
 
         Ok(FlagResult {
             flag_list: FeatureFlagList {
@@ -215,7 +203,10 @@ mod tests {
 
     use crate::{
         flags::{
-            flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup, HypercacheFlagsWrapper},
+            flag_models::{
+                EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
+                HypercacheFlagsWrapper,
+            },
             test_helpers::{hypercache_test_key, update_flags_in_hypercache},
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
@@ -328,101 +319,104 @@ mod tests {
             .expect("Failed to insert new team in Redis");
 
         // Insert some mock flags into hypercache (new format)
+        let flags_vec = vec![
+            FeatureFlag {
+                id: 1,
+                team_id: team.id,
+                name: Some("Beta Feature".to_string()),
+                key: "beta_feature".to_string(),
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "country".to_string(),
+                            value: Some(json!("US")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                        ..Default::default()
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
+                    holdout: None,
+                },
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            },
+            FeatureFlag {
+                id: 2,
+                team_id: team.id,
+                name: Some("New User Interface".to_string()),
+                key: "new_ui".to_string(),
+                filters: FlagFilters {
+                    groups: vec![],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
+                    holdout: None,
+                },
+                deleted: false,
+                active: false,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            },
+            FeatureFlag {
+                id: 3,
+                team_id: team.id,
+                name: Some("Premium Feature".to_string()),
+                key: "premium_feature".to_string(),
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "is_premium".to_string(),
+                            value: Some(json!(true)),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        ..Default::default()
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
+                    holdout: None,
+                },
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            },
+        ];
+        let evaluation_metadata = EvaluationMetadata::single_stage(&flags_vec);
         let mock_flags = FeatureFlagList {
-            flags: vec![
-                FeatureFlag {
-                    id: 1,
-                    team_id: team.id,
-                    name: Some("Beta Feature".to_string()),
-                    key: "beta_feature".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![FlagPropertyGroup {
-                            properties: Some(vec![PropertyFilter {
-                                key: "country".to_string(),
-                                value: Some(json!("US")),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: PropertyType::Person,
-                                group_type_index: None,
-                                negation: None,
-                                compiled_regex: None,
-                            }]),
-                            rollout_percentage: Some(50.0),
-                            variant: None,
-                            ..Default::default()
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-
-                        holdout: None,
-                    },
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                },
-                FeatureFlag {
-                    id: 2,
-                    team_id: team.id,
-                    name: Some("New User Interface".to_string()),
-                    key: "new_ui".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-
-                        holdout: None,
-                    },
-                    deleted: false,
-                    active: false,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                },
-                FeatureFlag {
-                    id: 3,
-                    team_id: team.id,
-                    name: Some("Premium Feature".to_string()),
-                    key: "premium_feature".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![FlagPropertyGroup {
-                            properties: Some(vec![PropertyFilter {
-                                key: "is_premium".to_string(),
-                                value: Some(json!(true)),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: PropertyType::Person,
-                                group_type_index: None,
-                                negation: None,
-                                compiled_regex: None,
-                            }]),
-                            rollout_percentage: Some(100.0),
-                            variant: None,
-                            ..Default::default()
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-
-                        holdout: None,
-                    },
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                },
-            ],
+            flags: flags_vec,
+            evaluation_metadata,
             ..Default::default()
         };
 
@@ -538,6 +532,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -554,7 +549,7 @@ mod tests {
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd
         let wrapper = HypercacheFlagsWrapper {
             flags: large_flags.flags.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata::single_stage(&large_flags.flags),
             cohorts: None,
         };
         let json_string = serde_json::to_string(&wrapper).expect("Failed to serialize to JSON");

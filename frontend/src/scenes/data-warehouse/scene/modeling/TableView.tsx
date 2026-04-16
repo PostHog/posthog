@@ -95,7 +95,9 @@ export function TableView(): JSX.Element {
                 {
                     title: 'DAG',
                     key: 'dag_id',
-                    render: (_, node: DataModelingNode) => <span className="text-muted">{node.dag_id}</span>,
+                    render: (_, node: DataModelingNode) => (
+                        <span className="text-muted">{node.dag_name ?? node.dag}</span>
+                    ),
                     moreIcon: <IconFilter className="w-4 h-4" />,
                     moreFilterCount: filterDagIds.length,
                     more: (

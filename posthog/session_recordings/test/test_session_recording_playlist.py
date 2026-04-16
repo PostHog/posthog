@@ -17,9 +17,8 @@ from rest_framework import status
 from posthog import redis
 from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
@@ -218,20 +217,33 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["without_type", {"name": "test"}],
-            ["with_unknown_type", {"name": "test", "type": "tomato"}],
+            [
+                "without_type",
+                {"name": "test"},
+                {
+                    "attr": None,
+                    "code": "invalid_input",
+                    "detail": "Must provide a valid playlist type: either filters or collection",
+                    "type": "validation_error",
+                },
+            ],
+            [
+                "with_unknown_type",
+                {"name": "test", "type": "tomato"},
+                {
+                    "attr": "type",
+                    "code": "invalid_choice",
+                    "detail": '"tomato" is not a valid choice.',
+                    "type": "validation_error",
+                },
+            ],
         ]
     )
-    def test_rejects_invalid_playlist_type(self, _name: str, playlist_data: dict) -> None:
+    def test_rejects_invalid_playlist_type(self, _name: str, playlist_data: dict, expected_response: dict) -> None:
         self._create_playlist(
             playlist_data,
             status.HTTP_400_BAD_REQUEST,
-            expected_response_json={
-                "attr": None,
-                "code": "invalid_input",
-                "detail": "Must provide a valid playlist type: either filters or collection",
-                "type": "validation_error",
-            },
+            expected_response_json=expected_response,
         )
 
     @parameterized.expand(

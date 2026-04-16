@@ -19,7 +19,13 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import {
+    LemonTree,
+    LemonTreeRef,
+    LemonTreeSelectMode,
+    LemonTreeSize,
+    TreeDataItem,
+} from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -52,6 +58,12 @@ export interface ProjectTreeProps {
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    /** Override the select mode from the internal logic */
+    selectModeOverride?: LemonTreeSelectMode
+    /** Override the checked items from the internal logic */
+    checkedItemsOverride?: Record<string, boolean>
+    /** Override the onItemChecked handler from the internal logic */
+    onItemCheckedOverride?: (id: string, checked: boolean) => void
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -60,7 +72,6 @@ let counter = 0
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
-const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -95,9 +106,6 @@ const isItemActive = (item: TreeDataItem): boolean => {
     if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
         return true
     }
-    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
-        return true
-    }
     if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
         return true
     }
@@ -112,6 +120,9 @@ export function ProjectTree({
     searchPlaceholder,
     treeSize = 'default',
     showRecents,
+    selectModeOverride,
+    checkedItemsOverride,
+    onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
@@ -128,7 +139,7 @@ export function ProjectTree({
         scrollTargetId,
         editingItemId,
         sortMethod: projectSortMethod,
-        selectMode,
+        selectMode: projectTreeSelectMode,
         sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
@@ -140,7 +151,7 @@ export function ProjectTree({
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        onItemChecked,
+        onItemChecked: projectTreeOnItemChecked,
         moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
@@ -148,6 +159,9 @@ export function ProjectTree({
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
+
+    const selectMode = selectModeOverride ?? projectTreeSelectMode
+    const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -170,11 +184,6 @@ export function ProjectTree({
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
-    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
-        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
-        false
-    )
-
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -183,9 +192,15 @@ export function ProjectTree({
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
-    // Filter out Data pipelines item if it's been clicked
-    if (dataPipelinesClicked) {
-        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
+    // Apply checked items override for external control (e.g. product selection)
+    if (checkedItemsOverride) {
+        const applyChecked = (items: TreeDataItem[]): TreeDataItem[] =>
+            items.map((item) => ({
+                ...item,
+                checked: checkedItemsOverride[item.id] ?? false,
+                children: item.children ? applyChecked(item.children) : undefined,
+            }))
+        treeData = applyChecked(treeData)
     }
 
     if (fullFileSystemFiltered.length <= 5) {
@@ -320,9 +335,12 @@ export function ProjectTree({
                     return
                 }
 
-                // Track when Data pipelines button is clicked
-                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
-                    setDataPipelinesClicked(true)
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
+                    if (path) {
+                        loadFolder(path)
+                    }
+                    return
                 }
 
                 if (item?.record?.href) {
@@ -333,12 +351,6 @@ export function ProjectTree({
 
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
-                }
-                if (item?.id.startsWith('project://-load-more/')) {
-                    const path = item.id.substring('project://-load-more/'.length)
-                    if (path) {
-                        loadFolder(path)
-                    }
                 }
 
                 if (item?.id.startsWith('shortcuts')) {
@@ -434,6 +446,9 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
+                if (selectMode === 'multi') {
+                    return undefined
+                }
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
@@ -445,6 +460,10 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
+                if (selectMode === 'multi') {
+                    return undefined
+                }
+
                 const showDropdownMenu =
                     root === 'products://' ||
                     root === 'custom-products://' ||

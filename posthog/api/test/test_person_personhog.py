@@ -1,150 +1,178 @@
-"""Integration tests for the person API batch_by_distinct_ids endpoint via the personhog path.
+"""Tests that person API endpoints produce identical results
+via the ORM and personhog paths.
 
-These mirror the test cases in TestPerson.test_batch_by_distinct_ids_* to ensure
-the personhog code path returns identical results to the ORM path.
+Covers delete_property and batch_by_distinct_ids — extracted from
+test_person.py so both code paths are validated with @parameterized_class.
 """
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from posthog.test.base import APIBaseTest
+from unittest import mock
 
+from parameterized import parameterized_class
 from rest_framework import status
 
-from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.models import Organization, Team
+from posthog.personhog_client.test_helpers import PersonhogTestMixin
+
+UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 
 
-class TestBatchByDistinctIdsPersonhog(ClickhouseTestMixin, APIBaseTest):
-    def _seed_person(self, fake, *, team_id: int, distinct_ids: list[str], properties: dict | None = None) -> str:
-        """Create a person in both the real DB (for other queries) and the fake personhog client."""
-        person = _create_person(team=self.team, distinct_ids=distinct_ids, properties=properties or {}, immediate=True)
-        flush_persons_and_events()
-        fake.add_person(
-            team_id=team_id,
-            person_id=person.pk,
-            uuid=str(person.uuid),
-            properties=properties or {},
-            distinct_ids=distinct_ids,
-            is_identified=person.is_identified,
-            created_at=int(person.created_at.timestamp() * 1000) if person.created_at else 0,
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_uuid_lookup(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did1", "did2"],
+            properties={"foo": "bar"},
         )
-        return str(person.uuid)
 
-    def test_happy_path(self) -> None:
-        with fake_personhog_client() as fake:
-            self._seed_person(
-                fake, team_id=self.team.pk, distinct_ids=["user_1"], properties={"email": "user1@example.com"}
-            )
-            self._seed_person(
-                fake, team_id=self.team.pk, distinct_ids=["user_2"], properties={"email": "user2@example.com"}
-            )
+        resp = self.client.post(
+            f"/api/person/{person.uuid}/delete_property",
+            {"$unset": "foo"},
+        )
 
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
-                {"distinct_ids": ["user_1", "user_2"]},
-                format="json",
-            )
+        assert resp.status_code == 201
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$delete_person_property",
+            event_source="person_viewset",
+            distinct_id="did1",
+            timestamp=mock.ANY,
+            properties={"$unset": ["foo"]},
+            process_person_profile=True,
+        )
+        self._assert_personhog_called("get_person_by_uuid")
+        self._assert_personhog_called("get_distinct_ids_for_person")
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            results = response.json()["results"]
-            self.assertIn("user_1", results)
-            self.assertIn("user_2", results)
-            self.assertEqual(results["user_1"]["properties"]["email"], "user1@example.com")
-            self.assertEqual(results["user_2"]["properties"]["email"], "user2@example.com")
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_integer_pk_lookup(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did1"],
+            properties={"foo": "bar"},
+        )
 
-            fake.assert_called("get_persons_by_distinct_ids_in_team")
+        resp = self.client.post(
+            f"/api/person/{person.pk}/delete_property",
+            {"$unset": "foo"},
+        )
 
-    def test_missing_ids(self) -> None:
-        with fake_personhog_client() as fake:
-            self._seed_person(
-                fake, team_id=self.team.pk, distinct_ids=["existing_user"], properties={"email": "exists@example.com"}
-            )
+        assert resp.status_code == 201
+        self._assert_personhog_not_called("get_person_by_uuid")
+        self._assert_personhog_called("get_person")
 
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
-                {"distinct_ids": ["existing_user", "nonexistent_1", "nonexistent_2"]},
-                format="json",
-            )
+    def test_uuid_not_found_returns_error(self):
+        resp = self.client.post(
+            f"/api/person/{UUID_NONEXISTENT}/delete_property",
+            {"$unset": "foo"},
+        )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            results = response.json()["results"]
-            self.assertIn("existing_user", results)
-            self.assertNotIn("nonexistent_1", results)
-            self.assertNotIn("nonexistent_2", results)
+        assert resp.status_code != 201
 
-    def test_same_person_multiple_ids(self) -> None:
-        with fake_personhog_client() as fake:
-            self._seed_person(
-                fake, team_id=self.team.pk, distinct_ids=["id_a", "id_b"], properties={"email": "multi@example.com"}
-            )
 
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
-                {"distinct_ids": ["id_a", "id_b"]},
-                format="json",
-            )
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
+    def test_happy_path(self):
+        self._seed_person(team=self.team, distinct_ids=["user_1"], properties={"email": "user1@example.com"})
+        self._seed_person(team=self.team, distinct_ids=["user_2"], properties={"email": "user2@example.com"})
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            results = response.json()["results"]
-            self.assertIn("id_a", results)
-            self.assertIn("id_b", results)
-            self.assertEqual(results["id_a"]["uuid"], results["id_b"]["uuid"])
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["user_1", "user_2"]},
+            format="json",
+        )
 
-    def test_empty_list(self) -> None:
-        with fake_personhog_client() as fake:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
-                {"distinct_ids": []},
-                format="json",
-            )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert "user_1" in results
+        assert "user_2" in results
+        assert results["user_1"]["properties"]["email"] == "user1@example.com"
+        assert results["user_2"]["properties"]["email"] == "user2@example.com"
+        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["results"], {})
-            fake.assert_not_called("get_persons_by_distinct_ids_in_team")
+    def test_missing_ids(self):
+        self._seed_person(team=self.team, distinct_ids=["existing_user"], properties={"email": "exists@example.com"})
 
-    def test_invalid_input(self) -> None:
-        with fake_personhog_client() as fake:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
-                {"distinct_ids": "not_a_list"},
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["existing_user", "nonexistent_1", "nonexistent_2"]},
+            format="json",
+        )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["results"], {})
-            fake.assert_not_called("get_persons_by_distinct_ids_in_team")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert "existing_user" in results
+        assert "nonexistent_1" not in results
+        assert "nonexistent_2" not in results
 
-    def test_cross_team_isolation(self) -> None:
-        from posthog.models import Organization, Team
+    def test_same_person_multiple_ids(self):
+        self._seed_person(team=self.team, distinct_ids=["id_a", "id_b"], properties={"email": "multi@example.com"})
 
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["id_a", "id_b"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert "id_a" in results
+        assert "id_b" in results
+        assert results["id_a"]["uuid"] == results["id_b"]["uuid"]
+
+    def test_empty_list(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == {}
+        self._assert_personhog_not_called("get_persons_by_distinct_ids_in_team")
+
+    def test_invalid_input(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": "not_a_list"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == {}
+        self._assert_personhog_not_called("get_persons_by_distinct_ids_in_team")
+
+    def test_cross_team_isolation(self):
         other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
 
-        with fake_personhog_client() as fake:
-            # Seed person in the OTHER team's personhog data
-            other_person = _create_person(
-                team=other_team,
-                distinct_ids=["other_team_user"],
-                properties={"email": "other@example.com"},
-                immediate=True,
-            )
-            fake.add_person(
-                team_id=other_team.pk,
-                person_id=other_person.pk,
-                uuid=str(other_person.uuid),
-                properties={"email": "other@example.com"},
-                distinct_ids=["other_team_user"],
-            )
+        self._seed_person(team=other_team, distinct_ids=["other_team_user"], properties={"email": "other@example.com"})
+        self._seed_person(team=self.team, distinct_ids=["my_team_user"], properties={"email": "mine@example.com"})
 
-            self._seed_person(
-                fake, team_id=self.team.pk, distinct_ids=["my_team_user"], properties={"email": "mine@example.com"}
-            )
-            flush_persons_and_events()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["my_team_user", "other_team_user"]},
+            format="json",
+        )
 
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
-                {"distinct_ids": ["my_team_user", "other_team_user"]},
-                format="json",
-            )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert "my_team_user" in results
+        assert "other_team_user" not in results
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            results = response.json()["results"]
-            self.assertIn("my_team_user", results)
-            self.assertNotIn("other_team_user", results)
+    def test_truncates_at_max_batch_size(self):
+        distinct_ids = [f"user_{i}" for i in range(201)]
+        self._seed_person(team=self.team, distinct_ids=[distinct_ids[200]], properties={"email": "last@example.com"})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": distinct_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert distinct_ids[200] not in results

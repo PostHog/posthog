@@ -5,6 +5,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
@@ -55,7 +57,6 @@ describe('SelectExistingFeatureFlagModal', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
         evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
@@ -95,6 +96,12 @@ describe('SelectExistingFeatureFlagModal', () => {
         initKeaTests()
         logic = selectExistingFeatureFlagModalLogic()
         logic.mount()
+
+        // Wait for teamLogic to have currentProjectId ready before opening modal
+        await waitFor(() => {
+            expect(teamLogic.values.currentProjectId).toBe(MOCK_TEAM_ID)
+        })
+
         logic.actions.openSelectExistingFeatureFlagModal()
 
         await waitFor(() => {

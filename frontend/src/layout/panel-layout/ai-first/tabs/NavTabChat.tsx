@@ -80,6 +80,7 @@ export function NavTabChat({
         <div className="flex flex-col flex-1 overflow-hidden">
             <Combobox.Root
                 items={conversationGroups}
+                itemToStringLabel={(item: Conversation) => item?.title ?? ''}
                 itemToStringValue={(item: Conversation) => item?.title ?? ''}
                 open
                 autoHighlight
@@ -141,8 +142,12 @@ export function NavTabChat({
                                 <Combobox.List className="flex flex-col">
                                     {(group: ConversationGroup) => (
                                         <Collapsible
-                                            key={group.value}
-                                            defaultOpen={group.value === 'Today' || conversationGroups.length === 1}
+                                            key={`${group.value}-${!!inputValue}`}
+                                            defaultOpen={
+                                                !!inputValue ||
+                                                group.value === 'Today' ||
+                                                conversationGroups.length === 1
+                                            }
                                         >
                                             <Combobox.Group items={group.items}>
                                                 <Combobox.GroupLabel

@@ -4,11 +4,11 @@ import * as d3 from 'd3'
 import { dayjs } from 'lib/dayjs'
 
 import type { SparklineData, SparklineEvent } from './types'
-import { VolumeSparkline } from './VolumeSparkline'
+import { VolumeSparkline, VolumeSparklineProps } from './VolumeSparkline'
 
 const STORY_KEY = 'storybook-volume-sparkline'
 
-const meta: Meta<typeof VolumeSparkline> = {
+const meta: Meta<VolumeSparklineProps> = {
     title: 'ErrorTracking/VolumeSparkline',
     parameters: {
         layout: 'centered',
@@ -22,7 +22,7 @@ const meta: Meta<typeof VolumeSparkline> = {
 
 export default meta
 
-type Story = StoryObj<typeof VolumeSparkline>
+type Story = StoryObj<VolumeSparklineProps>
 
 const resolution = 60
 

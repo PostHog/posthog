@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Optional
 
-from posthog.slo.types import SloOutcome
+from posthog.temporal.common.errors import resolve_error_trace, unwrap_temporal_cause
 
 
 @dataclasses.dataclass
@@ -21,19 +21,10 @@ class ExportAssetResult:
     exported_asset_id: int
     success: bool
     error: Optional[ExportError] = None
-    insight_id: Optional[int] = None
-    duration_ms: Optional[float] = None
-    export_format: str = ""
-    attempts: int = 1
 
 
-@dataclasses.dataclass
-class EmitDeliveryOutcomeInput:
-    subscription_id: int
-    team_id: int
-    distinct_id: str
-    outcome: SloOutcome
-    duration_ms: Optional[float] = None
-    assets_with_content: int = 0
-    total_assets: int = 0
-    errors: list[ExportError] = dataclasses.field(default_factory=list)
+def extract_error_details(exc: BaseException) -> ExportError | None:
+    cause = unwrap_temporal_cause(exc)
+    if cause is None or not cause.type:
+        return None
+    return ExportError(exception_class=cause.type, error_trace=resolve_error_trace(exc))

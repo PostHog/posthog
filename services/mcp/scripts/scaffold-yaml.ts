@@ -86,7 +86,7 @@ function loadOpenApi(): OpenApiSpec {
 }
 
 function operationIdToToolName(operationId: string): string {
-    return operationId.replace(/_/g, '-')
+    return operationId.replace(/[_.]+/g, '-')
 }
 
 /**
@@ -324,10 +324,11 @@ function mergeWithExisting(
         }
     }
 
-    const merged = {
+    const merged: Record<string, unknown> = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
+        ui_apps: existing.ui_apps ?? {},
         tools: mergedTools,
     }
 

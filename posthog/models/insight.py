@@ -13,12 +13,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
-from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.utils import get_filter
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -70,7 +71,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     # DEPRECATED: using the new "dashboards" relation instead
     dashboard = models.ForeignKey(
-        "Dashboard",
+        "dashboards.Dashboard",
         related_name="items",
         on_delete=models.CASCADE,
         null=True,
@@ -83,7 +84,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     # DEPRECATED: on dashboard_insight now
     color = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED: dive dashboards were never shipped
-    dive_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    dive_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
     updated_at = models.DateTimeField(auto_now=True)
     # DEPRECATED: use `display` property of the Filter object instead

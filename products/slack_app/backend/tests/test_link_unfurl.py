@@ -2,9 +2,10 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import Dashboard, Insight
+from posthog.models import Insight
 from posthog.models.integration import Integration
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.slack_app.backend.slack_link_unfurl import (
     _insight_resource_label,
     handle_posthog_link_unfurl,

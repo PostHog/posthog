@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
@@ -17,6 +18,7 @@ import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
+import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
@@ -55,7 +57,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     connect(() => ({
         values: [
             llmProviderKeysLogic,
-            ['providerKeys', 'providerKeysLoading'],
+            ['providerKeys', 'providerKeysLoading', 'isTrialLimitReached'],
             signalSourcesLogic,
             ['sourceConfigs', 'sourceConfigsLoading'],
         ],
@@ -94,6 +96,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
         loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({ evaluation }),
         resetEvaluation: true,
@@ -292,6 +295,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
+                saveEvaluationFailure: () => false,
             },
         ],
         signalEmissionOptimistic: [
@@ -382,6 +386,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
+                    status: 'active' as const,
+                    status_reason: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
@@ -454,6 +460,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: '',
                     description: '',
                     enabled: true,
+                    status: 'active',
+                    status_reason: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -518,7 +526,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
-                console.error('Failed to save evaluation:', error)
+                const message = evaluationErrorMessage(error, 'Failed to save evaluation')
+                lemonToast.error(message)
+                actions.saveEvaluationFailure(message)
             }
         },
 
@@ -587,6 +597,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 return hasValidName && hasValidConfig && hasValidConditions
+            },
+        ],
+
+        canEnable: [
+            (s) => [s.evaluation, s.isTrialLimitReached],
+            (evaluation: EvaluationConfig | null, isTrialLimitReached: boolean): boolean => {
+                if (!evaluation || !isTrialLimitReached) {
+                    return true
+                }
+                // Can enable if the evaluation has a BYOK key
+                return !!evaluation.model_configuration?.provider_key_id
+            },
+        ],
+
+        canEnableReason: [
+            (s) => [s.canEnable],
+            (canEnable: boolean): string | null => {
+                if (canEnable) {
+                    return null
+                }
+                return 'Trial evaluation limit reached. Add a provider API key to re-enable this evaluation.'
             },
         ],
 

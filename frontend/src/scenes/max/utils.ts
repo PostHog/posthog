@@ -40,6 +40,7 @@ import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
+    InsightWithQuery,
     MaxActionContext,
     MaxContextType,
     MaxDashboardContext,
@@ -162,13 +163,12 @@ export const insightToMaxContext = (
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
-        result: insight.result ?? undefined,
         filtersOverride,
         variablesOverride,
     }
 }
 
-export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => {
+export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>): MaxDashboardContext => {
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,
@@ -299,6 +299,7 @@ export function captureFeedback(
             $ai_feedback_text: feedbackText,
             $ai_session_id: conversationId,
             $ai_trace_id: traceId,
+            ai_product: 'posthog_ai',
         })
     }
 }

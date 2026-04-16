@@ -1,6 +1,6 @@
 import json
 
-from posthog.schema import DateRange, ErrorTrackingQuery, OrderBy1
+from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
@@ -47,7 +47,7 @@ class ErrorTrackingIssueContext:
             kind="ErrorTrackingQuery",
             issueId=self._issue_id,
             dateRange=DateRange(date_from="all"),
-            orderBy=OrderBy1.FIRST_SEEN,
+            orderBy=ErrorTrackingOrderBy.FIRST_SEEN,
             limit=1,
             volumeResolution=1,
             withAggregations=False,

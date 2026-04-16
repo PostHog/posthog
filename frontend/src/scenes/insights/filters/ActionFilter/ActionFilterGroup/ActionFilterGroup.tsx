@@ -4,8 +4,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -34,6 +34,7 @@ import {
     MathSelector,
     taxonomicFilterGroupTypeToEntityType,
 } from '../ActionFilterRow/ActionFilterRow'
+import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
 import { LocalFilter, entityFilterLogic } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 import { nestedFilterLogic } from './nestedFilterLogic'
@@ -102,6 +103,7 @@ export function ActionFilterGroup({
         setMathHogQL,
         setHogQLDropdownVisible,
     } = useActions(groupLogic)
+    const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
     return (
         <li
@@ -116,25 +118,25 @@ export function ActionFilterGroup({
             }}
         >
             <div
-                className={clsx('flex flex-col overflow-hidden', {
+                className={clsx('flex flex-col overflow-hidden min-w-0', {
                     'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
                 })}
             >
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
-                        'ActionFilterGroup--header flex flex-wrap items-center justify-between gap-2 px-4 border-b border-primary',
-                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-3'
+                        'ActionFilterGroup--header flex items-center gap-x-2 gap-y-1 px-2 @min-[500px]/editor-panel:px-4 border-b border-primary',
+                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-2 @min-[500px]/editor-panel:py-3'
                     )}
                 >
-                    <div className="flex flex-wrap items-center gap-0 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0">
                         {sortable && filterCount > 1 && (
                             <span className="ActionFilterRowDragHandle" {...listeners}>
                                 <SortableDragIcon />
                             </span>
                         )}
                         {showSeriesIndicator && (
-                            <div className="shrink-0 mr-2">
+                            <div className="shrink-0">
                                 {seriesIndicatorType === 'numeric' ? (
                                     <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>
                                         {index + 1}
@@ -151,14 +153,26 @@ export function ActionFilterGroup({
 
                         {mathAvailability !== MathAvailability.None &&
                             mathAvailability !== MathAvailability.FunnelsOnly && (
-                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                // we use flex-wrap when the math name is long so "Math:" and the
+                                // select can stack, but flex-nowrap for short names so they stay together.
+                                // CSS can't solve this because the select width varies by content.
+                                // Remove after insight-editor-panel experiment ends
+                                <div
+                                    className={clsx(
+                                        'flex items-center gap-2',
+                                        (mathDefinitions[filter.math || BaseMathType.TotalCount]?.name?.length ?? 0) >
+                                            25
+                                            ? 'flex-wrap'
+                                            : ''
+                                    )}
+                                >
                                     <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
                                     <MathSelector
                                         size="small"
                                         math={filter.math}
                                         mathGroupTypeIndex={filter.math_group_type_index}
                                         index={index}
-                                        onMathSelect={(_, math) => setMath(math)}
+                                        onMathSelect={(_, math) => setMath(math, defaultMathHogQLExpression)}
                                         disabled={disabled || readOnly}
                                         mathAvailability={mathAvailability}
                                         trendsDisplayCategory={trendsDisplayCategory}
@@ -228,7 +242,7 @@ export function ActionFilterGroup({
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                     <HogQLEditor
-                                                        value={filter.math_hogql || 'count()'}
+                                                        value={filter.math_hogql || defaultMathHogQLExpression}
                                                         onChange={(currentValue) => {
                                                             setMathHogQL(currentValue)
                                                             setHogQLDropdownVisible(false)
@@ -244,7 +258,7 @@ export function ActionFilterGroup({
                                                 data-attr={`math-hogql-select-${index}`}
                                                 onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                             >
-                                                <code>{filter.math_hogql || 'count()'}</code>
+                                                <code>{filter.math_hogql || defaultMathHogQLExpression}</code>
                                             </LemonButton>
                                         </LemonDropdown>
                                     )}
@@ -253,40 +267,59 @@ export function ActionFilterGroup({
                     </div>
 
                     {!readOnly && (
-                        <div className="flex shrink-0 gap-1">
-                            <Tooltip title="Rename group series">
+                        <div className="flex shrink-0 ml-auto">
+                            <LemonMenu
+                                placement="bottom-end"
+                                items={[
+                                    {
+                                        items: [
+                                            {
+                                                label: 'Split events',
+                                                size: 'medium',
+                                                icon: <IconUndo />,
+                                                onClick: () => {
+                                                    splitLocalFilter(index)
+                                                    posthog.capture('split_events', {
+                                                        insight_type: insightType,
+                                                        team_id: currentTeamId,
+                                                    })
+                                                },
+                                                'data-attr': `group-filter-split-${index}`,
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        items: [
+                                            {
+                                                label: 'Rename',
+                                                size: 'medium',
+                                                icon: <IconPencil />,
+                                                onClick: () => {
+                                                    selectFilter(groupFilter ?? null)
+                                                    showModal()
+                                                },
+                                                'data-attr': `group-filter-rename-${index}`,
+                                            },
+                                            {
+                                                label: 'Delete',
+                                                size: 'medium',
+                                                status: 'danger',
+                                                icon: <IconTrash />,
+                                                onClick: () => removeLocalFilter({ index }),
+                                                'data-attr': `group-filter-delete-${index}`,
+                                            },
+                                        ],
+                                    },
+                                ]}
+                            >
                                 <LemonButton
-                                    size="small"
-                                    icon={<IconPencil />}
-                                    onClick={() => {
-                                        selectFilter(groupFilter ?? null)
-                                        showModal()
-                                    }}
-                                    data-attr={`group-filter-rename-${index}`}
+                                    noPadding
+                                    size="medium"
+                                    icon={<IconEllipsis />}
+                                    aria-label="Show more actions"
+                                    data-attr={`group-filter-menu-${index}`}
                                 />
-                            </Tooltip>
-                            <Tooltip title="Remove group">
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconTrash />}
-                                    onClick={() => removeLocalFilter({ index })}
-                                    data-attr={`group-filter-delete-${index}`}
-                                />
-                            </Tooltip>
-                            <Tooltip title="Split events">
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconUndo />}
-                                    onClick={() => {
-                                        splitLocalFilter(index)
-                                        posthog.capture('split_events', {
-                                            insight_type: insightType,
-                                            team_id: currentTeamId,
-                                        })
-                                    }}
-                                    data-attr={`group-filter-split-${index}`}
-                                />
-                            </Tooltip>
+                            </LemonMenu>
                         </div>
                     )}
                 </div>

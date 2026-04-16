@@ -34,7 +34,7 @@ class SignalEmitterWorkflow:
         await workflow.execute_activity(
             submit_signal_to_buffer_activity,
             SubmitSignalToBufferInput(team_id=input.team_id, signal=input.signal),
-            start_to_close_timeout=timedelta(hours=1),
-            heartbeat_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(hours=3),
+            heartbeat_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

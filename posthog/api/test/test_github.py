@@ -22,8 +22,8 @@ from posthog.api.github import (
 )
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 
 
 class TestGitHubSignatureVerification(TestCase):
@@ -391,7 +391,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
 
         # Create a key with legacy PBKDF2 hash (260000 iterations)
         token = generate_random_token_personal()
-        legacy_hash = hash_key_value(token, mode="pbkdf2", iterations=260000)
+        legacy_hash = hash_key_value(token, mode="pbkdf2", legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=260000)
         key = PersonalAPIKey.objects.create(
             user=self.user,
             label="Legacy Key",

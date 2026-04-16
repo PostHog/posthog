@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { customerJourneysLogic } from './customerJourneysLogic'
 
-export function CustomerJourneySelect(): JSX.Element | null {
+type CustomerJourneySelectProps = Pick<LemonSelectProps<string>, 'type'>
+
+export function CustomerJourneySelect({ type = 'tertiary' }: CustomerJourneySelectProps): JSX.Element | null {
     const { activeJourneyId, journeyOptions } = useValues(customerJourneysLogic)
     const { setActiveJourneyId } = useActions(customerJourneysLogic)
 
@@ -19,7 +21,8 @@ export function CustomerJourneySelect(): JSX.Element | null {
             onChange={setActiveJourneyId}
             options={journeyOptions}
             size="small"
-            type="tertiary"
+            type={type}
+            truncateText={{ maxWidthClass: 'max-w-60' }}
         />
     )
 }

@@ -1,0 +1,58 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Maximum number of results to return. If not provided, returns all results."
+        },
+        "name": {
+            "type": "string"
+        },
+        "offset": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        },
+        "refresh": {
+            "anyOf": [
+                {
+                    "enum": ["cache", "force", "direct"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "variables": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {\"event_name\": \"$pageview\"}). For insight endpoints with breakdowns, use the breakdown property name as key."
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

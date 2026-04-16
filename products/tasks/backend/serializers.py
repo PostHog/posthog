@@ -8,8 +8,18 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
+from .temporal.process_task.utils import (
+    PUBLIC_REASONING_EFFORTS,
+    LLMProvider,
+    PrAuthorshipMode,
+    RunSource,
+    RunState,
+    RuntimeAdapter,
+    get_reasoning_effort_error,
+    parse_run_state,
+)
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
@@ -35,7 +45,9 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "signal_report",
             "json_schema",
+            "internal",
             "latest_run",
             "created_at",
             "updated_at",
@@ -74,6 +86,11 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
 
         return value.lower()
+
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
@@ -142,8 +159,20 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
 
 
 class TaskRunDetailSerializer(serializers.ModelSerializer):
+    _run_state_cache: dict[str, RunState]
+
     log_url = serializers.SerializerMethodField(help_text="Presigned S3 URL for log access (valid for 1 hour).")
     artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
+    runtime_adapter = serializers.SerializerMethodField(
+        help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'."
+    )
+    provider = serializers.SerializerMethodField(
+        help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'."
+    )
+    model = serializers.SerializerMethodField(help_text="Configured LLM model identifier for this run.")
+    reasoning_effort = serializers.SerializerMethodField(
+        help_text="Configured reasoning effort for this run when the selected model supports it."
+    )
 
     class Meta:
         model = TaskRun
@@ -154,6 +183,10 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "branch",
             "status",
             "environment",
+            "runtime_adapter",
+            "provider",
+            "model",
+            "reasoning_effort",
             "log_url",
             "error_message",
             "output",
@@ -190,6 +223,58 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
 
         return presigned_url
 
+    def _get_run_state(self, obj: TaskRun) -> RunState:
+        if not hasattr(self, "_run_state_cache"):
+            self._run_state_cache = {}
+
+        cache_key = str(obj.id)
+        cached_state = self._run_state_cache.get(cache_key)
+        if cached_state is not None:
+            return cached_state
+
+        parsed_state = parse_run_state(obj.state)
+        self._run_state_cache[cache_key] = parsed_state
+        return parsed_state
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[adapter.value for adapter in RuntimeAdapter],
+            allow_null=True,
+            help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'.",
+        )
+    )
+    def get_runtime_adapter(self, obj: TaskRun) -> str | None:
+        state = self._get_run_state(obj)
+        return state.runtime_adapter.value if state.runtime_adapter is not None else None
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[provider.value for provider in LLMProvider],
+            allow_null=True,
+            help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'.",
+        )
+    )
+    def get_provider(self, obj: TaskRun) -> str | None:
+        state = self._get_run_state(obj)
+        return state.provider.value if state.provider is not None else None
+
+    @extend_schema_field(
+        serializers.CharField(allow_null=True, help_text="Configured LLM model identifier for this run.")
+    )
+    def get_model(self, obj: TaskRun) -> str | None:
+        return self._get_run_state(obj).model
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+            allow_null=True,
+            help_text="Configured reasoning effort for this run when the selected model supports it.",
+        )
+    )
+    def get_reasoning_effort(self, obj: TaskRun) -> str | None:
+        state = self._get_run_state(obj)
+        return state.reasoning_effort.value if state.reasoning_effort is not None else None
+
     def validate_task(self, value):
         team = self.context.get("team")
         if team and value.team_id != team.id:
@@ -208,6 +293,12 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         if status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and not validated_data.get("completed_at"):
             validated_data["completed_at"] = timezone.now()
         return super().update(instance, validated_data)
+
+
+class TaskRunSetOutputRequestSerializer(serializers.Serializer):
+    output = serializers.JSONField(
+        help_text="Output data from the run. Validated against the task's json_schema if one is set."
+    )
 
 
 class ErrorResponseSerializer(serializers.Serializer):
@@ -289,6 +380,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    internal = serializers.BooleanField(
+        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+    )
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
@@ -347,6 +441,11 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
 class TaskRunCreateRequestSerializer(serializers.Serializer):
     """Request body for creating a new task run"""
 
+    PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+    RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
+    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
         required=False,
@@ -369,8 +468,87 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
-        help_text="Follow-up user message to include in the resumed run's prompt.",
+        help_text="Initial or follow-up user message to include in the run prompt.",
     )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=RUNTIME_ADAPTER_CHOICES,
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the selected runtime.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=REASONING_EFFORT_CHOICES,
+        required=False,
+        default=None,
+        help_text="Reasoning effort to request for models that expose an effort control.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=["default", "acceptEdits", "plan", "bypassPermissions"],
+        required=False,
+        default=None,
+        help_text="Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).",
+    )
+
+    def validate(self, attrs):
+        runtime_fields = ("runtime_adapter", "model")
+        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+
+        if not has_runtime_selection:
+            return attrs
+
+        errors: dict[str, str] = {}
+        for field in runtime_fields:
+            if attrs.get(field) is None:
+                errors[field] = "This field is required when selecting a cloud runtime."
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=attrs.get("runtime_adapter"),
+            model=attrs.get("model"),
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
@@ -380,6 +558,8 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "user_message",
         "cancel",
         "close",
+        "permission_response",
+        "set_config_option",
     ]
 
     jsonrpc = serializers.ChoiceField(
@@ -451,3 +631,93 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         max_value=5000,
         help_text="Maximum number of entries to return (default 1000, max 5000)",
     )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Zero-based offset into the filtered log entries",
+    )
+
+
+class SandboxEnvironmentSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    effective_domains = serializers.SerializerMethodField(
+        help_text="Computed domain allowlist based on network_access_level and allowed_domains"
+    )
+    environment_variables = serializers.JSONField(
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Encrypted environment variables (write-only, never returned in responses)",
+    )
+    has_environment_variables = serializers.SerializerMethodField(
+        help_text="Whether this environment has any environment variables set"
+    )
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "include_default_domains",
+            "repositories",
+            "environment_variables",
+            "has_environment_variables",
+            "private",
+            "internal",
+            "effective_domains",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "internal",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "effective_domains",
+            "has_environment_variables",
+        ]
+
+    def get_effective_domains(self, obj: SandboxEnvironment) -> list[str]:
+        return obj.get_effective_domains()
+
+    def get_has_environment_variables(self, obj: SandboxEnvironment) -> bool:
+        return bool(obj.environment_variables)
+
+    def validate_environment_variables(self, value):
+        if value:
+            for key in value:
+                if not SandboxEnvironment.is_valid_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
+                    )
+        return value
+
+    def create(self, validated_data):
+        validated_data["team"] = self.context["team"]
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
+
+
+class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "repositories",
+            "private",
+            "internal",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]

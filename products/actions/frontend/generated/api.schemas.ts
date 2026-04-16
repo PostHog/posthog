@@ -29,13 +29,16 @@
  * `log` - log
  * `log_attribute` - log_attribute
  * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
  * `revenue_analytics` - revenue_analytics
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
+export type Type3f6EnumApi = (typeof Type3f6EnumApi)[keyof typeof Type3f6EnumApi]
 
-export const Type19aEnumApi = {
+export const Type3f6EnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -57,6 +60,9 @@ export const Type19aEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
@@ -111,10 +117,13 @@ export interface StringPropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: Type3f6EnumApi
     /** String value to match against. */
     value: string
     /** String comparison operator.
@@ -177,10 +186,13 @@ export interface NumericPropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: Type3f6EnumApi
     /** Numeric value to compare against. */
     value: number
     /** Numeric comparison operator.
@@ -239,10 +251,13 @@ export interface ArrayPropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: Type3f6EnumApi
     /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
     value: string[]
     /** Array comparison operator.
@@ -297,10 +312,13 @@ export interface DatePropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: Type3f6EnumApi
     /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
     value: string
     /** Date comparison operator.
@@ -351,10 +369,13 @@ export interface ExistencePropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: Type3f6EnumApi
     /** Existence check operator.
 
 * `is_set` - is_set
@@ -602,6 +623,24 @@ export interface PatchedActionApi {
     readonly user_access_level?: string | null
 }
 
+export interface ActionReferenceApi {
+    /** Resource type: insight, experiment, cohort, or hog_function */
+    type: string
+    /** Resource ID (integer or UUID depending on type) */
+    id: string
+    /** Resource name */
+    name: string
+    /** Relative URL to the resource */
+    url: string
+    /**
+     * When the resource was created
+     * @nullable
+     */
+    created_at: string | null
+    /** User who created the resource */
+    created_by: UserBasicApi | null
+}
+
 export type ActionsListParams = {
     format?: ActionsListFormat
     /**
@@ -672,6 +711,17 @@ export type ActionsDestroyParams = {
 export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
 
 export const ActionsDestroyFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsReferencesListParams = {
+    format?: ActionsReferencesListFormat
+}
+
+export type ActionsReferencesListFormat = (typeof ActionsReferencesListFormat)[keyof typeof ActionsReferencesListFormat]
+
+export const ActionsReferencesListFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

@@ -44,6 +44,10 @@ def pytest_addoption(parser):
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
     parser.addoption("--no-capture", action="store_true", default=False, help="Skip emitting eval results to PostHog")
     parser.addoption("--online", action="store_true", default=False, help="Capture as online eval")
+    parser.addoption("--strategy", default="example_strategy", help="Strategy module name (default: example_strategy)")
+    parser.addoption(
+        "--safe", action="store_true", default=False, help="Filter to safe signals only, skip safety_filter step"
+    )
 
 
 @pytest.fixture
@@ -83,8 +87,10 @@ def posthog_client(no_capture, db):
 
 
 @pytest.fixture
-def openai_client(posthog_client):
-    return AsyncOpenAI(posthog_client=posthog_client)
+async def openai_client(posthog_client):
+    client = AsyncOpenAI(posthog_client=posthog_client)
+    yield client
+    await client.close()
 
 
 @pytest.fixture

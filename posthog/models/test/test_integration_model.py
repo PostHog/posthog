@@ -587,11 +587,13 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         assert integration.created_by == self.user
 
         assert integration.config == {
-            "access_token": "ACCESS_TOKEN",
             "refreshed_at": 1704110400,
             "expires_in": 3600,
         }
-        assert integration.sensitive_config == self.mock_keyfile
+        assert integration.sensitive_config == {
+            "key_info": self.mock_keyfile,
+            "access_token": "ACCESS_TOKEN",
+        }
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
     def test_integration_refresh_token(self, mock_credentials):
@@ -621,10 +623,73 @@ class TestGoogleCloudIntegrationModel(BaseTest):
             assert GoogleCloudIntegration(integration).access_token_expired() is False
 
         assert integration.config == {
-            "access_token": "ACCESS_TOKEN",
             "refreshed_at": 1704110400 + 3600 * 2,
             "expires_in": 3600,
         }
+        assert integration.sensitive_config["access_token"] == "ACCESS_TOKEN"
+
+        # Verify refresh used the nested key_info, not the whole sensitive_config
+        refresh_call = mock_credentials.call_args_list[-1]
+        assert refresh_call[0][0] == self.mock_keyfile
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_refresh_token_fallback_pre_migration_sensitive_config(self, mock_credentials):
+        """Pre-migration integrations store key_info directly in sensitive_config (not nested under 'key_info').
+        The refresh logic should fall back to using the entire sensitive_config as key_info."""
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "REFRESHED_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        # Simulate pre-migration state: key_info stored directly as sensitive_config,
+        # access_token in config
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-pubsub",
+            integration_id="posthog@",
+            config={
+                "refreshed_at": 1704110400,
+                "expires_in": 1,
+                "access_token": "OLD_TOKEN",
+            },
+            sensitive_config=self.mock_keyfile,
+        )
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            GoogleCloudIntegration(integration).refresh_access_token()
+
+        # After refresh, sensitive_config should be migrated to the nested structure
+        assert integration.sensitive_config == {
+            "key_info": self.mock_keyfile,
+            "access_token": "REFRESHED_TOKEN",
+        }
+        assert "access_token" not in integration.config
+
+        # Verify refresh used the whole sensitive_config as key_info (pre-migration fallback)
+        assert mock_credentials.call_args[0][0] == self.mock_keyfile
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_get_access_token_reads_from_sensitive_config(self, mock_credentials):
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GoogleCloudIntegration.integration_from_key(
+                "google-pubsub",
+                self.mock_keyfile,
+                self.team.id,
+                self.user,
+            )
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            token = GoogleCloudIntegration(integration).get_access_token()
+
+        assert token == "ACCESS_TOKEN"
+        assert "access_token" not in integration.config
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -758,12 +823,13 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient, success]
 
-        repos = GitHubIntegration(integration).list_repositories()
+        repos, has_more = GitHubIntegration(integration).list_repositories()
 
         assert repos == [
             {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
             {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
         ]
+        assert has_more is False
         assert mock_get.call_count == 2
 
     @patch("posthog.models.integration.requests.get")
@@ -784,10 +850,41 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        repos = GitHubIntegration(integration).list_repositories()
+        repos, has_more = GitHubIntegration(integration).list_repositories()
 
         assert repos == []
+        assert has_more is False
         assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_list_all_repositories_delegates_with_limit(self, mock_list):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        all_repos = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(130)]
+        mock_list.return_value = (all_repos, False)
+
+        repos = GitHubIntegration(integration).list_all_repositories()
+
+        assert len(repos) == 130
+        mock_list.assert_called_once_with(limit=500, offset=0)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_list_all_repositories_respects_max_repos(self, mock_list):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        repos_50 = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(50)]
+        mock_list.return_value = (repos_50, True)
+
+        repos = GitHubIntegration(integration).list_all_repositories(max_repos=50)
+
+        assert len(repos) == 50
+        mock_list.assert_called_once_with(limit=50, offset=0)
 
 
 class TestDatabricksIntegrationModel(BaseTest):

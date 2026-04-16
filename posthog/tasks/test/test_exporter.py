@@ -11,11 +11,12 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 from posthog.tasks.exports.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER, is_user_query_error_type
 from posthog.tasks.exports.image_exporter import get_driver
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestIsUserQueryErrorType(TestCase):

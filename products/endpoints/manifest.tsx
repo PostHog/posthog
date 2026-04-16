@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -29,7 +29,6 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
-        '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
         '/endpoints/:name': ['EndpointScene', 'endpoint'],
     },
     urls: {
@@ -50,7 +49,7 @@ export const manifest: ProductManifest = {
             breakdownBy?: string
         }): string => {
             if (!params) {
-                return '/endpoints/usage'
+                return '/endpoints?tab=usage'
             }
             const searchParams: Record<string, string> = {}
             if (params.endpointFilter?.length) {
@@ -71,7 +70,7 @@ export const manifest: ProductManifest = {
             if (params.breakdownBy) {
                 searchParams.breakdownBy = params.breakdownBy
             }
-            return combineUrl('/endpoints/usage', searchParams).url
+            return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
         },
     },
     fileSystemTypes: {
@@ -88,7 +87,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,

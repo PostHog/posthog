@@ -115,7 +115,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 }
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
-    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
@@ -137,7 +137,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading && threadGrouped.length === 0 ? (
+            {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -597,17 +597,19 @@ function Message({
                                       return null
                                   }
                                   const form = formArgs as unknown as MultiQuestionForm
-                                  // Extract saved answers from the next message's ui_payload if available
-                                  const savedAnswers =
-                                      isAssistantToolCallMessage(nextMessage) &&
-                                      nextMessage.ui_payload?.create_form?.answers
-                                          ? (nextMessage.ui_payload.create_form.answers as Record<string, string>)
+                                  const formResult =
+                                      isAssistantToolCallMessage(nextMessage) && nextMessage.ui_payload?.create_form
+                                          ? (nextMessage.ui_payload.create_form as {
+                                                answers?: Record<string, string | string[]>
+                                                status?: string
+                                            })
                                           : undefined
                                   return (
                                       <MultiQuestionFormRecap
                                           key={`${key}-multi-form`}
                                           form={form}
-                                          savedAnswers={savedAnswers}
+                                          savedAnswers={formResult?.answers}
+                                          formStatus={formResult?.status}
                                       />
                                   )
                               })()
@@ -910,7 +912,11 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
+                                    {isInProgress && (
+                                        <ShimmeringContent>
+                                            <span className="text-muted ml-1">(in progress)</span>
+                                        </ShimmeringContent>
+                                    )}
                                 </span>
                             </div>
                         )

@@ -149,7 +149,13 @@ test.describe('CRUD Survey', () => {
 
     test('can set responses limit', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
-        // Navigate directly to the full editor since response limits aren't in the guided wizard
+        // This test exercises the full editor's adaptive sampling UI. The
+        // "new survey" URL auto-redirects to whichever editor the user
+        // previously preferred (default: guided wizard), so force the
+        // preference to 'full' before navigating.
+        await page.addInitScript(() => {
+            localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
+        })
         await page.goto('/surveys/new')
 
         await page.locator('[data-attr="scene-title-textarea"]').fill(name)
@@ -177,7 +183,12 @@ test.describe('CRUD Survey', () => {
 
     test('can set cancellation events', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
-        // Navigate directly to the full editor since cancellation events aren't in the guided wizard
+        // Cancellation events aren't exposed in the guided wizard. Force the
+        // editor preference to 'full' so the /surveys/new redirect doesn't
+        // send us into the wizard.
+        await page.addInitScript(() => {
+            localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
+        })
         await page.goto('/surveys/new')
 
         await page.locator('[data-attr="scene-title-textarea"]').fill(name)

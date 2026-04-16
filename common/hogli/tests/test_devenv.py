@@ -559,6 +559,23 @@ class TestInfoProcess:
         assert "hogli dev:explain" in shell
 
 
+class TestMprocsGeneratorRegression:
+    """Regression tests for generator behavior with the real intent map."""
+
+    def test_product_analytics_keeps_native_core_services(self) -> None:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert "capture" in resolved.units
+        assert "capture" in config.procs
+        assert "feature-flags" in config.procs
+        assert "property-defs-rs" in config.procs
+        assert "docker-compose" in config.procs
+
+
 class TestPersonhogEnvInjection:
     """Test that personhog env vars are injected into backend when capability is active."""
 
@@ -584,10 +601,11 @@ class TestPersonhogEnvInjection:
             version="1.0",
             capabilities=capabilities,
             intents=intents,
-            always_required=["backend"],
+            always_required=["backend", "nodejs"],
         )
         registry = MockRegistry(capability_units)
         registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        registry._processes["nodejs"] = {"shell": "./bin/posthog-node", "capability": "event_ingestion"}
         return intent_map, registry
 
     @parameterized.expand(
@@ -602,9 +620,12 @@ class TestPersonhogEnvInjection:
         resolved = resolver.resolve(intents)
         config = MprocsGenerator(registry).generate(resolved)
 
-        shell = config.procs["backend"]["shell"]
-        for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
-            if should_inject:
-                assert var in shell
-            else:
-                assert var not in shell
+        for proc_name in ["backend", "nodejs"]:
+            if proc_name not in config.procs:
+                continue
+            shell = config.procs[proc_name]["shell"]
+            for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
+                if should_inject:
+                    assert var in shell, f"{var} should be in {proc_name} shell"
+                else:
+                    assert var not in shell, f"{var} should not be in {proc_name} shell"
