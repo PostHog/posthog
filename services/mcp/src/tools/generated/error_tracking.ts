@@ -30,7 +30,7 @@ const errorTrackingAssignmentRulesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedErrorTrackingAssignmentRuleList>({
             method: 'GET',
-            path: `/api/environments/${projectId}/error_tracking/assignment_rules/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/assignment_rules/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -183,7 +183,7 @@ const errorTrackingIssuesSplitCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ErrorTrackingIssueSplitResponse>({
             method: 'POST',
-            path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/split/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/split/`,
             body,
         })
         return result
