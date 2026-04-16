@@ -894,6 +894,7 @@ def ensure_precomputed(
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
+    sentinel_placeholders: set[str] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -927,6 +928,10 @@ def ensure_precomputed(
         table: The target computation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
+        sentinel_placeholders: Placeholder names to replace with fixed sentinel values
+                      for hashing. Use this for placeholders whose values change between
+                      requests (e.g. datetime.now()) but shouldn't invalidate the cache.
+                      The real values are still used at INSERT time.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -959,11 +964,14 @@ def ensure_precomputed(
     base_placeholders = placeholders or {}
     _validate_no_reserved_placeholders(base_placeholders)
 
-    # Parse the query template with sentinel time placeholders for stable hashing
+    # Parse the query template with sentinel placeholders for stable hashing.
+    # time_window_min/max are always sentinelized (managed by the executor).
+    # Callers can opt additional placeholders into sentinelization via sentinel_placeholders.
     hash_placeholders = {
         **base_placeholders,
         "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
         "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+        **{name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())},
     }
     parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
     assert isinstance(parsed_for_hash, ast.SelectQuery)
