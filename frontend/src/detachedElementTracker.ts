@@ -79,6 +79,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
             scan.subscribe((result) => {
                 if (!shouldCaptureDetachedElements(result.totalDetachedElements, previousDetachedCount)) {
+                    previousDetachedCount = result.totalDetachedElements
                     return
                 }
                 previousDetachedCount = result.totalDetachedElements
