@@ -8,6 +8,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 MOCK_BILLING_TOKEN = "mock-billing-jwt-token"
 MOCK_SEAT = {
@@ -108,6 +110,17 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    def test_create_without_user_distinct_id_returns_400(self, mock_request, _mock_license, _mock_token):
+        self._auth_as_member()
+        response = self.client.post(
+            "/api/seats/",
+            {"product_key": "posthog_code", "plan_key": "posthog-code-free-20260301"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "user_distinct_id is required"
 
     @patch("products.tasks.backend.seat_api.requests.request")
     def test_create_for_other_user_requires_admin(self, mock_request, _mock_license, _mock_token):
@@ -267,3 +280,25 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
         response = self.client.get("/api/seats/me/?product_key=posthog_code")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == payload
+
+
+@patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+class TestSeatAPIKeyScope(BaseSeatAPITest):
+    """Personal API keys should be rejected (scope_object = INTERNAL)."""
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    def test_personal_api_key_rejected(self, mock_request, _mock_license, _mock_token):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.admin_user,
+            scopes=["*"],
+            secure_value=hash_key_value(token),
+        )
+        self.client.logout()
+        response = self.client.get(
+            "/api/seats/me/?product_key=posthog_code",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN

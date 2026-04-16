@@ -14,6 +14,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.permissions import APIScopePermission
 
 # TODO: Centralize billing proxy through BillingManager (ee/billing/) to avoid
 # duplicating auth header construction and keep all billing communication in one place
@@ -48,7 +49,8 @@ class SeatViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "INTERNAL"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     # ------------------------------------------------------------------
@@ -151,7 +153,9 @@ class SeatViewSet(viewsets.ViewSet):
     def create(self, request: Request) -> Response:
         """POST /api/seats/ -> POST /api/v2/seats/"""
         body_distinct_id = request.data.get("user_distinct_id")
-        if body_distinct_id and str(body_distinct_id) != str(cast(User, request.user).distinct_id):
+        if not body_distinct_id:
+            return Response({"detail": "user_distinct_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
 
         headers = self._get_billing_headers(request)
