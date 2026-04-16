@@ -306,7 +306,7 @@ def _normalize_type(s: str) -> str:
     Handles:
     - Enum8/Enum16 → Enum (strip bit-width suffix and = N value assignments)
     - DateTime64 → DateTime64(3) (3 is the default precision)
-    - Decimal(18, 10) → Decimal64(10) (CH alias)
+    - Decimal(P, S) → Decimal32/64/128/256(S) (CH precision aliases)
     """
     # Fix 2: Enum8('a' = 1, 'b' = 2) → Enum('a', 'b')
     s = re.sub(r"Enum(?:8|16)\(", "Enum(", s)
@@ -315,7 +315,8 @@ def _normalize_type(s: str) -> str:
     s = re.sub(r"\bDateTime64\b(?!\()", "DateTime64(3)", s)
 
     # Fix 4: Decimal(18, 10) → Decimal64(10) etc.
-    # Decimal(P, S) where P ≤ 18 → Decimal64(S); P ≤ 9 → Decimal32(S); P ≤ 38 → Decimal128(S)
+    # Decimal(P, S) where P ≤ 9 → Decimal32(S); P ≤ 18 → Decimal64(S);
+    # P ≤ 38 → Decimal128(S); P ≤ 76 → Decimal256(S)
     def _decimal_alias(m: re.Match) -> str:
         p, s = int(m.group(1)), m.group(2)
         if p <= 9:
@@ -324,6 +325,8 @@ def _normalize_type(s: str) -> str:
             return f"Decimal64({s})"
         elif p <= 38:
             return f"Decimal128({s})"
+        elif p <= 76:
+            return f"Decimal256({s})"
         return m.group(0)
 
     s = re.sub(r"\bDecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", _decimal_alias, s)
