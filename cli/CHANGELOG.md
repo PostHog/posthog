@@ -1,5 +1,10 @@
 # posthog-cli
 
+# 0.7.8
+
+- feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs
+- feat: build number stored as release metadata (separate from version) so the UI can display it independently
+
 # 0.7.7
 
 - fix: align `dsym upload` release flags with other upload commands by using `--release-name` / `--release-version` (with backward-compatible aliases)
