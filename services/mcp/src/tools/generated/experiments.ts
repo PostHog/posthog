@@ -102,6 +102,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
     only_count_matured_users: true,
+    update_feature_flag_params: true,
 })
 
 const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHogUrl<Schemas.Experiment>> =>
@@ -168,6 +169,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         primary_metrics_ordered_uuids: true,
         secondary_metrics_ordered_uuids: true,
         only_count_matured_users: true,
+        update_feature_flag_params: true,
     }).shape
 )
 

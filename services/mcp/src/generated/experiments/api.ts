@@ -37,7 +37,7 @@ export const ExperimentsCreateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsCreateBodyNameMax = 400
 
-export const experimentsCreateBodyDescriptionMax = 400
+export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
@@ -57,6 +57,7 @@ export const experimentsCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesIte
 export const experimentsCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
+export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1111,6 +1112,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         primary_metrics_ordered_uuids: zod.unknown().nullish(),
         secondary_metrics_ordered_uuids: zod.unknown().nullish(),
         only_count_matured_users: zod.boolean().optional(),
+        update_feature_flag_params: zod
+            .boolean()
+            .default(experimentsCreateBodyUpdateFeatureFlagParamsDefault)
+            .describe(
+                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1140,7 +1147,7 @@ export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsPartialUpdateBodyNameMax = 400
 
-export const experimentsPartialUpdateBodyDescriptionMax = 400
+export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
 export const experimentsPartialUpdateBodyArchivedDefault = false
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
@@ -1160,6 +1167,7 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesItemProper
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyAllowUnknownEventsDefault = false
+export const experimentsPartialUpdateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -2217,6 +2225,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         primary_metrics_ordered_uuids: zod.unknown().nullish(),
         secondary_metrics_ordered_uuids: zod.unknown().nullish(),
         only_count_matured_users: zod.boolean().optional(),
+        update_feature_flag_params: zod
+            .boolean()
+            .default(experimentsPartialUpdateBodyUpdateFeatureFlagParamsDefault)
+            .describe(
+                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 

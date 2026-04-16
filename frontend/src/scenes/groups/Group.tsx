@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useFeatureFlagVariantKey } from 'posthog-js/react'
+
+import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'

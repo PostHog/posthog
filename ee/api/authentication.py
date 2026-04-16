@@ -100,7 +100,11 @@ class MultitenantSAMLAuth(SAMLAuth):
             saml_logger.warning("saml_auth_complete_failed", error=str(e))
             raise
 
-    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
+    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
+        if organization_domain_or_id is None:
+            saml_logger.warning("saml_idp_lookup_failed", idp_id="None")
+            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
+
         try:
             organization_domain = (
                 organization_domain_or_id
@@ -170,7 +174,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         Fetches a specific attribute from the SAML response, attempting with multiple different attribute names.
         We attempt multiple attribute names to make it easier for admins to configure SAML (less configuration to set).
         """
-        output = None
+        output: str | list[str] | None = None
         for _attr in attribute_names:
             if _attr in response_attributes:
                 output = response_attributes[_attr]
@@ -182,7 +186,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         if isinstance(output, list):
             output = output[0]
 
-        return output
+        return output or ""
 
     def get_user_details(self, response):
         """

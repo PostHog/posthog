@@ -274,6 +274,14 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                     schema_valid: true,
                 },
             }),
+            ...(service == 'Snowflake' && {
+                snowflake_ingested_timestamp: {
+                    name: 'snowflake_ingested_timestamp',
+                    hogql_value: 'NOW64()',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+            }),
         },
     }
 

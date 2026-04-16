@@ -95,6 +95,10 @@ export class PluginServer implements NodeServer {
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
         if (needsCdp) {
+            this.monitoringProducer = await KafkaProducerWrapper.create(
+                this.config.KAFKA_CLIENT_RACK,
+                'MONITORING_PRODUCER'
+            )
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -288,10 +292,6 @@ export class PluginServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.monitoringProducer = await KafkaProducerWrapper.create(
-            this.config.KAFKA_CLIENT_RACK,
-            'MONITORING_PRODUCER'
-        )
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
