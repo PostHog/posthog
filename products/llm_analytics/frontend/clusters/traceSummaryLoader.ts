@@ -163,6 +163,9 @@ export async function loadEvaluationItemAttributes(
     if (evalIds.length === 0) {
         return {}
     }
+    // Same rationale as loadEvaluationSummaries — widen by 7 days on the
+    // leading edge to cover Stage B's embedding lookback while keeping
+    // ClickHouse partition pruning intact.
     const response = await api.queryHogQL(
         hogql`
             SELECT
@@ -172,8 +175,8 @@ export async function loadEvaluationItemAttributes(
                 JSONExtractString(properties, '$ai_evaluation_applicable') as applicable
             FROM events
             WHERE event = '$ai_evaluation'
-                AND timestamp >= parseDateTimeBestEffort(${windowStart})
-                AND timestamp <= parseDateTimeBestEffort(${windowEnd})
+                AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
+                AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
                 AND toString(uuid) IN ${evalIds}
             LIMIT 50000
         `,
