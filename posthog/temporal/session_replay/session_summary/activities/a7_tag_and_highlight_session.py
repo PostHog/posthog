@@ -6,13 +6,12 @@ The tagging LLM call happens in A4 as a follow-up turn in the same conversation
 that produced the consolidation. This activity only handles the Kafka produce.
 """
 
-from datetime import UTC, datetime
-
 import structlog
 import temporalio
 
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.temporal.session_replay.session_summary.types.video import (
     SessionTaggingOutput,
     VideoSummarySingleSessionInputs,
@@ -47,7 +46,7 @@ def _produce_to_kafka(inputs: VideoSummarySingleSessionInputs, tagging: SessionT
       and argMin(first_url) won't pick our null over the real value
     - sum() fields use 0, any() fields use empty string
     """
-    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    now = format_clickhouse_timestamp(None)
     data = {
         "session_id": inputs.session_id,
         "team_id": inputs.team_id,
@@ -73,7 +72,7 @@ def _produce_to_kafka(inputs: VideoSummarySingleSessionInputs, tagging: SessionT
         "is_deleted": 0,
         "ai_tags_fixed": list(tagging.tags_fixed),
         "ai_tags_freeform": list(tagging.tags_freeform),
-        "ai_highlighted": 1 if tagging.highlighted else 0,
+        "ai_highlighted": int(tagging.highlighted),
     }
 
     producer = KafkaProducer()
