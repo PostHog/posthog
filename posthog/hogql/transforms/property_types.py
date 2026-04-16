@@ -376,8 +376,9 @@ class PropertySwapper(CloningVisitor):
                 return expr
 
         # Bare constant — wrap with toDateTime64 carrying the timezone.
-        # Skip if the value is already a timezone-aware datetime, since the
-        # printer will emit toDateTime64('...', 6, 'tz') for it.
+        # Skip if the value is already a timezone-aware datetime: the printer
+        # converts it to the team timezone and emits toDateTime64('...', 6, tz)
+        # regardless of the constant's original tzinfo (see escape_sql.py:249).
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
