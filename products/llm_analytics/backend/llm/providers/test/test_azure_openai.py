@@ -2,8 +2,14 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
+from parameterized import parameterized
 
-from products.llm_analytics.backend.llm.providers.azure_openai import DEPLOYMENTS_LIST_API_VERSION, AzureOpenAIAdapter
+from products.llm_analytics.backend.llm.providers.azure_openai import (
+    DEPLOYMENTS_LIST_API_VERSION,
+    AzureOpenAIAdapter,
+    error_field_for_validation_message,
+    is_allowed_azure_endpoint,
+)
 
 MOCK_ENDPOINT = "https://my-resource.openai.azure.com/"
 
@@ -75,6 +81,81 @@ class TestAzureOpenAIValidateKey:
         assert state == "invalid"
         assert message == "Azure endpoint is required"
 
+    @parameterized.expand(
+        [
+            ("http_scheme", "http://my-resource.openai.azure.com/"),
+            ("non_azure_host", "https://evil.example.com/"),
+            ("metadata_ip", "https://169.254.169.254/"),
+            ("suffix_injection", "https://evil.com/openai.azure.com"),
+            ("path_traversal", "https://evil.com.openai.azure.com.attacker.net/"),
+        ]
+    )
+    @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
+    def test_validate_key_rejects_disallowed_endpoint(self, _name, endpoint, mock_get):
+        state, message = AzureOpenAIAdapter.validate_key("key", azure_endpoint=endpoint)
+
+        assert state == "invalid"
+        assert "Azure domain" in (message or "")
+        # Most importantly: no outbound request was ever made with the user's key.
+        mock_get.assert_not_called()
+
+
+class TestIsAllowedAzureEndpoint:
+    @parameterized.expand(
+        [
+            ("classic_openai", "https://foo.openai.azure.com/"),
+            ("foundry_cognitive", "https://foo.cognitiveservices.azure.com/"),
+            ("foundry_services", "https://foo.services.ai.azure.com/"),
+            ("with_path", "https://foo.openai.azure.com/openai/deployments"),
+            ("uppercase_host", "https://FOO.OPENAI.AZURE.COM/"),
+        ]
+    )
+    def test_allows_valid_azure_endpoints(self, _name, endpoint):
+        assert is_allowed_azure_endpoint(endpoint) is True
+
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("http_scheme", "http://foo.openai.azure.com/"),
+            ("ftp_scheme", "ftp://foo.openai.azure.com/"),
+            ("no_scheme", "foo.openai.azure.com"),
+            ("arbitrary_host", "https://evil.example.com/"),
+            ("metadata_ip", "https://169.254.169.254/"),
+            ("localhost", "https://localhost/"),
+            ("suffix_in_path", "https://evil.com/openai.azure.com"),
+            ("suffix_as_subdomain_of_attacker", "https://evil.com.openai.azure.com.attacker.net/"),
+            ("malformed", "not a url"),
+        ]
+    )
+    def test_rejects_invalid_endpoints(self, _name, endpoint):
+        assert is_allowed_azure_endpoint(endpoint) is False
+
+
+class TestErrorFieldForValidationMessage:
+    @parameterized.expand(
+        [
+            ("endpoint_required", "Azure endpoint is required", "azure_endpoint"),
+            ("endpoint_disallowed", "Azure endpoint must be an https:// URL on an Azure domain", "azure_endpoint"),
+            ("endpoint_not_found", "Azure endpoint not found — check the URL", "azure_endpoint"),
+            ("connect_failed", "Could not connect to Azure OpenAI endpoint", "azure_endpoint"),
+            ("invalid_key", "Invalid API key", "api_key"),
+        ]
+    )
+    def test_known_messages_map_to_field(self, _name, message, expected_field):
+        assert error_field_for_validation_message(message) == expected_field
+
+    @parameterized.expand(
+        [
+            ("rate_limit", "Rate limited, please try again later"),
+            ("server_error", "Azure OpenAI returned 500"),
+            ("generic_failure", "Validation failed, please try again"),
+            ("empty", ""),
+            ("none", None),
+        ]
+    )
+    def test_unknown_messages_return_none(self, _name, message):
+        assert error_field_for_validation_message(message) is None
+
 
 class TestAzureOpenAIListModels:
     def test_list_models_without_key_returns_empty(self):
@@ -82,6 +163,21 @@ class TestAzureOpenAIListModels:
 
     def test_list_models_without_endpoint_returns_empty(self):
         assert AzureOpenAIAdapter.list_models("key") == []
+
+    @parameterized.expand(
+        [
+            ("http_scheme", "http://my-resource.openai.azure.com/"),
+            ("non_azure_host", "https://evil.example.com/"),
+            ("metadata_ip", "https://169.254.169.254/"),
+            ("suffix_injection", "https://evil.com/openai.azure.com"),
+            ("path_traversal", "https://evil.com.openai.azure.com.attacker.net/"),
+        ]
+    )
+    @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
+    def test_list_models_rejects_disallowed_endpoint(self, _name, endpoint, mock_get):
+        # Defense-in-depth: list_models must not transmit the user's API key to a non-Azure host.
+        assert AzureOpenAIAdapter.list_models("key", azure_endpoint=endpoint) == []
+        mock_get.assert_not_called()
 
     @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
     def test_list_models_returns_deployment_names_sorted_by_created_at_desc(self, mock_get):

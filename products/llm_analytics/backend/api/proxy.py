@@ -407,7 +407,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 models = cache.get(cache_key)
                 if models is None:
                     models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
-                    cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
+                    # Only cache non-empty results — `list_models` swallows transient errors and returns
+                    # [], so caching that would persist a failure for the full TTL.
+                    if models:
+                        cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 return Response(

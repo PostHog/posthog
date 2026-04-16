@@ -418,6 +418,20 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "azure_endpoint")
 
+    def test_create_azure_openai_with_non_azure_endpoint_fails(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "azure_openai",
+                "name": "Azure Key",
+                "api_key": "azure-hex-123",
+                "azure_endpoint": "https://evil.example.com/",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Error should be attributed to azure_endpoint, not api_key — the endpoint is the bad input.
+        self.assertEqual(response.json().get("attr"), "azure_endpoint")
+
     def test_update_azure_config_without_api_key_resets_state(self):
         key = LLMProviderKey.objects.create(
             team=self.team,

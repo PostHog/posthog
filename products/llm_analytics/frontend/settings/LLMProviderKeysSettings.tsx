@@ -101,14 +101,25 @@ function getKeyPlaceholder(provider: LLMProvider): string {
     }
 }
 
+// Azure validation errors can originate from either the endpoint or the API key.
+// The backend tells us which via `error_field`; map it to which input this component highlights.
+function azureErrorFieldFromResult(result: KeyValidationResult | null | undefined): 'endpoint' | 'key' | null {
+    if (!result || result.state === 'ok') {
+        return null
+    }
+    return result.error_field === 'azure_endpoint' ? 'endpoint' : 'key'
+}
+
 function KeyValidationStatus({
     result,
     isValidating,
     provider,
+    suppressError = false,
 }: {
     result: KeyValidationResult | null
     isValidating: boolean
     provider: LLMProvider
+    suppressError?: boolean
 }): JSX.Element | null {
     if (isValidating) {
         return <p className="text-xs text-muted mt-1">Validating key...</p>
@@ -133,7 +144,9 @@ function KeyValidationStatus({
     return (
         <>
             {bullets}
-            <p className="text-xs text-danger mt-1">{result.error_message || 'Key validation failed'}</p>
+            {!suppressError && (
+                <p className="text-xs text-danger mt-1">{result.error_message || 'Key validation failed'}</p>
+            )}
         </>
     )
 }
@@ -154,6 +167,8 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     const isAzure = provider === 'azure_openai'
     const keyValidated = preValidationResult?.state === 'ok'
     const isValid = name.length > 0 && apiKey.length > 0 && (!isAzure || azureEndpoint.length > 0)
+    const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
+    const azureErrorField = isAzure && validationFailed ? azureErrorFieldFromResult(preValidationResult) : null
 
     // Reset form when modal closes
     useEffect(() => {
@@ -247,7 +262,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
         setProvider(value)
         setApiKey('')
         setAzureEndpoint('')
-        setApiVersion('2024-10-21')
+        setApiVersion(DEFAULT_AZURE_API_VERSION)
         clearPreValidation()
     }
 
@@ -295,8 +310,17 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                                 placeholder="https://my-resource.openai.azure.com/"
                                 className="mt-1"
                                 fullWidth
+                                status={azureErrorField === 'endpoint' ? 'danger' : undefined}
                             />
-                            <p className="text-xs text-muted mt-1">The endpoint URL of your Azure OpenAI resource</p>
+                            {azureErrorField === 'endpoint' ? (
+                                <p className="text-xs text-danger mt-1">
+                                    {preValidationResult?.error_message || 'Invalid Azure endpoint'}
+                                </p>
+                            ) : (
+                                <p className="text-xs text-muted mt-1">
+                                    The endpoint URL of your Azure OpenAI resource
+                                </p>
+                            )}
                         </div>
                         <div>
                             <label className="text-sm font-medium">API version</label>
@@ -333,12 +357,13 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         autoComplete="off"
                         className="mt-1"
                         fullWidth
-                        status={preValidationResult && preValidationResult.state !== 'ok' ? 'danger' : undefined}
+                        status={validationFailed && (!isAzure || azureErrorField === 'key') ? 'danger' : undefined}
                     />
                     <KeyValidationStatus
                         result={preValidationResult}
                         isValidating={preValidationResultLoading}
                         provider={provider}
+                        suppressError={azureErrorField === 'endpoint'}
                     />
                 </div>
             </div>
@@ -405,6 +430,8 @@ function EditKeyModal({
 
     const keyValidated = apiKey.length === 0 || preValidationResult?.state === 'ok'
     const isValid = name.length > 0 && keyValidated
+    const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
+    const azureErrorField = isAzureEdit && validationFailed ? azureErrorFieldFromResult(preValidationResult) : null
 
     return (
         <LemonModal
@@ -446,7 +473,13 @@ function EditKeyModal({
                                 placeholder="https://my-resource.openai.azure.com/"
                                 className="mt-1"
                                 fullWidth
+                                status={azureErrorField === 'endpoint' ? 'danger' : undefined}
                             />
+                            {azureErrorField === 'endpoint' && (
+                                <p className="text-xs text-danger mt-1">
+                                    {preValidationResult?.error_message || 'Invalid Azure endpoint'}
+                                </p>
+                            )}
                         </div>
                         <div>
                             <label className="text-sm font-medium">API version</label>
@@ -475,13 +508,14 @@ function EditKeyModal({
                         autoComplete="off"
                         className="mt-1"
                         fullWidth
-                        status={preValidationResult && preValidationResult.state !== 'ok' ? 'danger' : undefined}
+                        status={validationFailed && (!isAzureEdit || azureErrorField === 'key') ? 'danger' : undefined}
                     />
                     {apiKey.length > 0 ? (
                         <KeyValidationStatus
                             result={preValidationResult}
                             isValidating={preValidationResultLoading}
                             provider={keyToEdit.provider}
+                            suppressError={azureErrorField === 'endpoint'}
                         />
                     ) : (
                         <p className="text-xs text-muted mt-1">Leave empty to keep the current key</p>

@@ -6,6 +6,7 @@ and api_version in addition to an API key. This provider is BYOK-only.
 
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import openai
@@ -29,6 +30,57 @@ DEPLOYMENTS_LIST_API_VERSION = "2023-03-15-preview"
 # Listing is a cheap call; don't inherit the long completion timeout.
 AZURE_LIST_TIMEOUT = 10.0
 
+# Allowed DNS suffixes for Azure OpenAI endpoints. Restricts outbound requests (with the user's
+# API key in the header) to legitimate Azure hosts — prevents the user-controlled endpoint from
+# being pointed at internal metadata services, arbitrary corp infra, or typo'd hosts.
+_ALLOWED_ENDPOINT_SUFFIXES: tuple[str, ...] = (
+    ".openai.azure.com",
+    ".cognitiveservices.azure.com",
+    ".services.ai.azure.com",
+)
+
+# Shared error message used by both the adapter (for `Client.validate_key` callers) and the
+# serializer layer (so the error attributes to the azure_endpoint field in the UI). Keep as a
+# single source of truth — the two layers must agree.
+DISALLOWED_ENDPOINT_MESSAGE = "Azure endpoint must be an https:// URL on an Azure domain (e.g. *.openai.azure.com)"
+
+# Maps adapter error-message prefixes to the form field they should highlight in the UI.
+# Keep aligned with the `return` statements in `AzureOpenAIAdapter.validate_key` below —
+# editing a message string there without updating this table silently breaks field routing.
+# Messages not listed (rate limits, 5xx, generic failures) have no field attribution and are
+# surfaced as toast/banner by the frontend.
+_ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
+    ("Azure endpoint is required", "azure_endpoint"),
+    ("Azure endpoint must be", "azure_endpoint"),
+    ("Azure endpoint not found", "azure_endpoint"),
+    ("Could not connect to Azure", "azure_endpoint"),
+    ("Invalid API key", "api_key"),
+)
+
+
+def error_field_for_validation_message(error_message: str | None) -> str | None:
+    """Map an Azure `validate_key` error message to the UI form field that should be highlighted."""
+    if not error_message:
+        return None
+    return next(
+        (field for prefix, field in _ERROR_FIELD_BY_PREFIX if error_message.startswith(prefix)),
+        None,
+    )
+
+
+def is_allowed_azure_endpoint(azure_endpoint: str) -> bool:
+    """Return True if the endpoint is https:// and its host ends with an allowed Azure DNS suffix."""
+    if not azure_endpoint:
+        return False
+    try:
+        parsed = urlparse(azure_endpoint)
+    except ValueError:
+        return False
+    if parsed.scheme != "https" or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    return any(host.endswith(suffix) for suffix in _ALLOWED_ENDPOINT_SUFFIXES)
+
 
 def _list_azure_deployments(api_key: str, azure_endpoint: str) -> list[str]:
     """List Azure OpenAI deployments.
@@ -37,14 +89,24 @@ def _list_azure_deployments(api_key: str, azure_endpoint: str) -> list[str]:
     not the user-created deployments. Chat completions require a deployment
     name, so we hit the data-plane `/openai/deployments` endpoint directly.
     """
+    # Defense-in-depth: callers are expected to have already passed the endpoint
+    # through `is_allowed_azure_endpoint`, but we re-assert here so this function
+    # cannot be misused by a future caller and leak the API key to a non-Azure host.
+    if not is_allowed_azure_endpoint(azure_endpoint):
+        raise ValueError("azure_endpoint failed allowlist check")
+
     endpoint = azure_endpoint.rstrip("/")
     url = f"{endpoint}/openai/deployments"
 
+    # `follow_redirects=False` is an explicit SSRF regression guard — even if an Azure
+    # host ever returned a 3xx pointing elsewhere, httpx must not re-send the api-key
+    # header to the redirect target.
     response = httpx.get(
         url,
         params={"api-version": DEPLOYMENTS_LIST_API_VERSION},
         headers={"api-key": api_key},
         timeout=AZURE_LIST_TIMEOUT,
+        follow_redirects=False,
     )
     response.raise_for_status()
     data = response.json().get("data", [])
@@ -102,6 +164,9 @@ class AzureOpenAIAdapter(OpenAIAdapter):
         if not azure_endpoint:
             return (LLMProviderKey.State.INVALID, "Azure endpoint is required")
 
+        if not is_allowed_azure_endpoint(azure_endpoint):
+            return (LLMProviderKey.State.INVALID, DISALLOWED_ENDPOINT_MESSAGE)
+
         try:
             _list_azure_deployments(api_key, azure_endpoint)
             return (LLMProviderKey.State.OK, None)
@@ -115,8 +180,8 @@ class AzureOpenAIAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.ERROR, f"Azure OpenAI returned {e.response.status_code}")
         except httpx.HTTPError:
             return (LLMProviderKey.State.ERROR, "Could not connect to Azure OpenAI endpoint")
-        except Exception as e:
-            logger.exception(f"Azure OpenAI key validation error: {e}")
+        except Exception:
+            logger.exception("Azure OpenAI key validation error")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
@@ -131,7 +196,7 @@ class AzureOpenAIAdapter(OpenAIAdapter):
 
         azure_endpoint = kwargs.get("azure_endpoint", "")
 
-        if not azure_endpoint:
+        if not azure_endpoint or not is_allowed_azure_endpoint(azure_endpoint):
             return []
 
         try:

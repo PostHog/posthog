@@ -16,6 +16,11 @@ from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
+from ..llm.providers.azure_openai import (
+    DISALLOWED_ENDPOINT_MESSAGE,
+    error_field_for_validation_message,
+    is_allowed_azure_endpoint,
+)
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -32,6 +37,18 @@ def validate_provider_key(provider: str, api_key: str, **kwargs) -> tuple[str, s
     except Exception:
         logger.exception(f"Provider key validation failed for provider '{provider}'")
         return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+
+def _validation_error_field(provider: str, error_message: str | None) -> str:
+    """Pick the serializer field to attach a validation error to.
+
+    Defaults to `api_key` — most providers only validate the key itself. Azure OpenAI may fail
+    because of endpoint issues (unreachable, wrong domain, 404), in which case the error is
+    attributed to `azure_endpoint` so the UI can highlight the right input.
+    """
+    if provider == LLMProvider.AZURE_OPENAI:
+        return error_field_for_validation_message(error_message) or "api_key"
+    return "api_key"
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -109,6 +126,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             if not has_endpoint and not has_existing_endpoint:
                 raise serializers.ValidationError({"azure_endpoint": "Azure endpoint is required for Azure OpenAI."})
 
+            # If an endpoint is being supplied (create or update), enforce the Azure-domain allowlist
+            # here so the error is attributed to the azure_endpoint field rather than api_key.
+            if has_endpoint and not is_allowed_azure_endpoint(data["azure_endpoint"]):
+                raise serializers.ValidationError({"azure_endpoint": f"{DISALLOWED_ENDPOINT_MESSAGE}."})
+
         return data
 
     def _pop_azure_kwargs(self, validated_data: dict) -> dict:
@@ -138,7 +160,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         if api_key:
             state, error_message = validate_provider_key(provider, api_key, **azure_kwargs)
             if state != LLMProviderKey.State.OK:
-                raise serializers.ValidationError({"api_key": error_message or "Key validation failed"})
+                error_field = _validation_error_field(provider, error_message)
+                raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
             validated_data["encrypted_config"] = {"api_key": api_key, **azure_kwargs}
             validated_data["state"] = state
             validated_data["error_message"] = None
@@ -162,7 +185,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
             state, error_message = validate_provider_key(instance.provider, api_key, **extra_kwargs)
             if state != LLMProviderKey.State.OK:
-                raise serializers.ValidationError({"api_key": error_message or "Key validation failed"})
+                error_field = _validation_error_field(instance.provider, error_message)
+                raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
             encrypted_config: dict = {"api_key": api_key}
             if instance.provider == LLMProvider.AZURE_OPENAI:
                 encrypted_config["azure_endpoint"] = extra_kwargs.get("azure_endpoint", "")
@@ -515,4 +539,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 extra_kwargs["api_version"] = api_version
 
         state, error_message = validate_provider_key(provider, api_key, **extra_kwargs)
-        return Response({"state": state, "error_message": error_message})
+        error_field = (
+            error_field_for_validation_message(error_message) if provider == LLMProvider.AZURE_OPENAI else None
+        )
+        return Response({"state": state, "error_message": error_message, "error_field": error_field})

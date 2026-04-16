@@ -87,7 +87,7 @@ const Template: StoryFn<StoryProps> = ({ syncConfig }) => {
 
     useEffect(() => {
         openImportModal()
-    }, [])
+    }, [openImportModal])
 
     return <CustomerIOImportModal />
 }

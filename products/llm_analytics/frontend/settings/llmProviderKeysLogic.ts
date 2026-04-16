@@ -149,6 +149,9 @@ export interface UpdateLLMProviderKeyPayload {
 export interface KeyValidationResult {
     state: LLMProviderKeyState
     error_message: string | null
+    // Form field the error should be attributed to in the UI (e.g. 'azure_endpoint', 'api_key').
+    // Only set for providers that validate multiple inputs — most providers leave it null.
+    error_field?: string | null
 }
 
 export interface TrialEvaluation {
