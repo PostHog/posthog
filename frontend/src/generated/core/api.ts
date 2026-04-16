@@ -75,7 +75,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 /**
- * Paginated delivery history for a subscription. Requires premium subscriptions. Listing is gated by the `hackathons_subscriptions` feature flag; single-delivery retrieve is not.
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
  * @summary List subscription deliveries
  */
 export const getSubscriptionsDeliveriesListUrl = (
@@ -114,7 +114,7 @@ export const subscriptionsDeliveriesList = async (
 }
 
 /**
- * Fetch one delivery row by id (not gated by `hackathons_subscriptions`).
+ * Fetch one delivery row by id.
  * @summary Retrieve subscription delivery
  */
 export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {

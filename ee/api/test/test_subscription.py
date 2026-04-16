@@ -764,8 +764,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         params.update(kwargs)
         return SubscriptionDelivery.objects.create(**params)
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_can_list_deliveries(self, _mock_feature):
+    def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")
         d2 = self._create_delivery(idempotency_key="key-2")
 
@@ -814,8 +813,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_scoped_to_subscription(self, _mock_feature):
+    def test_deliveries_scoped_to_subscription(self):
         other_subscription = Subscription.objects.create(
             team=self.team,
             insight=self.insight,
@@ -839,8 +837,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert len(results) == 1
         assert results[0]["subscription"] == self.subscription.id
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_ordered_by_created_at_desc(self, _mock_feature):
+    def test_deliveries_ordered_by_created_at_desc(self):
         d1 = self._create_delivery(idempotency_key="older")
         d2 = self._create_delivery(idempotency_key="newer")
 
@@ -853,8 +850,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         [(s,) for s in SubscriptionDelivery.Status],
         name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0].value}",
     )
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_filter_by_status(self, filter_status, _mock_feature):
+    def test_deliveries_filter_by_status(self, filter_status):
         other_status = next(s for s in SubscriptionDelivery.Status if s != filter_status)
         self._create_delivery(idempotency_key=f"other-{other_status.value}", status=other_status)
         self._create_delivery(idempotency_key=f"match-{filter_status.value}", status=filter_status)
@@ -866,8 +862,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert len(results) == 1
         assert results[0]["status"] == filter_status
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_invalid_status_filter_returns_400(self, _mock_feature):
+    def test_deliveries_invalid_status_filter_returns_400(self):
         self._create_delivery(idempotency_key="any")
         response = self.client.get(
             f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/",
@@ -876,8 +871,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @pytest.mark.skip_on_multitenancy
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_require_premium_feature(self, _mock_feature):
+    def test_deliveries_require_premium_feature(self):
         self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
@@ -887,29 +881,6 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         self._create_delivery(idempotency_key="legacy-test")
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_deliveries_list_not_found_when_feature_flag_off(self):
-        self._create_delivery(idempotency_key="flag-off")
-        with patch(
-            "ee.api.subscription.hackathon_subscription_feature",
-            return_value=False,
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
-            )
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_deliveries_retrieve_ok_when_feature_flag_off(self):
-        delivery = self._create_delivery(idempotency_key="retrieve-flag-off")
-        with patch(
-            "ee.api.subscription.hackathon_subscription_feature",
-            return_value=False,
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
-            )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["id"] == str(delivery.id)
 
     def test_retrieve_delivery_not_found_when_row_belongs_to_different_subscription(self):
         other = Subscription.objects.create(
@@ -942,8 +913,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("ee.api.subscription.SubscriptionDeliveryCursorPagination.page_size", 2)
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_list_cursor_pagination(self, _mock_feature):
+    def test_deliveries_list_cursor_pagination(self):
         self._create_delivery(idempotency_key="page-a")
         self._create_delivery(idempotency_key="page-b")
         self._create_delivery(idempotency_key="page-c")
