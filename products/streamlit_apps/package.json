@@ -2,5 +2,16 @@
     "name": "@posthog/products-streamlit-apps",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*"
     }
 }
