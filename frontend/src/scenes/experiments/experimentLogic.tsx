@@ -793,7 +793,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistribution: (variants: MultivariateFlagVariant[]) => ({ variants }),
+        updateDistribution: (variants: MultivariateFlagVariant[], rolloutPercentage?: number) => ({
+            variants,
+            rolloutPercentage,
+        }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
@@ -1788,13 +1791,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistribution: async ({ variants }) => {
-            // Not sending rollout_percentage as it's non-editable in the modal
+        updateDistribution: async ({ variants, rolloutPercentage }) => {
             const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
                 parameters: {
                     ...otherParams,
                     feature_flag_variants: variants,
+                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
                 },
                 holdout_id: values.experiment.holdout_id,
                 update_feature_flag_params: true,

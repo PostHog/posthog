@@ -1,0 +1,261 @@
+#!/usr/bin/env node
+/**
+ * Compute the set of stories affected by a set of changed files using the
+ * module-graph.json emitted by the Storybook build (see the ModuleGraphPlugin
+ * in `common/storybook/.storybook/plugins/module-graph-plugin.ts`).
+ *
+ * Called from `.github/workflows/ci-storybook.yml`'s shadow-story-selection
+ * job. Shadow-only today — does not change what visual-regression runs.
+ *
+ * Usage:
+ *   bin/find-affected-stories \
+ *       --graph common/storybook/dist/module-graph.json \
+ *       --base-ref origin/master
+ *
+ * The script computes `git diff --name-only BASE_REF...HEAD` itself. The
+ * `...` resolves against the merge-base, so files that came in via a merge
+ * of BASE_REF into the branch aren't counted — avoids false full-runs when
+ * `pull_request.base.sha` is stale relative to the master the branch merged.
+ *
+ * Output (JSON to stdout):
+ *   { mode: "selective", affected_stories: [...], affected_story_count,
+ *     total_story_count, suggested_shards, affected_duration_seconds,
+ *     total_duration_seconds, unresolved_changed_files }
+ *   OR
+ *   { mode: "full", reason: "<why>", total_story_count }
+ */
+
+import { execFileSync } from 'child_process'
+import * as fs from 'fs'
+
+// -----------------------------------------------------------------------------
+// Invalidators webpack can't see
+// -----------------------------------------------------------------------------
+
+// Changes to any file matching these substrings force a full-run: the effect
+// isn't captured by the static import graph (global CSS side effects, theme
+// providers, MSW mocks, the storybook harness itself, generated schema files).
+const FULL_RUN_PATTERNS = [
+    '.storybook/',
+    'common/storybook/tailwind.config.js',
+    'common/storybook/webpack.config.js',
+    'common/storybook/package.json',
+    'frontend/src/styles/',
+    'frontend/src/mocks/',
+    'common/tailwind/',
+    'tailwind.config.js',
+    'tailwind.config.ts',
+    'frontend/src/queries/schema/',
+    'frontend/src/queries/schema.json',
+    'frontend/src/products.tsx',
+    'frontend/src/products.json',
+    'manifest.tsx',
+    'playwright.config.ts',
+    '.github/workflows/ci-storybook.yml',
+    'pnpm-lock.yaml',
+    'package.json',
+    '.nvmrc',
+]
+
+const MAX_CHANGED_FILES = 100
+// Rough per-story render cost (see ci-storybook.yml matrix); used only for
+// the savings-estimate row in the shadow job summary.
+const AVG_STORY_DURATION_SECONDS = 6
+const TARGET_SHARD_SECONDS = 10 * 60
+const STORY_RE = /\.stories\.(tsx?|mdx|jsx?)$/
+
+// -----------------------------------------------------------------------------
+// CLI
+// -----------------------------------------------------------------------------
+
+function parseArgs(argv) {
+    const args = { graph: null, baseRef: null }
+    for (let i = 0; i < argv.length; i++) {
+        const a = argv[i]
+        if (a === '--graph') args.graph = argv[++i]
+        else if (a === '--base-ref') args.baseRef = argv[++i]
+        else if (a === '--help' || a === '-h') {
+            process.stderr.write('Usage: find-affected-stories --graph <path> --base-ref <git-ref>\n')
+            process.exit(0)
+        } else {
+            process.stderr.write(`Unknown argument: ${a}\n`)
+            process.exit(2)
+        }
+    }
+    return args
+}
+
+function changedFilesFromGit(baseRef) {
+    // `...` resolves against the merge-base so files pulled in via a merge of
+    // baseRef into the branch aren't counted (avoids inflated diffs when
+    // pull_request.base.sha is stale).
+    const stdout = execFileSync('git', ['diff', '--name-only', `${baseRef}...HEAD`], {
+        encoding: 'utf-8',
+    })
+    return stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+}
+
+// -----------------------------------------------------------------------------
+// Output helpers
+// -----------------------------------------------------------------------------
+
+function emitFull(reason, totalStories) {
+    process.stdout.write(JSON.stringify({ mode: 'full', reason, total_story_count: totalStories }) + '\n')
+}
+
+function emitSelective(affected, totalStories, unresolved) {
+    const affectedDuration = affected.length * AVG_STORY_DURATION_SECONDS
+    const totalDuration = totalStories * AVG_STORY_DURATION_SECONDS
+    // 2x safety factor, matching the backend shadow convention.
+    const suggestedShards = Math.max(1, Math.floor((affectedDuration * 2) / TARGET_SHARD_SECONDS) + 1)
+    process.stdout.write(
+        JSON.stringify({
+            mode: 'selective',
+            affected_stories: affected,
+            affected_story_count: affected.length,
+            total_story_count: totalStories,
+            suggested_shards: suggestedShards,
+            affected_duration_seconds: Math.round(affectedDuration),
+            total_duration_seconds: Math.round(totalDuration),
+            unresolved_changed_files: unresolved,
+        }) + '\n'
+    )
+}
+
+// -----------------------------------------------------------------------------
+// Core logic
+// -----------------------------------------------------------------------------
+
+function requiresFullRun(changedFile) {
+    for (const pattern of FULL_RUN_PATTERNS) {
+        if (changedFile.includes(pattern)) {
+            return `changed file matches full-run pattern '${pattern}': ${changedFile}`
+        }
+    }
+    return null
+}
+
+function normalize(p) {
+    if (!p) return p
+    // Strip any leading ./ or / so equality works against module names from the
+    // ModuleGraphPlugin (which emits repo-relative names).
+    return p.replace(/^\.\//, '').replace(/^\/+/, '')
+}
+
+function loadGraph(graphPath) {
+    const raw = fs.readFileSync(graphPath, 'utf-8')
+    const data = JSON.parse(raw)
+    if (!data || !Array.isArray(data.modules)) {
+        throw new Error('module-graph.json is missing `modules[]`')
+    }
+    const byName = new Map()
+    for (const m of data.modules) {
+        if (!m || typeof m.name !== 'string') continue
+        byName.set(normalize(m.name), m)
+    }
+    return { modules: data.modules, byName }
+}
+
+function countStories(modules) {
+    let n = 0
+    for (const m of modules) if (STORY_RE.test(m.name)) n++
+    return n
+}
+
+function affectedStoriesFor(changedFiles, graph) {
+    const { byName } = graph
+    const unresolved = []
+    const start = new Set()
+    for (const raw of changedFiles) {
+        const normalized = normalize(raw)
+        if (byName.has(normalized)) {
+            start.add(normalized)
+        } else {
+            unresolved.push(raw)
+        }
+    }
+
+    // BFS upward via `reasons` (which are the importers — things that depend on
+    // the current module). Any story we pass through is collected.
+    const visited = new Set(start)
+    const queue = [...start]
+    const stories = new Set()
+    while (queue.length > 0) {
+        const cur = queue.shift()
+        const mod = byName.get(cur)
+        if (!mod || !Array.isArray(mod.reasons)) continue
+        for (const importerRaw of mod.reasons) {
+            const importer = normalize(importerRaw)
+            if (visited.has(importer)) continue
+            visited.add(importer)
+            queue.push(importer)
+            if (STORY_RE.test(importer)) stories.add(importer)
+        }
+    }
+    // Also count the changed files themselves if they happen to be stories.
+    for (const f of start) if (STORY_RE.test(f)) stories.add(f)
+    return { affected: [...stories].sort(), unresolved }
+}
+
+// -----------------------------------------------------------------------------
+// Entrypoint
+// -----------------------------------------------------------------------------
+
+function main() {
+    const args = parseArgs(process.argv.slice(2))
+    if (!args.graph) {
+        process.stderr.write('Error: --graph is required\n')
+        process.exit(2)
+    }
+    if (!args.baseRef) {
+        process.stderr.write('Error: --base-ref is required\n')
+        process.exit(2)
+    }
+
+    let changed
+    try {
+        changed = changedFilesFromGit(args.baseRef)
+    } catch (err) {
+        process.stderr.write(`Error: \`git diff\` against ${args.baseRef} failed: ${err.message}\n`)
+        process.exit(2)
+    }
+    process.stderr.write(`Derived ${changed.length} changed file(s) from \`git diff ${args.baseRef}...HEAD\`\n`)
+
+    // Load graph first so we can emit total_story_count even in full-run mode.
+    // If the graph is unreadable/missing, fall back to a full-run recommendation
+    // without a count (caller will treat 0 as "unknown total").
+    let graph
+    let totalStories = 0
+    try {
+        graph = loadGraph(args.graph)
+        totalStories = countStories(graph.modules)
+    } catch (err) {
+        emitFull(`module-graph.json unavailable: ${err.message}`, 0)
+        return
+    }
+
+    if (process.env.FORCE_FULL_STORIES) {
+        emitFull('FORCE_FULL_STORIES env var set', totalStories)
+        return
+    }
+    if (changed.length > MAX_CHANGED_FILES) {
+        emitFull(`too many changed files (${changed.length} > ${MAX_CHANGED_FILES})`, totalStories)
+        return
+    }
+    for (const f of changed) {
+        const reason = requiresFullRun(f)
+        if (reason) {
+            emitFull(reason, totalStories)
+            return
+        }
+    }
+
+    const { affected, unresolved } = affectedStoriesFor(changed, graph)
+    process.stderr.write(`Affected stories: ${affected.length} / ${totalStories} (unresolved: ${unresolved.length})\n`)
+    emitSelective(affected, totalStories, unresolved)
+}
+
+main()

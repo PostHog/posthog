@@ -208,7 +208,7 @@ class OrganizationFeatureFlagView(
                                     original_child_cohort_id = int(prop.value)
                                     original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
 
-                                    if not original_child_cohort:
+                                    if not original_child_cohort or original_child_cohort.name is None:
                                         continue
                                     prop.value = name_to_dest_cohort_id[original_child_cohort.name]
                                 except (ValueError, TypeError):
@@ -231,7 +231,7 @@ class OrganizationFeatureFlagView(
                         destination_cohort_serializer.is_valid(raise_exception=True)
                         destination_cohort = destination_cohort_serializer.save()
 
-                    if destination_cohort is not None:
+                    if destination_cohort is not None and original_cohort.name is not None:
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
             # reference correct destination cohort ids in the flag
@@ -242,7 +242,7 @@ class OrganizationFeatureFlagView(
                         try:
                             original_cohort_id = int(prop["value"])
                             original_cohort_ref = seen_cohorts_cache[original_cohort_id]
-                            if not original_cohort_ref:
+                            if not original_cohort_ref or original_cohort_ref.name is None:
                                 continue
                             cohort_name = original_cohort_ref.name
                             prop["value"] = name_to_dest_cohort_id[cohort_name]

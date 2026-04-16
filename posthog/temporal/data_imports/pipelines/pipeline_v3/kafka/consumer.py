@@ -98,10 +98,11 @@ class KafkaConsumerService:
         hosts = profile.hosts
         config: dict[str, str | int | float | bool | None] = {
             "bootstrap.servers": ",".join(hosts) if isinstance(hosts, list) else hosts,
+            "security.protocol": profile.security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
             "group.id": self._config.consumer_group,
             "auto.offset.reset": "latest",
             "enable.auto.commit": False,
-            "security.protocol": profile.security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+            "partition.assignment.strategy": "cooperative-sticky",
         }
         if profile.security_protocol in (
             _KafkaSecurityProtocol.SASL_PLAINTEXT,
