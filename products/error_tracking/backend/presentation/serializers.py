@@ -15,7 +15,11 @@ from posthog.models.integration import (
 )
 
 from products.error_tracking.backend import logic
-from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
+from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 
 class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
@@ -23,6 +27,12 @@ class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSeria
         model = Integration
         fields = ["id", "kind", "display_name"]
         read_only_fields = ["id", "kind", "display_name"]
+
+
+class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssueFingerprintV2
+        fields = ["fingerprint", "issue_id", "created_at"]
 
 
 class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
