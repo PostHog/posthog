@@ -42,20 +42,7 @@ export function DistributionModal(): JSX.Element {
     }
 
     const handleSave = (): void => {
-        if (!experiment.feature_flag) {
-            return
-        }
-        // FeatureFlagBasicType has all fields updateDistribution needs (id, filters)
-        updateDistribution({
-            ...experiment.feature_flag,
-            filters: {
-                ...experiment.feature_flag.filters,
-                multivariate: {
-                    ...experiment.feature_flag.filters.multivariate,
-                    variants,
-                },
-            },
-        } as any)
+        updateDistribution(variants)
         closeDistributionModal()
     }
 
