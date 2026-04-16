@@ -143,7 +143,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity()),
         ]
-        if self._context and self._context.pr_loop_enabled and self._ci_repetitions < MAX_CI_REPETITIONS:
+        if (
+            self._context
+            and self._context.create_pr
+            and self._context.pr_loop_enabled
+            and self._ci_repetitions < MAX_CI_REPETITIONS
+        ):
             workflow.logger.info(
                 "Waiting for CI follow-up event", run_id=self.context.run_id, repetitions=self._ci_repetitions
             )
