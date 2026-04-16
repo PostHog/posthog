@@ -430,6 +430,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "user_message",
         "cancel",
         "close",
+        "permission_response",
     ]
 
     jsonrpc = serializers.ChoiceField(
