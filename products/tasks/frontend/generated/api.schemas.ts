@@ -142,19 +142,6 @@ export interface SandboxEnvironmentApi {
     readonly updated_at: string
 }
 
-/**
- * * `success` - Success
- * `failed` - Failed
- * `running` - Running
- */
-export type LastRunStatusEnumApi = (typeof LastRunStatusEnumApi)[keyof typeof LastRunStatusEnumApi]
-
-export const LastRunStatusEnumApi = {
-    Success: 'success',
-    Failed: 'failed',
-    Running: 'running',
-} as const
-
 export interface TaskAutomationApi {
     readonly id: string
     /** @maxLength 255 */
@@ -162,10 +149,7 @@ export interface TaskAutomationApi {
     prompt: string
     /** @maxLength 255 */
     repository: string
-    /**
-     * GitHub integration for this automation
-     * @nullable
-     */
+    /** @nullable */
     github_integration?: number | null
     /** @maxLength 100 */
     cron_expression: string
@@ -179,7 +163,8 @@ export interface TaskAutomationApi {
     enabled?: boolean
     /** @nullable */
     readonly last_run_at: string | null
-    readonly last_run_status: LastRunStatusEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly last_run_status: string | null
     /** @nullable */
     readonly last_task_id: string | null
     /** @nullable */

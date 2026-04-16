@@ -19061,20 +19061,6 @@ export namespace Schemas {
       readonly last_used_at: string | null;
     }
 
-    /**
-     * * `success` - Success
-    * `failed` - Failed
-    * `running` - Running
-     */
-    export type LastRunStatusEnum = typeof LastRunStatusEnum[keyof typeof LastRunStatusEnum];
-
-
-    export const LastRunStatusEnum = {
-      Success: 'success',
-      Failed: 'failed',
-      Running: 'running',
-    } as const;
-
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -22438,10 +22424,7 @@ export namespace Schemas {
       prompt: string;
       /** @maxLength 255 */
       repository: string;
-      /**
-       * GitHub integration for this automation
-       * @nullable
-       */
+      /** @nullable */
       github_integration?: number | null;
       /** @maxLength 100 */
       cron_expression: string;
@@ -22455,7 +22438,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** @nullable */
       readonly last_run_at: string | null;
-      readonly last_run_status: LastRunStatusEnum | NullEnum | null;
+      /** @nullable */
+      readonly last_run_status: string | null;
       /** @nullable */
       readonly last_task_id: string | null;
       /** @nullable */
@@ -26807,10 +26791,7 @@ export namespace Schemas {
       prompt?: string;
       /** @maxLength 255 */
       repository?: string;
-      /**
-       * GitHub integration for this automation
-       * @nullable
-       */
+      /** @nullable */
       github_integration?: number | null;
       /** @maxLength 100 */
       cron_expression?: string;
@@ -26824,7 +26805,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** @nullable */
       readonly last_run_at?: string | null;
-      readonly last_run_status?: LastRunStatusEnum | NullEnum | null;
+      /** @nullable */
+      readonly last_run_status?: string | null;
       /** @nullable */
       readonly last_task_id?: string | null;
       /** @nullable */
