@@ -1304,10 +1304,15 @@ class ExperimentQueryBuilder:
             placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
         )
 
-    def _build_windowed_metric_value_expr(self, window_predicate: ast.Expr) -> ast.Expr:
+    def _build_windowed_metric_value_expr(
+        self, window_predicate: ast.Expr, events_alias: str = "metric_events"
+    ) -> ast.Expr:
         return parse_expr(
-            "if({window_predicate}, metric_events.value, NULL)",
-            placeholders={"window_predicate": window_predicate},
+            "if({window_predicate}, {metric_value}, NULL)",
+            placeholders={
+                "window_predicate": window_predicate,
+                "metric_value": ast.Field(chain=[events_alias, "value"]),
+            },
         )
 
     def _build_metric_predicate(

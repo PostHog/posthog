@@ -392,6 +392,7 @@ class ExperimentQueryRunner(QueryRunner):
                 control_variant=control_variant,
                 test_variants=test_variants,
                 stats_config=self.experiment.stats_config,
+                cuped_config=self.cuped_config,
             )
 
         return get_bayesian_experiment_result(
@@ -399,6 +400,7 @@ class ExperimentQueryRunner(QueryRunner):
             control_variant=control_variant,
             test_variants=test_variants,
             stats_config=self.experiment.stats_config,
+            cuped_config=self.cuped_config,
         )
 
     def _process_breakdown_results(

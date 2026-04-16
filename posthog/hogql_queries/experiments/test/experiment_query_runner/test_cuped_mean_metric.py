@@ -49,6 +49,18 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
             },
         )
 
+    def _create_pageview(self, feature_flag, distinct_id: str, timestamp: str, session_id: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            properties={
+                f"$feature/{feature_flag.key}": "ignored",
+                "$session_id": session_id,
+            },
+        )
+
     def _build_sum_metric(
         self,
         conversion_window: int | None = None,
@@ -76,6 +88,54 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         return cast(ExperimentQueryResponse, query_runner.calculate())
+
+    def _create_correlated_data(
+        self,
+        feature_flag,
+        samples_per_variant: int = 60,
+        create_pre_exposure_events: bool = True,
+    ) -> None:
+        for variant, treatment_effect in [("control", 0), ("test", 1)]:
+            for i in range(samples_per_variant):
+                distinct_id = f"{feature_flag.key}_{variant}_{i}"
+                pre_amount = i + 1
+                post_amount = pre_amount + treatment_effect
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                if create_pre_exposure_events:
+                    self._create_purchase(feature_flag, distinct_id, "2020-01-09T12:00:00Z", pre_amount)
+                self._create_exposure(feature_flag, distinct_id, variant, "2020-01-10T12:00:00Z")
+                self._create_purchase(feature_flag, distinct_id, "2020-01-10T13:00:00Z", post_amount)
+
+    @freeze_time("2020-01-15T12:00:00Z")
+    def test_disabled_cuped_does_not_collect_covariate_columns(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 10, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        for distinct_id, variant, pre_amount, post_amount in [
+            ("control_1", "control", 3, 10),
+            ("test_1", "test", 5, 20),
+        ]:
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+            self._create_purchase(feature_flag, distinct_id, "2020-01-09T12:00:00Z", pre_amount)
+            self._create_exposure(feature_flag, distinct_id, variant, "2020-01-10T12:00:00Z")
+            self._create_purchase(feature_flag, distinct_id, "2020-01-10T13:00:00Z", post_amount)
+
+        flush_persons_and_events()
+
+        result = self._run_metric(experiment, self._build_sum_metric())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.sum, 10)
+        self.assertEqual(result.variant_results[0].sum, 20)
+        self.assertIsNone(result.baseline.covariate_sum)
+        self.assertIsNone(result.variant_results[0].covariate_sum)
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_mean_metric_collects_covariate_columns(self):
@@ -296,19 +356,8 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         }
         cuped_experiment.save()
 
-        def create_correlated_data(feature_flag) -> None:
-            for variant, treatment_effect in [("control", 0), ("test", 1)]:
-                for i in range(60):
-                    distinct_id = f"{feature_flag.key}_{variant}_{i}"
-                    pre_amount = i + 1
-                    post_amount = pre_amount + treatment_effect
-                    _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
-                    self._create_purchase(feature_flag, distinct_id, "2020-01-09T12:00:00Z", pre_amount)
-                    self._create_exposure(feature_flag, distinct_id, variant, "2020-01-10T12:00:00Z")
-                    self._create_purchase(feature_flag, distinct_id, "2020-01-10T13:00:00Z", post_amount)
-
-        create_correlated_data(no_cuped_feature_flag)
-        create_correlated_data(cuped_feature_flag)
+        self._create_correlated_data(no_cuped_feature_flag)
+        self._create_correlated_data(cuped_feature_flag)
         flush_persons_and_events()
 
         no_cuped_result = self._run_metric(no_cuped_experiment, metric)
@@ -327,3 +376,136 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         no_cuped_interval_width = no_cuped_variant.confidence_interval[1] - no_cuped_variant.confidence_interval[0]
         cuped_interval_width = cuped_variant.confidence_interval[1] - cuped_variant.confidence_interval[0]
         self.assertLess(cuped_interval_width, no_cuped_interval_width)
+
+    @freeze_time("2020-01-15T12:00:00Z")
+    def test_cuped_adjusts_bayesian_statistical_result(self):
+        metric = self._build_sum_metric()
+
+        no_cuped_feature_flag = self.create_feature_flag("no-cuped-bayesian-experiment")
+        no_cuped_experiment = self.create_experiment(
+            name="no-cuped-bayesian-experiment",
+            feature_flag=no_cuped_feature_flag,
+            start_date=datetime(2020, 1, 10, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        no_cuped_experiment.stats_config = {"method": "bayesian"}
+        no_cuped_experiment.save()
+
+        cuped_feature_flag = self.create_feature_flag("cuped-bayesian-experiment")
+        cuped_experiment = self.create_experiment(
+            name="cuped-bayesian-experiment",
+            feature_flag=cuped_feature_flag,
+            start_date=datetime(2020, 1, 10, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        cuped_experiment.stats_config = {
+            "method": "bayesian",
+            "cuped": {"enabled": True, "lookback_days": 7},
+        }
+        cuped_experiment.save()
+
+        self._create_correlated_data(no_cuped_feature_flag)
+        self._create_correlated_data(cuped_feature_flag)
+        flush_persons_and_events()
+
+        no_cuped_result = self._run_metric(no_cuped_experiment, metric)
+        cuped_result = self._run_metric(cuped_experiment, metric)
+
+        assert cuped_result.baseline is not None
+        assert no_cuped_result.variant_results is not None
+        assert cuped_result.variant_results is not None
+        no_cuped_variant = no_cuped_result.variant_results[0]
+        cuped_variant = cuped_result.variant_results[0]
+
+        self.assertEqual(cuped_result.baseline.covariate_sum, 1830)
+        self.assertEqual(cuped_variant.covariate_sum, 1830)
+        assert no_cuped_variant.credible_interval is not None
+        assert cuped_variant.credible_interval is not None
+        no_cuped_interval_width = no_cuped_variant.credible_interval[1] - no_cuped_variant.credible_interval[0]
+        cuped_interval_width = cuped_variant.credible_interval[1] - cuped_variant.credible_interval[0]
+        self.assertLess(cuped_interval_width, no_cuped_interval_width)
+
+    @freeze_time("2020-01-15T12:00:00Z")
+    def test_cuped_handles_zero_pre_exposure_data(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 10, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True, "lookback_days": 7}}
+        experiment.save()
+
+        self._create_correlated_data(feature_flag, create_pre_exposure_events=False)
+        flush_persons_and_events()
+
+        result = self._run_metric(experiment, self._build_sum_metric())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        variant = result.variant_results[0]
+        self.assertEqual(result.baseline.covariate_sum, 0)
+        self.assertEqual(result.baseline.covariate_sum_squares, 0)
+        self.assertEqual(result.baseline.main_covariate_sum_product, 0)
+        self.assertEqual(variant.covariate_sum, 0)
+        self.assertEqual(variant.covariate_sum_squares, 0)
+        self.assertEqual(variant.main_covariate_sum_product, 0)
+        assert variant.p_value is not None
+
+    @freeze_time("2020-01-15T12:00:00Z")
+    def test_cuped_unique_session_metric_collects_distinct_covariates(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 10, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True, "lookback_days": 7}}
+        experiment.save()
+
+        _create_person(distinct_ids=["control_1"], team_id=self.team.pk)
+        self._create_pageview(feature_flag, "control_1", "2020-01-09T12:00:00Z", "c_1_pre_a")
+        self._create_pageview(feature_flag, "control_1", "2020-01-09T12:05:00Z", "c_1_pre_b")
+        self._create_exposure(feature_flag, "control_1", "control", "2020-01-10T12:00:00Z")
+        self._create_pageview(feature_flag, "control_1", "2020-01-10T13:00:00Z", "c_1_post")
+
+        _create_person(distinct_ids=["control_2"], team_id=self.team.pk)
+        self._create_exposure(feature_flag, "control_2", "control", "2020-01-10T12:00:00Z")
+        self._create_pageview(feature_flag, "control_2", "2020-01-10T13:00:00Z", "c_2_post")
+
+        _create_person(distinct_ids=["test_1"], team_id=self.team.pk)
+        self._create_pageview(feature_flag, "test_1", "2020-01-09T12:00:00Z", "t_1_pre")
+        self._create_exposure(feature_flag, "test_1", "test", "2020-01-10T12:00:00Z")
+        self._create_pageview(feature_flag, "test_1", "2020-01-10T13:00:00Z", "t_1_post_a")
+        self._create_pageview(feature_flag, "test_1", "2020-01-10T13:05:00Z", "t_1_post_b")
+
+        _create_person(distinct_ids=["test_2"], team_id=self.team.pk)
+        self._create_pageview(feature_flag, "test_2", "2020-01-09T12:00:00Z", "t_2_pre_a")
+        self._create_pageview(feature_flag, "test_2", "2020-01-09T12:05:00Z", "t_2_pre_b")
+        self._create_exposure(feature_flag, "test_2", "test", "2020-01-10T12:00:00Z")
+        self._create_pageview(feature_flag, "test_2", "2020-01-10T13:00:00Z", "t_2_post")
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="$pageview",
+                math=ExperimentMetricMathType.UNIQUE_SESSION,
+            ),
+        )
+        result = self._run_metric(experiment, metric)
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.sum, 2)
+        self.assertEqual(control_variant.covariate_sum, 2)
+        self.assertEqual(control_variant.covariate_sum_squares, 4)
+        self.assertEqual(control_variant.main_covariate_sum_product, 2)
+
+        self.assertEqual(test_variant.sum, 3)
+        self.assertEqual(test_variant.covariate_sum, 3)
+        self.assertEqual(test_variant.covariate_sum_squares, 5)
+        self.assertEqual(test_variant.main_covariate_sum_product, 4)

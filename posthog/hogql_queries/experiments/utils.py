@@ -25,7 +25,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.cuped_config import get_cuped_config
+from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig, get_cuped_config
 from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
@@ -484,14 +484,46 @@ def _copy_cuped_fields(
     result.main_covariate_sum_product = variant.main_covariate_sum_product
 
 
+ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
+
+
+def _apply_cuped_adjustment_if_enabled(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    cuped_config: CupedQueryConfig,
+    test_stat: ExperimentStatistic,
+    control_stat: ExperimentStatistic,
+    test_variant: ExperimentStatsBaseValidated,
+    control_variant: ExperimentStatsBaseValidated,
+) -> tuple[ExperimentStatistic, ExperimentStatistic, dict[str, float]]:
+    if not cuped_config.enabled or not isinstance(metric, ExperimentMeanMetric):
+        return test_stat, control_stat, {}
+
+    if not isinstance(test_stat, SampleMeanStatistic) or not isinstance(control_stat, SampleMeanStatistic):
+        return test_stat, control_stat, {}
+
+    cuped_result = cuped_adjust(
+        test_stat,
+        control_stat,
+        metric_variant_to_cuped_data(test_variant),
+        metric_variant_to_cuped_data(control_variant),
+    )
+
+    return (
+        cuped_result.treatment_adjusted,
+        cuped_result.control_adjusted,
+        {"unadjusted_mean": cuped_result.control_unadjusted_mean},
+    )
+
+
 def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
+    cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
     frequentist_config = stats_config.get("frequentist", {}) if stats_config else {}
-    cuped_config = get_cuped_config(stats_config, metric)
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = FrequentistConfig(
         alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
@@ -544,20 +576,14 @@ def get_frequentist_experiment_result(
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result = test_stat
-                control_stat_for_result = control_stat
-                test_kwargs = {}
-
-                if cuped_config.enabled and isinstance(metric, ExperimentMeanMetric):
-                    cuped_result = cuped_adjust(
-                        test_stat,
-                        control_stat,
-                        metric_variant_to_cuped_data(test_variant_validated),
-                        metric_variant_to_cuped_data(control_variant_validated),
-                    )
-                    test_stat_for_result = cuped_result.treatment_adjusted
-                    control_stat_for_result = cuped_result.control_adjusted
-                    test_kwargs["unadjusted_mean"] = cuped_result.control_unadjusted_mean
+                test_stat_for_result, control_stat_for_result, test_kwargs = _apply_cuped_adjustment_if_enabled(
+                    metric,
+                    resolved_cuped_config,
+                    test_stat,
+                    control_stat,
+                    test_variant_validated,
+                    control_variant_validated,
+                )
 
                 result = method.run_test(test_stat_for_result, control_stat_for_result, **test_kwargs)
 
@@ -588,12 +614,13 @@ def get_bayesian_experiment_result(
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
+    cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
     """
     Get experiment results using the new Bayesian method with the new format
     """
     bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
-    cuped_config = get_cuped_config(stats_config, metric)
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = BayesianConfig(
         ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
@@ -646,20 +673,14 @@ def get_bayesian_experiment_result(
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result = test_stat
-                control_stat_for_result = control_stat
-                test_kwargs = {}
-
-                if cuped_config.enabled and isinstance(metric, ExperimentMeanMetric):
-                    cuped_result = cuped_adjust(
-                        test_stat,
-                        control_stat,
-                        metric_variant_to_cuped_data(test_variant_validated),
-                        metric_variant_to_cuped_data(control_variant_validated),
-                    )
-                    test_stat_for_result = cuped_result.treatment_adjusted
-                    control_stat_for_result = cuped_result.control_adjusted
-                    test_kwargs["unadjusted_mean"] = cuped_result.control_unadjusted_mean
+                test_stat_for_result, control_stat_for_result, test_kwargs = _apply_cuped_adjustment_if_enabled(
+                    metric,
+                    resolved_cuped_config,
+                    test_stat,
+                    control_stat,
+                    test_variant_validated,
+                    control_variant_validated,
+                )
 
                 result = method.run_test(test_stat_for_result, control_stat_for_result, **test_kwargs)
 

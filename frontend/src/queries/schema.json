@@ -17387,6 +17387,12 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17395,6 +17401,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17430,6 +17439,12 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17438,6 +17453,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17635,6 +17653,12 @@
                 "chance_to_win": {
                     "type": "number"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "credible_interval": {
                     "items": {
                         "type": "number"
@@ -17651,6 +17675,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -17707,6 +17734,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17715,6 +17748,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",
