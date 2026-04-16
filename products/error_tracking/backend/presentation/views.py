@@ -1,13 +1,17 @@
+from django.apps import apps
+
 from rest_framework import viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.presentation.serializers import (
     ErrorTrackingExternalReferenceSerializer,
     ErrorTrackingFingerprintSerializer,
 )
+
+ErrorTrackingExternalReference = apps.get_model("error_tracking", "ErrorTrackingExternalReference")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 
 class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):

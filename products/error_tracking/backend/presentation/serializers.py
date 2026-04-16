@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.apps import apps
+
 import posthoganalytics
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -14,12 +16,58 @@ from posthog.models.integration import (
     LinearIntegration,
 )
 
-from products.error_tracking.backend import logic
-from products.error_tracking.backend.models import (
-    ErrorTrackingExternalReference,
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
+ErrorTrackingExternalReference = apps.get_model("error_tracking", "ErrorTrackingExternalReference")
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+
+SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
+    {
+        Integration.IntegrationKind.LINEAR,
+        Integration.IntegrationKind.GITHUB,
+        Integration.IntegrationKind.GITLAB,
+        Integration.IntegrationKind.JIRA,
+    }
 )
+
+
+def is_supported_external_issue_provider(kind: str) -> bool:
+    return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+
+
+def build_external_issue_url(reference: Any) -> str:
+    external_context: dict[str, str] = reference.external_context or {}
+    integration = reference.integration
+
+    if integration.kind == Integration.IntegrationKind.LINEAR:
+        issue_id = external_context.get("id")
+        if not issue_id:
+            return ""
+        url_key = LinearIntegration(integration).url_key()
+        return f"https://linear.app/{url_key}/issue/{issue_id}"
+
+    if integration.kind == Integration.IntegrationKind.GITHUB:
+        repository = external_context.get("repository")
+        number = external_context.get("number")
+        if not repository or not number:
+            return ""
+        org = GitHubIntegration(integration).organization()
+        return f"https://github.com/{org}/{repository}/issues/{number}"
+
+    if integration.kind == Integration.IntegrationKind.GITLAB:
+        issue_id = external_context.get("issue_id")
+        if not issue_id:
+            return ""
+        gitlab = GitLabIntegration(integration)
+        return f"{gitlab.hostname}/{gitlab.project_path}/issues/{issue_id}"
+
+    if integration.kind == Integration.IntegrationKind.JIRA:
+        issue_key = external_context.get("key")
+        if not issue_key:
+            return ""
+        jira = JiraIntegration(integration)
+        return f"{jira.site_url()}/browse/{issue_key}"
+
+    return ""
 
 
 class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
@@ -49,12 +97,12 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
         read_only_fields = ["external_url"]
 
-    def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
-        external_url = logic.build_external_issue_url(reference)
+    def get_external_url(self, reference: Any) -> str:
+        external_url = build_external_issue_url(reference)
         if external_url:
             return external_url
 
-        if logic.is_supported_external_issue_provider(reference.integration.kind):
+        if is_supported_external_issue_provider(reference.integration.kind):
             raise ValidationError("Missing required external context fields")
 
         raise ValidationError("Provider not supported")
@@ -72,10 +120,10 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
 
         return data
 
-    def create(self, validated_data) -> ErrorTrackingExternalReference:
+    def create(self, validated_data) -> Any:
         team = self.context["get_team"]()
-        issue: ErrorTrackingIssue = validated_data.get("issue")
-        integration: Integration = validated_data.get("integration")
+        issue = validated_data.get("issue")
+        integration = validated_data.get("integration")
 
         config: dict[str, Any] = validated_data.pop("config")
 
