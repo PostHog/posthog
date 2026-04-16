@@ -15,6 +15,8 @@ import {
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { AnyPropertyFilter } from '~/types'
 
@@ -56,6 +58,8 @@ function JobEditor({
         (job.event_filters as AnyPropertyFilter[] | undefined) ?? []
     )
     const [enabled, setEnabled] = useState(job.enabled ?? true)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
 
     return (
         <div className="space-y-4">
@@ -71,7 +75,7 @@ function JobEditor({
                     options={[
                         { value: 'trace', label: 'Traces' },
                         { value: 'generation', label: 'Generations' },
-                        { value: 'evaluation', label: 'Evaluations' },
+                        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
                     ]}
                     size="small"
                 />

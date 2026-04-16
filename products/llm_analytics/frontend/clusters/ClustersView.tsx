@@ -47,6 +47,12 @@ export function ClustersView(): JSX.Element {
     const { openJobsPanel } = useActions(clusteringJobsLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
+    const levelOptions: { value: ClusteringLevel; label: string }[] = [
+        { value: 'trace', label: 'Traces' },
+        { value: 'generation', label: 'Generations' },
+        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
+    ]
 
     // Build a map from job_id to job name for run labels
     const jobNameById: Record<string, string> = {}
@@ -80,11 +86,7 @@ export function ClustersView(): JSX.Element {
                                 <LemonSegmentedButton
                                     value={clusteringLevel}
                                     onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                    options={[
-                                        { value: 'trace', label: 'Traces' },
-                                        { value: 'generation', label: 'Generations' },
-                                        { value: 'evaluation', label: 'Evaluations' },
-                                    ]}
+                                    options={levelOptions}
                                     size="small"
                                     data-attr="clusters-level-toggle"
                                 />
@@ -156,11 +158,7 @@ export function ClustersView(): JSX.Element {
                             <LemonSegmentedButton
                                 value={clusteringLevel}
                                 onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                options={[
-                                    { value: 'trace', label: 'Traces' },
-                                    { value: 'generation', label: 'Generations' },
-                                    { value: 'evaluation', label: 'Evaluations' },
-                                ]}
+                                options={levelOptions}
                                 size="small"
                                 data-attr="clusters-level-toggle"
                             />
