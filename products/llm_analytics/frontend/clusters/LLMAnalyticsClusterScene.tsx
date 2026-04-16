@@ -235,7 +235,7 @@ function ClusterMetricsChips({
         <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
             {metrics.sentiment && (
                 <Tooltip
-                    title={`Sentiment: ${metrics.sentiment.label} — ${metrics.sentiment.total} ${itemLabel} classified (${metrics.sentiment.counts.positive ?? 0} positive, ${metrics.sentiment.counts.neutral ?? 0} neutral, ${metrics.sentiment.counts.negative ?? 0} negative)`}
+                    title={`Sentiment: ${metrics.sentiment.label} — ${metrics.sentiment.total} ${itemLabel} classified (${metrics.sentiment.counts.positive} positive, ${metrics.sentiment.counts.neutral} neutral, ${metrics.sentiment.counts.negative} negative)`}
                 >
                     <span>
                         <SentimentBar label={metrics.sentiment.label} score={metrics.sentiment.score} />

@@ -56,7 +56,7 @@ export interface ClusterItemInfo {
 export interface ClusterSentiment {
     label: string // "positive", "neutral", "negative"
     score: number // 0-1
-    counts: Record<string, number> // {"positive": N, "neutral": N, "negative": N}
+    counts: { positive: number; neutral: number; negative: number }
     total: number
 }
 
