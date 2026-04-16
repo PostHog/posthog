@@ -19,6 +19,7 @@ from uuid import UUID
 
 from .. import logic
 from . import contracts
+from .enums import ReviewDecision
 
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
@@ -54,6 +55,7 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
         id=snapshot.id,
         identifier=snapshot.identifier,
         result=snapshot.result,
+        classification_reason=snapshot.classification_reason or "",
         current_artifact=_to_artifact(snapshot.current_artifact, repo_id) if snapshot.current_artifact else None,
         baseline_artifact=_to_artifact(snapshot.baseline_artifact, repo_id) if snapshot.baseline_artifact else None,
         diff_artifact=_to_artifact(snapshot.diff_artifact, repo_id) if snapshot.diff_artifact else None,
@@ -62,6 +64,7 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
         review_state=snapshot.review_state,
         reviewed_at=snapshot.reviewed_at,
         approved_hash=snapshot.approved_hash,
+        tolerated_hash_id=snapshot.tolerated_hash_match_id,
         metadata=snapshot.metadata or {},
     )
 
@@ -83,6 +86,7 @@ def _to_run(run) -> contracts.Run:
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
+            tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
         created_at=run.created_at,
@@ -237,6 +241,26 @@ def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.Snaps
     ]
 
 
+def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> contracts.Snapshot:
+    snapshot = logic.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id)
+    return _to_snapshot(snapshot, snapshot.run.repo_id)
+
+
+def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.ToleratedHashEntry]:
+    entries = logic.get_tolerated_hashes_for_identifier(repo_id, identifier)
+    return [
+        contracts.ToleratedHashEntry(
+            id=e.id,
+            alternate_hash=e.alternate_hash,
+            baseline_hash=e.baseline_hash,
+            reason=e.reason,
+            created_at=e.created_at,
+            source_run_id=e.source_run_id,
+        )
+        for e in entries
+    ]
+
+
 def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     """
     Complete a run: detect removals, verify uploads, trigger diff processing.
@@ -247,10 +271,18 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run)
 
 
-def auto_approve_run(run_id: UUID, user_id: int, team_id: int | None = None) -> contracts.AutoApproveResult:
+def approve_all(
+    run_id: UUID,
+    user_id: int,
+    team_id: int | None = None,
+    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
+    commit_to_github: bool = True,
+) -> contracts.AutoApproveResult:
     if team_id is not None:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
-    run, baseline_content = logic.auto_approve_run(run_id=run_id, user_id=user_id)
+    run, baseline_content = logic.approve_all(
+        run_id=run_id, user_id=user_id, review_decision=review_decision, commit_to_github=commit_to_github
+    )
     return contracts.AutoApproveResult(
         run=_to_run(run),
         baseline_content=baseline_content,
@@ -258,14 +290,17 @@ def auto_approve_run(run_id: UUID, user_id: int, team_id: int | None = None) -> 
 
 
 def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
+    """Approve specific snapshots (DB only).
+
+    For full run finalization with GitHub commit, use approve_all=true
+    which routes through auto_approve_run.
+    """
     if team_id is not None:
         logic.get_run(input.run_id, team_id=team_id)  # validates ownership
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
-
-    run = logic.approve_run(
+    run = logic.approve_snapshots(
         run_id=input.run_id,
         user_id=input.user_id,
         approved_snapshots=approved_snapshots,
-        commit_to_github=input.commit_to_github,
     )
     return _to_run(run)

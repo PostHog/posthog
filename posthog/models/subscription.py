@@ -111,6 +111,9 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
+    summary_enabled = models.BooleanField(default=False)
+    summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
+
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),

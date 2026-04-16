@@ -15,10 +15,9 @@
   // Dashboard config -- the whole point
   "dependencyDashboardTitle": "Renovate: Dependency Status",
   "dependencyDashboardLabels": ["dependencies"],
-  "dependencyDashboardOSVVulnerabilitySummary": true,
 
-  // Enable vulnerability detection for dashboard visibility (no PRs created)
-  "osvVulnerabilityAlerts": true,
+  // Disable vulnerability alerts -- we only want the dashboard
+  "osvVulnerabilityAlerts": false,
 
   // Disable GitHub-sourced vulnerability fix PRs (these bypass packageRules)
   "vulnerabilityAlerts": {
