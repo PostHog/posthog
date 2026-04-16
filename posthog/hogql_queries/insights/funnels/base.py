@@ -271,13 +271,44 @@ class FunnelBase(ABC):
         # TODO: cohort breakdowns are not supported for data warehouse / mixed funnels at the moment
         if breakdown and breakdownType == BreakdownType.COHORT and not self.should_add_not_in_cohort_group:
             assert funnel_events_query.select_from is not None
-            funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
+            if self.breakdown_cohorts:
+                funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
+            if self._cohort_breakdown_has_all:
+                self._rewrite_prop_basic_with_all_users_arrayjoin(
+                    funnel_events_query, has_cohort_join=bool(self.breakdown_cohorts)
+                )
 
         return funnel_events_query
 
-    def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
-        breakdown = self.context.breakdown
+    @cached_property
+    def _cohort_breakdown_has_all(self) -> bool:
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
+        return breakdownType == BreakdownType.COHORT and isinstance(breakdown, list) and "all" in breakdown
 
+    def _rewrite_prop_basic_with_all_users_arrayjoin(
+        self, funnel_events_query: ast.SelectQuery, has_cohort_join: bool
+    ) -> None:
+        # For cohort breakdowns that include the "all users" bucket, we avoid a second
+        # scan of the events table by LEFT JOIN'ing only the cohort subqueries and then
+        # emitting both the cohort value and ALL_USERS_COHORT_ID via arrayJoin. Non-cohort
+        # persons get NULL from the LEFT JOIN and map to a single [ALL_USERS_COHORT_ID] row.
+        # Edge case: breakdown=["all"] with no cohorts — no JOIN is added, so `value` does
+        # not exist; emit a single ALL_USERS_COHORT_ID bucket.
+        if funnel_events_query.select is None:
+            return
+        if has_cohort_join:
+            replacement_expr = parse_expr(
+                "arrayJoin(if(isNotNull(value), [{all_users_id}, value], [{all_users_id}]))",
+                {"all_users_id": ast.Constant(value=ALL_USERS_COHORT_ID)},
+            )
+        else:
+            replacement_expr = ast.Constant(value=ALL_USERS_COHORT_ID)
+        for select_expr in funnel_events_query.select:
+            if isinstance(select_expr, ast.Alias) and select_expr.alias == "prop_basic":
+                select_expr.expr = replacement_expr
+                return
+
+    def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         cohort_queries: list[ast.SelectQuery] = []
 
         for cohort in self.breakdown_cohorts:
@@ -287,17 +318,14 @@ class FunnelBase(ABC):
             assert isinstance(query, ast.SelectQuery)
             cohort_queries.append(query)
 
-        if isinstance(breakdown, list) and "all" in breakdown:
-            # TODO: cohort breakdowns are not supported for data warehouse / mixed funnels at the moment
-            all_query = FunnelEventQuery(context=self.context).to_query(skip_step_filter=True)
-            all_query.select = [
-                ast.Alias(alias="cohort_person_id", expr=ast.Field(chain=["person_id"])),
-                ast.Alias(alias="value", expr=ast.Constant(value=ALL_USERS_COHORT_ID)),
-            ]
-            cohort_queries.append(all_query)
+        # When the breakdown includes "all", we used to UNION ALL a second events scan
+        # producing (person_id, 0) rows for every event. We now LEFT JOIN only the
+        # cohort subqueries and synthesize the ALL_USERS_COHORT_ID row via arrayJoin
+        # in the outer projection (see `_rewrite_prop_basic_with_all_users_arrayjoin`).
+        join_type = "LEFT JOIN" if self._cohort_breakdown_has_all else "INNER JOIN"
 
         return ast.JoinExpr(
-            join_type="INNER JOIN",
+            join_type=join_type,
             table=ast.SelectSetQuery.create_from_queries(cohort_queries, "UNION ALL"),
             alias="cohort_join",
             constraint=ast.JoinConstraint(

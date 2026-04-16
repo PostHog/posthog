@@ -60,6 +60,7 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import fu
 from posthog.models import Action, Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -5891,3 +5892,131 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
+
+    def test_funnel_cohort_with_all_breakdown_uses_left_join_and_arrayjoin(self):
+        # Regression: funnel queries with breakdown=["all", cohort_id] used to emit
+        # INNER JOIN (cohort_people UNION ALL events) AS cohort_join, requiring a second
+        # scan of the events table. The optimized form uses a LEFT JOIN on the cohort
+        # subquery only and synthesizes the "all users" bucket via arrayJoin.
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"key": "value"})
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort_all_breakdown",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            breakdownFilter=BreakdownFilter(
+                breakdown=["all", cohort.pk],
+                breakdown_type=BreakdownType.COHORT,
+            ),
+        )
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        ast_query = runner.to_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(ast_query, context, "clickhouse", pretty=True)
+
+        # The old INNER JOIN (cohort UNION ALL events) pattern is gone — no second events scan.
+        assert "INNER JOIN (SELECT cohort_people.person_id" not in sql, (
+            "Expected LEFT JOIN on cohort subquery; found INNER JOIN pattern. "
+            "Has the cohort+all breakdown regressed to the pre-optimization form?"
+        )
+        # The LEFT JOIN must be present.
+        assert "LEFT JOIN" in sql and "cohort_join" in sql
+        # The ALL_USERS_COHORT_ID bucket is synthesized via arrayJoin rather than a
+        # second events table scan in a UNION ALL branch.
+        assert "arrayJoin" in sql
+        # Ensure no UNION ALL branch is scanning the events table under cohort_join.
+        # (There may be other UNION ALLs elsewhere — we just check the specific pattern.)
+        assert "UNION ALL SELECT if(not(empty(" not in sql
+
+    def test_funnel_cohort_all_breakdown_includes_cohort_and_all_buckets(self):
+        # Regression test for the semantics of breakdown=["all", cohort_id]: people in
+        # the cohort must appear in both the cohort bucket and the "all users" bucket;
+        # people outside the cohort must appear only in the "all users" bucket.
+        _create_person(distinct_ids=["in_cohort"], team_id=self.team.pk, properties={"key": "value"})
+        _create_person(distinct_ids=["out_of_cohort"], team_id=self.team.pk, properties={"key": "other"})
+        # Both users complete the 2-step funnel.
+        for distinct_id in ("in_cohort", "out_of_cohort"):
+            self._signup_event(distinct_id=distinct_id, timestamp="2024-01-01T10:00:00Z")
+            self._add_to_cart_event(distinct_id=distinct_id, timestamp="2024-01-01T11:00:00Z")
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort_all_semantics",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            breakdownFilter=BreakdownFilter(
+                breakdown=["all", cohort.pk],
+                breakdown_type=BreakdownType.COHORT,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # Two breakdown groups: "all users" and the cohort
+        assert len(results) == 2
+        buckets = {group[0]["breakdown_value"]: group for group in results}
+
+        # "all users" bucket (ALL_USERS_COHORT_ID == 0): both users converted both steps
+        all_bucket = buckets[ALL_USERS_COHORT_ID]
+        assert all_bucket[0]["count"] == 2
+        assert all_bucket[1]["count"] == 2
+
+        # Cohort bucket: only the in-cohort user
+        cohort_bucket = buckets[cohort.pk]
+        assert cohort_bucket[0]["count"] == 1
+        assert cohort_bucket[1]["count"] == 1
+
+    def test_funnel_cohort_all_breakdown_multi_cohort_dedup(self):
+        # breakdown=["all", cohort_a, cohort_b] with a user in BOTH cohorts should
+        # appear in exactly three buckets (all, cohort_a, cohort_b), not more.
+        # This exercises the arrayJoin + LEFT JOIN dedupe path via groupUniqArray.
+        _create_person(
+            distinct_ids=["multi"],
+            team_id=self.team.pk,
+            properties={"key_a": "value", "key_b": "value"},
+        )
+        self._signup_event(distinct_id="multi", timestamp="2024-01-01T10:00:00Z")
+        self._add_to_cart_event(distinct_id="multi", timestamp="2024-01-01T11:00:00Z")
+
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="cohort_a",
+            groups=[{"properties": [{"key": "key_a", "value": "value", "type": "person"}]}],
+        )
+        cohort_a.calculate_people_ch(pending_version=0)
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="cohort_b",
+            groups=[{"properties": [{"key": "key_b", "value": "value", "type": "person"}]}],
+        )
+        cohort_b.calculate_people_ch(pending_version=0)
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            breakdownFilter=BreakdownFilter(
+                breakdown=["all", cohort_a.pk, cohort_b.pk],
+                breakdown_type=BreakdownType.COHORT,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        buckets = {group[0]["breakdown_value"] for group in results}
+        assert buckets == {ALL_USERS_COHORT_ID, cohort_a.pk, cohort_b.pk}
