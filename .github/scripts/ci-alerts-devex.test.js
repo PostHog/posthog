@@ -92,8 +92,8 @@ function run(github, { state = null, now = minutes(0) } = {}) {
     }
 
     process.env.WATCHED_WORKFLOWS = 'ci-backend.yml,ci-frontend.yml'
-    process.env.ALERT_THRESHOLD_RUNS = '5'
-    process.env.RED_COMMIT_THRESHOLD = '10'
+    process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD = '5'
+    process.env.COMMIT_FAILURE_STREAK_THRESHOLD = '10'
     process.env.RATE_LIMIT_THRESHOLD_PERCENT = '10'
     process.env.CRITICAL_WORKFLOWS = 'ci-backend.yml'
 
@@ -107,8 +107,8 @@ function run(github, { state = null, now = minutes(0) } = {}) {
 
 afterEach(() => {
     delete process.env.WATCHED_WORKFLOWS
-    delete process.env.ALERT_THRESHOLD_RUNS
-    delete process.env.RED_COMMIT_THRESHOLD
+    delete process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD
+    delete process.env.COMMIT_FAILURE_STREAK_THRESHOLD
     delete process.env.RATE_LIMIT_THRESHOLD_PERCENT
     delete process.env.CRITICAL_WORKFLOWS
 })
@@ -220,16 +220,16 @@ describe('ci-alerts-devex', () => {
             // 9 red → no alert
             let { commits, runsByWorkflow } = redCommits(9)
             let { outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
-            expect(outputs.red_commits_action).toBe('none')
-            expect(outputs.red_commits_count).toBe('9')
+            expect(outputs.commit_failure_streak_action).toBe('none')
+            expect(outputs.commit_failure_streak_count).toBe('9')
 
             // 10 red → create, with detail listing culprit per commit
             ;({ commits, runsByWorkflow } = redCommits(10))
             ;({ outputs } = await run(createGithubMock(runsByWorkflow, { commits })))
-            expect(outputs.red_commits_action).toBe('create')
-            expect(outputs.red_commits_count).toBe('10')
-            expect(outputs.red_commits_detail.split('\n')).toHaveLength(10)
-            expect(outputs.red_commits_detail).toMatch(/Backend CI/)
+            expect(outputs.commit_failure_streak_action).toBe('create')
+            expect(outputs.commit_failure_streak_count).toBe('10')
+            expect(outputs.commit_failure_streak_detail.split('\n')).toHaveLength(10)
+            expect(outputs.commit_failure_streak_detail).toMatch(/Backend CI/)
         })
 
         it('unknown commits skip, non-critical failures ignored, green breaks streak', async () => {
@@ -241,8 +241,8 @@ describe('ci-alerts-devex', () => {
                 ...Array(8).fill({ 'ci-backend.yml': 'failure', 'ci-frontend.yml': 'failure' }),
             ])
             const { outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
-            expect(outputs.red_commits_count).toBe('0')
-            expect(outputs.red_commits_action).toBe('none')
+            expect(outputs.commit_failure_streak_count).toBe('0')
+            expect(outputs.commit_failure_streak_action).toBe('none')
         })
 
         it('non-critical-only failures do not mark commits red', async () => {
@@ -250,30 +250,30 @@ describe('ci-alerts-devex', () => {
                 Array(10).fill({ 'ci-backend.yml': 'success', 'ci-frontend.yml': 'failure' })
             )
             const { outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
-            expect(outputs.red_commits_count).toBe('0')
+            expect(outputs.commit_failure_streak_count).toBe('0')
         })
 
         it('updates when streak grows, resolves when drops below threshold', async () => {
             const stateAlerted = {
                 failing: {},
-                red_commits_alerted: true,
-                red_commits_slack_ts: '999.999',
-                red_commits_slack_channel: 'Cred',
-                red_commits_last_count: 10,
+                commit_failure_streak_alerted: true,
+                commit_failure_streak_slack_ts: '999.999',
+                commit_failure_streak_slack_channel: 'Cred',
+                commit_failure_streak_last_count: 10,
             }
 
             // 14 red after alerted-at-10 → update
             let { commits, runsByWorkflow } = redCommits(14)
             let { outputs } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted })
-            expect(outputs.red_commits_action).toBe('update')
-            expect(outputs.red_commits_count).toBe('14')
+            expect(outputs.commit_failure_streak_action).toBe('update')
+            expect(outputs.commit_failure_streak_count).toBe('14')
 
             // All green after alerted → resolve
             ;({ commits, runsByWorkflow } = greenCommits(12))
             let writtenState
             ;({ outputs, writtenState } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted }))
-            expect(outputs.red_commits_action).toBe('resolve')
-            expect(writtenState.red_commits_alerted).toBe(false)
+            expect(outputs.commit_failure_streak_action).toBe('resolve')
+            expect(writtenState.commit_failure_streak_alerted).toBe(false)
         })
     })
 })

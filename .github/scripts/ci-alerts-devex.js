@@ -3,10 +3,10 @@
 // Polls the GitHub API every 10 minutes. Emits three independent signals:
 //
 // 1. Per-workflow streak: alerts when any watched workflow has
-//    ALERT_THRESHOLD_RUNS (default 5) consecutive failures on master.
+//    WORKFLOW_FAILURE_STREAK_THRESHOLD (default 5) consecutive failures on master.
 //    Catches a single workflow broken run after run.
 //
-// 2. Commit-level health: alerts when RED_COMMIT_THRESHOLD (default 10)
+// 2. Commit-level health: alerts when COMMIT_FAILURE_STREAK_THRESHOLD (default 10)
 //    consecutive commits on master each had at least one critical workflow
 //    fail. Catches rotating-culprit breakage (3 dagster flakes, 3 storybook
 //    flakes, etc.) where no single workflow hits the per-workflow threshold
@@ -27,11 +27,11 @@
 //   rate_limit_alerted: boolean,
 //   rate_limit_slack_ts: string | null,
 //   rate_limit_slack_channel: string | null,
-//   red_commits_alerted: boolean,
-//   red_commits_slack_ts: string | null,
-//   red_commits_slack_channel: string | null,
-//   red_commits_last_count: number,
-//   red_commits_last_sample: string,  // preserved for resolve messages
+//   commit_failure_streak_alerted: boolean,
+//   commit_failure_streak_slack_ts: string | null,
+//   commit_failure_streak_slack_channel: string | null,
+//   commit_failure_streak_last_count: number,
+//   commit_failure_streak_last_sample: string,  // preserved for resolve messages
 // }
 
 const STATE_FILE = '.alerts-devex'
@@ -124,7 +124,7 @@ function getOldestFailingSince(failing) {
 //   failures, not alerted, at/over    → create
 //   failures, alerted, set changed    → update
 //   failures, alerted, set unchanged  → none
-function determineAction(state, failing, runThreshold) {
+function determineAction(state, failing, workflowFailureStreakThreshold) {
     const failingNames = Object.keys(failing).sort()
     const failingList = failingNames.join(', ')
     const hasFailures = failingNames.length > 0
@@ -139,7 +139,7 @@ function determineAction(state, failing, runThreshold) {
     }
 
     const maxConsecutive = getMaxConsecutiveFailures(failing)
-    const thresholdReached = maxConsecutive >= runThreshold
+    const thresholdReached = maxConsecutive >= workflowFailureStreakThreshold
 
     if (!thresholdReached && !wasAlerted) {
         return { action: 'none', failingList }
@@ -232,20 +232,20 @@ function countConsecutiveRedCommits(classified) {
     return count
 }
 
-function determineRedCommitsAction(state, count, threshold) {
-    const wasAlerted = state?.red_commits_alerted === true
+function determineCommitFailureStreakAction(state, count, threshold) {
+    const wasAlerted = state?.commit_failure_streak_alerted === true
     const atOrOver = count >= threshold
 
     if (!atOrOver && !wasAlerted) return 'none'
     if (!atOrOver && wasAlerted) return 'resolve'
     if (atOrOver && !wasAlerted) return 'create'
     // Already alerted AND still at/over threshold — update only when count grew
-    const prev = state?.red_commits_last_count || 0
+    const prev = state?.commit_failure_streak_last_count || 0
     if (count > prev) return 'update'
     return 'none'
 }
 
-function buildRedCommitsDetail(classified, count) {
+function buildCommitFailureStreakDetail(classified, count) {
     if (count === 0) return ''
     const redOnly = classified.filter((c) => c.status === 'red').slice(0, count)
     const lines = redOnly.map((c) => {
@@ -265,12 +265,12 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
 
     const workflowFiles = (process.env.WATCHED_WORKFLOWS || '').split(',').filter(Boolean)
     const criticalWorkflows = new Set((process.env.CRITICAL_WORKFLOWS || '').split(',').filter(Boolean))
-    const runThreshold = parseInt(process.env.ALERT_THRESHOLD_RUNS || '5', 10)
-    const redCommitThreshold = parseInt(process.env.RED_COMMIT_THRESHOLD || '10', 10)
+    const workflowFailureStreakThreshold = parseInt(process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD || '5', 10)
+    const commitFailureStreakThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
     // Over-fetch to survive cancelled/skipped runs (force-pushes, concurrency cancels).
-    // If the filtered set ends up smaller than runThreshold, we log a warning.
-    const perPage = Math.max(runThreshold * 3, 20)
-    const commitsToFetch = Math.max(redCommitThreshold * 2, 25)
+    // If the filtered set ends up smaller than workflowFailureStreakThreshold, we log a warning.
+    const perPage = Math.max(workflowFailureStreakThreshold * 3, 20)
+    const commitsToFetch = Math.max(commitFailureStreakThreshold * 2, 25)
 
     // Load existing state
     let state = null
@@ -284,11 +284,11 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
                     rate_limit_alerted: raw.rate_limit_alerted ?? false,
                     rate_limit_slack_ts: raw.rate_limit_slack_ts ?? null,
                     rate_limit_slack_channel: raw.rate_limit_slack_channel ?? null,
-                    red_commits_alerted: raw.red_commits_alerted ?? false,
-                    red_commits_slack_ts: raw.red_commits_slack_ts ?? null,
-                    red_commits_slack_channel: raw.red_commits_slack_channel ?? null,
-                    red_commits_last_count: raw.red_commits_last_count ?? 0,
-                    red_commits_last_sample: raw.red_commits_last_sample ?? '',
+                    commit_failure_streak_alerted: raw.commit_failure_streak_alerted ?? false,
+                    commit_failure_streak_slack_ts: raw.commit_failure_streak_slack_ts ?? null,
+                    commit_failure_streak_slack_channel: raw.commit_failure_streak_slack_channel ?? null,
+                    commit_failure_streak_last_count: raw.commit_failure_streak_last_count ?? 0,
+                    commit_failure_streak_last_sample: raw.commit_failure_streak_last_sample ?? '',
                 }
             } else {
                 state = { failing: {}, ...raw }
@@ -327,9 +327,9 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
             console.log(
                 `  ${runs[0].name}: ${runs[0].conclusion}${count > 0 ? ` (${count} consecutive failures)` : ''}`
             )
-            if (runs.length < runThreshold) {
+            if (runs.length < workflowFailureStreakThreshold) {
                 console.log(
-                    `  ! Only ${runs.length} non-cancelled runs available for ${runs[0].name} — below threshold of ${runThreshold}`
+                    `  ! Only ${runs.length} non-cancelled runs available for ${runs[0].name} — below threshold of ${workflowFailureStreakThreshold}`
                 )
             }
         }
@@ -339,7 +339,7 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
     const failing = buildFailingMap(allWorkflowRuns)
 
     // Determine action
-    const { action, failingList } = determineAction(state, failing, runThreshold)
+    const { action, failingList } = determineAction(state, failing, workflowFailureStreakThreshold)
 
     console.log(`Action: ${action}`)
     console.log(`Failing: ${failingList || 'none'}`)
@@ -351,23 +351,23 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
     // across critical workflows. Fetches real commit order via listCommits so
     // force-pushes don't confuse the streak.
     let classified = []
-    let redCount = 0
-    let redCommitsAction = 'none'
+    let commitFailureStreakCount = 0
+    let commitFailureStreakAction = 'none'
     try {
         const commits = await fetchRecentCommits(github, owner, repo, commitsToFetch)
         classified = classifyCommits(commits, allWorkflowRuns, criticalWorkflows)
-        redCount = countConsecutiveRedCommits(classified)
-        redCommitsAction = determineRedCommitsAction(state, redCount, redCommitThreshold)
-        console.log(`Red commits streak: ${redCount} (action: ${redCommitsAction})`)
+        commitFailureStreakCount = countConsecutiveRedCommits(classified)
+        commitFailureStreakAction = determineCommitFailureStreakAction(state, commitFailureStreakCount, commitFailureStreakThreshold)
+        console.log(`Red commits streak: ${commitFailureStreakCount} (action: ${commitFailureStreakAction})`)
     } catch (err) {
         console.log(`Failed to compute red commits: ${err.message}`)
     }
-    const redCommitsDetail = buildRedCommitsDetail(classified, redCount)
+    const commitFailureStreakDetail = buildCommitFailureStreakDetail(classified, commitFailureStreakCount)
 
     // Save when there's an action or evolving failure counts to track
     const shouldSave = action !== 'none' || Object.keys(failing).length > 0
     const saveRateLimit = rateLimitAction !== 'none'
-    const saveRedCommits = redCommitsAction !== 'none' || redCount > 0
+    const saveCommitFailureStreak = commitFailureStreakAction !== 'none' || commitFailureStreakCount > 0
 
     // Build new state
     const newState = {
@@ -382,22 +382,22 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
             rateLimitAction === 'create' || (state?.rate_limit_alerted === true && rateLimitAction !== 'resolve'),
         rate_limit_slack_ts: state?.rate_limit_slack_ts || null,
         rate_limit_slack_channel: state?.rate_limit_slack_channel || null,
-        red_commits_alerted:
-            redCommitsAction === 'create' ||
-            (state?.red_commits_alerted === true && redCommitsAction !== 'resolve'),
-        red_commits_slack_ts: state?.red_commits_slack_ts || null,
-        red_commits_slack_channel: state?.red_commits_slack_channel || null,
-        red_commits_last_count: redCommitsAction === 'resolve' ? 0 : redCount,
-        red_commits_last_sample: redCommitsDetail || state?.red_commits_last_sample || '',
+        commit_failure_streak_alerted:
+            commitFailureStreakAction === 'create' ||
+            (state?.commit_failure_streak_alerted === true && commitFailureStreakAction !== 'resolve'),
+        commit_failure_streak_slack_ts: state?.commit_failure_streak_slack_ts || null,
+        commit_failure_streak_slack_channel: state?.commit_failure_streak_slack_channel || null,
+        commit_failure_streak_last_count: commitFailureStreakAction === 'resolve' ? 0 : commitFailureStreakCount,
+        commit_failure_streak_last_sample: commitFailureStreakDetail || state?.commit_failure_streak_last_sample || '',
     }
 
-    if (shouldSave || saveRateLimit || saveRedCommits) {
+    if (shouldSave || saveRateLimit || saveCommitFailureStreak) {
         fs.writeFileSync(STATE_FILE, JSON.stringify(newState, null, 2))
     }
 
     // Set outputs
     core.setOutput('action', action)
-    core.setOutput('save_cache', shouldSave || saveRateLimit || saveRedCommits ? 'true' : 'false')
+    core.setOutput('save_cache', shouldSave || saveRateLimit || saveCommitFailureStreak ? 'true' : 'false')
     core.setOutput('delete_old_caches', action === 'create' ? 'true' : 'false')
     core.setOutput('failing_workflows', failingList)
     core.setOutput('failing_count', String(Object.keys(failing).length))
@@ -450,18 +450,18 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         core.setOutput('rate_limit_slack_channel', state?.rate_limit_slack_channel || '')
     }
 
-    // Red-commits outputs
-    core.setOutput('red_commits_action', redCommitsAction)
-    core.setOutput('red_commits_count', String(redCount))
-    if (redCommitsAction === 'create' || redCommitsAction === 'update') {
-        core.setOutput('red_commits_detail', redCommitsDetail)
+    // Commit-failure-streak outputs
+    core.setOutput('commit_failure_streak_action', commitFailureStreakAction)
+    core.setOutput('commit_failure_streak_count', String(commitFailureStreakCount))
+    if (commitFailureStreakAction === 'create' || commitFailureStreakAction === 'update') {
+        core.setOutput('commit_failure_streak_detail', commitFailureStreakDetail)
     }
-    if (redCommitsAction === 'update' || redCommitsAction === 'resolve') {
-        core.setOutput('red_commits_slack_ts', state?.red_commits_slack_ts || '')
-        core.setOutput('red_commits_slack_channel', state?.red_commits_slack_channel || '')
+    if (commitFailureStreakAction === 'update' || commitFailureStreakAction === 'resolve') {
+        core.setOutput('commit_failure_streak_slack_ts', state?.commit_failure_streak_slack_ts || '')
+        core.setOutput('commit_failure_streak_slack_channel', state?.commit_failure_streak_slack_channel || '')
     }
-    if (redCommitsAction === 'resolve') {
-        core.setOutput('red_commits_last_count', String(state?.red_commits_last_count || 0))
-        core.setOutput('red_commits_last_sample', state?.red_commits_last_sample || '')
+    if (commitFailureStreakAction === 'resolve') {
+        core.setOutput('commit_failure_streak_last_count', String(state?.commit_failure_streak_last_count || 0))
+        core.setOutput('commit_failure_streak_last_sample', state?.commit_failure_streak_last_sample || '')
     }
 }
