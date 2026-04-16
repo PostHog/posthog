@@ -66,7 +66,26 @@ class ExperimentMetricsField(serializers.JSONField):
 
 @extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
 class ExperimentParametersField(serializers.JSONField):
-    pass
+    def to_representation(self, value: Any) -> Any:
+        from copy import deepcopy
+
+        # Add split_percent to outside representation for each variant
+        # Deep copy to avoid mutating the model instance's in-memory parameters dict
+        data = deepcopy(super().to_representation(value))
+        if data and "feature_flag_variants" in data:
+            for variant in data["feature_flag_variants"]:
+                if "rollout_percentage" in variant:
+                    variant["split_percent"] = variant["rollout_percentage"]
+        return data
+
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, dict) and "feature_flag_variants" in data:
+            for variant in data["feature_flag_variants"]:
+                if "split_percent" in variant:
+                    split = variant.pop("split_percent")
+                    if "rollout_percentage" not in variant:
+                        variant["rollout_percentage"] = split
+        return super().to_internal_value(data)
 
 
 @extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
@@ -117,7 +136,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Variant definitions and statistical configuration. "
             "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
-            "Each variant needs a key and rollout_percentage; percentages must sum to 100. "
+            "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
             "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         ),
     )
