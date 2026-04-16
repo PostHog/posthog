@@ -107,12 +107,25 @@
             ],
             "label": "Active feature flags"
         },
+        "$ai_agent_name": {
+            "description": "The name of the AI agent that produced this event.",
+            "examples": [
+                "research_agent",
+                "support_bot"
+            ],
+            "label": "AI agent name (LLM)"
+        },
         "$ai_base_url": {
             "description": "The base URL of the request made to the LLM API.",
             "examples": [
                 "https://api.openai.com/v1/"
             ],
             "label": "AI base URL (LLM)"
+        },
+        "$ai_billable": {
+            "description": "Whether this generation counts towards billable usage.",
+            "label": "AI billable (LLM)",
+            "system": true
         },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
@@ -153,6 +166,38 @@
                 "passthrough"
             ],
             "label": "AI cost model source (LLM)"
+        },
+        "$ai_error": {
+            "description": "The error message from a failed AI event.",
+            "examples": [
+                "Rate limit exceeded",
+                "Invalid API key"
+            ],
+            "label": "AI Error (LLM)"
+        },
+        "$ai_error_normalized": {
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": [
+                "rate_limit_exceeded",
+                "invalid_api_key"
+            ],
+            "label": "AI Error Normalized (LLM)"
+        },
+        "$ai_error_type": {
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": [
+                "RateLimitError",
+                "AuthenticationError"
+            ],
+            "label": "AI Error Type (LLM)"
+        },
+        "$ai_eval_source": {
+            "description": "The source that triggered this evaluation.",
+            "examples": [
+                "signals-grouping",
+                "sandboxed-agent"
+            ],
+            "label": "AI eval source (LLM)"
         },
         "$ai_evaluation_allows_na": {
             "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
@@ -248,12 +293,49 @@
             ],
             "label": "AI Evaluation Start Time (LLM)"
         },
+        "$ai_evaluation_type": {
+            "description": "The type of evaluation that was run.",
+            "examples": [
+                "llm_judge",
+                "hog"
+            ],
+            "label": "AI evaluation type (LLM)"
+        },
+        "$ai_expected": {
+            "description": "The expected output for comparison in this evaluation.",
+            "label": "AI expected output (LLM)"
+        },
+        "$ai_experiment_id": {
+            "description": "The unique identifier of the experiment this event belongs to.",
+            "label": "AI experiment ID (LLM)"
+        },
+        "$ai_experiment_item_id": {
+            "description": "The unique identifier of the individual item being evaluated in an experiment.",
+            "label": "AI experiment item ID (LLM)"
+        },
+        "$ai_experiment_item_name": {
+            "description": "The name of the individual item being evaluated in an experiment.",
+            "label": "AI experiment item name (LLM)"
+        },
+        "$ai_experiment_name": {
+            "description": "The name of the experiment this event belongs to.",
+            "label": "AI experiment name (LLM)"
+        },
         "$ai_feedback_text": {
             "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": [
                 "\"The response was helpful, but it did not use the provided context.\""
             ],
             "label": "AI Feedback Text (LLM)"
+        },
+        "$ai_framework": {
+            "description": "The AI framework used to produce this event.",
+            "examples": [
+                "langchain",
+                "llamaindex",
+                "openai"
+            ],
+            "label": "AI framework (LLM)"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
@@ -288,12 +370,42 @@
             ],
             "label": "AI input tokens (LLM)"
         },
+        "$ai_is_error": {
+            "description": "Whether this AI event resulted in an error.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "AI Is Error (LLM)"
+        },
         "$ai_latency": {
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [
                 0.361
             ],
             "label": "AI latency (LLM)"
+        },
+        "$ai_lib": {
+            "description": "The name of the SDK or library that sent this AI event.",
+            "examples": [
+                "posthog-python"
+            ],
+            "label": "AI library (LLM)",
+            "system": true
+        },
+        "$ai_lib_version": {
+            "description": "The version of the SDK or library that sent this AI event.",
+            "label": "AI library version (LLM)",
+            "system": true
+        },
+        "$ai_max_tokens": {
+            "description": "The maximum number of tokens the model was allowed to generate.",
+            "examples": [
+                1024,
+                4096
+            ],
+            "label": "AI max tokens (LLM)",
+            "type": "Numeric"
         },
         "$ai_metric_name": {
             "description": "The name assigned to the metric used to evaluate the LLM trace.",
@@ -310,6 +422,10 @@
                 "95"
             ],
             "label": "AI Metric Value (LLM)"
+        },
+        "$ai_metric_version": {
+            "description": "The version of the metric used for evaluation.",
+            "label": "AI metric version (LLM)"
         },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
@@ -331,6 +447,10 @@
                 "{\"temperature\": 0.5, \"max_tokens\": 50}"
             ],
             "label": "AI model parameters (LLM)"
+        },
+        "$ai_output": {
+            "description": "The output text from a generation or the text being evaluated.",
+            "label": "AI output (LLM)"
         },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -364,6 +484,10 @@
             ],
             "label": "AI Parent ID (LLM)"
         },
+        "$ai_project_name": {
+            "description": "The project name associated with this AI event.",
+            "label": "AI project name (LLM)"
+        },
         "$ai_provider": {
             "description": "The provider of the AI model used to generate the output from the LLM API.",
             "examples": [
@@ -392,6 +516,30 @@
             ],
             "label": "AI Request URL (LLM)"
         },
+        "$ai_result_type": {
+            "description": "The type of result for this evaluation metric.",
+            "examples": [
+                "binary",
+                "numeric",
+                "categorical"
+            ],
+            "label": "AI result type (LLM)"
+        },
+        "$ai_score": {
+            "description": "The numeric score assigned by this evaluation metric.",
+            "label": "AI score (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_score_max": {
+            "description": "The maximum possible score for this evaluation metric.",
+            "label": "AI score max (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_score_min": {
+            "description": "The minimum possible score for this evaluation metric.",
+            "label": "AI score min (LLM)",
+            "type": "Numeric"
+        },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
             "examples": [
@@ -413,6 +561,33 @@
                 "summarize_text"
             ],
             "label": "AI Span Name (LLM)"
+        },
+        "$ai_span_type": {
+            "description": "The type of this span in the AI trace tree.",
+            "examples": [
+                "agent",
+                "tool",
+                "chain",
+                "retriever"
+            ],
+            "label": "AI span type (LLM)"
+        },
+        "$ai_status": {
+            "description": "The status of this evaluation.",
+            "examples": [
+                "ok",
+                "error"
+            ],
+            "label": "AI status (LLM)"
+        },
+        "$ai_stop_reason": {
+            "description": "The reason the LLM stopped generating tokens.",
+            "examples": [
+                "end_turn",
+                "max_tokens",
+                "stop_sequence"
+            ],
+            "label": "AI stop reason (LLM)"
         },
         "$ai_stream": {
             "description": "Whether the response from the LLM API was streamed.",
@@ -453,6 +628,15 @@
             ],
             "label": "AI time to first token (LLM)"
         },
+        "$ai_tokens_source": {
+            "description": "The source of the token count data for this generation.",
+            "examples": [
+                "api_response",
+                "estimated"
+            ],
+            "label": "AI tokens source (LLM)",
+            "system": true
+        },
         "$ai_tool_call_count": {
             "description": "The number of tool calls made by the LLM in this generation.",
             "examples": [
@@ -481,12 +665,39 @@
             ],
             "label": "AI total cost USD (LLM)"
         },
+        "$ai_total_input_tokens": {
+            "description": "The aggregate number of input tokens across all generations in this trace.",
+            "label": "AI total input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_total_output_tokens": {
+            "description": "The aggregate number of output tokens across all generations in this trace.",
+            "label": "AI total output tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_total_tokens": {
+            "description": "The total number of tokens used (input + output) in this generation.",
+            "label": "AI total tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_trace_id": {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": [
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Trace ID (LLM)"
+        },
+        "$ai_trace_name": {
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": [
+                "summarize_text",
+                "chat_completion"
+            ],
+            "label": "AI Trace Name (LLM)"
+        },
+        "$ai_user_prompt": {
+            "description": "The user prompt text sent to the LLM.",
+            "label": "AI user prompt (LLM)"
         },
         "$ai_web_search_cost_usd": {
             "description": "The cost in USD of web searches performed during the LLM API request.",
@@ -659,6 +870,14 @@
             "ignored_in_assistant": true,
             "label": "Console log recording enabled server-side",
             "system": true
+        },
+        "$conversations_ticket_id": {
+            "description": "The ticket ID from the conversations widget associated with this event.",
+            "label": "Conversations ticket ID"
+        },
+        "$conversations_widget_session_id": {
+            "description": "The session ID from the conversations widget.",
+            "label": "Conversations widget session ID"
         },
         "$copy_type": {
             "description": "Type of copy event.",
@@ -1348,6 +1567,13 @@
             ],
             "label": "IP address"
         },
+        "$ip_address": {
+            "description": "The IP address of the client that sent this event. Used by server-side SDKs.",
+            "examples": [
+                "203.0.113.0"
+            ],
+            "label": "IP address"
+        },
         "$is_emulator": {
             "description": "Indicates whether the app is running on an emulator or a physical device",
             "examples": [
@@ -1620,6 +1846,11 @@
                 "/about-us/team"
             ],
             "label": "Previous pageview pathname"
+        },
+        "$process_person": {
+            "description": "Controls whether person data should be processed for this event.",
+            "label": "Person processing flag",
+            "system": true
         },
         "$process_person_profile": {
             "description": "The setting from an SDK to control whether an event has person processing enabled",
@@ -2007,6 +2238,14 @@
             "description": "Snapchat Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
             "label": "Session entry sccid"
+        },
+        "$session_entry_search_engine": {
+            "description": "The search engine the user came from at the start of the session.",
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
+            "label": "Session entry search engine"
         },
         "$session_entry_ttclid": {
             "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -2847,12 +3086,25 @@
             ],
             "label": "Active feature flags"
         },
+        "$ai_agent_name": {
+            "description": "The name of the AI agent that produced this event.",
+            "examples": [
+                "research_agent",
+                "support_bot"
+            ],
+            "label": "AI agent name (LLM)"
+        },
         "$ai_base_url": {
             "description": "The base URL of the request made to the LLM API.",
             "examples": [
                 "https://api.openai.com/v1/"
             ],
             "label": "AI base URL (LLM)"
+        },
+        "$ai_billable": {
+            "description": "Whether this generation counts towards billable usage.",
+            "label": "AI billable (LLM)",
+            "system": true
         },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
@@ -2893,6 +3145,38 @@
                 "passthrough"
             ],
             "label": "AI cost model source (LLM)"
+        },
+        "$ai_error": {
+            "description": "The error message from a failed AI event.",
+            "examples": [
+                "Rate limit exceeded",
+                "Invalid API key"
+            ],
+            "label": "AI Error (LLM)"
+        },
+        "$ai_error_normalized": {
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": [
+                "rate_limit_exceeded",
+                "invalid_api_key"
+            ],
+            "label": "AI Error Normalized (LLM)"
+        },
+        "$ai_error_type": {
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": [
+                "RateLimitError",
+                "AuthenticationError"
+            ],
+            "label": "AI Error Type (LLM)"
+        },
+        "$ai_eval_source": {
+            "description": "The source that triggered this evaluation.",
+            "examples": [
+                "signals-grouping",
+                "sandboxed-agent"
+            ],
+            "label": "AI eval source (LLM)"
         },
         "$ai_evaluation_allows_na": {
             "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
@@ -2988,12 +3272,49 @@
             ],
             "label": "AI Evaluation Start Time (LLM)"
         },
+        "$ai_evaluation_type": {
+            "description": "The type of evaluation that was run.",
+            "examples": [
+                "llm_judge",
+                "hog"
+            ],
+            "label": "AI evaluation type (LLM)"
+        },
+        "$ai_expected": {
+            "description": "The expected output for comparison in this evaluation.",
+            "label": "AI expected output (LLM)"
+        },
+        "$ai_experiment_id": {
+            "description": "The unique identifier of the experiment this event belongs to.",
+            "label": "AI experiment ID (LLM)"
+        },
+        "$ai_experiment_item_id": {
+            "description": "The unique identifier of the individual item being evaluated in an experiment.",
+            "label": "AI experiment item ID (LLM)"
+        },
+        "$ai_experiment_item_name": {
+            "description": "The name of the individual item being evaluated in an experiment.",
+            "label": "AI experiment item name (LLM)"
+        },
+        "$ai_experiment_name": {
+            "description": "The name of the experiment this event belongs to.",
+            "label": "AI experiment name (LLM)"
+        },
         "$ai_feedback_text": {
             "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": [
                 "\"The response was helpful, but it did not use the provided context.\""
             ],
             "label": "AI Feedback Text (LLM)"
+        },
+        "$ai_framework": {
+            "description": "The AI framework used to produce this event.",
+            "examples": [
+                "langchain",
+                "llamaindex",
+                "openai"
+            ],
+            "label": "AI framework (LLM)"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
@@ -3028,12 +3349,42 @@
             ],
             "label": "AI input tokens (LLM)"
         },
+        "$ai_is_error": {
+            "description": "Whether this AI event resulted in an error.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "AI Is Error (LLM)"
+        },
         "$ai_latency": {
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [
                 0.361
             ],
             "label": "AI latency (LLM)"
+        },
+        "$ai_lib": {
+            "description": "The name of the SDK or library that sent this AI event.",
+            "examples": [
+                "posthog-python"
+            ],
+            "label": "AI library (LLM)",
+            "system": true
+        },
+        "$ai_lib_version": {
+            "description": "The version of the SDK or library that sent this AI event.",
+            "label": "AI library version (LLM)",
+            "system": true
+        },
+        "$ai_max_tokens": {
+            "description": "The maximum number of tokens the model was allowed to generate.",
+            "examples": [
+                1024,
+                4096
+            ],
+            "label": "AI max tokens (LLM)",
+            "type": "Numeric"
         },
         "$ai_metric_name": {
             "description": "The name assigned to the metric used to evaluate the LLM trace.",
@@ -3050,6 +3401,10 @@
                 "95"
             ],
             "label": "AI Metric Value (LLM)"
+        },
+        "$ai_metric_version": {
+            "description": "The version of the metric used for evaluation.",
+            "label": "AI metric version (LLM)"
         },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
@@ -3071,6 +3426,10 @@
                 "{\"temperature\": 0.5, \"max_tokens\": 50}"
             ],
             "label": "AI model parameters (LLM)"
+        },
+        "$ai_output": {
+            "description": "The output text from a generation or the text being evaluated.",
+            "label": "AI output (LLM)"
         },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -3104,6 +3463,10 @@
             ],
             "label": "AI Parent ID (LLM)"
         },
+        "$ai_project_name": {
+            "description": "The project name associated with this AI event.",
+            "label": "AI project name (LLM)"
+        },
         "$ai_provider": {
             "description": "The provider of the AI model used to generate the output from the LLM API.",
             "examples": [
@@ -3132,6 +3495,30 @@
             ],
             "label": "AI Request URL (LLM)"
         },
+        "$ai_result_type": {
+            "description": "The type of result for this evaluation metric.",
+            "examples": [
+                "binary",
+                "numeric",
+                "categorical"
+            ],
+            "label": "AI result type (LLM)"
+        },
+        "$ai_score": {
+            "description": "The numeric score assigned by this evaluation metric.",
+            "label": "AI score (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_score_max": {
+            "description": "The maximum possible score for this evaluation metric.",
+            "label": "AI score max (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_score_min": {
+            "description": "The minimum possible score for this evaluation metric.",
+            "label": "AI score min (LLM)",
+            "type": "Numeric"
+        },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
             "examples": [
@@ -3153,6 +3540,33 @@
                 "summarize_text"
             ],
             "label": "AI Span Name (LLM)"
+        },
+        "$ai_span_type": {
+            "description": "The type of this span in the AI trace tree.",
+            "examples": [
+                "agent",
+                "tool",
+                "chain",
+                "retriever"
+            ],
+            "label": "AI span type (LLM)"
+        },
+        "$ai_status": {
+            "description": "The status of this evaluation.",
+            "examples": [
+                "ok",
+                "error"
+            ],
+            "label": "AI status (LLM)"
+        },
+        "$ai_stop_reason": {
+            "description": "The reason the LLM stopped generating tokens.",
+            "examples": [
+                "end_turn",
+                "max_tokens",
+                "stop_sequence"
+            ],
+            "label": "AI stop reason (LLM)"
         },
         "$ai_stream": {
             "description": "Whether the response from the LLM API was streamed.",
@@ -3193,6 +3607,15 @@
             ],
             "label": "AI time to first token (LLM)"
         },
+        "$ai_tokens_source": {
+            "description": "The source of the token count data for this generation.",
+            "examples": [
+                "api_response",
+                "estimated"
+            ],
+            "label": "AI tokens source (LLM)",
+            "system": true
+        },
         "$ai_tool_call_count": {
             "description": "The number of tool calls made by the LLM in this generation.",
             "examples": [
@@ -3221,12 +3644,39 @@
             ],
             "label": "AI total cost USD (LLM)"
         },
+        "$ai_total_input_tokens": {
+            "description": "The aggregate number of input tokens across all generations in this trace.",
+            "label": "AI total input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_total_output_tokens": {
+            "description": "The aggregate number of output tokens across all generations in this trace.",
+            "label": "AI total output tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_total_tokens": {
+            "description": "The total number of tokens used (input + output) in this generation.",
+            "label": "AI total tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_trace_id": {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": [
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Trace ID (LLM)"
+        },
+        "$ai_trace_name": {
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": [
+                "summarize_text",
+                "chat_completion"
+            ],
+            "label": "AI Trace Name (LLM)"
+        },
+        "$ai_user_prompt": {
+            "description": "The user prompt text sent to the LLM.",
+            "label": "AI user prompt (LLM)"
         },
         "$ai_web_search_cost_usd": {
             "description": "The cost in USD of web searches performed during the LLM API request.",
@@ -3399,6 +3849,14 @@
             "ignored_in_assistant": true,
             "label": "Console log recording enabled server-side",
             "system": true
+        },
+        "$conversations_ticket_id": {
+            "description": "The ticket ID from the conversations widget associated with this event.",
+            "label": "Conversations ticket ID"
+        },
+        "$conversations_widget_session_id": {
+            "description": "The session ID from the conversations widget.",
+            "label": "Conversations widget session ID"
         },
         "$copy_type": {
             "description": "Type of copy event.",
@@ -4492,6 +4950,13 @@
             ],
             "label": "IP address"
         },
+        "$ip_address": {
+            "description": "The IP address of the client that sent this event. Used by server-side SDKs.",
+            "examples": [
+                "203.0.113.0"
+            ],
+            "label": "IP address"
+        },
         "$is_emulator": {
             "description": "Indicates whether the app is running on an emulator or a physical device",
             "examples": [
@@ -4764,6 +5229,11 @@
                 "/about-us/team"
             ],
             "label": "Previous pageview pathname"
+        },
+        "$process_person": {
+            "description": "Controls whether person data should be processed for this event.",
+            "label": "Person processing flag",
+            "system": true
         },
         "$process_person_profile": {
             "description": "The setting from an SDK to control whether an event has person processing enabled",
@@ -5151,6 +5621,14 @@
             "description": "Snapchat Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
             "label": "Session entry sccid"
+        },
+        "$session_entry_search_engine": {
+            "description": "The search engine the user came from at the start of the session.",
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
+            "label": "Session entry search engine"
         },
         "$session_entry_ttclid": {
             "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",

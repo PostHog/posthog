@@ -82,8 +82,13 @@ jobs:
                   fi
 
     build-storybook:
-        name: Build Storybook
-        runs-on: depot-ubuntu-latest
+        name: Build Storybook (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
@@ -126,13 +131,16 @@ jobs:
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Save webpack build cache
-              if: github.ref == 'refs/heads/master'
+              # Avoid cross-runner pollution
+              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
+              # Shadow skips upload, would conflict with storybook-build artifact name
+              if: ${{ !matrix.is_shadow }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-build

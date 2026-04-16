@@ -11,7 +11,6 @@ def _make_state(
     insight_id: int,
     name: str,
     summary: str,
-    query_def: dict | None = None,
     query_kind: str = "TrendsQuery",
     timestamp: str = "2025-04-14T10:00:00Z",
 ) -> dict:
@@ -19,7 +18,6 @@ def _make_state(
         "insight_id": insight_id,
         "insight_name": name,
         "query_kind": query_kind,
-        "query_definition": query_def or {"kind": "TrendsQuery"},
         "results_summary": summary,
         "timestamp": timestamp,
     }
@@ -66,37 +64,6 @@ class TestBuildPromptMessages:
 
         user_content = messages[1]["content"]
         assert "retention curve" in user_content.lower()
-
-    def test_includes_query_definition_changes(self):
-        previous = [
-            _make_state(
-                1, "Pageviews", "avg 100/day", query_def={"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}
-            )
-        ]
-        current = [
-            _make_state(
-                1,
-                "Pageviews",
-                "avg 150/day",
-                query_def={"kind": "TrendsQuery", "series": [{"event": "$pageview"}, {"event": "signup"}]},
-                timestamp="2025-04-15T10:00:00Z",
-            )
-        ]
-
-        messages = build_prompt_messages(previous, current)
-
-        user_content = messages[1]["content"]
-        assert "query definition" in user_content.lower() or "modified" in user_content.lower()
-
-    def test_no_query_definition_change_note_when_unchanged(self):
-        same_query = {"kind": "TrendsQuery", "series": []}
-        previous = [_make_state(1, "Pageviews", "avg 100/day", query_def=same_query)]
-        current = [_make_state(1, "Pageviews", "avg 150/day", query_def=same_query, timestamp="2025-04-15T10:00:00Z")]
-
-        messages = build_prompt_messages(previous, current)
-
-        user_content = messages[1]["content"]
-        assert "modified" not in user_content.lower()
 
     def test_includes_subscription_title(self):
         previous = [_make_state(1, "Pageviews", "avg 100/day")]
