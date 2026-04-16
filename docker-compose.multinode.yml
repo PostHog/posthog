@@ -1,5 +1,5 @@
 #
-# docker-compose file used ONLY for local development using a coordinator topology in ClickHouse.
+# docker-compose file used ONLY for local development with a multi-node ClickHouse topology.
 # For more info, see:
 # https://posthog.com/handbook/engineering/developing-locally
 #
@@ -9,7 +9,7 @@
 # Dev multi-node stack. Bring up with `bin/ch-stack-up` (project name
 # `posthog-multinode`). This file exposes:
 #   - clickhouse          on localhost:9000 / 8123  (main data, shard 01)
-#   - clickhouse-coordinator on localhost:9001     (shard 02)
+#   - clickhouse-shard2      on localhost:9001     (shard 02)
 #   - clickhouse-logs     on localhost:9002         (logs role)
 #   - keeper              on localhost:9181
 #   - kafka               on localhost:9092
@@ -94,8 +94,8 @@ services:
             - kafka
             - keeper
 
-    clickhouse-coordinator:
-        hostname: clickhouse-coordinator
+    clickhouse-shard2:
+        hostname: clickhouse-shard2
         <<: *clickhouse
         volumes:
             - ./posthog/idl:/idl
