@@ -36,6 +36,8 @@ import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
 // Search
 import entitySearch from './search/entitySearch'
+// Skills registry
+import { skillsGet, skillsList } from './skills'
 // Misc
 import {
     type ToolFilterOptions,
@@ -83,6 +85,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Search
     'entity-search': entitySearch,
+
+    // Skills registry
+    'skills-list': skillsList,
+    'skills-get': skillsGet,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,

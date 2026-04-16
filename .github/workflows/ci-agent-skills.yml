@@ -214,13 +214,28 @@ jobs:
                   MINOR=$(echo "${LATEST_TAG#agent-skills-v}" | cut -d. -f2)
                   echo "tag=agent-skills-v0.$((MINOR + 1)).0" >> "$GITHUB_OUTPUT"
 
+            - name: Collect release assets
+              id: assets
+              run: |
+                  DIST=products/posthog_ai/dist
+                  # Monolithic archive (unchanged, preserved for existing consumers)
+                  # plus per-skill archives and the registry index (new in v2.0.0).
+                  ASSETS="$DIST/skills.zip $DIST/skills-index.json"
+                  for zip in "$DIST"/*.zip; do
+                      if [ "$(basename "$zip")" != "skills.zip" ]; then
+                          ASSETS="$ASSETS $zip"
+                      fi
+                  done
+                  echo "assets=$ASSETS" >> "$GITHUB_OUTPUT"
+
             - name: Create versioned release
               env:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
+                  # shellcheck disable=SC2086 # we want word-splitting here
                   gh release create "$RELEASE_TAG" \
-                      products/posthog_ai/dist/skills.zip \
+                      ${{ steps.assets.outputs.assets }} \
                       --title "Agent skills $RELEASE_TAG" \
                       --notes "Build from ${{ github.sha }}" \
                       --target "${{ github.sha }}" \
@@ -232,13 +247,15 @@ jobs:
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then
+                      # shellcheck disable=SC2086
                       gh release upload agent-skills-latest \
-                          products/posthog_ai/dist/skills.zip --clobber
+                          ${{ steps.assets.outputs.assets }} --clobber
                       gh release edit agent-skills-latest \
                           --notes "Latest build — same as $RELEASE_TAG"
                   else
+                      # shellcheck disable=SC2086
                       gh release create agent-skills-latest \
-                          products/posthog_ai/dist/skills.zip \
+                          ${{ steps.assets.outputs.assets }} \
                           --title "Agent skills (Latest)" \
                           --notes "Latest build — same as $RELEASE_TAG" \
                           --target "${{ github.sha }}" \

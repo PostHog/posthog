@@ -447,6 +447,36 @@
             "readOnlyHint": true
         }
     },
+    "skills-list": {
+        "description": "List PostHog agent skills published in the registry. Skills are job-to-be-done templates that teach agents how to accomplish specific PostHog tasks (e.g. cleaning up stale feature flags, auditing experiments). Use this BEFORE attempting a multi-step PostHog workflow to check whether a canonical skill exists — following an existing skill is almost always better than improvising. Filter by category, products, tags, source (official/community), or a substring search on name/description. Returns metadata only; call skills-get to download a specific skill.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "List published PostHog agent skills.",
+        "title": "List skills",
+        "required_scopes": [],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skills-get": {
+        "description": "Fetch the full contents of a PostHog agent skill by name. Returns the skill's SKILL.md (entry point) plus any reference files under references/. Use this after skills-list identifies a relevant skill — the SKILL.md describes the workflow the agent should follow. Community skills are markdown-only; official skills may also include reference pages with HogQL examples and schema documentation.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Fetch a published PostHog agent skill.",
+        "title": "Get skill",
+        "required_scopes": [],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "debug-mcp-ui-apps": {
         "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
         "category": "Debug",

@@ -164,6 +164,8 @@ AGENTS.md @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
+products/community/skills/ @PostHog/team-devex
+products/posthog_ai/scripts/build_skills.py @PostHog/team-devex
 tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 greptile.json @PostHog/team-devex

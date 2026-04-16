@@ -345,6 +345,47 @@ export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),
 })
 
+// Skills registry
+const SkillCategoryEnum = z.enum([
+    'analytics',
+    'flags',
+    'experiments',
+    'replay',
+    'errors',
+    'llm',
+    'surveys',
+    'workflows',
+    'data-warehouse',
+    'other',
+])
+
+export const SkillsListSchema = z.object({
+    category: SkillCategoryEnum.optional().describe(
+        'Filter by skill category. Skills are categorized by the PostHog surface they primarily operate on.'
+    ),
+    products: z
+        .array(z.string())
+        .optional()
+        .describe('Filter to skills that touch any of these product slugs (e.g. ["feature_flags", "experiments"]).'),
+    tags: z.array(z.string()).optional().describe('Filter to skills tagged with any of these tags.'),
+    source: z
+        .enum(['official', 'community'])
+        .optional()
+        .describe(
+            "Filter by who maintains the skill. 'official' is the PostHog team, 'community' is external contributors."
+        ),
+    search: z.string().optional().describe('Case-insensitive substring match against skill name and description.'),
+})
+
+export const SkillsGetSchema = z.object({
+    name: z
+        .string()
+        .min(1)
+        .describe(
+            'Exact skill name (lowercase-kebab-case) as returned by skills-list. Use skills-list first to discover available skills.'
+        ),
+})
+
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),

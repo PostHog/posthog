@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
 """
-Build coding agent skills from products/*/skills/ into rendered files and a ZIP
-archive for distribution.
+Build coding agent skills from products/*/skills/ into rendered files, per-skill
+archives, and a registry index for distribution.
 
 Skills can be:
 - Plain markdown (SKILL.md) — copied as-is
 - Jinja2 templates (SKILL.md.j2) — rendered with Python context including Pydantic schema helpers
 
-Each skill must have YAML frontmatter with at least ``name`` and ``description`` fields.
+Skills under products/community/skills/ are community-contributed and subject to
+stricter rules: markdown only (no .j2, no scripts/). See
+products/community/skills/CONTRIBUTING.md.
+
+Each skill must have YAML frontmatter validated against ``SkillFrontmatter`` —
+``name`` (lowercase-kebab-case) and ``description`` (20-1024 chars) are required;
+other fields (version, tags, category, products, author, source, requires_scopes)
+are optional with sensible defaults for backwards compatibility.
+
 The build renders skills to dist/skills/{skill_name}/ (gitignored, human-readable)
-and optionally packages them into dist/skills.zip (published as a GitHub release by CI).
+and produces three sets of artifacts, all published as release assets by CI:
+- dist/skills.zip              monolithic archive (preserved for existing consumers)
+- dist/<skill-name>.zip        per-skill archive for granular install
+- dist/skills-index.json       registry index consumed by agents, IDEs, and the MCP server
 
 Requires the project's Python environment (managed by uv) for template rendering
 that imports Pydantic models from product code.
 
 Usage:
-    hogli build:skills          # Build all product skills to dist/skills/ and dist/skills.zip
+    hogli build:skills          # Build all product skills + registry artifacts
     hogli build:skills --list   # List discovered skills without building
     hogli lint:skills           # Validate skill sources without rendering
 """
@@ -26,11 +37,15 @@ from __future__ import annotations
 import os
 import re
 import sys
+import json
 import shutil
+import hashlib
 import zipfile
 import argparse
 import textwrap
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
@@ -39,12 +54,35 @@ from pydantic import BaseModel, Field, ValidationError
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-MANIFEST_VERSION = "1.0.0"
+MANIFEST_VERSION = "2.0.0"
+INDEX_SCHEMA_VERSION = "2.0.0"
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
+
+# Stable URL prefix for per-skill archives published as release assets.
+# The `agent-skills-latest` release is updated on every master build.
+DEFAULT_ARCHIVE_URL_PREFIX = "https://github.com/PostHog/posthog/releases/download/agent-skills-latest"
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _ALLOWED_SUBDIRS = {"references", "scripts"}
+
+# Community skills have stricter rules: markdown only, no templates, no scripts.
+# See products/community/skills/CONTRIBUTING.md.
+_COMMUNITY_PRODUCT = "community"
+_COMMUNITY_DISALLOWED_SUBDIRS = {"scripts"}
+
+_SKILL_CATEGORIES = (
+    "analytics",
+    "flags",
+    "experiments",
+    "replay",
+    "errors",
+    "llm",
+    "surveys",
+    "workflows",
+    "data-warehouse",
+    "other",
+)
 
 
 def _create_jinja_env(**extra_globals: object) -> Environment:
@@ -72,8 +110,33 @@ def _assert_text_file(file_path: Path) -> None:
 
 
 class SkillFrontmatter(BaseModel):
-    name: str
-    description: str
+    """Frontmatter schema for skill SKILL.md files.
+
+    All fields beyond `name` and `description` are optional for backwards
+    compatibility, but enforced where set. Constraints are Pydantic-validated
+    at both lint time (cheap, no Django) and build time.
+    """
+
+    name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]{2,63}$")
+    description: str = Field(..., min_length=20, max_length=1024)
+    version: str = Field(default="0.1.0", pattern=r"^\d+\.\d+\.\d+$")
+    tags: list[str] = Field(default_factory=list, max_length=8)
+    category: Literal[
+        "analytics",
+        "flags",
+        "experiments",
+        "replay",
+        "errors",
+        "llm",
+        "surveys",
+        "workflows",
+        "data-warehouse",
+        "other",
+    ] = "other"
+    products: list[str] = Field(default_factory=list, max_length=8)
+    author: str | None = None
+    source: Literal["official", "community"] = "official"
+    requires_scopes: list[str] = Field(default_factory=list, max_length=16)
 
 
 class DiscoveredSkill(BaseModel):
@@ -81,6 +144,10 @@ class DiscoveredSkill(BaseModel):
     source_file: Path
     product_dir: Path
     depth: int
+
+    @property
+    def is_community(self) -> bool:
+        return self.product_dir.name == _COMMUNITY_PRODUCT
 
 
 class SkillFile(BaseModel):
@@ -93,6 +160,33 @@ class SkillResource(BaseModel):
     description: str
     files: list[SkillFile]
     source: str
+    frontmatter: SkillFrontmatter | None = None
+
+
+class SkillIndexEntry(BaseModel):
+    """Single entry in the registry index — metadata only, no file contents."""
+
+    name: str
+    description: str
+    version: str
+    category: str
+    tags: list[str]
+    products: list[str]
+    author: str | None
+    source: str  # "official" | "community"
+    requires_scopes: list[str]
+    archive_url: str
+    sha256: str
+    source_path: str
+
+
+class SkillsIndex(BaseModel):
+    """Registry index of all published skills. Consumed by agents, IDEs,
+    and the MCP server to list/filter skills without downloading archives."""
+
+    version: str = INDEX_SCHEMA_VERSION
+    generated_at: str
+    skills: list[SkillIndexEntry] = Field(default_factory=list)
 
 
 class SkillManifest(BaseModel):
@@ -170,6 +264,10 @@ class SkillDiscoverer:
                 continue
 
             for entry in sorted(skills_dir.iterdir()):
+                # Skip hidden entries (e.g. .template/, .gitignore). This keeps
+                # the community/skills/.template/ scaffold out of the registry.
+                if entry.name.startswith("."):
+                    continue
                 if entry.is_dir():
                     j2_file = entry / "SKILL.md.j2"
                     md_file = entry / "SKILL.md"
@@ -183,7 +281,7 @@ class SkillDiscoverer:
                         )
                 elif (
                     entry.is_file()
-                    and entry.name != "README.md"
+                    and entry.name not in {"README.md", "CONTRIBUTING.md"}
                     and (entry.name.endswith(".md.j2") or entry.name.endswith(".md"))
                 ):
                     if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():
@@ -230,19 +328,34 @@ class SkillBuilder:
         self.skills_dist_dir = self.dist_dir / "skills"
         self.discoverer = SkillDiscoverer(products_dir)
 
-    def collect_skill_files(self, skill_dir: Path, renderer: SkillRenderer) -> list[SkillFile]:
+    def collect_skill_files(
+        self,
+        skill_dir: Path,
+        renderer: SkillRenderer,
+        *,
+        is_community: bool = False,
+    ) -> list[SkillFile]:
         """Collect and render files from a skill directory using an explicit allowlist.
 
         Only collects from three sources:
         1. Entry point: SKILL.md.j2 (preferred) or SKILL.md
         2. references/ directory (recursive)
-        3. scripts/ directory (recursive)
+        3. scripts/ directory (recursive) — disallowed for community skills
+
+        Community skills (under ``products/community/skills/``) are restricted to
+        markdown-only references so untrusted contributions can't smuggle in
+        executable Python or Jinja2 templates with access to Django internals.
 
         .j2 files are rendered through Jinja2 and have the .j2 extension stripped.
         Returns a list of SkillFile with SKILL.md always first.
         """
         j2_entry = skill_dir / "SKILL.md.j2"
         md_entry = skill_dir / "SKILL.md"
+        if is_community and j2_entry.exists():
+            raise ValueError(
+                f"Community skill {skill_dir.name} may not use SKILL.md.j2 (templates disabled for community). "
+                "Use plain SKILL.md instead."
+            )
         if j2_entry.exists():
             entry_path = j2_entry
         elif md_entry.exists():
@@ -254,8 +367,10 @@ class SkillBuilder:
         entry_content = renderer.render(entry_path)
         entry_point = SkillFile(path="SKILL.md", content=entry_content)
 
+        allowed_subdirs = _ALLOWED_SUBDIRS - _COMMUNITY_DISALLOWED_SUBDIRS if is_community else _ALLOWED_SUBDIRS
+
         files: list[SkillFile] = []
-        for subdir_name in sorted(_ALLOWED_SUBDIRS):
+        for subdir_name in sorted(allowed_subdirs):
             subdir = skill_dir / subdir_name
             if not subdir.is_dir():
                 continue
@@ -264,39 +379,79 @@ class SkillBuilder:
                 for filename in sorted(filenames):
                     file_path = Path(root) / filename
                     _assert_text_file(file_path)
+                    if is_community and file_path.suffix == ".j2":
+                        raise ValueError(
+                            f"Community skill {skill_dir.name} may not contain .j2 templates "
+                            f"(found {file_path.relative_to(skill_dir)}). Use plain markdown instead."
+                        )
                     content = renderer.render(file_path)
                     rel_path = str(file_path.relative_to(skill_dir))
                     if rel_path.endswith(".j2"):
                         rel_path = rel_path.removesuffix(".j2")
                     files.append(SkillFile(path=rel_path, content=content))
 
+        # Explicitly reject any subdirectory that community contributions tried to use.
+        if is_community:
+            for disallowed in _COMMUNITY_DISALLOWED_SUBDIRS:
+                if (skill_dir / disallowed).is_dir():
+                    raise ValueError(
+                        f"Community skill {skill_dir.name} may not contain a {disallowed}/ directory. "
+                        "Community skills are markdown-only."
+                    )
+
         return [entry_point, *files]
 
     def build_skill(self, skill: DiscoveredSkill, renderer: SkillRenderer) -> SkillResource:
-        """Build a single skill and return a SkillResource."""
+        """Build a single skill and return a SkillResource.
+
+        Frontmatter is validated through ``SkillFrontmatter`` so that new fields
+        (version, tags, category, etc.) flow into the registry index. Skills
+        missing the required frontmatter fail at build time rather than
+        producing silently-underspecified index entries.
+        """
         if skill.depth == 1:
             skill_dir = skill.source_file.parent
-            skill_files = self.collect_skill_files(skill_dir, renderer)
+            skill_files = self.collect_skill_files(skill_dir, renderer, is_community=skill.is_community)
             entry_content = skill_files[0].content
-            metadata, _body = parse_frontmatter(entry_content)
             source = str(skill_dir.relative_to(self.repo_root))
+            source_label = source
         else:
+            if skill.is_community and skill.source_file.suffix == ".j2":
+                raise ValueError(
+                    f"Community skill {skill.name} may not use .j2 templates "
+                    f"(found {skill.source_file.relative_to(self.repo_root)}). Use plain markdown."
+                )
             rendered = renderer.render(skill.source_file)
-            metadata, _body = parse_frontmatter(rendered)
+            entry_content = rendered
             out_name = skill.source_file.name
             if out_name.endswith(".j2"):
                 out_name = out_name.removesuffix(".j2")
             skill_files = [SkillFile(path=out_name, content=rendered.strip())]
             source = str(skill.source_file.relative_to(self.repo_root))
+            source_label = source
 
-        display_name = metadata.get("name", skill.name)
-        description = metadata.get("description", f"Skill: {skill.name}")
+        frontmatter = validate_frontmatter(entry_content, source_label)
+
+        # Enforce that skills placed under products/community/skills/ declare themselves
+        # as community in frontmatter. This keeps the "source" field trustworthy in the
+        # registry index — official skills can't accidentally live alongside community ones.
+        if skill.is_community and frontmatter.source != "community":
+            raise ValueError(
+                f"Skill at {source_label} is under products/community/skills/ but its frontmatter "
+                f"declares source: {frontmatter.source!r}. Community skills must set source: community."
+            )
+        if not skill.is_community and frontmatter.source == "community":
+            raise ValueError(
+                f"Skill at {source_label} declares source: community in frontmatter but is not under "
+                "products/community/skills/. Move it there or change source to official."
+            )
 
         return SkillResource(
-            name=display_name,
-            description=description,
+            name=frontmatter.name,
+            description=frontmatter.description,
             files=skill_files,
             source=source,
+            frontmatter=frontmatter,
         )
 
     def build_manifest(self, skills: list[DiscoveredSkill], renderer: SkillRenderer) -> SkillManifest:
@@ -327,7 +482,11 @@ class SkillBuilder:
         return self._zip_skills_dist()
 
     def _zip_skills_dist(self) -> Path:
-        """Create dist/skills.zip from the dist/skills/ directory."""
+        """Create dist/skills.zip from the dist/skills/ directory.
+
+        The monolithic zip is preserved as-is for backwards compatibility
+        with existing consumers that download ``skills.zip`` directly.
+        """
         zip_path = self.dist_dir / "skills.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for file_path in sorted(self.skills_dist_dir.rglob("*")):
@@ -336,6 +495,97 @@ class SkillBuilder:
                     info = zipfile.ZipInfo(arcname, date_time=_ZIP_FIXED_TIME)
                     zf.writestr(info, file_path.read_text())
         return zip_path
+
+    def _zip_individual_skill(self, resource: SkillResource) -> tuple[Path, str]:
+        """Create dist/<skill-name>.zip for a single skill and return (path, sha256).
+
+        Per-skill zips let agents and the registry install a single skill without
+        downloading the monolithic archive.
+        """
+        zip_path = self.dist_dir / f"{resource.name}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for skill_file in resource.files:
+                info = zipfile.ZipInfo(skill_file.path, date_time=_ZIP_FIXED_TIME)
+                zf.writestr(info, skill_file.content)
+
+        sha = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+        return zip_path, sha
+
+    def _build_index(
+        self,
+        resources: list[SkillResource],
+        checksums: dict[str, str],
+        *,
+        archive_url_prefix: str,
+        generated_at: str,
+    ) -> SkillsIndex:
+        """Build the SkillsIndex from built resources.
+
+        ``archive_url_prefix`` points at the GitHub release that will host the
+        per-skill zips. Defaults to the ``agent-skills-latest`` rolling release.
+        Override via ``HOGLI_SKILLS_ARCHIVE_URL_PREFIX`` for staging/testing.
+        """
+        entries: list[SkillIndexEntry] = []
+        for resource in resources:
+            frontmatter = resource.frontmatter
+            if frontmatter is None:
+                # Defensive: build_skill() always populates frontmatter since the
+                # validator is mandatory, but keep a typed fallback rather than
+                # silently emitting a malformed index entry.
+                raise ValueError(f"Cannot index skill {resource.name}: missing validated frontmatter")
+
+            entries.append(
+                SkillIndexEntry(
+                    name=resource.name,
+                    description=resource.description,
+                    version=frontmatter.version,
+                    category=frontmatter.category,
+                    tags=list(frontmatter.tags),
+                    products=list(frontmatter.products),
+                    author=frontmatter.author,
+                    source=frontmatter.source,
+                    requires_scopes=list(frontmatter.requires_scopes),
+                    archive_url=f"{archive_url_prefix.rstrip('/')}/{resource.name}.zip",
+                    sha256=checksums[resource.name],
+                    source_path=resource.source,
+                )
+            )
+
+        return SkillsIndex(generated_at=generated_at, skills=entries)
+
+    def pack_registry(self, *, archive_url_prefix: str | None = None) -> tuple[Path, Path, list[Path]]:
+        """Build skills and produce the full registry artifacts.
+
+        Returns a tuple of:
+          - the monolithic ``dist/skills.zip`` (unchanged layout, backwards compatible)
+          - ``dist/skills-index.json`` (the registry index)
+          - list of per-skill ``dist/<skill-name>.zip`` paths
+
+        This is the artifact set published by the ``release-skills`` CI job.
+        """
+        manifest = self.build_all()
+        monolithic = self._zip_skills_dist()
+
+        prefix = archive_url_prefix or os.environ.get("HOGLI_SKILLS_ARCHIVE_URL_PREFIX", DEFAULT_ARCHIVE_URL_PREFIX)
+        generated_at = os.environ.get("HOGLI_SKILLS_GENERATED_AT") or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        checksums: dict[str, str] = {}
+        individual_zips: list[Path] = []
+        for resource in manifest.resources:
+            zip_path, sha = self._zip_individual_skill(resource)
+            checksums[resource.name] = sha
+            individual_zips.append(zip_path)
+
+        index = self._build_index(
+            manifest.resources,
+            checksums,
+            archive_url_prefix=prefix,
+            generated_at=generated_at,
+        )
+        index_path = self.dist_dir / "skills-index.json"
+        index_path.write_text(json.dumps(index.model_dump(), indent=2, sort_keys=False) + "\n")
+
+        return monolithic, index_path, individual_zips
 
     def _collect_lint_files(self, skill: DiscoveredSkill) -> list[Path]:
         """Collect all files for linting from a skill using the allowlist.
@@ -364,7 +614,9 @@ class SkillBuilder:
         - Binary file detection (only text files allowed)
         - Duplicate skill name detection (across products)
         - Jinja2 syntax validation via parse-only (all .j2 files)
-        - Frontmatter validation for static .md entry points (required: name, description)
+        - Frontmatter validation for static .md entry points (schema + constraints)
+        - Community-skill restrictions: no .j2 templates, no scripts/ subdirectory,
+          frontmatter source must be "community"
 
         Returns True if all checks pass, False otherwise.
         """
@@ -408,9 +660,17 @@ class SkillBuilder:
                 raw = skill.source_file.read_text()
                 source_label = str(skill.source_file.relative_to(self.repo_root))
                 try:
-                    validate_frontmatter(raw, source_label)
+                    frontmatter = validate_frontmatter(raw, source_label)
                 except ValueError as e:
                     errors.append(str(e))
+                else:
+                    errors.extend(self._lint_community_rules(skill, frontmatter))
+            elif skill.is_community:
+                # .j2 already disallowed, but surface the error with a clearer message.
+                errors.append(
+                    f"Community skill {skill.name} ({skill.source_file.relative_to(self.repo_root)}) "
+                    "may not use .j2 templates. Use plain SKILL.md."
+                )
 
         if errors:
             for err in errors:
@@ -419,6 +679,50 @@ class SkillBuilder:
 
         print(f"OK: {len(skills)} skill(s) passed lint checks.")
         return True
+
+    def _lint_community_rules(self, skill: DiscoveredSkill, frontmatter: SkillFrontmatter) -> list[str]:
+        """Return any community-skill violations for a discovered skill.
+
+        Called from lint_all so community PRs fail fast without Django, matching
+        the stricter rules enforced at build time in ``collect_skill_files`` /
+        ``build_skill``.
+        """
+        errors: list[str] = []
+        source_label = str(skill.source_file.relative_to(self.repo_root))
+
+        if skill.is_community:
+            if frontmatter.source != "community":
+                errors.append(
+                    f"{source_label}: skills under products/community/skills/ must set "
+                    f"'source: community' in frontmatter (got '{frontmatter.source}')."
+                )
+            if skill.depth == 1:
+                skill_dir = skill.source_file.parent
+                for disallowed in _COMMUNITY_DISALLOWED_SUBDIRS:
+                    if (skill_dir / disallowed).is_dir():
+                        errors.append(
+                            f"{source_label}: community skills may not contain a {disallowed}/ "
+                            "directory (markdown-only)."
+                        )
+                # Any .j2 inside references/ is disallowed too.
+                for subdir_name in sorted(_ALLOWED_SUBDIRS):
+                    subdir = skill_dir / subdir_name
+                    if not subdir.is_dir():
+                        continue
+                    for root, _dirs, filenames in os.walk(subdir):
+                        for filename in filenames:
+                            if filename.endswith(".j2"):
+                                errors.append(
+                                    f"{source_label}: community skills may not contain .j2 templates "
+                                    f"(found {Path(root, filename).relative_to(self.repo_root)})."
+                                )
+        elif frontmatter.source == "community":
+            errors.append(
+                f"{source_label}: frontmatter declares 'source: community' but skill is not "
+                "under products/community/skills/. Move it there or change source to 'official'."
+            )
+
+        return errors
 
     def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
         """Scaffold a new skill directory with SKILL.md boilerplate.
@@ -441,15 +745,30 @@ class SkillBuilder:
 
         display_name = skill_name.replace("-", " ").capitalize()
         filename = "SKILL.md.j2" if template else "SKILL.md"
+        source = "community" if product_name == _COMMUNITY_PRODUCT else "official"
         content = textwrap.dedent(f"""\
             ---
             name: {skill_name}
-            description: TODO
+            description: TODO — describe when and how agents should use this skill (20-1024 chars).
+            version: 0.1.0
+            category: other
+            source: {source}
+            tags: []
+            products: []
+            requires_scopes: []
             ---
 
             # {display_name}
 
             TODO: Describe when and how to use this skill.
+
+            ## When to use this skill
+
+            TODO
+
+            ## Workflow
+
+            TODO
         """)
 
         skill_file = skill_dir / filename
@@ -690,14 +1009,17 @@ def main() -> None:
 
     _setup_django()
 
-    manifest = builder.build_all()
-    if not manifest.resources:
+    monolithic, index_path, individual_zips = builder.pack_registry()
+    if not individual_zips:
         print("No product skills found in products/*/skills/.")
         return
-    zip_path = builder._zip_skills_dist()
-    print(f"Built {len(manifest.resources)} skill(s) → {zip_path.relative_to(REPO_ROOT)}")
-    for r in manifest.resources:
-        print(f"  {r.name:<40} source={r.source}")
+
+    print(f"Built {len(individual_zips)} skill(s):")
+    print(f"  monolithic archive → {monolithic.relative_to(REPO_ROOT)}")
+    print(f"  registry index     → {index_path.relative_to(REPO_ROOT)}")
+    print(f"  per-skill archives → {builder.dist_dir.relative_to(REPO_ROOT)}/<skill>.zip")
+    for zip_path in individual_zips:
+        print(f"    {zip_path.name}")
 
 
 if __name__ == "__main__":
