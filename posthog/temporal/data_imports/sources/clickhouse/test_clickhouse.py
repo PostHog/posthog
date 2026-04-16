@@ -349,7 +349,7 @@ class TestGetPrimaryKeysForSchemas:
         client = MagicMock()
 
         def side_effect(query, parameters=None, **_kwargs):
-            table = (parameters or {}).get("table")
+            table = str((parameters or {}).get("table", ""))
             result = MagicMock()
             result.result_rows = per_table_rows.get(table, [])
             return result
