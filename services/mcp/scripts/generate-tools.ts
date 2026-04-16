@@ -528,6 +528,7 @@ function extractPathParams(urlPattern: string): string[] {
 }
 
 /** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
+ *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
  *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
 function buildPathExpr(
     urlPath: string,
@@ -535,10 +536,10 @@ function buildPathExpr(
     paramAccessPrefix = '',
     localVarParams: Set<string> = new Set()
 ): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${encodeURIComponent(String(projectId))}').replace('{organization_id}', '${encodeURIComponent(String(orgId))}')}\``
     for (const pn of pathParamNames) {
         const prefix = localVarParams.has(pn) ? '' : paramAccessPrefix
-        pathExpr = pathExpr.replace(`{${pn}}`, `\${${prefix}${pn}}`)
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${encodeURIComponent(String(${prefix}${pn}))}`)
     }
     return pathExpr
 }

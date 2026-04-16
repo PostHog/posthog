@@ -32,7 +32,7 @@ const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedChangeRequestList>({
             method: 'GET',
-            path: `/api/environments/${projectId}/change_requests/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/change_requests/`,
             query: {
                 action_key: params.action_key,
                 limit: params.limit,
@@ -56,7 +56,7 @@ const changeRequestGet = (): ToolBase<typeof ChangeRequestGetSchema, Schemas.Cha
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChangeRequest>({
             method: 'GET',
-            path: `/api/environments/${projectId}/change_requests/${params.id}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/change_requests/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -71,7 +71,7 @@ const approvalPoliciesList = (): ToolBase<typeof ApprovalPoliciesListSchema, Sch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedApprovalPolicyList>({
             method: 'GET',
-            path: `/api/environments/${projectId}/approval_policies/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/approval_policies/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -90,7 +90,7 @@ const approvalPolicyGet = (): ToolBase<typeof ApprovalPolicyGetSchema, Schemas.A
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ApprovalPolicy>({
             method: 'GET',
-            path: `/api/environments/${projectId}/approval_policies/${params.id}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/approval_policies/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -105,7 +105,7 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedCommentList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/comments/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/`,
             query: {
                 cursor: params.cursor,
                 item_id: params.item_id,
@@ -127,7 +127,7 @@ const commentGet = (): ToolBase<typeof CommentGetSchema, Schemas.Comment> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Comment>({
             method: 'GET',
-            path: `/api/projects/${projectId}/comments/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -142,7 +142,7 @@ const commentThread = (): ToolBase<typeof CommentThreadSchema, unknown> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/comments/${params.id}/thread/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/${encodeURIComponent(String(params.id))}/thread/`,
         })
         return result
     },
@@ -158,7 +158,7 @@ const commentCount = (): ToolBase<typeof CommentCountSchema, unknown> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/comments/count/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/count/`,
         })
         return result
     },
@@ -178,7 +178,7 @@ const activityLogList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedActivityLogList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/activity_log/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/activity_log/`,
             query: {
                 item_id: params.item_id,
                 page: params.page,
@@ -225,7 +225,7 @@ const advancedActivityLogsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedActivityLogList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/advanced_activity_logs/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/advanced_activity_logs/`,
             query: {
                 activities: params.activities,
                 detail_filters: params.detail_filters,
@@ -279,7 +279,7 @@ const advancedActivityLogsFilters = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AvailableFiltersResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/advanced_activity_logs/available_filters/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/advanced_activity_logs/available_filters/`,
         })
         return result
     },
@@ -294,7 +294,7 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedOrganizationMemberList>({
             method: 'GET',
-            path: `/api/organizations/${orgId}/members/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -313,7 +313,7 @@ const rolesList = (): ToolBase<typeof RolesListSchema, Schemas.PaginatedRoleList
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedRoleList>({
             method: 'GET',
-            path: `/api/organizations/${orgId}/roles/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/roles/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -332,7 +332,7 @@ const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.Role>({
             method: 'GET',
-            path: `/api/organizations/${orgId}/roles/${params.id}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/roles/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -349,7 +349,7 @@ const roleMembersList = (): ToolBase<typeof RoleMembersListSchema, Schemas.Pagin
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedRoleMembershipList>({
             method: 'GET',
-            path: `/api/organizations/${orgId}/roles/${params.role_id}/role_memberships/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/roles/${encodeURIComponent(String(params.role_id))}/role_memberships/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -400,7 +400,7 @@ const organizationGet = (): ToolBase<typeof OrganizationGetSchema, Schemas.Organ
         }
         const result = await context.api.request<Schemas.Organization>({
             method: 'GET',
-            path: `/api/organizations/${id}/`,
+            path: `/api/organizations/${encodeURIComponent(String(id))}/`,
         })
         const filtered = pickResponseFields(result, [
             'id',

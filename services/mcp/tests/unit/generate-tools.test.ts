@@ -287,7 +287,7 @@ describe('generateToolCode with input_schema', () => {
         )
 
         expect(result.code).toContain('id, ...body')
-        expect(result.code).toContain('${id}')
+        expect(result.code).toContain('${encodeURIComponent(String(id))}')
     })
 
     it('destructures path params into query for GET with path params', () => {
@@ -836,5 +836,121 @@ describe('generateToolCode with response filtering', () => {
         expect(result.code).toContain('...filtered,')
         expect(result.code).toContain('(filtered.results ?? []).map')
         expect(result.responseFilterImport).toBe('omitResponseFields')
+    })
+})
+
+describe('path parameter encoding', () => {
+    it('wraps project_id with encodeURIComponent in generated paths', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved()
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(projectId))}')
+        expect(result.code).not.toMatch(/\$\{projectId\}/)
+    })
+
+    it('wraps organization_id with encodeURIComponent in generated paths', () => {
+        const config: ToolConfig = {
+            operation: 'members_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            path: '/api/organizations/{organization_id}/members/',
+            operation: {
+                operationId: 'members_list',
+                parameters: [{ name: 'organization_id', in: 'path', required: true, schema: { type: 'string' } }],
+            },
+        })
+
+        const result = generateToolCode(
+            'org-members-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(orgId))}')
+        expect(result.code).not.toMatch(/\$\{orgId\}/)
+    })
+
+    it('wraps user-provided path params with encodeURIComponent', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(params.id))}')
+        expect(result.code).not.toMatch(/\$\{params\.id\}/)
+    })
+
+    it('wraps fallback-resolved params with encodeURIComponent', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: {
+                id: { optional: true, fallback: 'orgId', description: 'Optional ID' },
+            },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // Fallback params use local variable (no params. prefix) but still get encoded
+        expect(result.code).toContain('${encodeURIComponent(String(id))}')
+        expect(result.code).not.toMatch(/\$\{id\}[^)]/)
     })
 })
