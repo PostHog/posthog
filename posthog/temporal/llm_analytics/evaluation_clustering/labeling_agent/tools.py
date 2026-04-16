@@ -293,15 +293,27 @@ def get_evaluator_config(
     if not evaluator_id and not evaluator_name:
         return json.dumps({"error": "Provide evaluator_id or evaluator_name"})
 
-    # Resolve by name via state if id not given — iterate contents for a match.
+    # Resolve by name via state if id not given. Evaluation names are not
+    # guaranteed unique on a team — if the same name maps to multiple
+    # evaluator IDs, return an error asking for evaluator_id so the agent
+    # doesn't silently ground on a mismatched rubric.
     resolved_id = evaluator_id
     if not resolved_id and evaluator_name:
+        matches: set[str] = set()
         for c in state["all_eval_contents"].values():
             if c.get("evaluation_name") == evaluator_name and c.get("evaluation_id"):
-                resolved_id = c["evaluation_id"]
-                break
-        if not resolved_id:
+                matches.add(c["evaluation_id"])
+        if not matches:
             return json.dumps({"error": f"No evaluation_id found for name {evaluator_name!r}"})
+        if len(matches) > 1:
+            return json.dumps(
+                {
+                    "error": f"Evaluation name {evaluator_name!r} resolves to multiple evaluator IDs; "
+                    "pass evaluator_id to disambiguate",
+                    "matching_evaluator_ids": sorted(matches),
+                }
+            )
+        resolved_id = next(iter(matches))
 
     team = Team.objects.get(id=state["team_id"])
     configs = fetch_evaluator_configs(team=team, evaluator_ids=[resolved_id])
