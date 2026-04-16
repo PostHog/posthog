@@ -120,7 +120,7 @@ If the report already has a title that is PR-specific and still accurate after y
 - Bad: fix(funnel): various funnel improvements and bug fixes
 - Bad: multiple analytics issues
         """,
-        max_length=96,
+        max_length=96,  # Generous enough for descriptive PR-style titles
     )
     summary: str = Field(
         description="""
