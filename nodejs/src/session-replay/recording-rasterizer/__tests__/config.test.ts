@@ -103,12 +103,12 @@ describe('config', () => {
         describe('ffmpeg filters', () => {
             it('adds setpts and fps filters when playback speed > 1', () => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: 8 }))
-                expect(config.ffmpegVideoFilters).toEqual(['setpts=8*PTS', 'fps=24'])
+                expect(config.ffmpegVideoFilters).toEqual(['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=8*PTS', 'fps=24'])
             })
 
-            it('no video filters at 1x speed', () => {
+            it('pads to even dimensions at 1x speed', () => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: 1 }))
-                expect(config.ffmpegVideoFilters).toEqual([])
+                expect(config.ffmpegVideoFilters).toEqual(['pad=ceil(iw/2)*2:ceil(ih/2)*2'])
             })
 
             it('includes MP4 baseline output opts by default', () => {
@@ -143,6 +143,8 @@ describe('config', () => {
                 expect(config.ffmpegOutputOpts).toContain('-loop')
                 expect(config.ffmpegOutputOpts).toContain('0')
                 expect(config.ffmpegOutputOpts).not.toContain('-movflags +faststart')
+                expect(config.ffmpegVideoFilters).not.toContain('pad=ceil(iw/2)*2:ceil(ih/2)*2')
+                expect(config.ffmpegVideoFilters).toContain('scale=800:-2:flags=lanczos')
                 expect(config.ffmpegVideoFilters).toContain('fps=12')
                 expect(config.ffmpegVideoFilters).toContain(
                     'split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle'
@@ -150,8 +152,8 @@ describe('config', () => {
             })
 
             it.each([
-                { speed: 1.5, expected: ['setpts=1.5*PTS', 'fps=24'] },
-                { speed: 2.5, expected: ['setpts=2.5*PTS', 'fps=24'] },
+                { speed: 1.5, expected: ['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=1.5*PTS', 'fps=24'] },
+                { speed: 2.5, expected: ['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=2.5*PTS', 'fps=24'] },
             ])('adds setpts and fps filters for fractional speed $speed', ({ speed, expected }) => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: speed }))
                 expect(config.ffmpegVideoFilters).toEqual(expected)
@@ -172,7 +174,7 @@ describe('config', () => {
             it('handles very high playback speed', () => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: 100, recording_fps: 3 }))
                 expect(config.captureFps).toBe(300)
-                expect(config.ffmpegVideoFilters).toEqual(['setpts=100*PTS', 'fps=3'])
+                expect(config.ffmpegVideoFilters).toEqual(['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=100*PTS', 'fps=3'])
             })
 
             it('trim=1 produces trimFrameLimit equal to outputFps', () => {
