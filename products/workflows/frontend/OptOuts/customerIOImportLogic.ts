@@ -61,6 +61,8 @@ export interface OptOutSyncConfigResponse {
     app_integration_id: number | null
     app_import_result: AppImportResult | null
     csv_import_result: CSVImportResult | null
+    webhook_enabled: boolean
+    has_webhook_secret: boolean
 }
 
 export const customerIOImportLogic = kea<customerIOImportLogicType>([
@@ -80,6 +82,12 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         uploadCSV: true,
         setCSVProgress: (csvProgress: CSVImportProgress | null) => ({ csvProgress }),
         setIsUploadingCSV: (isUploading: boolean) => ({ isUploading }),
+        setWebhookSigningSecret: (secret: string) => ({ secret }),
+        saveWebhookConfig: true,
+        toggleWebhook: (enabled: boolean) => ({ enabled }),
+        removeWebhookConfig: true,
+        setIsSavingWebhook: (isSaving: boolean) => ({ isSaving }),
+        setWebhookError: (error: string | null) => ({ error }),
     }),
     loaders({
         syncConfig: [
@@ -152,6 +160,36 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 loadSyncConfigFailure: () => false,
             },
         ],
+        webhookSigningSecret: [
+            '',
+            {
+                setWebhookSigningSecret: (_, { secret }) => secret,
+                closeImportModal: () => '',
+            },
+        ],
+        isSavingWebhook: [
+            false,
+            {
+                setIsSavingWebhook: (_, { isSaving }) => isSaving,
+            },
+        ],
+        webhookError: [
+            null as string | null,
+            {
+                setWebhookError: (_, { error }) => error,
+                saveWebhookConfig: () => null,
+                toggleWebhook: () => null,
+                removeWebhookConfig: () => null,
+            },
+        ],
+        isRemovingWebhookConfig: [
+            false,
+            {
+                removeWebhookConfig: () => true,
+                loadSyncConfigSuccess: () => false,
+                loadSyncConfigFailure: () => false,
+            },
+        ],
     }),
     forms(({ actions }) => ({
         importForm: {
@@ -178,13 +216,24 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         ],
         isImportComplete: [(s) => [s.importProgress], (importProgress) => importProgress?.status === 'completed'],
         isImportFailed: [(s) => [s.importProgress], (importProgress) => importProgress?.status === 'failed'],
+        webhookUrl: [
+            (s) => [s.currentTeamIdStrict],
+            (currentTeamIdStrict): string => {
+                const host = window.location.origin
+                return `${host}/api/environments/${currentTeamIdStrict}/messaging/customerio/webhook/`
+            },
+        ],
         stepCompletion: [
             (s) => [s.syncConfig, s.importProgress, s.csvProgress],
             (
                 syncConfig,
                 importProgress,
                 csvProgress
-            ): { step1: 'completed' | 'failed' | false; step2: 'completed' | 'failed' | false } => {
+            ): {
+                step1: 'completed' | 'failed' | false
+                step2: 'completed' | 'failed' | false
+                step3: 'completed' | false
+            } => {
                 const resolveStatus = (
                     localStatus: string | undefined,
                     persistedStatus: string | undefined
@@ -199,6 +248,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 return {
                     step1: resolveStatus(importProgress?.status, syncConfig?.app_import_result?.status),
                     step2: resolveStatus(csvProgress?.status, syncConfig?.csv_import_result?.status),
+                    step3: syncConfig?.webhook_enabled ? 'completed' : false,
                 }
             },
         ],
@@ -286,6 +336,50 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 lemonToast.error(error.message || error.detail || 'Failed to upload CSV')
             } finally {
                 actions.setIsUploadingCSV(false)
+            }
+        },
+        saveWebhookConfig: async () => {
+            const secret = values.webhookSigningSecret
+            if (!secret) {
+                actions.setWebhookError('Please enter a webhook signing secret.')
+                return
+            }
+            actions.setIsSavingWebhook(true)
+            try {
+                await new ApiRequest().messagingCategoriesSaveWebhookConfig().create({
+                    data: { webhook_signing_secret: secret, webhook_enabled: true },
+                })
+                lemonToast.success('Webhook sync enabled!')
+                actions.setWebhookSigningSecret('')
+                actions.loadSyncConfig()
+            } catch (error: any) {
+                actions.setWebhookError(error.detail || 'Failed to save webhook config')
+            } finally {
+                actions.setIsSavingWebhook(false)
+            }
+        },
+        toggleWebhook: async ({ enabled }) => {
+            actions.setIsSavingWebhook(true)
+            try {
+                await new ApiRequest().messagingCategoriesSaveWebhookConfig().create({
+                    data: { webhook_enabled: enabled },
+                })
+                lemonToast.success(enabled ? 'Webhook sync enabled' : 'Webhook sync disabled')
+                actions.loadSyncConfig()
+            } catch (error: any) {
+                actions.setWebhookError(error.detail || 'Failed to save webhook config')
+            } finally {
+                actions.setIsSavingWebhook(false)
+            }
+        },
+        removeWebhookConfig: async () => {
+            try {
+                await new ApiRequest().messagingCategoriesRemoveWebhookConfig().delete()
+                actions.setWebhookSigningSecret('')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to remove webhook integration')
+            } finally {
+                actions.loadSyncConfig()
             }
         },
         submitImportFormFailure: () => {},

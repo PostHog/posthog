@@ -56,7 +56,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/
+                    common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
@@ -129,7 +129,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    frontend/ nodejs/
+                    frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
@@ -167,6 +167,7 @@ jobs:
                     --exclude ./rust/ \
                     --exclude ./.semgrep/ \
                     --exclude ./docs/ \
+                    --exclude ./services/ \
                     .
 
     semgrep-test-rules:
