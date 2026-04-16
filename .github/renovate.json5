@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+
+  "enabledManagers": ["pep621", "npm", "github-actions", "gomod", "cargo"],
+
+  // Disable ALL PRs -- we only want the dashboard
+  "packageRules": [
+    {
+      "matchPackageNames": ["*"],
+      "enabled": false
+    }
+  ],
+
+  // Dashboard config -- the whole point
+  "dependencyDashboardTitle": "Renovate: Dependency Status",
+  "dependencyDashboardLabels": ["dependencies"],
+  "dependencyDashboardOSVVulnerabilitySummary": true,
+
+  // Enable vulnerability detection for dashboard visibility (no PRs created)
+  "osvVulnerabilityAlerts": true,
+
+  // Disable GitHub-sourced vulnerability fix PRs (these bypass packageRules)
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+
+  "ignorePaths": [
+    "common/hogql_parser/**"
+  ]
+}

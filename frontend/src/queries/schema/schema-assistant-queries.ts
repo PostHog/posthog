@@ -1311,3 +1311,103 @@ export interface AssistantRecordingsQuery {
     /** Filter recordings to a specific person by their UUID. */
     person_uuid?: string
 }
+
+export interface AssistantInsightVizNode {
+    kind: NodeKind.InsightVizNode
+    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
+    source: Record<string, any>
+}
+
+/**
+ * Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.
+ *
+ * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
+ * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
+ * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
+ * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
+ * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ */
+export type AssistantDataVisualizationDisplayType =
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsStackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.TwoDimensionalHeatmap
+
+export interface AssistantDataVisualizationAxis {
+    /** Name of a column returned by the SQL query to map onto this axis. */
+    column: string
+}
+
+export interface AssistantDataVisualizationGoalLine {
+    /** Label rendered next to the goal line. */
+    label: string
+    /** Y-axis value at which the goal line is drawn. */
+    value: number
+}
+
+export interface AssistantDataVisualizationChartSettings {
+    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    xAxis?: AssistantDataVisualizationAxis
+    /** One or more numeric columns plotted as Y series. */
+    yAxis?: AssistantDataVisualizationAxis[]
+    /**
+     * Column that splits a single Y series into multiple colored series — e.g. breaking down
+     * a line chart by `country`. Set to `null` or omit to disable.
+     */
+    seriesBreakdownColumn?: string | null
+    /** Horizontal goal lines drawn across the chart. */
+    goalLines?: AssistantDataVisualizationGoalLine[]
+    /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
+    stackBars100?: boolean
+    /** Show the chart legend. */
+    showLegend?: boolean
+    /** Replace null aggregation results with zero. */
+    showNullsAsZero?: boolean
+}
+
+export interface AssistantDataVisualizationTableSettings {
+    /** Columns to display and their order. Omit to show every column returned by the query. */
+    columns?: AssistantDataVisualizationAxis[]
+    /** Column names to pin to the left of the table. */
+    pinnedColumns?: string[]
+    /** Show a total row at the bottom of the table. */
+    showTotalRow?: boolean
+    /** Transpose rows and columns. */
+    transpose?: boolean
+}
+
+/**
+ * SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be
+ * expressed as a standard product-analytics insight — cross-source joins with the data
+ * warehouse, window functions, or bespoke aggregations.
+ *
+ * Prefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention,
+ * paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.
+ */
+export interface AssistantDataVisualizationNode {
+    kind: NodeKind.DataVisualizationNode
+    /** HogQL query object that produces the rows to visualize. */
+    source: Record<string, any>
+    /**
+     * Visualization type. Defaults to `ActionsTable` when omitted.
+     *
+     * Guidance:
+     * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Otherwise → `ActionsTable`.
+     */
+    display?: AssistantDataVisualizationDisplayType
+    /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
+    chartSettings?: AssistantDataVisualizationChartSettings
+    /** Table configuration. Only applies when `display` is `ActionsTable` or omitted. */
+    tableSettings?: AssistantDataVisualizationTableSettings
+}
+
+export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode

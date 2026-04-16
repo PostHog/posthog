@@ -5,9 +5,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { HogQLQueryModifiers, NodeKind } from '~/queries/schema/schema-general'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 
@@ -34,8 +35,8 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
     setQuery: (query: Q) => void
 }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
-    const { loadSources } = useActions(externalDataSourcesLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourcesDataLogic)
+    const { loadSources } = useActions(sourcesDataLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     const isHogQLQuery = query.kind === NodeKind.HogQLQuery
 

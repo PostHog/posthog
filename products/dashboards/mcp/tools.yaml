@@ -49,8 +49,7 @@ tools:
         list: true
         title: Get all dashboards
         description: >
-            Get all dashboards in the project with optional filtering by pinned status or search term. Returns name,
-            description, pinned status, tags, and creation metadata.
+            Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.
     dashboard-create:
         operation: dashboards_create
         enabled: true
@@ -63,8 +62,46 @@ tools:
         enrich_url: '{id}'
         title: Create dashboard
         description: >
-            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
-            from a template or duplicate an existing dashboard.
+            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
+        response:
+            exclude:
+                - effective_restriction_level
+                - effective_privilege_level
+                - user_access_level
+                - access_control_version
+                - restriction_level
+                - creation_mode
+                - deleted
+                - breakdown_colors
+                - data_color_theme_id
+                - quick_filter_ids
+                - tiles.*.color
+                - tiles.*.transparent_background
+                - tiles.*.show_description
+                - tiles.*.button_tile
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
+                - tiles.*.insight.cache_target_age
+                - tiles.*.insight.next_allowed_client_refresh
+                - tiles.*.insight.filters_hash
+                - tiles.*.insight.dashboards
+                - tiles.*.insight.dashboard_tiles
+                - tiles.*.insight.effective_restriction_level
+                - tiles.*.insight.effective_privilege_level
+                - tiles.*.insight.user_access_level
+                - tiles.*.insight.filters
+                - tiles.*.insight.is_sample
+                - tiles.*.insight.saved
+                - tiles.*.insight.order
+                - tiles.*.insight.deleted
+                - tiles.*.insight.alerts
+                - tiles.*.insight.last_viewed_at
+                - tiles.*.insight.timezone
+                - tiles.*.insight.resolved_date_range
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -101,8 +138,44 @@ tools:
         enrich_url: '{id}'
         title: Get dashboard
         description: >
-            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and
-            layout information.
+            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.
+        response:
+            exclude:
+                - effective_restriction_level
+                - effective_privilege_level
+                - user_access_level
+                - access_control_version
+                - restriction_level
+                - creation_mode
+                - deleted
+                - breakdown_colors
+                - data_color_theme_id
+                - quick_filter_ids
+                - tiles.*.color
+                - tiles.*.transparent_background
+                - tiles.*.show_description
+                - tiles.*.button_tile
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
+                - tiles.*.insight.cache_target_age
+                - tiles.*.insight.next_allowed_client_refresh
+                - tiles.*.insight.filters_hash
+                - tiles.*.insight.dashboards
+                - tiles.*.insight.dashboard_tiles
+                - tiles.*.insight.effective_restriction_level
+                - tiles.*.insight.effective_privilege_level
+                - tiles.*.insight.user_access_level
+                - tiles.*.insight.filters
+                - tiles.*.insight.is_sample
+                - tiles.*.insight.order
+                - tiles.*.insight.deleted
+                - tiles.*.insight.alerts
+                - tiles.*.insight.timezone
+                - tiles.*.insight.resolved_date_range
     dashboards-update:
         operation: dashboards_update
         enabled: false
@@ -118,8 +191,44 @@ tools:
         enrich_url: '{id}'
         title: Update dashboard
         description: >
-            Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
-            restriction level.
+            Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
+        response:
+            exclude:
+                - effective_restriction_level
+                - effective_privilege_level
+                - user_access_level
+                - access_control_version
+                - restriction_level
+                - creation_mode
+                - deleted
+                - breakdown_colors
+                - data_color_theme_id
+                - quick_filter_ids
+                - tiles.*.color
+                - tiles.*.transparent_background
+                - tiles.*.show_description
+                - tiles.*.button_tile
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
+                - tiles.*.insight.cache_target_age
+                - tiles.*.insight.next_allowed_client_refresh
+                - tiles.*.insight.filters_hash
+                - tiles.*.insight.dashboards
+                - tiles.*.insight.dashboard_tiles
+                - tiles.*.insight.effective_restriction_level
+                - tiles.*.insight.effective_privilege_level
+                - tiles.*.insight.user_access_level
+                - tiles.*.insight.filters
+                - tiles.*.insight.is_sample
+                - tiles.*.insight.order
+                - tiles.*.insight.deleted
+                - tiles.*.insight.alerts
+                - tiles.*.insight.timezone
+                - tiles.*.insight.resolved_date_range
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -145,6 +254,22 @@ tools:
         description: |
             Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.
         soft_delete: true
+    dashboard-insights-run:
+        operation: dashboards_run_insights_retrieve
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Run dashboard insights
+        description: >
+            Run all insights on a dashboard and return their results. Uses cached results by default (may be
+            stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for
+            LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see
+            the actual data behind each insight tile.
     dashboards-analyze-refresh-result-create:
         operation: dashboards_analyze_refresh_result_create
         enabled: false

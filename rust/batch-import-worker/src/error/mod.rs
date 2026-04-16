@@ -85,6 +85,27 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
     false
 }
 
+/// Returns true if the error chain contains a reqwest timeout error.
+/// Timeouts are transient and should be retried with backoff.
+pub fn is_timeout_error(error: &anyhow::Error) -> bool {
+    if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
+        if reqwest_err.is_timeout() {
+            return true;
+        }
+    }
+
+    let mut source = error.source();
+    while let Some(err) = source {
+        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+            if reqwest_err.is_timeout() {
+                return true;
+            }
+        }
+        source = err.source();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +232,42 @@ mod tests {
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
         assert!(!is_rate_limited_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_timeout_error_true_for_timeout() {
+        // Use a server that accepts the connection but never responds,
+        // combined with a very short client timeout
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap();
+
+        let err = client
+            .get(format!("http://{addr}/slow"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+        assert!(is_timeout_error(&err));
+        assert!(!is_rate_limited_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_timeout_error_false_for_non_timeout() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/ok");
+            then.status(500);
+        });
+
+        let client = Client::new();
+        let resp = client.get(server.url("/ok")).send().await.unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+        assert!(!is_timeout_error(&err));
     }
 }

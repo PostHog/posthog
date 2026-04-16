@@ -8,13 +8,6 @@
             "intents": ["site_apps"]
         },
         {
-            "path": "Data pipelines",
-            "category": "Tools",
-            "iconType": "data_pipeline",
-            "type": "hog_function",
-            "intents": ["pipeline_batch_exports", "pipeline_destinations", "pipeline_transformations", "site_apps"]
-        },
-        {
             "path": "Support",
             "category": "Behavior",
             "iconType": "conversations",

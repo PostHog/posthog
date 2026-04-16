@@ -15,7 +15,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Name of the action (must be unique within the project)."
+            "description": "Name of the action (must be unique within the project)"
         },
         "pinned_at": {
             "anyOf": [

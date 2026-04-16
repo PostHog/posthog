@@ -134,3 +134,9 @@ tools:
     logs-sparkline-create:
         operation: logs_sparkline_create
         enabled: false
+    logs-alerts-destinations-create:
+        operation: logs_alerts_destinations_create
+        enabled: false
+    logs-alerts-destinations-delete-create:
+        operation: logs_alerts_destinations_delete_create
+        enabled: false
