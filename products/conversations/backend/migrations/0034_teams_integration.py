@@ -6,7 +6,7 @@ import posthog.helpers.encrypted_fields
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1094_oauth_provisioning_fields"),
-        ("conversations", "0030_ticketview"),
+        ("conversations", "0033_ticket_snoozed_until_idx"),
     ]
 
     operations = [
