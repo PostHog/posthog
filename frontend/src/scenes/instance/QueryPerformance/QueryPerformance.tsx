@@ -112,9 +112,18 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
-            title: 'Team ID',
-            dataIndex: 'team_id',
-            width: 80,
+            title: 'Organization',
+            dataIndex: 'organization_name',
+        },
+        {
+            title: 'Team',
+            render: function TeamCell(_, item) {
+                return (
+                    <span>
+                        {item.team_name || 'Unknown'} <span className="text-muted">({item.team_id})</span>
+                    </span>
+                )
+            },
         },
         {
             title: 'Experiment',
@@ -152,7 +161,7 @@ export function QueryPerformance(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="mt-4">
+        <SceneContent className="mt-4 pb-8">
             <SceneTitleSection
                 name="Query performance"
                 description="Internal tooling for monitoring and managing query performance across all projects."
