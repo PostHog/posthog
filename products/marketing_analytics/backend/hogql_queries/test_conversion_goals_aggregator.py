@@ -28,6 +28,12 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.config = MarketingAnalyticsConfig.from_team(self.team)
+        # These tests pin the direct-path SQL shape. The precompute path is
+        # covered by test_conversion_goal_precompute_e2e.py.
+        # Snapshots pin the direct-path SQL shape (deterministic UUIDs).
+        # The precompute SQL is pinned in test_conversion_goal_processor_refactor.py
+        # with controlled UUIDs.
+        self.config.conversion_goal_precomputation_enabled = False
         self.date_range = QueryDateRange(
             date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             team=self.team,

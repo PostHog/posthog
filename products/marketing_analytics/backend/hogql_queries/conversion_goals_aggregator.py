@@ -1,14 +1,24 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsDrillDownLevel
 
 from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.settings import TEST
 
 from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
 
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor
 from .marketing_analytics_config import MarketingAnalyticsConfig
+
+# Cap on the thread pool size used to parallelise per-goal base-query
+# generation. Each goal's ``ensure_precomputed`` call is ~1-2s of framework
+# overhead even on a full cache hit; running them in parallel turns the total
+# from N × overhead into max(overhead). 8 is enough for any realistic goal
+# count — we rarely see dashboards with more.
+_GOAL_PARALLELISM_LIMIT = 8
 
 
 class ConversionGoalsAggregator:
@@ -26,11 +36,14 @@ class ConversionGoalsAggregator:
         if not self.processors:
             raise ValueError("Cannot create unified CTE without conversion goal processors")
 
-        # Step 1: Generate individual conversion goal queries
-        conversion_subqueries = []
-
-        for processor in self.processors:
-            # Build additional conditions for this processor
+        # Step 1: Generate individual conversion goal queries.
+        #
+        # Each processor's ``generate_cte_query`` can trigger
+        # ``ensure_precomputed`` which blocks on PG + Redis + ClickHouse
+        # round-trips. Those calls are independent across goals, so we run
+        # them in a thread pool to collapse the serial overhead. With N goals
+        # the dashboard pays roughly max(overhead) instead of sum(overhead).
+        def _build_base_query(processor: ConversionGoalProcessor) -> ast.SelectQuery:
             date_field = processor.get_date_field()
             additional_conditions = additional_conditions_getter(
                 date_range=date_range,
@@ -38,10 +51,31 @@ class ConversionGoalsAggregator:
                 date_field=date_field,
                 use_date_not_datetime=True,
             )
+            # Pass the date range so eligible goals can read from the lazy-computed
+            # table instead of scanning events (controlled by
+            # MarketingAnalyticsConfig.conversion_goal_precomputation_enabled).
+            return processor.generate_cte_query(
+                additional_conditions,
+                date_from=date_range.date_from(),
+                date_to=date_range.date_to(),
+            )
 
-            # Generate the base conversion goal query
-            base_query = processor.generate_cte_query(additional_conditions)
+        # Skip the pool in TEST: Django wraps tests in a transaction and gives
+        # each thread its own connection, so worker threads cannot see objects
+        # created in the main-thread test setup (Action fixtures, etc.). The
+        # data reads the workers do here are stable in prod where everything
+        # is committed before the request.
+        if not TEST and len(self.processors) > 1:
+            with ThreadPoolExecutor(
+                max_workers=min(len(self.processors), _GOAL_PARALLELISM_LIMIT),
+                thread_name_prefix="ma_cte",
+            ) as pool:
+                base_queries = list(pool.map(_build_base_query, self.processors))
+        else:
+            base_queries = [_build_base_query(p) for p in self.processors]
 
+        conversion_subqueries = []
+        for processor, base_query in zip(self.processors, base_queries):
             # Transform the query to include a column for this specific conversion goal
             # and zero columns for all other conversion goals
             # Note: base_query schema is: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion

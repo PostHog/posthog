@@ -62,6 +62,9 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.conversion_goal_attributed_preaggregated import (
+    ConversionGoalAttributedPreaggregatedTable,
+)
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
     DocumentEmbeddingsTable,
@@ -223,6 +226,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     ),
     "experiment_metric_events_preaggregated": TableNode(
         name="experiment_metric_events_preaggregated", table=ExperimentMetricEventsPreaggregatedTable()
+    ),
+    "conversion_goal_attributed_preaggregated": TableNode(
+        name="conversion_goal_attributed_preaggregated", table=ConversionGoalAttributedPreaggregatedTable()
     ),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),

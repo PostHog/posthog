@@ -28,7 +28,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
+from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -67,9 +67,10 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
 # the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
 # preventing stale reads from hitting a replica that hasn't received the data yet.
-# Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
-# ClickHouse setup and we want them to remain fast and deterministic).
-PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+# Disabled in tests and in DEBUG (local dev) because those environments typically run against
+# a single-node ClickHouse without replica topology — "auto" quorum would hang waiting for
+# acknowledgments that never arrive.
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if (TEST or DEBUG) else "auto"
 
 
 def _get_insert_settings(team_id: int) -> dict:
@@ -257,6 +258,7 @@ class LazyComputationTable(StrEnum):
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
+    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -265,6 +267,7 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
 }
 
 
