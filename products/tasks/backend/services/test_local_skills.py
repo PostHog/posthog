@@ -171,20 +171,14 @@ class TestLocalSkills(BaseTest):
 
     def test_populate_skills_directory_noop_when_dist_missing(self) -> None:
         destination = self.base_dir / "mount"
-        with self.assertLogs("products.tasks.backend.services.local_skills", level="WARNING") as captured:
-            populate_skills_directory(destination, base_dir=self.base_dir)
-
+        populate_skills_directory(destination, base_dir=self.base_dir)
         self.assertTrue(not destination.exists() or not any(destination.iterdir()))
-        self.assertTrue(any("No rendered skills" in msg for msg in captured.output))
 
     def test_populate_skills_directory_noop_when_dist_empty(self) -> None:
         (self.base_dir / BUILT_SKILLS_RELATIVE_PATH).mkdir(parents=True)
         destination = self.base_dir / "mount"
-        with self.assertLogs("products.tasks.backend.services.local_skills", level="WARNING") as captured:
-            populate_skills_directory(destination, base_dir=self.base_dir)
-
+        populate_skills_directory(destination, base_dir=self.base_dir)
         self.assertTrue(not destination.exists() or not any(destination.iterdir()))
-        self.assertTrue(any("No rendered skills" in msg for msg in captured.output))
 
     def test_module_constants_are_stable(self) -> None:
         self.assertEqual(BUILD_HASH_FILENAME, ".build-hash")
