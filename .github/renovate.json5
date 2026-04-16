@@ -8,18 +8,19 @@
 
   "enabledManagers": ["pep621", "npm", "github-actions", "gomod", "cargo"],
 
+  // Gate every update behind a checkbox on the dashboard -- no auto-PRs
+  "dependencyDashboardApproval": true,
+
   "dependencyDashboardTitle": "Renovate: Dependency Status",
   "dependencyDashboardLabels": ["dependencies"],
   "dependencyDashboardOSVVulnerabilitySummary": ["all"],
   "dependencyDashboardReportAbandonment": true,
 
-  // Wait 14 days before any update is eligible -- gives registries time to
-  // pull malicious releases (docs' security recommendation for all ecosystems)
-  "minimumReleaseAge": "14 days",
+  // Surface CVEs on the dashboard
+  "osvVulnerabilityAlerts": true,
 
-  // Keep PR volume manageable while we ramp up
-  "prHourlyLimit": 2,
-  "prConcurrentLimit": 10,
+  // Vuln-fix PRs bypass the approval gate -- keep them off
+  "vulnerabilityAlerts": { "enabled": false },
 
   "ignorePaths": ["common/hogql_parser/**"]
 }
