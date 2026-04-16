@@ -3,8 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    FeatureFlagsActivityRetrieve2Params,
-    FeatureFlagsActivityRetrieve2QueryParams,
+    FeatureFlagsActivityRetrieveParams,
+    FeatureFlagsActivityRetrieveQueryParams,
     FeatureFlagsCopyFlagsCreateBody,
     FeatureFlagsCreateBody,
     FeatureFlagsDependentFlagsListParams,
@@ -181,8 +181,8 @@ const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.F
     },
 })
 
-const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieve2Params.omit({ project_id: true }).extend(
-    FeatureFlagsActivityRetrieve2QueryParams.shape
+const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieveParams.omit({ project_id: true }).extend(
+    FeatureFlagsActivityRetrieveQueryParams.shape
 )
 
 const featureFlagsActivityRetrieve = (): ToolBase<

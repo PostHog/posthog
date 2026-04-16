@@ -4,13 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     IntegrationsDestroyParams,
-    IntegrationsList2QueryParams,
-    IntegrationsRetrieve2Params,
+    IntegrationsListQueryParams,
+    IntegrationsRetrieveParams,
 } from '@/generated/integrations/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const IntegrationsListSchema = IntegrationsList2QueryParams
+const IntegrationsListSchema = IntegrationsListQueryParams
 
 const integrationsList = (): ToolBase<
     typeof IntegrationsListSchema,
@@ -32,7 +32,7 @@ const integrationsList = (): ToolBase<
     },
 })
 
-const IntegrationGetSchema = IntegrationsRetrieve2Params.omit({ project_id: true })
+const IntegrationGetSchema = IntegrationsRetrieveParams.omit({ project_id: true })
 
 const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integration> => ({
     name: 'integration-get',
