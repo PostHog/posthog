@@ -2,7 +2,6 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
 
 from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleState
 
@@ -63,46 +62,34 @@ def delete_automation_schedule(automation: TaskAutomation) -> None:
 def run_task_automation(automation_id: str, trigger_workflow_id: str | None = None) -> tuple[Task, TaskRun]:
     automation_id = str(automation_id)
     with transaction.atomic():
-        automation = TaskAutomation.objects.select_for_update().select_related("team").get(id=automation_id)
+        automation = TaskAutomation.objects.select_for_update(of=("self",)).select_related("task").get(id=automation_id)
+        task = automation.task
 
         if trigger_workflow_id:
             existing_task_run_query = TaskRun.objects.select_related("task").filter(
+                task__team_id=task.team_id,
+                task_id=task.id,
                 state__automation_id=automation_id,
                 state__automation_trigger_workflow_id=trigger_workflow_id,
             )
-            if automation.task_id:
-                existing_task_run_query = existing_task_run_query.filter(task_id=automation.task_id)
-            else:
-                existing_task_run_query = existing_task_run_query.filter(
-                    task__team_id=automation.team_id,
-                    task__origin_product=Task.OriginProduct.AUTOMATION,
-                )
             existing_task_run = existing_task_run_query.order_by("-created_at").first()
             if existing_task_run is not None:
-                task = existing_task_run.task
                 task_run = existing_task_run
             else:
-                task = _get_or_create_automation_task(automation)
                 extra_state = {"automation_id": automation_id}
                 if trigger_workflow_id:
                     extra_state["automation_trigger_workflow_id"] = trigger_workflow_id
                 task_run = task.create_run(mode="background", extra_state=extra_state)
         else:
-            task = _get_or_create_automation_task(automation)
             task_run = task.create_run(mode="background", extra_state={"automation_id": automation_id})
 
-        team_id = automation.team_id
-        user_id = automation.created_by_id
+        team_id = task.team_id
+        user_id = task.created_by_id
 
-        automation.last_run_at = timezone.now()
-        automation.last_run_status = TaskAutomation.RunStatus.RUNNING
         automation.last_task_run = task_run
         automation.last_error = None
         automation.save(
             update_fields=[
-                "task",
-                "last_run_at",
-                "last_run_status",
                 "last_task_run",
                 "last_error",
                 "updated_at",
@@ -131,42 +118,6 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
     return task, task_run
 
 
-def _get_or_create_automation_task(automation: TaskAutomation) -> Task:
-    task = automation.task
-    if task is None:
-        task = Task.objects.create(
-            team=automation.team,
-            created_by=automation.created_by,
-            title=automation.name,
-            description=automation.prompt,
-            origin_product=Task.OriginProduct.AUTOMATION,
-            github_integration=automation.github_integration,
-            repository=automation.repository,
-        )
-        automation.task = task
-        return task
-
-    fields_to_update: list[str] = []
-    if task.title != automation.name:
-        task.title = automation.name
-        fields_to_update.append("title")
-    if task.description != automation.prompt:
-        task.description = automation.prompt
-        fields_to_update.append("description")
-    if task.github_integration_id != automation.github_integration_id:
-        task.github_integration = automation.github_integration
-        fields_to_update.append("github_integration")
-    if task.repository != automation.repository:
-        task.repository = automation.repository
-        fields_to_update.append("repository")
-
-    if fields_to_update:
-        fields_to_update.append("updated_at")
-        task.save(update_fields=fields_to_update)
-
-    return task
-
-
 def execute_task_processing_workflow_for_automation(
     *, team_id: int, user_id: int | None, task_id: str, run_id: str
 ) -> None:
@@ -189,16 +140,7 @@ def update_automation_run_result(task_run: TaskRun) -> None:
     if automation is None:
         return
 
-    if task_run.status == TaskRun.Status.COMPLETED:
-        status = TaskAutomation.RunStatus.SUCCESS
-        error = None
-    elif task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
-        status = TaskAutomation.RunStatus.FAILED
-        error = task_run.error_message
-    else:
-        status = TaskAutomation.RunStatus.RUNNING
-        error = None
-
-    automation.last_run_status = status
-    automation.last_error = error
-    automation.save(update_fields=["last_run_status", "last_error", "updated_at"])
+    automation.last_error = (
+        task_run.error_message if task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED] else None
+    )
+    automation.save(update_fields=["last_error", "updated_at"])

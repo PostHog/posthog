@@ -110,6 +110,29 @@ class BaseTaskAPITest(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
+    def create_automation(
+        self,
+        name="Daily PRs",
+        prompt="Check my GitHub PRs",
+        repository="posthog/posthog",
+        team=None,
+        user=None,
+    ):
+        task = Task.objects.create(
+            team=team or self.team,
+            created_by=user or self.user,
+            title=name,
+            description=prompt,
+            origin_product=Task.OriginProduct.AUTOMATION,
+            repository=repository,
+        )
+        return TaskAutomation.objects.create(
+            task=task,
+            cron_expression="0 9 * * *",
+            timezone="Europe/London",
+            enabled=True,
+        )
+
 
 class TestTaskAPI(BaseTaskAPITest):
     def test_list_tasks(self):
@@ -549,16 +572,7 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 class TestTaskAutomationAPI(BaseTaskAPITest):
     def create_automation(self, name="Daily PRs"):
-        return TaskAutomation.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name=name,
-            prompt="Check my GitHub PRs",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
-        )
+        return super().create_automation(name=name)
 
     @patch("products.tasks.backend.api.sync_automation_schedule")
     def test_create_automation(self, mock_sync_schedule):
@@ -583,6 +597,9 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertTrue(payload["enabled"])
 
         automation = TaskAutomation.objects.get(id=payload["id"])
+        self.assertEqual(automation.task.title, "Daily PRs")
+        self.assertEqual(automation.task.description, "Check my GitHub PRs")
+        self.assertEqual(automation.task.repository, "posthog/posthog")
         self.assertEqual(automation.cron_expression, "0 9 * * *")
         mock_sync_schedule.assert_called_once_with(automation)
 
@@ -653,6 +670,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         response = self.client.patch(
             f"/api/projects/@current/task_automations/{automation.id}/",
             {
+                "name": "Updated PR check",
                 "cron_expression": "30 14 * * *",
                 "enabled": False,
             },
@@ -661,10 +679,13 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payload = response.json()
+        self.assertEqual(payload["name"], "Updated PR check")
         self.assertEqual(payload["cron_expression"], "30 14 * * *")
         self.assertFalse(payload["enabled"])
 
         automation.refresh_from_db()
+        automation.task.refresh_from_db()
+        self.assertEqual(automation.task.title, "Updated PR check")
         self.assertEqual(automation.cron_expression, "30 14 * * *")
         self.assertFalse(automation.enabled)
         mock_sync_schedule.assert_called_once_with(automation)
@@ -1562,16 +1583,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
-        automation = TaskAutomation.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Daily PRs",
-            prompt="Check my PRs",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
-        )
+        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         endpoints = [
@@ -1620,16 +1632,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
     def test_authentication_required(self):
         task = self.create_task()
-        automation = TaskAutomation.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Daily PRs",
-            prompt="Check my PRs",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
-        )
+        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
 
         self.client.force_authenticate(None)
 
@@ -1669,15 +1672,11 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cross_team_automation_access_forbidden(self):
-        other_automation = TaskAutomation.objects.create(
-            team=self.other_team,
-            created_by=self.other_user,
+        other_automation = self.create_automation(
             name="Other Team Automation",
             prompt="Description",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
+            team=self.other_team,
+            user=self.other_user,
         )
 
         response = self.client.get(f"/api/projects/@current/task_automations/{other_automation.id}/")
@@ -1697,16 +1696,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         # Create resources in both teams
 
         my_task = self.create_task("My Task")
-        my_automation = TaskAutomation.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="My automation",
-            prompt="Mine",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
-        )
+        my_automation = self.create_automation(name="My automation", prompt="Mine")
 
         other_task = Task.objects.create(
             team=self.other_team,
@@ -1714,15 +1704,11 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        other_automation = TaskAutomation.objects.create(
-            team=self.other_team,
-            created_by=self.other_user,
+        other_automation = self.create_automation(
             name="Other automation",
             prompt="Other",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
+            team=self.other_team,
+            user=self.other_user,
         )
 
         # List tasks should only return my team's tasks
@@ -1779,16 +1765,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
-        automation = TaskAutomation.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Scoped automation",
-            prompt="Check my PRs",
-            repository="posthog/posthog",
-            cron_expression="0 9 * * *",
-            timezone="Europe/London",
-            enabled=True,
-        )
+        automation = self.create_automation(name="Scoped automation", prompt="Check my PRs")
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         api_key_value = generate_random_token_personal()

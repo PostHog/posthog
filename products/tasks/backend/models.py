@@ -4,6 +4,7 @@ import json
 import uuid
 import string
 import secrets
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
@@ -300,6 +301,23 @@ class Task(DeletedMetaFields, models.Model):
         return task
 
 
+class TaskAutomationQuerySet(models.QuerySet):
+    def with_task_context(self):
+        return self.select_related(
+            "task",
+            "task__team",
+            "task__created_by",
+            "task__github_integration",
+            "last_task_run",
+            "last_task_run__task",
+        )
+
+
+class TaskAutomationManager(models.Manager.from_queryset(TaskAutomationQuerySet)):
+    def get_queryset(self):
+        return super().get_queryset().with_task_context()
+
+
 class TaskAutomation(models.Model):
     class RunStatus(models.TextChoices):
         SUCCESS = "success", "Success"
@@ -307,55 +325,78 @@ class TaskAutomation(models.Model):
         RUNNING = "running", "Running"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="task_automations")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-    name = models.CharField(max_length=255)
-    prompt = models.TextField()
-    repository = models.CharField(max_length=255)
-    github_integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        limit_choices_to={"kind": "github"},
-        help_text="GitHub integration for this automation",
-    )
     cron_expression = models.CharField(max_length=100)
     timezone = models.CharField(max_length=128, default="UTC")
     template_id = models.CharField(max_length=255, null=True, blank=True)
     enabled = models.BooleanField(default=True)
-    task = models.OneToOneField(Task, on_delete=models.SET_NULL, null=True, blank=True, related_name="automation")
-    last_run_at = models.DateTimeField(null=True, blank=True)
-    last_run_status = models.CharField(
-        max_length=20,
-        choices=RunStatus.choices,
-        null=True,
-        blank=True,
-    )
+    task = models.OneToOneField(Task, on_delete=models.CASCADE, related_name="automation")
     last_task_run = models.ForeignKey("TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = TaskAutomationManager()
+
     class Meta:
         db_table = "posthog_task_automation"
-        ordering = ["name", "-created_at"]
+        ordering = ["task__title", "-created_at"]
 
     def __str__(self):
         return self.name
 
-    def save(self, *args, **kwargs):
-        if self.repository:
-            parts = self.repository.split("/")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
-                raise ValidationError({"repository": "Format for repository is organization/repo"})
-            self.repository = self.repository.lower()
-
-        super().save(*args, **kwargs)
-
     @property
     def schedule_id(self) -> str:
         return f"task-automation-{self.id}"
+
+    @property
+    def team(self) -> Team:
+        return self.task.team
+
+    @property
+    def team_id(self) -> int:
+        return self.task.team_id
+
+    @property
+    def created_by(self) -> User | None:
+        return self.task.created_by
+
+    @property
+    def created_by_id(self) -> int | None:
+        return self.task.created_by_id
+
+    @property
+    def name(self) -> str:
+        return self.task.title
+
+    @property
+    def prompt(self) -> str:
+        return self.task.description
+
+    @property
+    def repository(self) -> str | None:
+        return self.task.repository
+
+    @property
+    def github_integration(self) -> Integration | None:
+        return self.task.github_integration
+
+    @property
+    def github_integration_id(self) -> int | None:
+        return self.task.github_integration_id
+
+    @property
+    def last_run_at(self) -> datetime | None:
+        return self.last_task_run.created_at if self.last_task_run else None
+
+    @property
+    def last_run_status(self) -> str | None:
+        if self.last_task_run is None:
+            return None
+        if self.last_task_run.status == TaskRun.Status.COMPLETED:
+            return self.RunStatus.SUCCESS
+        if self.last_task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
+            return self.RunStatus.FAILED
+        return self.RunStatus.RUNNING
 
 
 class TaskRun(models.Model):

@@ -472,7 +472,14 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
 
 
 class TaskAutomationSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(max_length=255)
+    prompt = serializers.CharField()
     repository = serializers.CharField(max_length=255)
+    github_integration = serializers.PrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+    )
     last_task_id = serializers.SerializerMethodField()
     last_task_run_id = serializers.SerializerMethodField()
 
@@ -508,10 +515,7 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
         ]
 
     def get_last_task_id(self, instance: TaskAutomation) -> str | None:
-        if instance.task_id:
-            return str(instance.task_id)
-        task_run = instance.last_task_run
-        return str(task_run.task_id) if task_run is not None else None
+        return str(instance.task_id)
 
     def get_last_task_run_id(self, instance: TaskAutomation) -> str | None:
         return str(instance.last_task_run_id) if instance.last_task_run_id else None
@@ -553,11 +557,43 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
             if default_integration:
                 validated_data["github_integration"] = default_integration
 
-        return TaskAutomation.objects.create(
+        task = Task.objects.create(
             team=self.context["team"],
             created_by=self.context["request"].user,
-            **validated_data,
+            title=validated_data.pop("name"),
+            description=validated_data.pop("prompt"),
+            origin_product=Task.OriginProduct.AUTOMATION,
+            repository=validated_data.pop("repository"),
+            github_integration=validated_data.pop("github_integration", None),
         )
+        return TaskAutomation.objects.create(task=task, **validated_data)
+
+    def update(self, instance, validated_data):
+        task_fields = {
+            "name": "title",
+            "prompt": "description",
+            "repository": "repository",
+            "github_integration": "github_integration",
+        }
+        task_updates = {}
+        for serializer_field, task_field in task_fields.items():
+            if serializer_field in validated_data:
+                task_updates[task_field] = validated_data.pop(serializer_field)
+
+        automation = super().update(instance, validated_data)
+
+        if task_updates:
+            task = automation.task
+            fields_to_update = []
+            for field, value in task_updates.items():
+                if getattr(task, field) != value:
+                    setattr(task, field, value)
+                    fields_to_update.append(field)
+            if fields_to_update:
+                fields_to_update.append("updated_at")
+                task.save(update_fields=fields_to_update)
+
+        return automation
 
 
 class SandboxEnvironmentSerializer(serializers.ModelSerializer):

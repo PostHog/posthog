@@ -313,10 +313,10 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
-    queryset = TaskAutomation.objects.select_related("last_task_run", "github_integration").all()
+    queryset = TaskAutomation.objects.all()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team).order_by("name", "-created_at")
+        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
