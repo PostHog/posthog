@@ -5,8 +5,6 @@ import { router } from 'kea-router'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,7 +12,6 @@ import { Billing } from './Billing'
 import { billingLogic } from './billingLogic'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
-import { CodeSeatsSection } from './CodeSeatsSection'
 import { BillingSectionId } from './types'
 
 export const scene: SceneExport = {
@@ -22,7 +19,7 @@ export const scene: SceneExport = {
     logic: billingLogic,
 }
 
-const baseTabs: { key: BillingSectionId; label: string }[] = [
+const tabs: { key: BillingSectionId; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'usage', label: 'Usage' },
     { key: 'spend', label: 'Spend' },
@@ -30,19 +27,12 @@ const baseTabs: { key: BillingSectionId; label: string }[] = [
 
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const tabs = featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING]
-        ? [...baseTabs, { key: 'seats', label: 'Seats' }]
-        : baseTabs
-
-    const section = location.pathname.includes('seats')
-        ? 'seats'
-        : location.pathname.includes('spend')
-          ? 'spend'
-          : location.pathname.includes('usage')
-            ? 'usage'
-            : 'overview'
+    const section = location.pathname.includes('spend')
+        ? 'spend'
+        : location.pathname.includes('usage')
+          ? 'usage'
+          : 'overview'
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -78,11 +68,6 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
-            {section === 'seats' && featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
-                <div className="flex flex-col gap-8 max-w-300 mt-4">
-                    <CodeSeatsSection />
-                </div>
-            )}
         </div>
     )
 }

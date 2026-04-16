@@ -12,7 +12,7 @@ export type BillingGaugeItemType = {
     value: number
 }
 
-export type BillingSectionId = 'overview' | 'usage' | 'spend' | 'seats'
+export type BillingSectionId = 'overview' | 'usage' | 'spend'
 
 export type SeatStatus = 'active' | 'canceling' | 'pending' | 'pending_payment' | 'expired' | 'withdrawn'
 
