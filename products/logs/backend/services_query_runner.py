@@ -84,7 +84,6 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 FROM logs
                 WHERE {where}
                 GROUP BY service_name, severity_text
-                ORDER BY _log_count DESC
             )
             GROUP BY service_name
             ORDER BY log_count DESC
