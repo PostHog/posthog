@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import temporalio.exceptions
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -153,13 +154,19 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
         window_end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         window_start = (now - METADATA_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # 1. Compute
+        # 1. Compute — pass the workflow's window through so the embeddings
+        # fetch uses the same time slice as the metadata fetch below. Without
+        # this, activity-local datetime.now() can drift past the metadata
+        # lookback and sample eval ids whose linked generations are already
+        # out of range, producing clusters with unresolvable navigation.
         compute_result = await workflow.execute_activity(
             perform_evaluation_clustering_compute_activity,
             EvaluationClusteringComputeInputs(
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
+                window_start=window_start,
+                window_end=window_end,
             ),
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
@@ -218,7 +225,9 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
             retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
-        # 4. Aggregates — best-effort, continues on failure
+        # 4. Aggregates — best-effort on activity failure, but cancellation
+        # must propagate so shutdowns/manual cancels don't silently continue
+        # through emit (matches trace clustering's pattern).
         cluster_metrics: dict = {}
         try:
             cluster_metrics = await workflow.execute_activity(
@@ -233,7 +242,9 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
                 heartbeat_timeout=AGGREGATES_HEARTBEAT_TIMEOUT,
                 retry_policy=AGGREGATES_ACTIVITY_RETRY_POLICY,
             )
-        except Exception:
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                raise
             workflow.logger.warning("eval aggregates activity failed; emitting without metrics")
 
         # 5. Emit

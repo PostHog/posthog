@@ -279,8 +279,13 @@ class LLMAEvaluationClusteringCoordinatorWorkflow(PostHogWorkflow):
 
             for team_id, job_id, handle in handles:
                 try:
-                    await handle
+                    res: SamplerWorkflowResult = await handle
                     results_so_far["jobs_succeeded"] += 1
+                    # Stage B reuses SamplerWorkflowResult with sampled=total_items_analyzed
+                    # and embedded=num_clusters, so accumulate both for the coordinator
+                    # log / SamplerCoordinatorResult (previously dropped).
+                    results_so_far["total_sampled"] += res.sampled
+                    results_so_far["total_embedded"] += res.embedded
                     increment_team_succeeded("eval_clustering", "evaluation")
                 except Exception:
                     logger.exception("eval clustering child failed", team_id=team_id, job_id=job_id)

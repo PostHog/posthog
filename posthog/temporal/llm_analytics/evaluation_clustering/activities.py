@@ -74,6 +74,12 @@ class EvaluationClusteringComputeInputs:
     visualization_method: str = "umap"
     clustering_method_params: dict[str, Any] = field(default_factory=dict)
     run_label: str = ""
+    # Optional workflow-provided window (ISO 8601). When set, the activity uses these
+    # bounds for the embeddings fetch + run-id timestamp instead of activity-local
+    # datetime.now(), so compute and the downstream metadata fetch operate on the
+    # same time slice across scheduler drift and boundary timestamps.
+    window_start: str | None = None
+    window_end: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -186,23 +192,38 @@ def _items_from_eval_ids(
     return items
 
 
+def _parse_iso(ts: str | None) -> datetime | None:
+    """Parse ISO 8601 timestamps (with trailing Z) the workflow serializes."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationClusteringComputeResult:
     team = Team.objects.get(id=inputs.team_id)
+
+    # Prefer the workflow-provided window so compute and metadata operate on the
+    # identical time slice. Fall back to activity-local time for replays / manual
+    # invocations that don't set it.
+    window_end_dt = _parse_iso(inputs.window_end) or datetime.now(UTC)
+    window_start_dt = _parse_iso(inputs.window_start) or (window_end_dt - METADATA_LOOKBACK)
 
     # Layout must match trace/generation: {team_id}_{level}_{YYYYMMDD}_{HHMMSS}[_{job_id}].
     # Putting job_id before the timestamp made the frontend's getTimestampBoundsFromRunId
     # parse the UUID as a date — the `3657-` chunk of a UUIDv7 got interpreted as the
     # year, and the `timestamp BETWEEN` filter on the day-window query never matched.
-    now = datetime.now(UTC)
-    base_run_id = f"{inputs.team_id}_evaluation_{now.strftime('%Y%m%d_%H%M%S')}_{inputs.job_id}"
+    base_run_id = f"{inputs.team_id}_evaluation_{window_end_dt.strftime('%Y%m%d_%H%M%S')}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
     # Bound the random embedding sample to the same window Stage B's metadata
     # query uses — otherwise the sample can include older eval ids whose linked
     # generations have rolled out of METADATA_LOOKBACK, producing clusters with
     # unresolvable navigation targets. Also prunes ClickHouse date partitions.
-    embeddings_window_end = now
-    embeddings_window_start = now - METADATA_LOOKBACK
+    embeddings_window_end = window_end_dt
+    embeddings_window_start = window_start_dt
 
     eval_ids, embeddings_map = fetch_evaluation_embeddings(
         team=team,
