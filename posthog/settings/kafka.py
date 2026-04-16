@@ -185,7 +185,10 @@ class KafkaProfileSettings:
 
 
 def _resolve_profile(profile: str) -> KafkaProfileSettings:
-    hosts_raw = _env_for(profile, "HOSTS") or ("kafka:9092" if profile == "default" else "")
+    # Any profile that has no hosts configured falls back to the dev-local
+    # `kafka:9092`. In prod, `KAFKA_DEFAULT_HOSTS` (or the legacy `KAFKA_HOSTS`)
+    # is always set, so this fallback only ever applies to local dev / tests.
+    hosts_raw = _env_for(profile, "HOSTS") or "kafka:9092"
     return KafkaProfileSettings(
         name=profile,
         hosts=_parse_kafka_hosts(hosts_raw),
@@ -213,7 +216,6 @@ KAFKA_PROFILES: dict[str, KafkaProfileSettings] = {
 
 _default = KAFKA_PROFILES[KafkaClusterProfile.DEFAULT.value]
 _warehouse = KAFKA_PROFILES[KafkaClusterProfile.WAREHOUSE_SOURCES.value]
-_cyclotron = KAFKA_PROFILES[KafkaClusterProfile.CYCLOTRON.value]
 
 KAFKA_HOSTS: list[str] = _default.hosts
 KAFKA_SECURITY_PROTOCOL: Optional[str] = _default.security_protocol
@@ -224,9 +226,6 @@ KAFKA_PRODUCER_SETTINGS: dict[str, Any] = _default.producer_settings
 
 WAREHOUSE_PIPELINES_KAFKA_HOSTS: list[str] = _warehouse.hosts
 WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL: Optional[str] = _warehouse.security_protocol
-
-KAFKA_CYCLOTRON_WARPSTREAM_HOSTS: list[str] = _cyclotron.hosts
-KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL: Optional[str] = _cyclotron.security_protocol
 
 # Misc Kafka settings that don't vary per profile.
 KAFKA_PREFIX: str = os.getenv("KAFKA_PREFIX", "")

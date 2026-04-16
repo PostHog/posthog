@@ -171,11 +171,11 @@ class ResolveProfileTest(TestCase):
             profile = kafka_settings._resolve_profile("default")
         self.assertEqual(profile.hosts, ["kafka:9092"])
 
-    def test_non_default_profile_has_empty_hosts_without_env(self):
-        """Non-default profiles don't get the 'kafka:9092' fallback — only DEFAULT does."""
+    def test_non_default_profile_inherits_dev_fallback_without_env(self):
+        """Every profile falls back to the dev-local broker when no env is set."""
         with patch.dict("os.environ", {}, clear=True):
             profile = kafka_settings._resolve_profile("cyclotron")
-        self.assertEqual(profile.hosts, [])
+        self.assertEqual(profile.hosts, ["kafka:9092"])
 
     def test_resolves_full_profile_settings(self):
         with patch.dict(
