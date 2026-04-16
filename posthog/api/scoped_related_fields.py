@@ -8,8 +8,6 @@ class TeamScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if qs is None:
-            return qs
         team_id = self.context.get("team_id")
         if team_id:
             return qs.filter(**{self.scope_field: team_id})
@@ -23,8 +21,6 @@ class OrgScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if qs is None:
-            return qs
         get_org = self.context.get("get_organization")
         if get_org:
             try:
