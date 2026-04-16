@@ -329,12 +329,6 @@ describe('emit-event-step', () => {
             ...overrides,
         })
 
-        const createHeaders = (overrides: Partial<EventHeaders> = {}): EventHeaders => ({
-            force_disable_person_processing: false,
-            historical_migration: false,
-            ...overrides,
-        })
-
         beforeEach(() => {
             jest.useFakeTimers()
             jest.setSystemTime(FAKE_NOW_MS)
@@ -355,7 +349,7 @@ describe('emit-event-step', () => {
             const input: EmitEventStepInput<EventOutput> = {
                 eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                 teamId: 1,
-                headers: createHeaders({ now: captureTime }),
+                headers: createTestEventHeaders({ now: captureTime }),
                 message: createMessage(),
             }
 
@@ -375,7 +369,7 @@ describe('emit-event-step', () => {
             const input: EmitEventStepInput<EventOutput> = {
                 eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                 teamId: 1,
-                headers: createHeaders(),
+                headers: createTestEventHeaders(),
                 message: createMessage(),
             }
 
@@ -390,7 +384,7 @@ describe('emit-event-step', () => {
             const input: EmitEventStepInput<EventOutput> = {
                 eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                 teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage({ topic: undefined as unknown as string }),
             }
 
@@ -405,7 +399,7 @@ describe('emit-event-step', () => {
             const input: EmitEventStepInput<EventOutput> = {
                 eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                 teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage({ partition: undefined as unknown as number }),
             }
 
@@ -421,7 +415,7 @@ describe('emit-event-step', () => {
             const input: EmitEventStepInput<EventOutput> = {
                 eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                 teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage(),
             }
 
@@ -439,7 +433,7 @@ describe('emit-event-step', () => {
             const input: EmitEventStepInput<EventOutput> = {
                 eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                 teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage({ partition: 0 }),
             }
 
@@ -459,7 +453,7 @@ describe('emit-event-step', () => {
                 const input: EmitEventStepInput<EventOutput> = {
                     eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                     teamId: 1,
-                    headers: createHeaders({ now: captureTime }),
+                    headers: createTestEventHeaders({ now: captureTime }),
                     message: createMessage(),
                 }
 
@@ -479,7 +473,7 @@ describe('emit-event-step', () => {
                 const input: EmitEventStepInput<EventOutput> = {
                     eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                     teamId: 1,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                     message: createMessage({ partition: 3 }),
                 }
 
@@ -497,7 +491,7 @@ describe('emit-event-step', () => {
                 const input: EmitEventStepInput<EventOutput> = {
                     eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                     teamId: 1,
-                    headers: createHeaders(),
+                    headers: createTestEventHeaders(),
                     message: createMessage(),
                 }
 
@@ -512,7 +506,7 @@ describe('emit-event-step', () => {
                 const input: EmitEventStepInput<EventOutput> = {
                     eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                     teamId: 1,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                     message: createMessage({ partition: undefined as unknown as number }),
                 }
 
@@ -527,7 +521,7 @@ describe('emit-event-step', () => {
                 const input: EmitEventStepInput<EventOutput> = {
                     eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
                     teamId: 1,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
+                    headers: createTestEventHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
                     message: createMessage({ partition: 0 }),
                 }
 
