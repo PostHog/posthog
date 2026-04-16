@@ -1,0 +1,27 @@
+rules:
+    - id: organization-membership-regular-manager
+      pattern-either:
+          # filter by organization — member-listing context
+          - pattern: OrganizationMembership.objects.filter(organization=$ORG, ...)
+          - pattern: OrganizationMembership.objects.filter(organization_id=$ORG, ...)
+      message: >
+          Found raw `OrganizationMembership.objects.filter(organization=...)`.
+          If this is an internal member-listing context (user picker, AC grantee,
+          assignee search, @ mention, activity filter), use
+          `OrganizationMembership.regular.filter(organization=...)` instead —
+          `.objects` includes guest memberships which should not appear in
+          internal user surfaces.
+
+          If you intentionally need to include guests (e.g., admin surface showing
+          both tabs, permission check on a specific membership, migration),
+          silence this finding with `# nosemgrep: organization-membership-regular-manager`
+          and add a brief comment explaining why.
+      severity: WARNING
+      languages: [python]
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/.semgrep/**'
+              - 'posthog/models/organization.py'
+              - 'posthog/models/organization_invite.py'
