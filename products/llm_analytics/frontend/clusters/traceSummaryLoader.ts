@@ -122,7 +122,10 @@ async function loadEvaluationSummaries(
         summaries[evalId] = {
             traceId: r[7] || '',
             generationId: r[6] || undefined, // link target is the linked generation, not the eval
-            title: `${name}: ${verdict}`,
+            // Title is just the evaluator name — the display components render
+            // the verdict separately as a LemonTag and don't need it duplicated
+            // in the title.
+            title: name,
             flowDiagram: '',
             // Put the reasoning text in the "bullets" slot so the existing toggle renders it.
             bullets: r[4] ? `- ${r[4]}` : '',

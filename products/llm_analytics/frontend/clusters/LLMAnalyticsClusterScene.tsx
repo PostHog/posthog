@@ -5,6 +5,7 @@ import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/ico
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -71,6 +72,9 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         return <NotFound object="cluster" />
     }
 
+    const itemLabel =
+        clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -93,12 +97,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
             >
                 <div className="flex flex-wrap items-center gap-3 mb-2">
                     <LemonTag type={isOutlierCluster ? 'caution' : 'primary'} size="medium">
-                        {totalTraces}{' '}
-                        {clusteringLevel === 'generation'
-                            ? 'generations'
-                            : clusteringLevel === 'evaluation'
-                              ? 'evaluations'
-                              : 'traces'}
+                        {totalTraces} {itemLabel}
                     </LemonTag>
                     {windowStart && windowEnd && (
                         <span className="text-muted text-sm">
@@ -129,12 +128,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 <div className="flex justify-between items-center mb-4">
                     <span className="text-muted text-sm">
                         Showing {(currentPage - 1) * TRACES_PER_PAGE + 1}-
-                        {Math.min(currentPage * TRACES_PER_PAGE, totalTraces)} of {totalTraces}{' '}
-                        {clusteringLevel === 'generation'
-                            ? 'generations'
-                            : clusteringLevel === 'evaluation'
-                              ? 'evaluations'
-                              : 'traces'}
+                        {Math.min(currentPage * TRACES_PER_PAGE, totalTraces)} of {totalTraces} {itemLabel}
                     </span>
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -165,15 +159,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 {traceSummariesLoading && paginatedTracesWithSummaries.length === 0 ? (
                     <div className="p-4 flex items-center justify-center">
                         <Spinner className="mr-2" captureTime />
-                        <span className="text-muted">
-                            Loading{' '}
-                            {clusteringLevel === 'generation'
-                                ? 'generations'
-                                : clusteringLevel === 'evaluation'
-                                  ? 'evaluations'
-                                  : 'traces'}
-                            ...
-                        </span>
+                        <span className="text-muted">Loading {itemLabel}...</span>
                     </div>
                 ) : (
                     paginatedTracesWithSummaries.map(
@@ -338,7 +324,7 @@ function TraceListItem({
             ? urls.llmAnalyticsTrace(evalLinkedTraceId, {
                   tab: 'summary',
                   ...(evalLinkedGenerationId ? { event: evalLinkedGenerationId } : {}),
-                  ...(traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {}),
+                  ...(traceInfo.timestamp ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() } : {}),
               })
             : null
         : urls.llmAnalyticsTrace(clusteringLevel === 'generation' ? traceInfo.trace_id : traceId, {
@@ -376,11 +362,7 @@ function TraceListItem({
                         {summary.evaluationVerdict}
                     </LemonTag>
                 )}
-                <span className="font-medium flex-1 min-w-0 truncate">
-                    {isEvalLevel
-                        ? summary?.title?.replace(/:\s*(pass|fail|n\/a|unknown)$/, '') || 'Loading...'
-                        : summary?.title || 'Loading...'}
-                </span>
+                <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 {linkHref && (
                     <Link
                         to={linkHref}
