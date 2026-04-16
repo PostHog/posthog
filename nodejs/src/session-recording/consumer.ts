@@ -18,6 +18,7 @@ import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { getBlockEncryptor } from '../session-replay/shared/crypto'
+import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
 import { getKeyStore } from '../session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
 import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
@@ -152,6 +153,11 @@ export class SessionRecordingIngester {
             this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
             { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
+        const featureStore = new SessionFeatureStore(
+            this.kafkaMetadataProducer,
+            this.config.SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC,
+            this.config.SESSION_RECORDING_FEATURES_ENABLED
+        )
         this.fileStorage = s3Client
             ? new RetentionAwareStorage(
                   s3Client,
@@ -191,6 +197,7 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            featureStore,
             sessionTracker,
             sessionFilter,
             keyStore: this.keyStore,
