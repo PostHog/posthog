@@ -446,3 +446,25 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         else:
             self.assertEqual(len(data), 1)
             self.assertEqual(data[0]["user"][field], expected)
+
+    def test_list_organization_members_empty_search_returns_all(self):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@posthog.com", None, first_name="Bob")
+
+        response = self.client.get("/api/organizations/@current/members/?search=")
+        data = response.json()["results"]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # self.user + Alice + Bob
+        self.assertEqual(len(data), 3)
+
+    def test_list_organization_members_invalid_order_uses_default(self):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+
+        response = self.client.get("/api/organizations/@current/members/?order=user__password")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Falls back to -joined_at ordering, so the most recently joined member comes first
+        data = response.json()["results"]
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["user"]["email"], "alice@posthog.com")

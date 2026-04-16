@@ -27,6 +27,7 @@ export const membersLogic = kea<membersLogicType>([
     })),
     actions({
         ensureAllMembersLoaded: true,
+        ensureAllMembersLoadedExhaustive: true,
         loadAllMembers: true,
         loadAllMembersExhaustive: true,
         loadMemberUpdates: true,
@@ -138,6 +139,7 @@ export const membersLogic = kea<membersLogicType>([
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
+        allMembersExhaustivelyLoaded: [false, { loadAllMembersExhaustiveSuccess: () => true }],
     }),
     selectors({
         sortedMembers: [
@@ -208,6 +210,13 @@ export const membersLogic = kea<membersLogicType>([
             } else {
                 actions.loadMemberUpdates()
             }
+        },
+
+        ensureAllMembersLoadedExhaustive: async () => {
+            if (values.membersLoading || values.allMembersExhaustivelyLoaded) {
+                return
+            }
+            actions.loadAllMembersExhaustive()
         },
 
         setSearch: async ({ search }, breakpoint) => {

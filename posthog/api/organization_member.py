@@ -142,8 +142,18 @@ class OrganizationMemberViewSet(
                     | Q(user__email__icontains=search)
                 )
 
+            allowed_orderings = {
+                "joined_at",
+                "-joined_at",
+                "user__first_name",
+                "-user__first_name",
+                "user__email",
+                "-user__email",
+                "level",
+                "-level",
+            }
             order = self.request.GET.get("order", None)
-            if order:
+            if order and order in allowed_orderings:
                 queryset = queryset.order_by(order)
             else:
                 queryset = queryset.order_by("-joined_at")
