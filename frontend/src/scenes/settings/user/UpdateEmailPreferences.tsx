@@ -296,14 +296,14 @@ function PipelineNotificationSelector(): JSX.Element {
                 type="tertiary"
                 className="p-0"
             >
-                Select pipelines to mute
+                Select pipelines to receive notifications for
             </LemonButton>
 
             {expanded && (
                 <div className="mt-3 ml-6 space-y-2">
                     <span className="text-muted text-xs">
-                        Mute notifications for specific pipelines. You will still receive notifications for all other
-                        pipelines.
+                        All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications
+                        for.
                     </span>
                     {loading ? (
                         <div className="flex items-center gap-2 py-2">
