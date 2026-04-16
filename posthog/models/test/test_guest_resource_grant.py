@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.models import GuestResourceGrant, OrganizationInvite, OrganizationMembership
-from posthog.models.user import User
+from posthog.models import GuestResourceGrant, OrganizationInvite, OrganizationMembership, User
 
 
 class TestGuestResourceGrant(BaseTest):

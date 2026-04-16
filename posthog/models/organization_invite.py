@@ -78,11 +78,17 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         help_text="List of team IDs and corresponding access levels to private projects.",
         validators=[validate_private_project_access],
     )
-    is_guest = models.BooleanField(default=False)
+    is_guest = models.BooleanField(
+        default=False,
+        help_text="If true, the invite creates a guest membership (external collaborator, read-only access to specific resources) rather than a regular member.",
+    )
     """Invite that will create a guest membership when accepted. See
     OrganizationMembership.is_guest for the full description."""
 
-    bypass_sso_enforcement = models.BooleanField(default=False)
+    bypass_sso_enforcement = models.BooleanField(
+        default=False,
+        help_text="If true, the created guest membership bypasses the organization's SSO enforcement policy. Only meaningful when is_guest=True; requires explicit admin acknowledgement at invite time.",
+    )
     """Inherits into the OrganizationMembership on accept. See
     OrganizationMembership.bypass_sso_enforcement for the full description — including why
     this is an intentional capability rather than a security hole."""
