@@ -121,4 +121,4 @@ def test_stale_cache_invalidation_disabled_fails_open_on_none(flag_result, expec
         mock.patch("posthog.caching.utils.is_cloud", lambda: True),
         mock.patch("posthoganalytics.feature_enabled", return_value=flag_result),
     ):
-        assert stale_cache_invalidation_disabled(_FakeTeam()) is expected_disabled
+        assert stale_cache_invalidation_disabled(_FakeTeam()) is expected_disabled  # type: ignore[arg-type]
