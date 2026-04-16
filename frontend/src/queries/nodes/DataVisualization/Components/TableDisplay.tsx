@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
@@ -100,6 +100,11 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     disabledReason: !canDisplayContinuousChart
                         ? 'Requires at least two columns, including one numeric column'
                         : undefined,
+                },
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie chart',
                 },
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,

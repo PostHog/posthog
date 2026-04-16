@@ -1141,7 +1141,9 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showValuesOnSeries?: boolean
     showTotalRow?: boolean
+    showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
