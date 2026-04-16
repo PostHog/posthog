@@ -469,7 +469,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["webhook_enabled"])
-        self.assertTrue(response.json()["has_signing_secret"])
+        self.assertTrue(response.json()["has_webhook_secret"])
 
         integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
         self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "my_secret")

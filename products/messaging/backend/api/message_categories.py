@@ -228,7 +228,7 @@ class MessageCategoryViewSet(
         return Response(
             {
                 "webhook_enabled": enabled,
-                "has_signing_secret": bool(integration.sensitive_config.get("webhook_signing_secret"))
+                "has_webhook_secret": bool(integration.sensitive_config.get("webhook_signing_secret"))
                 if integration
                 else False,
             },
