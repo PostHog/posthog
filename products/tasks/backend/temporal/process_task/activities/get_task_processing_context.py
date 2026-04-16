@@ -179,12 +179,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
-    pr_loop_enabled = posthoganalytics.feature_enabled(
-        "tasks-pr-loop",
-        distinct_id=distinct_id,
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-    )
+    pr_loop_enabled = (
+        posthoganalytics.feature_enabled(
+            "tasks-pr-loop",
+            distinct_id=distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+        )
+        or False
+    )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "info", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     return TaskProcessingContext(
         task_id=str(task.id),
