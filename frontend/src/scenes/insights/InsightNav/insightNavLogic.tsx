@@ -94,7 +94,7 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
-    series?: (AnyEntityNode | GroupNode)[]
+    series?: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
@@ -228,10 +228,12 @@ type SeriesArray = (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 
 interface InsightTypeCapabilities {
     series?: ((series: SeriesArray) => SeriesArray) | true
+    seriesMath?: true
     interval?: ((interval: IntervalType) => IntervalType) | true
     breakdownFilter?: ((bf: BreakdownFilter) => BreakdownFilter) | true
     compareFilter?: true
     funnelPathsFilter?: true
+    aggregationGroupTypeIndex?: true
 }
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
@@ -259,17 +261,41 @@ const filterRetentionBreakdowns = (bf: BreakdownFilter): BreakdownFilter => {
     return { ...bf, breakdowns: bf.breakdowns.filter((b) => b.type === 'person' || b.type === 'event') }
 }
 
+const carryForwardSeriesMath = (newSeries: SeriesArray, cachedSeries: SeriesArray | undefined): SeriesArray => {
+    if (!cachedSeries) {
+        return newSeries
+    }
+    return newSeries.map((entity, index) => {
+        const cachedEntity = cachedSeries[index]
+        if (cachedEntity && cachedEntity.math !== undefined && entity.math === undefined) {
+            return {
+                ...entity,
+                math: cachedEntity.math,
+                ...(cachedEntity.math_property != null ? { math_property: cachedEntity.math_property } : {}),
+                ...(cachedEntity.math_group_type_index != null
+                    ? { math_group_type_index: cachedEntity.math_group_type_index }
+                    : {}),
+                ...(cachedEntity.math_hogql != null ? { math_hogql: cachedEntity.math_hogql } : {}),
+            }
+        }
+        return entity
+    })
+}
+
 const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
     [NodeKind.TrendsQuery]: {
         series: (s) => cleanSeries(s, MathAvailability.All, NodeKind.DataWarehouseNode),
+        seriesMath: true,
         interval: true,
         breakdownFilter: true,
         compareFilter: true,
+        aggregationGroupTypeIndex: true,
     },
     [NodeKind.FunnelsQuery]: {
         series: (s) => cleanSeries(s, MathAvailability.FunnelsOnly, NodeKind.FunnelsDataWarehouseNode),
         interval: downgradeMinuteInterval,
         breakdownFilter: truncateToSingleBreakdown,
+        aggregationGroupTypeIndex: true,
     },
     [NodeKind.RetentionQuery]: {
         // TODO: map series to/from retentionFilter.targetEntity/returningEntity so switching
@@ -286,6 +312,7 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
                 MathAvailability.ActorsOnly,
                 NodeKind.DataWarehouseNode
             ),
+        seriesMath: true,
         interval: downgradeMinuteInterval,
         compareFilter: true,
     },
@@ -564,6 +591,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (cache?.funnelPathsFilter && !caps?.funnelPathsFilter) {
         newCache.funnelPathsFilter = cache.funnelPathsFilter
     }
+    if (cache?.aggregation_group_type_index !== undefined && !caps?.aggregationGroupTypeIndex) {
+        newCache.aggregation_group_type_index = cache.aggregation_group_type_index
+    }
     // Only Trends supports multiple breakdowns — preserve the full set through
     // types that truncate to single breakdown (Funnels, Retention)
     if (cache?.breakdownFilter?.breakdowns?.length && !isTrendsQuery(query) && isInsightQueryWithBreakdown(query)) {
@@ -573,26 +603,8 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (cache?.interval === 'minute' && !isTrendsQuery(query)) {
         newCache.interval = cache.interval
     }
-    // Preserve math properties on series when switching through types that strip math.
-    // Funnels/Lifecycle/Paths/etc. support series but with reduced math availability,
-    // so their series end up with math removed. Carry forward the cached math so
-    // switching back to Trends restores the original aggregation.
-    if (cache?.series && newCache.series && !isTrendsQuery(query) && !isStickinessQuery(query)) {
-        newCache.series = newCache.series.map((entity, index) => {
-            const cachedEntity = cache.series?.[index]
-            if (cachedEntity && cachedEntity.math !== undefined && entity.math === undefined) {
-                return {
-                    ...entity,
-                    math: cachedEntity.math,
-                    ...(cachedEntity.math_property != null ? { math_property: cachedEntity.math_property } : {}),
-                    ...(cachedEntity.math_group_type_index != null
-                        ? { math_group_type_index: cachedEntity.math_group_type_index }
-                        : {}),
-                    ...(cachedEntity.math_hogql != null ? { math_hogql: cachedEntity.math_hogql } : {}),
-                }
-            }
-            return entity
-        })
+    if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
+        newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
 
     /** store the insight specific filter in commonFilter */
@@ -634,9 +646,6 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties !== undefined ? { properties: cache.properties } : {}),
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
-        ...(cache.aggregation_group_type_index !== undefined
-            ? { aggregation_group_type_index: cache.aggregation_group_type_index }
-            : {}),
     }
 
     // Insight-specific filter merge (web analytics already returned above)
@@ -673,6 +682,9 @@ const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): 
     }
     if (caps.funnelPathsFilter && cache.funnelPathsFilter) {
         result.funnelPathsFilter = cache.funnelPathsFilter
+    }
+    if (caps.aggregationGroupTypeIndex && cache.aggregation_group_type_index !== undefined) {
+        result.aggregation_group_type_index = cache.aggregation_group_type_index
     }
     return result
 }
