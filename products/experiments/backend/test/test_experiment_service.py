@@ -2513,10 +2513,11 @@ class TestExperimentService(APIBaseTest):
             ("name", {"name": "Updated Name"}),
             ("description", {"description": "New hypothesis"}),
             ("end_date", {"end_date": timezone.now() + timedelta(days=7)}),
+            ("deleted", {"deleted": True}),
         ]
     )
     def test_update_experiment_with_legacy_metrics_allows_specific_fields(self, field_name: str, update_data: dict):
-        """Test that experiments with legacy metrics can update name, description, and end_date."""
+        """Test that experiments with legacy metrics can update name, description, end_date, and deleted."""
         service = self._service()
         flag = self._create_flag(key=f"legacy-flag-{field_name}")
 
@@ -2538,6 +2539,8 @@ class TestExperimentService(APIBaseTest):
             assert updated.description == "New hypothesis"
         elif field_name == "end_date":
             assert updated.end_date is not None
+        elif field_name == "deleted":
+            assert updated.deleted is True
 
     @parameterized.expand(
         [
