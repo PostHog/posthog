@@ -236,4 +236,6 @@ class SignalReportArtefact(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["report"], name="signals_sig_report__idx"),
+            # For JOINs involving matching a report to artifact of a certain type
+            models.Index(fields=["report", "type"], name="signals_sig_report_type_idx"),
         ]

@@ -95,6 +95,9 @@ class ActivityLogPagination(BasePagination):
         else:
             return self.cursor_pagination.get_paginated_response(data)
 
+    def get_paginated_response_schema(self, schema):
+        return self.page_number_pagination.get_paginated_response_schema(schema)
+
 
 class ActivityLogScopeField(serializers.ChoiceField):
     def __init__(self, **kwargs):
@@ -211,6 +214,18 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     was_impersonated = OptionalBooleanField(required=False)
     is_system = OptionalBooleanField(required=False)
     item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):

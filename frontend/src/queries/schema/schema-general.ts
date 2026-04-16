@@ -3493,6 +3493,7 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
+    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -4547,6 +4548,8 @@ export interface LLMTrace {
     outputTokens?: number
     inputCost?: number
     outputCost?: number
+    requestCost?: number
+    webSearchCost?: number
     totalCost?: number
     inputState?: any
     outputState?: any

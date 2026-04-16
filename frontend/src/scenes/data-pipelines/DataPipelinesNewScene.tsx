@@ -2,7 +2,6 @@ import { kea, path, props, selectors, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -11,6 +10,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
@@ -68,7 +69,7 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } = useValues(
         nonHogFunctionTemplatesLogic({
             availableSources: availableSources ?? {},

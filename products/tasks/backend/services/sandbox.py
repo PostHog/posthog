@@ -87,6 +87,27 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
 
 
+def build_agent_runtime_env_prefix(
+    *,
+    interaction_origin: str | None = None,
+    runtime_adapter: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> str:
+    env_vars = {
+        "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
+        "POSTHOG_CODE_PROVIDER": provider,
+        "POSTHOG_CODE_MODEL": model,
+        "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+    }
+    assignments = " ".join(
+        f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
+    )
+    return f"env {assignments} " if assignments else ""
+
+
 class SandboxBase(ABC):
     id: str
     config: SandboxConfig
@@ -182,6 +203,10 @@ class SandboxBase(ABC):
         create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
     ) -> None:
