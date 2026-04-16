@@ -133,3 +133,37 @@ class TestQuickFilters(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_quick_filter_created_for_error_tracking(self):
+        """Test that quick filters can be deleted regardless of which context they belong to."""
+        data, quick_filter = self._create_quick_filter(
+            "Error Filter", "$error_prop", contexts=["error-tracking-issue-filters"]
+        )
+
+        # Verify it's listed when filtering by its context
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/quick_filters/?context=error-tracking-issue-filters"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+        # Delete should work without passing context
+        response = self.client.delete(f"/api/environments/{self.team.id}/quick_filters/{quick_filter.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(QuickFilter.objects.filter(id=quick_filter.id).exists())
+
+    def test_delete_quick_filter_returns_404_for_nonexistent_id(self):
+        """Test that deleting a non-existent quick filter returns 404."""
+        from uuid import uuid4
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/quick_filters/{uuid4()}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_quick_filter_returns_404_for_wrong_team(self):
+        """Test that deleting a quick filter from a different team returns 404."""
+        _, quick_filter = self._create_quick_filter()
+
+        other_team = self.organization.teams.create(name="Other Team")
+
+        response = self.client.delete(f"/api/environments/{other_team.id}/quick_filters/{quick_filter.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

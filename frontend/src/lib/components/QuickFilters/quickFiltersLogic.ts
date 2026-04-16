@@ -70,8 +70,19 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
                     return values.quickFilters.map((f: QuickFilter) => (f.id === id ? updatedFilter : f))
                 },
                 deleteFilter: async ({ id }) => {
-                    await api.quickFilters.delete(id)
-                    lemonToast.success('Quick filter deleted successfully')
+                    try {
+                        await api.quickFilters.delete(id)
+                        lemonToast.success('Quick filter deleted successfully')
+                    } catch (e: any) {
+                        if (e?.status === 404) {
+                            lemonToast.warning(
+                                'Quick filter was already deleted or no longer exists. Refreshing list...'
+                            )
+                            actions.loadQuickFilters()
+                            return values.quickFilters.filter((f: QuickFilter) => f.id !== id)
+                        }
+                        throw e
+                    }
                     return values.quickFilters.filter((f: QuickFilter) => f.id !== id)
                 },
             },
