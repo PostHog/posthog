@@ -30,6 +30,8 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
     "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
 )
 
+TEMPORAL_LOGS_PROJECT_ID: str | None = os.getenv("TEMPORAL_LOGS_PROJECT_ID", "1" if DEBUG else None)
+
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))

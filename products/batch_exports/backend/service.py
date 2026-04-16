@@ -3,6 +3,7 @@ import types
 import typing
 import datetime as dt
 from dataclasses import Field, asdict, dataclass, fields
+from urllib.parse import quote, urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -957,6 +958,44 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         )
 
 
+def _build_batch_export_memo(workflow_id: str) -> dict[str, str] | None:
+    """Build a memo with a logs URL for a batch export workflow.
+
+    Returns None if TEMPORAL_LOGS_PROJECT_ID is not configured.
+    """
+    project_id = settings.TEMPORAL_LOGS_PROJECT_ID
+    if not project_id:
+        return None
+
+    base_url = f"{settings.SITE_URL}/project/{project_id}/logs"
+    filter_group = json.dumps(
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "workflow_id",
+                            "value": [workflow_id],
+                            "operator": "exact",
+                            "type": "log_attribute",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    query_string = urlencode(
+        {
+            "serviceNames": json.dumps(["temporal-worker-batch-exports"]),
+            "filterGroup": filter_group,
+        },
+        quote_via=quote,
+    )
+    return {"logs_url": f"{base_url}?{query_string}"}
+
+
 def sync_batch_export(batch_export: BatchExport, created: bool):
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
     state = ScheduleState(
@@ -1018,8 +1057,10 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
+    memo = _build_batch_export_memo(workflow_id=str(batch_export.id))
+
     if created:
-        create_schedule(temporal, id=str(batch_export.id), schedule=schedule)
+        create_schedule(temporal, id=str(batch_export.id), schedule=schedule, memo=memo)
     else:
         update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
 
