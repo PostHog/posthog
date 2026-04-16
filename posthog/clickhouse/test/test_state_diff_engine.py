@@ -433,3 +433,107 @@ class TestKafkaCascadeOnSelectChange:
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
         assert len(kafka_creates) == 0, f"Unexpected Kafka recreate: {[d.detail for d in diffs]}"
+
+
+class TestKafkaColumnChangeDestructiveGate:
+    """Kafka column change requires destructive=True — safe mode must suppress it."""
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_no_drop_in_safe_mode(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[_col("event", "String"), _col("new_col", "UInt64")],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+            }
+        )
+        current = {
+            "kafka_events": TableSchema(
+                name="kafka_events",
+                engine="Kafka",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster", destructive=False)
+        drops = [d for d in diffs if d.action == "drop" and d.table == "kafka_events"]
+        assert len(drops) == 0, f"Expected no drops in safe mode but got: {[d.detail for d in drops]}"
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_drop_emitted_in_destructive_mode(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[_col("event", "String"), _col("new_col", "UInt64")],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+            }
+        )
+        current = {
+            "kafka_events": TableSchema(
+                name="kafka_events",
+                engine="Kafka",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster", destructive=True)
+        drops = [d for d in diffs if d.action == "drop" and d.table == "kafka_events"]
+        creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
+        assert len(drops) == 1, f"Expected 1 drop in destructive mode but got: {[d.detail for d in diffs]}"
+        assert len(creates) == 1, f"Expected 1 create in destructive mode but got: {[d.detail for d in diffs]}"
+
+
+class TestKafkaCascadeOrdering:
+    """Kafka CASCADE CREATE must appear before the MV CREATE that depends on it."""
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_kafka_create_before_mv_create(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[_col("event", "String")],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+                "kafka_events_mv": DesiredTable(
+                    name="kafka_events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event FROM posthog.kafka_events",
+                ),
+            }
+        )
+        current = {
+            "kafka_events": TableSchema(
+                name="kafka_events",
+                engine="Kafka",
+                columns=[_live_col("event", "String")],
+            ),
+            "kafka_events_mv": TableSchema(
+                name="kafka_events_mv",
+                engine="MaterializedView",
+                engine_full="MaterializedView TO posthog.old_target",
+                as_select="SELECT event FROM posthog.kafka_events",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster", destructive=True)
+        create_tables = [d.table for d in diffs if d.action == "create"]
+        assert "kafka_events" in create_tables, f"Expected kafka_events CREATE: {[d.detail for d in diffs]}"
+        assert "kafka_events_mv" in create_tables, f"Expected kafka_events_mv CREATE: {[d.detail for d in diffs]}"
+        kafka_idx = create_tables.index("kafka_events")
+        mv_idx = create_tables.index("kafka_events_mv")
+        assert kafka_idx < mv_idx, f"Kafka CREATE must come before MV CREATE, got order: {create_tables}"

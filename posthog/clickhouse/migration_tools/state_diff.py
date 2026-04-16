@@ -1094,6 +1094,12 @@ def diff_state(
             {(c.name, _normalize_type(c.type)) for c in desired_cols.values()}
             != {(c.name, _normalize_type(c.type)) for c in current_cols.values()}
         ):
+            if not destructive:
+                logger.warning(
+                    "ch_migrate: %s requires DROP+CREATE for column change — run with destructive=True",
+                    table_name,
+                )
+                continue
             drops.append(
                 StateDiff(
                     action="drop",
@@ -1278,6 +1284,9 @@ def diff_state(
                         )
                     )
                     tables_being_created.add(kafka_name)
+        # Re-sort creates so cascade-appended Kafka CREATEs (tier 0) land
+        # before MV CREATEs (tier 3) that depend on them.
+        creates.sort(key=_create_sort_key)
 
     return drops + alters + creates + recreates
 
