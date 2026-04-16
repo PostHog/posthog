@@ -1,14 +1,15 @@
 /**
- * Lossy ingestion scrub: replace matches with PII_REDACTED. Plain text applies Bearer-token, Stripe sk_*-shaped,
- * email, and Luhn-valid 13–19 digit (card-like) patterns. JSON bodies are parsed when possible and scrubbed
- * recursively; opaque bodies get plain rules only. Attribute maps redact the whole value on sensitive key
- * substrings, otherwise pattern-scrub values. Misses: secrets without those shapes, digit runs that fail Luhn,
+ * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Plain text applies Bearer-token,
+ * Stripe sk_*-shaped, email, and Luhn-valid 13–19 digit (card-like) patterns. JSON bodies are parsed when possible
+ * and scrubbed recursively; opaque bodies get plain rules only. Attribute maps redact the whole value on sensitive
+ * key substrings, otherwise pattern-scrub values. Map values are JSON-string cells (JSON.stringify) so ClickHouse
+ * JSONExtractString matches Rust OTLP encoding. Misses: secrets without those shapes, digit runs that fail Luhn,
  * keys outside the sensitive substring list (those values still get plain-text patterns only).
  */
 import { parseJSON } from '../utils/json-parse'
 import type { LogRecord } from './log-record-avro'
 
-export const PII_REDACTED = '[REDACTED]'
+export const PII_REDACTED = '{{REDACTED}}'
 
 /** Substrings matched case-insensitively against attribute map keys. */
 const SENSITIVE_KEY_SUBSTRINGS = [
@@ -36,6 +37,24 @@ const CARD_LIKE_RE = /\b\d(?:[- ]?\d){12,18}\b/g
 export function isSensitiveAttributeKey(key: string): boolean {
     const lower = key.toLowerCase()
     return SENSITIVE_KEY_SUBSTRINGS.some((s) => lower.includes(s))
+}
+
+/** Rust OTLP path stores string attrs as serde_json string values; unwrap one JSON string layer if present. */
+export function unwrapAttributeCell(value: string): string {
+    try {
+        const parsed = parseJSON(value)
+        if (typeof parsed === 'string') {
+            return parsed
+        }
+    } catch {
+        // not valid JSON — treat whole cell as semantic text
+    }
+    return value
+}
+
+/** Match Rust serde_json::Value::String(s).to_string() / CH kafka_logs_avro_mv JSONExtractString expectations. */
+export function encodeAttributeCell(semantic: string): string {
+    return JSON.stringify(semantic)
 }
 
 /** Luhn checksum for filtering card-like digit runs before redaction. */
@@ -115,14 +134,19 @@ function scrubBodyField(record: LogRecord): void {
     }
 }
 
-/** Copy string map: full redaction for sensitive keys, else pattern-scrub values only. */
+/** Copy string map: full redaction for sensitive keys, else pattern-scrub semantic values; CH-safe JSON cells. */
 function scrubStringMap(map: Record<string, string> | null): Record<string, string> | null {
     if (map == null) {
         return null
     }
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(map)) {
-        out[key] = isSensitiveAttributeKey(key) ? PII_REDACTED : scrubPlainString(value)
+        if (isSensitiveAttributeKey(key)) {
+            out[key] = encodeAttributeCell(PII_REDACTED)
+        } else {
+            const semantic = unwrapAttributeCell(value)
+            out[key] = encodeAttributeCell(scrubPlainString(semantic))
+        }
     }
     return out
 }

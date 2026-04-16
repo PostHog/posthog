@@ -1,5 +1,12 @@
 import { parseJSON } from '../utils/json-parse'
-import { PII_REDACTED, isSensitiveAttributeKey, scrubLogRecord, scrubPlainString } from './log-pii-scrub'
+import {
+    PII_REDACTED,
+    encodeAttributeCell,
+    isSensitiveAttributeKey,
+    scrubLogRecord,
+    scrubPlainString,
+    unwrapAttributeCell,
+} from './log-pii-scrub'
 import type { LogRecord } from './log-record-avro'
 
 describe('log-pii-scrub', () => {
@@ -42,6 +49,21 @@ describe('log-pii-scrub', () => {
         })
     })
 
+    describe('unwrapAttributeCell / encodeAttributeCell', () => {
+        it('unwraps one JSON string layer from OTLP-style cells', () => {
+            expect(unwrapAttributeCell(JSON.stringify('public@example.com'))).toBe('public@example.com')
+        })
+
+        it('returns raw value when not a JSON string document', () => {
+            expect(unwrapAttributeCell('plain')).toBe('plain')
+        })
+
+        it('encodes semantic strings as JSON string cells for CH', () => {
+            expect(encodeAttributeCell(PII_REDACTED)).toBe(JSON.stringify(PII_REDACTED))
+            expect(encodeAttributeCell('ok')).toBe('"ok"')
+        })
+    })
+
     describe('scrubLogRecord', () => {
         const baseRecord = (): LogRecord => ({
             uuid: 'u1',
@@ -76,26 +98,36 @@ describe('log-pii-scrub', () => {
             expect(r.body).toBe(`plain ${PII_REDACTED} log`)
         })
 
-        it('redacts values for sensitive attribute keys', () => {
+        it('redacts values for sensitive attribute keys as JSON cells', () => {
             const r = baseRecord()
             r.attributes = { safe: 'ok', auth_token: 'secret-value' }
             scrubLogRecord(r)
-            expect(r.attributes).toEqual({ safe: 'ok', auth_token: PII_REDACTED })
+            expect(r.attributes).toEqual({
+                safe: encodeAttributeCell('ok'),
+                auth_token: encodeAttributeCell(PII_REDACTED),
+            })
         })
 
-        it('applies value patterns to non-sensitive attribute values', () => {
+        it('applies value patterns to non-sensitive attribute values as JSON cells', () => {
             const r = baseRecord()
             r.attributes = { message: 'hello user@example.com' }
             scrubLogRecord(r)
-            expect(r.attributes!.message).toBe(`hello ${PII_REDACTED}`)
+            expect(r.attributes!.message).toBe(encodeAttributeCell(`hello ${PII_REDACTED}`))
+        })
+
+        it('unwraps OTLP-style quoted cells before pattern scrub', () => {
+            const r = baseRecord()
+            r.attributes = { note: JSON.stringify('hello user@example.com') }
+            scrubLogRecord(r)
+            expect(r.attributes!.note).toBe(encodeAttributeCell(`hello ${PII_REDACTED}`))
         })
 
         it('scrubs resource_attributes by value when keys are not sensitive', () => {
             const r = baseRecord()
             r.resource_attributes = { host: 'srv', note: 'x@example.com' }
             scrubLogRecord(r)
-            expect(r.resource_attributes!.host).toBe('srv')
-            expect(r.resource_attributes!.note).toBe(PII_REDACTED)
+            expect(r.resource_attributes!.host).toBe(encodeAttributeCell('srv'))
+            expect(r.resource_attributes!.note).toBe(encodeAttributeCell(PII_REDACTED))
         })
     })
 })

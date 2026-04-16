@@ -508,7 +508,7 @@ describe('log-record-avro', () => {
             expect(decoded[0]?.attributes).toBeNull()
             const body = parseJSON(decoded[0]?.body || '{}') as { message?: string }
             expect(body.message).not.toContain('example.com')
-            expect(body.message).toContain('[REDACTED]')
+            expect(body.message).toContain('{{REDACTED}}')
         })
 
         it('enriches then scrubs when both JSON parse and PII scrub are on', async () => {
