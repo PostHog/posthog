@@ -1,3 +1,9 @@
+from posthog.temporal.llm_analytics.evaluation_clustering import (
+    LLMAEvaluationClusteringWorkflow,
+    LLMAEvaluationSamplerCoordinatorWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+    sample_and_embed_for_job_activity,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
@@ -67,6 +73,12 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    # Evaluation clustering Stage A (sampler). Stage B coordinator + clustering workflow body
+    # land alongside the activities module in a follow-up PR; the LLMAEvaluationClusteringWorkflow
+    # stub is registered here so its workflow name is known to the worker in the meantime.
+    LLMAEvaluationSamplerCoordinatorWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+    LLMAEvaluationClusteringWorkflow,
     # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
@@ -88,6 +100,8 @@ ACTIVITIES = [
     generate_cluster_labels_activity,
     compute_cluster_aggregates_activity,
     emit_cluster_events_activity,
+    # Evaluation clustering Stage A activity (Stage B activities land in a follow-up PR)
+    sample_and_embed_for_job_activity,
     # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
     classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
