@@ -194,7 +194,7 @@ function formatContentBlock(part: Record<string, unknown>): string | null {
     // Anthropic: { type: 'tool_use', id, name, input }
     if (type === 'tool_use') {
         const name = part.name ?? 'unknown'
-        const input = part.input ? JSON.stringify(part.input, null, 2) : '{}'
+        const input = part.input !== undefined ? JSON.stringify(part.input, null, 2) : '{}'
         return `[Tool call: ${name}]\n${input}`
     }
 

@@ -929,6 +929,16 @@ describe('llmPlaygroundLogic', () => {
             }
         })
 
+        it('should map OpenAI tool role to user fallback', () => {
+            const input = [{ role: 'tool', tool_call_id: 'call_123', content: 'Weather in Paris: 22°C' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Weather in Paris: 22°C')
+        })
+
         it('should not produce "null" string for messages with null content', () => {
             const input = [{ role: 'user', content: null, tool_calls: [] }]
 
