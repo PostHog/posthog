@@ -1,5 +1,7 @@
 import avro from 'avsc'
 
+import { parseJSON } from '../utils/json-parse'
+import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'
 import {
     LogRecord,
     decodeLogRecords,
@@ -447,7 +449,7 @@ describe('log-record-avro', () => {
             })
         })
 
-        it('returns original buffer when JSON parsing disabled', async () => {
+        it('returns original buffer when JSON parse and PII scrub are disabled', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -468,15 +470,123 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: false })
+            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: false,
+                pii_scrub_logs: false,
+            })
 
             expect(outputBuffer).toBe(inputBuffer)
+        })
+
+        it('decodes and scrubs only when PII scrub is on without JSON parse', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'user@example.com' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: false,
+                pii_scrub_logs: true,
+            })
+            expect(outputBuffer).not.toBe(inputBuffer)
+
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+            expect(decoded[0]?.attributes).toBeNull()
+            const body = parseJSON(decoded[0]?.body || '{}') as { message?: string }
+            expect(body.message).not.toContain('example.com')
+            expect(body.message).toContain('{{REDACTED}}')
+        })
+
+        it('enriches then scrubs when both JSON parse and PII scrub are on', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'a@b.co' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: { note: 'c@d.co' },
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: true,
+                pii_scrub_logs: true,
+            })
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+            expect(decoded[0]?.attributes).toEqual({
+                level: encodeAttributeCell('info'),
+                message: encodeAttributeCell(PII_REDACTED),
+                note: encodeAttributeCell(PII_REDACTED),
+            })
+        })
+
+        it('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ meta: { api_key: 'leak-value' }, ok: 'keep' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: true,
+                pii_scrub_logs: true,
+            })
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+            const body = parseJSON(decoded[0]?.body || '{}') as { meta: { api_key: string }; ok: string }
+            expect(body.meta.api_key).toBe(PII_REDACTED)
+            expect(body.ok).toBe('keep')
+            expect(decoded[0]?.attributes).toEqual({
+                'meta.api_key': encodeAttributeCell(PII_REDACTED),
+                ok: encodeAttributeCell('keep'),
+            })
         })
 
         it('rejects promise for invalid AVRO data', async () => {
             const invalidBuffer = Buffer.from('not avro data')
 
             await expect(processLogMessageBuffer(invalidBuffer, { json_parse_logs: true })).rejects.toThrow()
+            await expect(
+                processLogMessageBuffer(invalidBuffer, { json_parse_logs: false, pii_scrub_logs: true })
+            ).rejects.toThrow()
         })
 
         it('limits attributes to 50 when parsing JSON body', async () => {

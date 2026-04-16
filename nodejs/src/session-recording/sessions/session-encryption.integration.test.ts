@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '../../session-replay/shared/crypto'
+import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { MemoryKeyStore } from '../../session-replay/shared/keystore'
 import { SessionBlockMetadata } from '../../session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
@@ -15,6 +16,53 @@ import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFilter } from './session-filter'
 import { SessionTracker } from './session-tracker'
+
+jest.mock('./session-feature-recorder', () => ({
+    SessionFeatureRecorder: jest.fn().mockImplementation(() => ({
+        recordMessage: jest.fn().mockReturnValue(undefined),
+        end: jest.fn().mockReturnValue({
+            startDateTime: DateTime.now(),
+            endDateTime: DateTime.now(),
+            eventCount: 0,
+            mousePositionCount: 0,
+            mouseSumX: 0,
+            mouseSumXSquared: 0,
+            mouseSumY: 0,
+            mouseSumYSquared: 0,
+            mouseDistanceTraveled: 0,
+            mouseDirectionChangeCount: 0,
+            mouseVelocitySum: 0,
+            mouseVelocitySumOfSquares: 0,
+            mouseVelocityCount: 0,
+            scrollEventCount: 0,
+            totalScrollMagnitude: 0,
+            scrollDirectionReversalCount: 0,
+            rapidScrollReversalCount: 0,
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            rageClickCount: 0,
+            deadClickCount: 0,
+            interActionGapCount: 0,
+            interActionGapSumMs: 0,
+            interActionGapSumOfSquaresMs: 0,
+            maxIdleGapMs: 0,
+            quickBackCount: 0,
+            pageVisitCount: 0,
+            visitedUrls: [],
+            consoleErrorCount: 0,
+            consoleErrorAfterClickCount: 0,
+            networkRequestCount: 0,
+            networkFailedRequestCount: 0,
+            networkRequestDurationSum: 0,
+            networkRequestDurationSumOfSquares: 0,
+            networkRequestDurationCount: 0,
+            maxScrollY: 0,
+            clickTargetIds: [],
+            textSelectionCount: 0,
+        }),
+    })),
+}))
 
 const enum EventType {
     FullSnapshot = 2,
@@ -32,6 +80,7 @@ describe('session recording encryption integration', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
     let batchBuffer: Uint8Array
@@ -92,6 +141,10 @@ describe('session recording encryption integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockFeatureStore = {
+            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFeatureStore>
+
         mockSessionTracker = {
             trackSession: jest.fn().mockResolvedValue(true),
         } as unknown as jest.Mocked<SessionTracker>
@@ -106,6 +159,7 @@ describe('session recording encryption integration', () => {
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockFeatureStore,
             mockSessionTracker,
             mockSessionFilter,
             keyStore,
@@ -224,6 +278,7 @@ describe('session recording encryption integration', () => {
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockFeatureStore,
             mockSessionTracker,
             mockSessionFilter,
             keyStore,

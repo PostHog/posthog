@@ -5,8 +5,10 @@ import { IconChevronLeft } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -18,6 +20,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -421,6 +424,29 @@ export function EditSubscription({
                                 </div>
                             )}
                         </div>
+
+                        <FlaggedFeature flag={FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS}>
+                            <LemonField name="summary_enabled">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={value}
+                                        onChange={onChange}
+                                        bordered
+                                        label="Include an automatic AI summary"
+                                        fullWidth
+                                    />
+                                )}
+                            </LemonField>
+
+                            {subscription.summary_enabled && (
+                                <LemonField name="summary_prompt_guide" label="Context for the AI summary" showOptional>
+                                    <LemonTextArea
+                                        placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                        maxLength={500}
+                                    />
+                                </LemonField>
+                            )}
+                        </FlaggedFeature>
 
                         {insightShortId && (
                             <div>

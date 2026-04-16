@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
@@ -22,6 +21,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 
 from products.data_warehouse.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -268,6 +268,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def s3_tables(self):
+        return self.get_s3_tables()
+
+    def get_s3_tables(self, database=None):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import Database
         from posthog.hogql.parser import parse_select
@@ -280,8 +283,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            # KLUDGE: Should accept this as a parameter to avoid rebuilding it everytime this is called
-            database=Database.create_for(self.team.pk),
+            database=database or Database.create_for(self.team.pk),
         )
 
         query = self.query or {}
@@ -302,7 +304,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return NamingConvention.normalize_identifier(self.name)
 
     @property
     def url_pattern(self):

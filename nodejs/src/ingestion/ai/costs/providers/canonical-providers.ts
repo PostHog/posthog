@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-09 20:13:58 UTC
+// Generated at: 2026-04-13 10:32:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,7 +14,6 @@ export type CanonicalProvider =
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
-    | 'arcee-ai-bf16'
     | 'arcee-ai-prime'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp8'
@@ -117,12 +116,12 @@ export type CanonicalProvider =
     | 'streamlake'
     | 'switchpoint'
     | 'together'
+    | 'together-fp4'
     | 'together-fp8'
     | 'together-int4'
     | 'upstage'
     | 'venice'
     | 'venice-beta'
-    | 'venice-bf16'
     | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'

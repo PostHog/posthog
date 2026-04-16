@@ -14,6 +14,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
@@ -144,15 +145,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            if self._context and self._context.mode == "interactive":
-                relay_task = asyncio.ensure_future(
-                    self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
-                )
-            else:
-                relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
+            relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
 
-            is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
-            if not is_resume:
+            if self._should_forward_pending_user_message():
                 try:
                     await self._forward_pending_user_message()
                 except Exception as e:
@@ -284,7 +279,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
 
-        if prepared.repository and not prepared.used_snapshot and self.context.github_integration_id is not None:
+        can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
+        has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
+
+        if prepared.repository and not prepared.used_snapshot and has_clone_credentials:
             await workflow.execute_activity(
                 clone_repository_in_sandbox,
                 CloneRepositoryInSandboxInput(
@@ -298,7 +296,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        if prepared.repository and prepared.branch and self.context.github_integration_id is not None:
+        if prepared.repository and prepared.branch and has_clone_credentials:
             await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(
@@ -365,6 +363,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    def _should_forward_pending_user_message(self) -> bool:
+        if not self._context:
+            return False
+
+        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
         track_input = TrackWorkflowEventInput(
@@ -501,9 +506,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def send_followup_message(self, message: str) -> None:
+        # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
+        # log below — gaps between the two point at workflow-loop backpressure.
+        workflow.logger.info(
+            "send_followup_signal_received",
+            run_id=self.context.run_id,
+            message_length=len(message),
+        )
         self._pending_followup = message
 
     async def _send_followup_to_sandbox(self, message: str) -> None:
+        workflow.logger.info(
+            "send_followup_dispatch_begin",
+            run_id=self.context.run_id,
+            message_length=len(message),
+        )
         try:
             await workflow.execute_activity(
                 send_followup_to_sandbox,

@@ -1,15 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 
-import { IconArrowRight, IconChevronRight } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconArrowRight } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
+import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
@@ -45,9 +45,9 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, onboardingStepKeys } = useValues(onboardingLogic)
+    const { hasNextStep } = useValues(onboardingLogic)
 
-    const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -65,40 +65,11 @@ export const OnboardingStep = ({
         advance()
     }
 
-    const onboardingLength = onboardingStepKeys.length
-
     return (
         <>
             <div className="pb-2">
                 <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
-                    <div
-                        className="flex items-center justify-start gap-x-3 px-4 sm:px-2 w-full overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)] sm:[mask-image:none]"
-                        data-attr="onboarding-breadcrumbs"
-                    >
-                        {onboardingStepKeys.map((stepName, idx) => {
-                            const highlightStep = [stepKey, breadcrumbHighlightName].includes(stepName)
-                            return (
-                                <React.Fragment key={`stepKey-${idx}`}>
-                                    <Link
-                                        className={clsx(
-                                            'text-sm shrink-0 whitespace-nowrap',
-                                            highlightStep && 'font-bold'
-                                        )}
-                                        data-text={stepKeyToTitle(stepName)}
-                                        key={stepName}
-                                        onClick={() => setStepKey(stepName)}
-                                    >
-                                        <span className={clsx('text-sm', !highlightStep && 'text-muted')}>
-                                            {stepKeyToTitle(stepName)}
-                                        </span>
-                                    </Link>
-                                    {onboardingLength > 1 && idx !== onboardingLength - 1 && (
-                                        <IconChevronRight className="text-xl shrink-0" />
-                                    )}
-                                </React.Fragment>
-                            )
-                        })}
-                    </div>
+                    <OnboardingBreadcrumbs stepKey={stepKey} breadcrumbHighlightName={breadcrumbHighlightName} />
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mt-3 px-4 sm:px-0">
                         <h1 className={clsx('font-bold m-0 px-0 sm:px-2', fullWidth && 'text-center')}>
                             {title || stepKeyToTitle(stepKey)}
