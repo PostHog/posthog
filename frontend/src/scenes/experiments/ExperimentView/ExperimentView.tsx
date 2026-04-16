@@ -5,6 +5,7 @@ import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -66,7 +67,7 @@ const AiAnalysisTab = (): JSX.Element => {
                 <SummarizeExperimentButton
                     disabledReason={
                         !hasMinimumExposureForResults
-                            ? 'Experiment needs at least 50 exposures to summarize results.'
+                            ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
                             : undefined
                     }
                 />
