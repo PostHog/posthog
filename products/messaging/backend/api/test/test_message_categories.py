@@ -276,6 +276,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
                 "app_integration_id": None,
                 "app_import_result": None,
                 "csv_import_result": None,
+                "webhook_enabled": False,
+                "has_webhook_secret": False,
             },
         )
 
