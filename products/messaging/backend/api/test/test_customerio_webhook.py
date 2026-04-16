@@ -27,12 +27,10 @@ class TestCustomerIOWebhook(APIBaseTest):
             sensitive_config={"webhook_signing_secret": self.SIGNING_SECRET},
             created_by=self.user,
         )
-        self.config, _ = OptOutSyncConfig.objects.update_or_create(
+        self.config = OptOutSyncConfig.objects.create(
             team=self.team,
-            defaults={
-                "webhook_integration": self.integration,
-                "webhook_enabled": True,
-            },
+            webhook_integration=self.integration,
+            webhook_enabled=True,
         )
         self.url = f"/api/environments/{self.team.id}/messaging/customerio/webhook/"
 
