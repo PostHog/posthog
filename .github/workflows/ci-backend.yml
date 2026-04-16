@@ -486,6 +486,9 @@ jobs:
             - name: Check module boundaries (tach)
               run: tach check --dependencies --interfaces
 
+            - name: Check product facade enforcement (import-linter)
+              run: lint-imports
+
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
     # migrations, then checks out the PR branch. All steps after the PR checkout
@@ -1767,46 +1770,3 @@ jobs:
               with:
                   name: junit-results-llm-gateway
                   path: junit.xml
-
-    # Watchdog that force-cancels the run when pytest hangs on cancellation.
-    # Watchdog that force-cancels the run when pytest hangs on cancellation.
-    # Runs concurrently with all other jobs (no `needs:`). `if: always()` keeps
-    # it alive through normal cancel. Polls the jobs API every 15s — when it sees
-    # cancelled jobs alongside still-running jobs, it calls force-cancel to kill
-    # any hung pytest processes immediately.
-    cancel-watchdog:
-        name: Cancel watchdog
-        runs-on: ubuntu-latest
-        permissions:
-            actions: write
-        if: always()
-        timeout-minutes: 60
-        steps:
-            - name: Force-cancel run if cancellation hangs
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  WATCHDOG_JOB_NAME: Cancel watchdog
-              run: |
-                  echo "Watchdog started — polling every 15s for stuck cancellation"
-                  while true; do
-                      JOBS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
-                          --jq '[.jobs[] | select(.name != env.WATCHDOG_JOB_NAME) | {status, conclusion}]' \
-                          | jq -s 'add // []')
-
-                      HAS_CANCELLED=$(echo "$JOBS" | jq '[.[] | select(.conclusion == "cancelled")] | length > 0')
-                      STILL_RUNNING=$(echo "$JOBS" | jq '[.[] | select(.status == "in_progress")] | length > 0')
-                      ALL_DONE=$(echo "$JOBS" | jq '[.[] | select(.status != "completed")] | length == 0')
-
-                      if [ "$ALL_DONE" = "true" ]; then
-                          echo "All jobs complete, watchdog exiting"
-                          exit 0
-                      fi
-
-                      if [ "$HAS_CANCELLED" = "true" ] && [ "$STILL_RUNNING" = "true" ]; then
-                          echo "::warning::Cancelled jobs detected but other jobs still running — force-cancelling run"
-                          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/force-cancel" -X POST 2>&1 || true
-                          exit 0
-                      fi
-
-                      sleep 15
-                  done

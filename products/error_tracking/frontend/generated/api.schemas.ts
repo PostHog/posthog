@@ -93,6 +93,9 @@ export const IntegrationKindApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {

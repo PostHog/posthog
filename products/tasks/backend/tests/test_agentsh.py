@@ -177,6 +177,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             task_id="test-task",
             run_id="test-run",
             mode="background",
+            create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
         self.assertNotIn("env -0 > /tmp/agent-env", cmd)
@@ -192,6 +193,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             task_id="test-task",
             run_id="test-run",
             mode="background",
+            create_pr=True,
             allowed_domains=["example.com", "api.example.com"],
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)

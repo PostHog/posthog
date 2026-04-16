@@ -12,7 +12,8 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
@@ -152,6 +153,12 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "person",
         ]
+        extra_kwargs = {
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
+            "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
+            "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
+            "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+        }
 
     def get_email_to(self, obj: Ticket) -> str | None:
         config = getattr(obj, "email_config", None)
@@ -349,6 +356,113 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if ticket.distinct_id:
                 ticket.person = distinct_id_to_person.get(ticket.distinct_id)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by status. Accepts a single value or a comma-separated list "
+                    "(e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`."
+                ),
+            ),
+            OpenApiParameter(
+                "priority",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by priority. Accepts a single value or a comma-separated list "
+                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`."
+                ),
+            ),
+            OpenApiParameter(
+                "channel_source",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=[c.value for c in Channel],
+                description="Filter by the channel the ticket originated from.",
+            ),
+            OpenApiParameter(
+                "channel_detail",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=[d.value for d in ChannelDetail],
+                description="Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
+            ),
+            OpenApiParameter(
+                "assignee",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by assignee. Use `unassigned` for tickets with no assignee, "
+                    "`user:<user_id>` for a specific user, or `role:<role_uuid>` for a role."
+                ),
+            ),
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) "
+                    "or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter."
+                ),
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Only include tickets updated on or before this date. Same format as `date_from`.",
+            ),
+            OpenApiParameter(
+                "distinct_ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches "
+                    "against the customer's name or email (case-insensitive, partial match)."
+                ),
+            ),
+            OpenApiParameter(
+                "sla",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["breached", "at-risk", "on-track"],
+                description=(
+                    "Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, "
+                    "`on-track` = more than an hour remaining."
+                ),
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "order_by",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=[
+                    "updated_at",
+                    "-updated_at",
+                    "sla_due_at",
+                    "-sla_due_at",
+                    "created_at",
+                    "-created_at",
+                    "ticket_number",
+                    "-ticket_number",
+                ],
+                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         """List tickets with person data attached."""
         queryset = self.filter_queryset(self.get_queryset())
