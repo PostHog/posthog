@@ -69,7 +69,7 @@ class BillingConsumer(SQSConsumer):
             capture_exception(e, {"message_id": message_id, "message_type": message_type})
 
     def _decompress_and_parse_message(
-        self, raw_body: str, message_attributes: Optional[dict[str, Any]] = None
+        self, raw_body: str | bytes, message_attributes: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
         """
         Decompress and parse message body based on content encoding.
