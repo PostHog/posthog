@@ -110,8 +110,15 @@ def _extract_channel_id(activity: dict) -> str:
 
 
 def _is_reply(activity: dict) -> bool:
-    """Check if this activity is a reply to an existing conversation (has replyToId)."""
-    return bool(activity.get("replyToId"))
+    """Check if this activity is a reply in a thread.
+
+    Teams doesn't always populate replyToId, but thread replies have
+    a conversation.id that includes ';messageid=' after the channel ID.
+    """
+    if activity.get("replyToId"):
+        return True
+    conversation_id = _extract_conversation_id(activity)
+    return ";messageid=" in conversation_id
 
 
 def _is_bot_mention(activity: dict) -> bool:
@@ -280,7 +287,14 @@ def create_or_update_teams_ticket(
 
         return ticket
 
-    # New ticket from top-level message
+    # New ticket from top-level message.
+    # Thread replies will have conversation.id = "<channel>;messageid=<root_msg_id>".
+    # Store that form so reply lookups match.
+    thread_conversation_id = (
+        f"{conversation_id};messageid={activity_id}"
+        if activity_id and ";messageid=" not in conversation_id
+        else conversation_id
+    )
     ticket = Ticket.objects.create_with_number(
         team=team,
         channel_source=Channel.TEAMS,
@@ -293,7 +307,7 @@ def create_or_update_teams_ticket(
             **({"email": user_info["email"]} if user_info.get("email") else {}),
         },
         teams_channel_id=channel_id,
-        teams_conversation_id=conversation_id,
+        teams_conversation_id=thread_conversation_id,
         teams_service_url=service_url,
         teams_tenant_id=tenant_id,
         unread_team_count=0 if is_team_member else 1,
