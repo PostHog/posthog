@@ -52,7 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 MANIFEST_VERSION = "1.0.0"
-INDEX_SCHEMA_VERSION = "2.0.0"
+INDEX_SCHEMA_VERSION = "1.0.0"
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
 # Stable URL prefix for per-skill archives published as release assets.
@@ -836,7 +836,7 @@ def _setup_django() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=textwrap.dedent(__doc__),
+        description=textwrap.dedent(__doc__ or ""),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

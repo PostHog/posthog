@@ -219,7 +219,7 @@ jobs:
               run: |
                   DIST=products/posthog_ai/dist
                   # Monolithic archive (unchanged, preserved for existing consumers)
-                  # plus per-skill archives and the registry index (new in v2.0.0).
+                  # plus per-skill archives and the registry index.
                   ASSETS="$DIST/skills.zip $DIST/skills-index.json"
                   for zip in "$DIST"/*.zip; do
                       if [ "$(basename "$zip")" != "skills.zip" ]; then
