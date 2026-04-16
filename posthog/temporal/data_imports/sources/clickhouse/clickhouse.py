@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import ssl
 import math
 import collections
 from collections.abc import Callable, Iterator
@@ -36,6 +37,14 @@ CONNECT_TIMEOUT_SECONDS = 15
 METADATA_QUERY_TIMEOUT_SECONDS = 30
 # Per-query timeout for the main data extraction query
 DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
+
+# Batch accumulation targets for streaming to Delta Lake. ClickHouse yields
+# one Arrow block per `max_block_size` rows (20k default); writing each to
+# Delta unchanged produces one commit per block, which murders large-table
+# performance. We accumulate blocks until we hit either target, then
+# concat and yield a single pa.Table to the pipeline.
+YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
+YIELD_TARGET_ROWS = 100_000
 
 
 class ClickHouseConnectionError(Exception):
@@ -95,7 +104,11 @@ def _get_client(
             settings=settings or {},
             compress=True,
         )
-    except ClickHouseError as e:
+    except (ClickHouseError, OSError, ssl.SSLError) as e:
+        # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
+        # and httpx-raised network errors that subclass OSError. ssl.SSLError
+        # covers TLS handshake failures that happen before ClickHouse sees
+        # the request.
         raise ClickHouseConnectionError(str(e)) from e
 
 
@@ -502,6 +515,30 @@ def _get_primary_keys(client: ClickHouseClient, database: str, table_name: str) 
     return keys if keys else None
 
 
+# Row budget for the duplicate-PK probe. ClickHouse sorting keys are not
+# enforced unique, so we need *some* signal before trusting a user-selected
+# key for incremental merges — but a full-table GROUP BY (even streamed in
+# sort-key order) is too expensive to run every sync on billion-row tables.
+# Instead we scan up to this many rows and trust the user if no duplicate
+# surfaces. Misconfigured sort keys overwhelmingly surface duplicates in
+# any reasonably-sized prefix.
+DUPLICATE_PK_CHECK_ROW_BUDGET = 10_000_000
+
+# Settings for the duplicate-PK probe.
+# - optimize_aggregation_in_order streams the GROUP BY along the sorting
+#   key without building a hash table (bounded memory).
+# - max_rows_to_read + read_overflow_mode='break' cap the scan at
+#   DUPLICATE_PK_CHECK_ROW_BUDGET and *silently stop* instead of throwing.
+# - max_execution_time and max_memory_usage are belt-and-braces bounds.
+_DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
+    "optimize_aggregation_in_order": 1,
+    "max_rows_to_read": DUPLICATE_PK_CHECK_ROW_BUDGET,
+    "read_overflow_mode": "break",
+    "max_execution_time": 30,
+    "max_memory_usage": 1_000_000_000,
+}
+
+
 def _has_duplicate_primary_keys(
     client: ClickHouseClient,
     database: str,
@@ -509,23 +546,77 @@ def _has_duplicate_primary_keys(
     primary_keys: list[str] | None,
     logger: FilteringBoundLogger,
 ) -> bool:
-    """Check whether the sorting key has duplicate combinations.
+    """Check whether the sorting key has obvious duplicate combinations.
 
-    For ClickHouse the sorting key is rarely unique, so we always run this
-    check before incrementally syncing — see SourceResponse docs.
+    ClickHouse sorting keys are *not* enforced unique. For incremental syncs
+    we need a unique-ish key to do safe merges into Delta. We probe a
+    bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows) rather
+    than scanning the whole thing, because:
+
+    1. A user who chose a non-unique sort key will virtually always show
+       duplicates inside any reasonably sized prefix.
+    2. A full-table GROUP BY every incremental sync is prohibitively
+       expensive on the tables this source is designed for.
+    3. ClickHouse cannot *prove* uniqueness anyway — only the user can.
+
+    Returns:
+        True if duplicates are detected in the probed prefix, or if the
+        probe failed in an unexpected way. False when the probe completed
+        within budget without finding duplicates.
     """
     if not primary_keys:
         return False
 
     quoted_keys = ", ".join(_quote_identifier(k) for k in primary_keys)
+    # LIMIT 1 lets ClickHouse short-circuit the moment it finds a duplicate.
     query = f"SELECT 1 FROM {_qualified_table(database, table_name)} GROUP BY {quoted_keys} HAVING count() > 1 LIMIT 1"
     try:
-        result = client.query(query)
+        result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        logger.debug(f"_has_duplicate_primary_keys: failed to check duplicates: {e}")
+        # Any unexpected server error is treated as "assume duplicates" —
+        # safer to force append mode than to merge against a key we couldn't
+        # verify. (We don't hit max_rows_to_read here because
+        # read_overflow_mode='break' turns that into a silent truncation.)
+        logger.warning(
+            f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
+        )
         capture_exception(e)
-        return False
+        return True
+
+
+def _get_incremental_row_count(
+    client: ClickHouseClient,
+    database: str,
+    table_name: str,
+    incremental_field: str,
+    last_value: Any,
+    logger: FilteringBoundLogger,
+) -> int | None:
+    """Count rows the incremental sync will actually pull.
+
+    `system.tables.total_rows` is the size of the entire table, which
+    overstates the work for incremental syncs after the initial backfill.
+    This query is cheap when the cursor is in the sorting key (primary
+    index skip). On error or timeout we return None and the caller falls
+    back to the total-table count.
+    """
+    quoted_field = _quote_identifier(incremental_field)
+    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > %(last_value)s"
+    try:
+        result = client.query(
+            query,
+            parameters={"last_value": last_value},
+            settings={"max_execution_time": 30},
+        )
+    except ClickHouseError as e:
+        logger.debug(f"_get_incremental_row_count: fell back, count query failed: {e}")
+        return None
+
+    if not result.result_rows:
+        return None
+    count = result.result_rows[0][0]
+    return int(count) if count is not None else None
 
 
 def _get_partition_settings(
@@ -624,6 +715,15 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
         # Cap query execution time to avoid hanging the worker on a runaway
         # source-side query.
         "max_execution_time": DATA_QUERY_TIMEOUT_SECONDS,
+        # When the ORDER BY column is a prefix of the sorting key, read parts
+        # in sort order and skip the top-level sort entirely. Free when
+        # applicable, harmless otherwise. Critical for incremental syncs on
+        # big tables — without this, ORDER BY forces a full external sort.
+        "optimize_read_in_order": 1,
+        # If we still have to sort (cursor not in sorting key), spill to disk
+        # at 500 MB instead of OOMing the server. The hot path stays in
+        # memory, slow path degrades gracefully.
+        "max_bytes_before_external_sort": 500 * 1024 * 1024,
     }
 
 
@@ -675,6 +775,21 @@ def clickhouse_source(
             if primary_keys:
                 logger.debug(f"Found primary keys (sorting key): {primary_keys}")
 
+            # Warn when the incremental cursor isn't the sorting-key prefix.
+            # ClickHouse can only skip the sort if the ORDER BY column leads
+            # the sorting key; otherwise every incremental run does a full
+            # server-side sort. `max_bytes_before_external_sort` in
+            # `_query_settings` keeps it from OOMing, but it will be slow.
+            if should_use_incremental_field and incremental_field and primary_keys:
+                if primary_keys[0] != incremental_field:
+                    logger.warning(
+                        f"Incremental cursor '{incremental_field}' is not the first "
+                        f"column of the sorting key {primary_keys} for "
+                        f"{database}.{table_name}. Each incremental sync will perform "
+                        f"a server-side sort. Consider a cursor that matches the "
+                        f"table's sorting key for best performance."
+                    )
+
             row_counts = get_clickhouse_row_count(
                 host=host,
                 port=port,
@@ -685,7 +800,21 @@ def clickhouse_source(
                 verify=verify,
                 names=[table_name],
             )
-            rows_to_sync = row_counts.get(table_name, 0)
+            rows_to_sync: int | None = row_counts.get(table_name)
+
+            # For incremental resumes, pull the filtered count so progress
+            # reporting isn't anchored to the full table size.
+            if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
+                incremental_count = _get_incremental_row_count(
+                    client,
+                    database,
+                    table_name,
+                    incremental_field,
+                    db_incremental_field_last_value,
+                    logger,
+                )
+                if incremental_count is not None:
+                    rows_to_sync = incremental_count
 
             partition_settings = (
                 _get_partition_settings(client, database, table_name, logger) if should_use_incremental_field else None
@@ -735,11 +864,27 @@ def clickhouse_source(
 
                 # query_arrow_stream yields a StreamContext of pyarrow.Table
                 # chunks — one per ClickHouse block, capped by max_block_size.
+                # We accumulate these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS
+                # pa.Tables before yielding, so the pipeline's Delta writer
+                # sees fewer, larger batches and commits fewer Delta files.
+                pending: list[pa.Table] = []
+                pending_rows = 0
+                pending_bytes = 0
                 with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue
-                        yield chunk
+                        pending.append(chunk)
+                        pending_rows += chunk.num_rows
+                        pending_bytes += chunk.nbytes
+                        if pending_rows >= YIELD_TARGET_ROWS or pending_bytes >= YIELD_TARGET_BYTES:
+                            yield pa.concat_tables(pending, promote_options="default")
+                            pending = []
+                            pending_rows = 0
+                            pending_bytes = 0
+
+                if pending:
+                    yield pa.concat_tables(pending, promote_options="default")
             finally:
                 stream_client.close()
 

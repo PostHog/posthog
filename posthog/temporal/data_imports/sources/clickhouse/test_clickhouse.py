@@ -2,11 +2,16 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
+    YIELD_TARGET_ROWS,
     ClickHouseColumn,
     _build_query,
+    _get_incremental_row_count,
+    _has_duplicate_primary_keys,
     _qualified_table,
+    _query_settings,
     _quote_identifier,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
@@ -450,3 +455,183 @@ class TestSourceClassValidateCredentials:
 
         assert valid is False
         assert msg == "Could not connect to ClickHouse. Please check all connection details are valid."
+
+
+class TestHasDuplicatePrimaryKeys:
+    def _logger(self):
+        return MagicMock()
+
+    def test_returns_false_when_no_primary_keys(self):
+        client = MagicMock()
+        assert _has_duplicate_primary_keys(client, "db", "t", None, self._logger()) is False
+        assert _has_duplicate_primary_keys(client, "db", "t", [], self._logger()) is False
+        client.query.assert_not_called()
+
+    def test_returns_true_when_duplicates_found(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(1,)]
+        client.query.return_value = result
+        assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+    def test_returns_false_when_no_duplicates(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = []
+        client.query.return_value = result
+        assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is False
+
+    def test_fails_safe_to_true_on_clickhouse_error(self):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("Code: 241. Memory limit exceeded")
+        # On error we must assume duplicates exist so the incremental merge is
+        # blocked. Returning False here would silently corrupt the Delta table.
+        assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+    def test_passes_bounded_settings(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = []
+        client.query.return_value = result
+
+        _has_duplicate_primary_keys(client, "db", "t", ["id", "ts"], self._logger())
+
+        _, kwargs = client.query.call_args
+        settings = kwargs["settings"]
+        assert settings["optimize_aggregation_in_order"] == 1
+        # Bounded-prefix probe: read at most 10M rows, truncate silently
+        # instead of throwing. Keeps the check O(budget) regardless of
+        # table size.
+        assert settings["max_rows_to_read"] == 10_000_000
+        assert settings["read_overflow_mode"] == "break"
+        assert settings["max_execution_time"] == 30
+        assert settings["max_memory_usage"] == 1_000_000_000
+
+
+class TestQuerySettings:
+    def test_includes_ordered_read_and_spill_settings(self):
+        settings = _query_settings(chunk_size=20_000)
+        assert settings["max_block_size"] == 20_000
+        assert settings["optimize_read_in_order"] == 1
+        # Must spill long before we blow the worker — 500 MiB.
+        assert settings["max_bytes_before_external_sort"] == 500 * 1024 * 1024
+        assert settings["output_format_arrow_string_as_string"] == 1
+        assert settings["output_format_arrow_low_cardinality_as_dictionary"] == 0
+
+
+class TestGetIncrementalRowCount:
+    def _logger(self):
+        return MagicMock()
+
+    def test_returns_count_from_query(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(42,)]
+        client.query.return_value = result
+
+        count = _get_incremental_row_count(client, "db", "t", "created_at", "2024-01-01", self._logger())
+        assert count == 42
+
+        args, kwargs = client.query.call_args
+        assert "`created_at` > %(last_value)s" in args[0]
+        assert kwargs["parameters"] == {"last_value": "2024-01-01"}
+        assert kwargs["settings"] == {"max_execution_time": 30}
+
+    def test_returns_none_on_error(self):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("timeout")
+        assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+
+    def test_returns_none_when_count_is_null(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(None,)]
+        client.query.return_value = result
+        assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+
+
+class TestGetRowsBatching:
+    """The source accumulates small Arrow blocks into larger pa.Tables before
+    yielding so Delta gets fewer, larger commits. Verify the accumulation
+    boundaries."""
+
+    def _stream_context(self, blocks):
+        """Build a fake `query_arrow_stream(...)` that returns `blocks`."""
+        cm = MagicMock()
+        cm.__enter__.return_value = iter(blocks)
+        cm.__exit__.return_value = False
+        return cm
+
+    def _run_get_rows(self, blocks):
+        """Invoke `clickhouse_source(...).items()` against a stream of `blocks`."""
+        from contextlib import contextmanager
+
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        # Minimal discovery stubs so clickhouse_source builds a SourceResponse.
+        mock_client = MagicMock()
+        mock_table = MagicMock()
+        mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.return_value = self._stream_context(blocks)
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 8443)
+
+        clients = [mock_client, stream_client]
+
+        def fake_get_client(**_kwargs):
+            return clients.pop(0)
+
+        with (
+            patch.object(ch_module, "_get_client", side_effect=fake_get_client),
+            patch.object(ch_module, "_get_table", return_value=mock_table),
+            patch.object(ch_module, "_get_primary_keys", return_value=["id"]),
+            patch.object(ch_module, "_has_duplicate_primary_keys", return_value=False),
+            patch.object(ch_module, "_get_partition_settings", return_value=None),
+            patch.object(ch_module, "get_clickhouse_row_count", return_value={}),
+        ):
+            response = ch_module.clickhouse_source(
+                tunnel=fake_tunnel,
+                user="u",
+                password="p",
+                database="db",
+                secure=True,
+                verify=True,
+                table_names=["events"],
+                should_use_incremental_field=False,
+                logger=MagicMock(),
+                db_incremental_field_last_value=None,
+            )
+            return list(response.items())
+
+    def _block(self, rows):
+        return pa.table({"id": pa.array(list(range(rows)), type=pa.int64())})
+
+    def test_accumulates_until_row_target(self):
+        # 5 blocks × 30k rows = 150k total > YIELD_TARGET_ROWS (100k).
+        # Expect 2 yielded tables: one at/after 100k rows, one with the rest.
+        blocks = [self._block(30_000) for _ in range(5)]
+        yielded = self._run_get_rows(blocks)
+        assert len(yielded) == 2
+        assert sum(t.num_rows for t in yielded) == 150_000
+        # First yield must have crossed the row target.
+        assert yielded[0].num_rows >= YIELD_TARGET_ROWS
+
+    def test_single_batch_below_target(self):
+        # Small blocks below row/byte targets must still flush on stream end.
+        blocks = [self._block(100), self._block(200)]
+        yielded = self._run_get_rows(blocks)
+        assert len(yielded) == 1
+        assert yielded[0].num_rows == 300
+
+    def test_skips_empty_blocks(self):
+        blocks = [self._block(0), self._block(50), self._block(0)]
+        yielded = self._run_get_rows(blocks)
+        assert len(yielded) == 1
+        assert yielded[0].num_rows == 50
+
+    def test_empty_stream_yields_nothing(self):
+        assert self._run_get_rows([]) == []
