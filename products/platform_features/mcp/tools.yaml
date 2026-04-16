@@ -138,11 +138,30 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
+        url_prefix: /activity
         title: List recent activity in the project.
         description: >
             List recent activity log entries for the project. Shows who did what and when —
             feature flag changes, dashboard edits, experiment launches, etc. Supports filtering
             by scope, user, and date range.
+        param_overrides:
+            page_size:
+                default: 10
+        response:
+            include:
+                - id
+                - user.id
+                - user.first_name
+                - user.last_name
+                - user.email
+                - activity
+                - scope
+                - item_id
+                - detail.name
+                - detail.short_id
+                - detail.type
+                - created_at
 
     advanced-activity-logs-list:
         operation: advanced_activity_logs_list
@@ -153,10 +172,30 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
+        url_prefix: /activity
         title: List activity logs with advanced filtering.
         description: >
             List activity log entries with advanced filtering, sorting, and field-level diffs.
             Supports filtering by scope, activity type, user, date range, and search text.
+        param_overrides:
+            page_size:
+                default: 10
+        response:
+            include:
+                - id
+                - user.id
+                - user.first_name
+                - user.last_name
+                - user.email
+                - activity
+                - scope
+                - item_id
+                - detail.name
+                - detail.short_id
+                - detail.type
+                - detail.changes
+                - created_at
 
     advanced-activity-logs-filters:
         operation: advanced_activity_logs_available_filters_retrieve
@@ -167,6 +206,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        url_prefix: /activity
         title: Get available activity log filter options.
         description: >
             Get the available filter options for activity logs — scopes, activity types, and

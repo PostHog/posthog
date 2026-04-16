@@ -58,6 +58,19 @@ impl Team {
         Ok(row)
     }
 
+    pub async fn from_pg_by_id(client: PostgresReader, team_id: i32) -> Result<Team, FlagError> {
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team_by_id").await?;
+
+        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE id = $1");
+        let row = sqlx::query_as::<_, Team>(&query)
+            .bind(team_id)
+            .fetch_one(&mut *conn)
+            .await?;
+
+        Ok(row)
+    }
+
     pub async fn from_pg_by_secret_token(
         client: PostgresReader,
         token: &str,

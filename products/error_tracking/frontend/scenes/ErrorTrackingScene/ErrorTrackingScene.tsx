@@ -127,6 +127,35 @@ export function ErrorTrackingScene(): JSX.Element {
 const Header = (): JSX.Element => {
     const { isDev } = useValues(preflightLogic)
 
+    const buildExceptionSteps = (): {
+        $type: string
+        $message: string
+        $level: string
+        $timestamp: string
+    }[] => {
+        const now = new Date()
+        return [
+            {
+                $type: 'ui.interaction',
+                $message: 'Send an exception button clicked',
+                $level: 'info',
+                $timestamp: new Date(now.getTime() - 2500).toISOString(),
+            },
+            {
+                $type: 'http',
+                $message: 'GET /api/environments/:team_id/error_tracking/issues/',
+                $level: 'info',
+                $timestamp: new Date(now.getTime() - 1200).toISOString(),
+            },
+            {
+                $type: 'error',
+                $message: 'Kaboom thrown from issues list',
+                $level: 'error',
+                $timestamp: now.toISOString(),
+            },
+        ]
+    }
+
     const onClick = (): void => {
         setInterval(() => {
             throw new Error('Kaboom !')
@@ -148,7 +177,9 @@ const Header = (): JSX.Element => {
                                 <LemonButton
                                     size="small"
                                     onClick={() => {
-                                        posthog.captureException(new Error('Kaboom !'))
+                                        posthog.captureException(new Error('Kaboom !'), {
+                                            $exception_steps: buildExceptionSteps(),
+                                        })
                                     }}
                                 >
                                     Send an exception
