@@ -134,10 +134,13 @@ class SeatViewSet(viewsets.ViewSet):
 
     def _require_org_member(self, distinct_id: str, request: Request) -> None:
         org = cast(User, request.user).organization
-        if not org or not OrganizationMembership.objects.filter(
-            user__distinct_id=distinct_id,
-            organization=org,
-        ).exists():
+        if (
+            not org
+            or not OrganizationMembership.objects.filter(
+                user__distinct_id=distinct_id,
+                organization=org,
+            ).exists()
+        ):
             raise PermissionDenied("Target user is not a member of this organization.")
 
     @staticmethod
