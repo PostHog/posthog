@@ -14549,30 +14549,21 @@ export namespace Schemas {
       success: boolean;
     }
 
-    export interface ErrorTrackingIssueSplitFingerprint {
-      /** Fingerprint to split into a new issue. */
-      fingerprint: string;
-      /** Optional name for the new issue created from this fingerprint. */
-      name?: string;
-      /** Optional description for the new issue created from this fingerprint. */
-      description?: string;
-    }
+    /**
+     * * `cross_sell` - Cross sell
+    * `alerts` - Alerts
+     */
+    export type ErrorTrackingRecommendationTypeEnum = typeof ErrorTrackingRecommendationTypeEnum[keyof typeof ErrorTrackingRecommendationTypeEnum];
 
-    export interface ErrorTrackingIssueSplitRequest {
-      /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
-      fingerprints?: ErrorTrackingIssueSplitFingerprint[];
-    }
 
-    export interface ErrorTrackingIssueSplitResponse {
-      /** Whether the split completed successfully. */
-      success: boolean;
-      /** IDs of the new issues created by the split. */
-      new_issue_ids: string[];
-    }
+    export const ErrorTrackingRecommendationTypeEnum = {
+      CrossSell: 'cross_sell',
+      Alerts: 'alerts',
+    } as const;
 
     export interface ErrorTrackingRecommendation {
       readonly id: string;
-      readonly type: string;
+      readonly type: ErrorTrackingRecommendationTypeEnum;
       readonly meta: unknown;
       /** @nullable */
       readonly computed_at: string | null;
