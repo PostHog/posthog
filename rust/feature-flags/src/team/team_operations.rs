@@ -1,10 +1,7 @@
 use crate::{
-    api::errors::{simplify_serde_error, FlagError},
-    database::get_connection_with_metrics,
-    team::team_models::Team,
+    api::errors::FlagError, database::get_connection_with_metrics, team::team_models::Team,
 };
 use common_database::PostgresReader;
-use serde_json::Value;
 
 /// SQL fragment for selecting all Team columns
 const TEAM_COLUMNS: &str = "
@@ -48,17 +45,6 @@ const TEAM_COLUMNS: &str = "
 ";
 
 impl Team {
-    /// Parse team from HyperCache JSON value (team_metadata cache format).
-    pub fn from_hypercache_value(value: Value) -> Result<Team, FlagError> {
-        serde_json::from_value(value).map_err(|e| {
-            tracing::error!("Failed to deserialize team from HyperCache: {e}");
-            FlagError::DataParsingErrorWithContext(format!(
-                "Failed to parse team configuration: {}",
-                simplify_serde_error(&e.to_string())
-            ))
-        })
-    }
-
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn =
             get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
@@ -94,8 +80,6 @@ impl Team {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_redis_client, setup_team_hypercache_reader, TestContext,
@@ -109,12 +93,15 @@ mod tests {
             .await
             .expect("Failed to insert team in redis");
 
-        // Verify we can fetch team from HyperCache
+        // Verify we can fetch team from HyperCache using typed deserialization
         let team_hypercache_reader = setup_team_hypercache_reader(client.clone()).await;
         let key = common_hypercache::KeyType::string(&team.api_token);
-        let (data, _source) = team_hypercache_reader.get_with_source(&key).await.unwrap();
+        let (data, _source) = team_hypercache_reader
+            .get_typed_with_source::<Team>(&key)
+            .await
+            .unwrap();
 
-        let team_from_cache = Team::from_hypercache_value(data).unwrap();
+        let team_from_cache = data.expect("Expected team data, got sentinel");
         assert_eq!(team_from_cache.api_token, team.api_token);
         assert_eq!(team_from_cache.id, team.id);
     }
@@ -284,188 +271,5 @@ mod tests {
         let config = team_from_pg.extra_settings.unwrap();
         let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
         assert_eq!(recorder_script, Some(""));
-    }
-
-    #[tokio::test]
-    async fn test_from_hypercache_value_parses_extra_settings() {
-        let extra_settings = json!({
-            "recorder_script": "posthog-recorder",
-            "something_else": 123
-        });
-
-        let team_data = json!({
-            "id": 12345,
-            "name": "Test Team",
-            "api_token": "phc_test123",
-            "uuid": "00000000-0000-0000-0000-000000012345",
-            "timezone": "America/New_York",
-            "extra_settings": extra_settings,
-        });
-
-        let team = Team::from_hypercache_value(team_data).expect("Failed to parse team");
-        assert_eq!(team.id, 12345);
-        assert_eq!(team.api_token, "phc_test123");
-        assert_eq!(team.timezone, "America/New_York");
-        assert!(team.extra_settings.is_some());
-
-        let config = team.extra_settings.unwrap();
-        assert_eq!(
-            config.get("recorder_script").and_then(|v| v.as_str()),
-            Some("posthog-recorder")
-        );
-    }
-
-    #[tokio::test]
-    async fn test_from_hypercache_value_handles_all_optional_fields() {
-        let team_data = json!({
-            "id": 99999,
-            "name": "Minimal Team",
-            "api_token": "phc_minimal",
-            "uuid": "00000000-0000-0000-0000-000000000001",
-            "organization_id": "00000000-0000-0000-0000-000000000002",
-            "autocapture_opt_out": true,
-            "session_recording_opt_in": false,
-            "session_recording_sample_rate": "0.75",
-            "cookieless_server_hash_mode": 1,
-            "timezone": "Europe/London",
-        });
-
-        let team = Team::from_hypercache_value(team_data).expect("Failed to parse team");
-        assert_eq!(team.id, 99999);
-        assert_eq!(team.api_token, "phc_minimal");
-        assert_eq!(team.autocapture_opt_out, Some(true));
-        assert!(!team.session_recording_opt_in);
-        assert_eq!(team.cookieless_server_hash_mode, Some(1));
-        assert_eq!(team.timezone, "Europe/London");
-    }
-
-    #[tokio::test]
-    async fn test_from_hypercache_value_rejects_non_object() {
-        // Test with array
-        let result = Team::from_hypercache_value(json!(["not", "an", "object"]));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // Test with string
-        let result = Team::from_hypercache_value(json!("just a string"));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // Test with number
-        let result = Team::from_hypercache_value(json!(42));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // Test with null
-        let result = Team::from_hypercache_value(json!(null));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_from_hypercache_value_rejects_missing_required_fields() {
-        // Missing id
-        let result = Team::from_hypercache_value(json!({
-            "api_token": "phc_test",
-            "uuid": "00000000-0000-0000-0000-000000000001"
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // Missing api_token
-        let result = Team::from_hypercache_value(json!({
-            "id": 123,
-            "uuid": "00000000-0000-0000-0000-000000000001"
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // Missing uuid
-        let result = Team::from_hypercache_value(json!({
-            "id": 123,
-            "api_token": "phc_test"
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // Empty object
-        let result = Team::from_hypercache_value(json!({}));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_from_hypercache_value_rejects_invalid_uuid() {
-        let result = Team::from_hypercache_value(json!({
-            "id": 123,
-            "api_token": "phc_test",
-            "uuid": "not-a-valid-uuid"
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        let result = Team::from_hypercache_value(json!({
-            "id": 123,
-            "api_token": "phc_test",
-            "uuid": ""
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_from_hypercache_value_rejects_wrong_field_types() {
-        // id as string instead of number
-        let result = Team::from_hypercache_value(json!({
-            "id": "not-a-number",
-            "api_token": "phc_test",
-            "uuid": "00000000-0000-0000-0000-000000000001"
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // api_token as number instead of string
-        let result = Team::from_hypercache_value(json!({
-            "id": 123,
-            "api_token": 12345,
-            "uuid": "00000000-0000-0000-0000-000000000001"
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-
-        // uuid as number instead of string
-        let result = Team::from_hypercache_value(json!({
-            "id": 123,
-            "api_token": "phc_test",
-            "uuid": 12345
-        }));
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
     }
 }

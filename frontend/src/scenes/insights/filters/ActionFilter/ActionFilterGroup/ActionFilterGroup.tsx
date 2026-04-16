@@ -4,8 +4,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -125,7 +125,7 @@ export function ActionFilterGroup({
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
-                        'ActionFilterGroup--header flex items-start gap-x-2 gap-y-1 px-2 @min-[500px]/editor-panel:px-4 border-b border-primary',
+                        'ActionFilterGroup--header flex items-center gap-x-2 gap-y-1 px-2 @min-[500px]/editor-panel:px-4 border-b border-primary',
                         insightType === InsightType.FUNNELS ? 'py-4' : 'py-2 @min-[500px]/editor-panel:py-3'
                     )}
                 >
@@ -267,40 +267,59 @@ export function ActionFilterGroup({
                     </div>
 
                     {!readOnly && (
-                        <div className="flex shrink-0 gap-0.5 ml-auto @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-height:1.75rem] @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-icon-size:1rem]">
-                            <Tooltip title="Rename group series">
+                        <div className="flex shrink-0 ml-auto">
+                            <LemonMenu
+                                placement="bottom-end"
+                                items={[
+                                    {
+                                        items: [
+                                            {
+                                                label: 'Split events',
+                                                size: 'medium',
+                                                icon: <IconUndo />,
+                                                onClick: () => {
+                                                    splitLocalFilter(index)
+                                                    posthog.capture('split_events', {
+                                                        insight_type: insightType,
+                                                        team_id: currentTeamId,
+                                                    })
+                                                },
+                                                'data-attr': `group-filter-split-${index}`,
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        items: [
+                                            {
+                                                label: 'Rename',
+                                                size: 'medium',
+                                                icon: <IconPencil />,
+                                                onClick: () => {
+                                                    selectFilter(groupFilter ?? null)
+                                                    showModal()
+                                                },
+                                                'data-attr': `group-filter-rename-${index}`,
+                                            },
+                                            {
+                                                label: 'Delete',
+                                                size: 'medium',
+                                                status: 'danger',
+                                                icon: <IconTrash />,
+                                                onClick: () => removeLocalFilter({ index }),
+                                                'data-attr': `group-filter-delete-${index}`,
+                                            },
+                                        ],
+                                    },
+                                ]}
+                            >
                                 <LemonButton
-                                    size="small"
-                                    icon={<IconPencil />}
-                                    onClick={() => {
-                                        selectFilter(groupFilter ?? null)
-                                        showModal()
-                                    }}
-                                    data-attr={`group-filter-rename-${index}`}
+                                    noPadding
+                                    size="medium"
+                                    icon={<IconEllipsis />}
+                                    aria-label="Show more actions"
+                                    data-attr={`group-filter-menu-${index}`}
                                 />
-                            </Tooltip>
-                            <Tooltip title="Remove group">
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconTrash />}
-                                    onClick={() => removeLocalFilter({ index })}
-                                    data-attr={`group-filter-delete-${index}`}
-                                />
-                            </Tooltip>
-                            <Tooltip title="Split events">
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconUndo />}
-                                    onClick={() => {
-                                        splitLocalFilter(index)
-                                        posthog.capture('split_events', {
-                                            insight_type: insightType,
-                                            team_id: currentTeamId,
-                                        })
-                                    }}
-                                    data-attr={`group-filter-split-${index}`}
-                                />
-                            </Tooltip>
+                            </LemonMenu>
                         </div>
                     )}
                 </div>

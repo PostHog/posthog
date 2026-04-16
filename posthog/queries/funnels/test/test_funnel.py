@@ -32,7 +32,7 @@ from posthog.test.test_journeys import journeys_for
 
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(
+    funnel_breakdown_test_factory(  # type: ignore[misc]
         ClickhouseFunnel,
         ClickhouseFunnelActors,
         _create_event,
@@ -46,7 +46,9 @@ class TestFunnelBreakdown(
 
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person),
+    funnel_conversion_time_test_factory(  # type: ignore[misc]
+        ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person
+    ),
 ):
     maxDiff = None
     pass
@@ -3701,5 +3703,5 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
     return TestGetFunnel
 
 
-class TestFOSSFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):
+class TestFOSSFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore[misc]
     maxDiff = None
