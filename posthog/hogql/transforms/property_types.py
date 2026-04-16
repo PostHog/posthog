@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal, Optional, cast
 
 from django.db import models
@@ -374,12 +375,19 @@ class PropertySwapper(CloningVisitor):
                     return new_call
                 return expr
 
-        # Bare constant — wrap with toDateTime64 carrying the timezone
+        # Bare constant — wrap with toDateTime64 carrying the timezone.
+        # Skip if the value is already a timezone-aware datetime, since the
+        # printer will emit toDateTime64('...', 6, 'tz') for it.
         if isinstance(inner, ast.Constant):
-            return ast.Call(
+            if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
+                return expr
+            new_call = ast.Call(
                 name="toDateTime64",
                 args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
             )
+            if isinstance(expr, ast.Alias):
+                return ast.Alias(alias=expr.alias, expr=new_call)
+            return new_call
 
         # For anything else (arithmetic, other calls), leave as-is.
         # These typically already produce timezone-aware values.
