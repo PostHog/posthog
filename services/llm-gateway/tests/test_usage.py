@@ -4,7 +4,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from llm_gateway.api.usage import _to_cost_limit_status
-from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.cost_throttles import (
     CostStatus,
     UserCostBurstThrottle,
@@ -130,7 +129,6 @@ class TestUsageEndpoint:
         assert data["burst"]["used_percent"] == 0
         assert data["sustained"]["used_percent"] == 0
         assert data["is_rate_limited"] is False
-        get_settings.cache_clear()
 
     def test_returns_401_without_auth(self, client: TestClient) -> None:
         response = client.get("/v1/usage/posthog_code")
