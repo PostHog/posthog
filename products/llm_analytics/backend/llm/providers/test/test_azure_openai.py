@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
-from products.llm_analytics.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
+from products.llm_analytics.backend.llm.providers.azure_openai import DEPLOYMENTS_LIST_API_VERSION, AzureOpenAIAdapter
 
 MOCK_ENDPOINT = "https://my-resource.openai.azure.com/"
 
@@ -30,7 +30,7 @@ class TestAzureOpenAIValidateKey:
         assert message is None
         mock_get.assert_called_once()
         assert mock_get.call_args.args[0] == f"{MOCK_ENDPOINT.rstrip('/')}/openai/deployments"
-        assert mock_get.call_args.kwargs["params"]["api-version"] == DEFAULT_API_VERSION
+        assert mock_get.call_args.kwargs["params"]["api-version"] == DEPLOYMENTS_LIST_API_VERSION
         assert mock_get.call_args.kwargs["headers"]["api-key"] == "hex-api-key-123"
 
     @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
@@ -74,14 +74,6 @@ class TestAzureOpenAIValidateKey:
 
         assert state == "invalid"
         assert message == "Azure endpoint is required"
-
-    @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
-    def test_validate_key_custom_api_version(self, mock_get):
-        mock_get.return_value = _mock_http_response(json_data={"data": []})
-
-        AzureOpenAIAdapter.validate_key("key", azure_endpoint=MOCK_ENDPOINT, api_version="2025-01-01")
-
-        assert mock_get.call_args.kwargs["params"]["api-version"] == "2025-01-01"
 
 
 class TestAzureOpenAIListModels:

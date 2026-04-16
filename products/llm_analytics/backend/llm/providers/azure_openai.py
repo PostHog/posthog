@@ -18,13 +18,19 @@ from products.llm_analytics.backend.llm.types import AnalyticsContext
 logger = logging.getLogger(__name__)
 
 # Keep in sync with frontend DEFAULT_AZURE_API_VERSION in llmProviderKeysLogic.ts.
+# Used for inference (chat completions).
 DEFAULT_API_VERSION = "2024-10-21"
+
+# GA data-plane versions like 2024-10-21 are inference-only and 404 on /openai/deployments.
+# The deployments listing requires an authoring/preview version — pinned separately from the
+# user-configured api_version so changing the inference version doesn't break validation.
+DEPLOYMENTS_LIST_API_VERSION = "2023-03-15-preview"
 
 # Listing is a cheap call; don't inherit the long completion timeout.
 AZURE_LIST_TIMEOUT = 10.0
 
 
-def _list_azure_deployments(api_key: str, azure_endpoint: str, api_version: str) -> list[str]:
+def _list_azure_deployments(api_key: str, azure_endpoint: str) -> list[str]:
     """List Azure OpenAI deployments.
 
     The openai SDK's `client.models.list()` returns the Azure model *catalog*,
@@ -36,7 +42,7 @@ def _list_azure_deployments(api_key: str, azure_endpoint: str, api_version: str)
 
     response = httpx.get(
         url,
-        params={"api-version": api_version},
+        params={"api-version": DEPLOYMENTS_LIST_API_VERSION},
         headers={"api-key": api_key},
         timeout=AZURE_LIST_TIMEOUT,
     )
@@ -92,13 +98,12 @@ class AzureOpenAIAdapter(OpenAIAdapter):
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
         azure_endpoint = kwargs.get("azure_endpoint", "")
-        api_version = kwargs.get("api_version", DEFAULT_API_VERSION)
 
         if not azure_endpoint:
             return (LLMProviderKey.State.INVALID, "Azure endpoint is required")
 
         try:
-            _list_azure_deployments(api_key, azure_endpoint, api_version)
+            _list_azure_deployments(api_key, azure_endpoint)
             return (LLMProviderKey.State.OK, None)
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):
@@ -125,19 +130,17 @@ class AzureOpenAIAdapter(OpenAIAdapter):
             return []
 
         azure_endpoint = kwargs.get("azure_endpoint", "")
-        api_version = kwargs.get("api_version", DEFAULT_API_VERSION)
 
         if not azure_endpoint:
             return []
 
         try:
-            return _list_azure_deployments(api_key, azure_endpoint, api_version)
+            return _list_azure_deployments(api_key, azure_endpoint)
         except httpx.HTTPStatusError as e:
             logger.exception(
                 "Error listing Azure OpenAI deployments",
                 extra={
                     "azure_endpoint": azure_endpoint,
-                    "api_version": api_version,
                     "status_code": e.response.status_code,
                 },
             )
@@ -145,10 +148,7 @@ class AzureOpenAIAdapter(OpenAIAdapter):
         except Exception:
             logger.exception(
                 "Error listing Azure OpenAI deployments",
-                extra={
-                    "azure_endpoint": azure_endpoint,
-                    "api_version": api_version,
-                },
+                extra={"azure_endpoint": azure_endpoint},
             )
             return []
 
