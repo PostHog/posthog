@@ -104,6 +104,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "next_delivery_date",
             "integration_id",
             "invite_message",
+            "summary_enabled",
+            "summary_prompt_guide",
         ]
         read_only_fields = [
             "id",
@@ -182,6 +184,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             allowed, error = is_url_allowed(target_value)
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
+
+        if attrs.get("summary_enabled"):
+            from posthog.subscription_delivery_rollout import hackathon_subscription_feature
+
+            team = self.context["get_team"]()
+            if not hackathon_subscription_feature(team.id):
+                raise ValidationError({"summary_enabled": ["AI change summaries are not enabled for this project."]})
+
+        prompt_guide = attrs.get("summary_prompt_guide")
+        if prompt_guide and len(prompt_guide) > 500:
+            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
 
         return attrs
 

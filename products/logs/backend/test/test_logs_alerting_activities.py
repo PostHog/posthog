@@ -409,3 +409,68 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         # But notification is suppressed by cooldown
         mock_produce.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "hits_threshold",
+                4,
+                LogsAlertConfiguration.State.NOT_FIRING,
+                LogsAlertConfiguration.State.BROKEN,
+                5,
+                1,
+            ),
+            (
+                "below_threshold",
+                3,
+                LogsAlertConfiguration.State.NOT_FIRING,
+                LogsAlertConfiguration.State.ERRORED,
+                4,
+                0,
+            ),
+            (
+                "already_broken",
+                5,
+                LogsAlertConfiguration.State.BROKEN,
+                LogsAlertConfiguration.State.BROKEN,
+                5,
+                0,
+            ),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_break_on_consecutive_failures(
+        self,
+        _name,
+        initial_failures,
+        initial_state,
+        expected_state,
+        expected_failures,
+        expected_events,
+        mock_produce,
+        mock_query_cls,
+    ):
+        alert = self._make_alert(
+            threshold_count=5,
+            consecutive_failures=initial_failures,
+            state=initial_state,
+        )
+        mock_query_cls.return_value.execute.side_effect = Exception("ClickHouse timeout")
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.state == expected_state
+        assert alert.consecutive_failures == expected_failures
+        auto_disabled_calls = [
+            c
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_auto_disabled"
+        ]
+        assert len(auto_disabled_calls) == expected_events
+        if expected_events:
+            props = auto_disabled_calls[0].kwargs["event"].properties
+            assert props["consecutive_failures"] == expected_failures
+            assert "ClickHouse timeout" in props["last_error_message"]

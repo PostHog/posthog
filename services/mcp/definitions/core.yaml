@@ -602,6 +602,15 @@ tools:
     dashboards-generate-metadata-create:
         operation: dashboards_generate_metadata_create
         enabled: false
+    dashboards-bulk-update-tags-create:
+        operation: dashboards_bulk_update_tags_create
+        enabled: false
+    event-definitions-bulk-update-tags-create:
+        operation: event_definitions_bulk_update_tags_create
+        enabled: false
+    property-definitions-bulk-update-tags-create:
+        operation: property_definitions_bulk_update_tags_create
+        enabled: false
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
         enabled: false
