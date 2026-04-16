@@ -7,7 +7,10 @@ import { humanFriendlyNumber, pluralize } from 'lib/utils'
 
 import { InsightThresholdType } from '~/queries/schema/schema-general'
 
+import type { AlertHistoryChartPoint } from '../alertLogic'
 import type { AlertType } from '../types'
+
+export type { AlertHistoryChartPoint }
 
 Chart.register(annotationPlugin)
 
@@ -111,11 +114,6 @@ function detectSpikesAboveTrend(values: number[], trailingMean: number[]): boole
     })
 }
 
-export interface AlertHistoryChartPoint {
-    value: number
-    label: string
-}
-
 export function AlertHistoryChart({
     points,
     valueLabel,
@@ -146,25 +144,53 @@ export function AlertHistoryChart({
         [alert, chartPlotsAnomalyScore]
     )
 
-    const spikeFlags = useMemo(() => {
+    const hasHistoricalFiringState = useMemo(() => points.some((p) => p.firedAtTime !== undefined), [points])
+
+    /**
+     * Per-point visual state:
+     *   'historical' — check actually fired at the time it ran (recorded on AlertCheck.state)
+     *   'currentOnly' — didn't fire then, but would fire under the *current* thresholds (threshold tightened since)
+     *   'none' — didn't fire then, wouldn't fire now
+     *
+     * When no historical state is present (e.g. Storybook fixtures), falls back to treating the current-threshold
+     * / spike-heuristic match as 'historical' — preserves the pre-existing single-color behaviour for those cases.
+     */
+    const pointClass = useMemo((): ('historical' | 'currentOnly' | 'none')[] => {
         if (values.length === 0) {
             return []
         }
         const upper = thresholdCtx?.upper ?? null
         const lower = thresholdCtx?.lower ?? null
-        if (upper != null && lower != null) {
-            return values.map((v) => v > upper || v < lower)
+        const currentRuleFlag = (v: number): boolean => {
+            if (upper != null && v > upper) {
+                return true
+            }
+            if (lower != null && v < lower) {
+                return true
+            }
+            return false
         }
-        if (upper != null) {
-            return values.map((v) => v > upper)
+        const canReapplyCurrentRule = upper != null || lower != null
+
+        if (hasHistoricalFiringState) {
+            return points.map((p, i) => {
+                if (p.firedAtTime) {
+                    return 'historical'
+                }
+                if (canReapplyCurrentRule && currentRuleFlag(values[i])) {
+                    return 'currentOnly'
+                }
+                return 'none'
+            })
         }
-        if (lower != null) {
-            return values.map((v) => v < lower)
+        if (canReapplyCurrentRule) {
+            return values.map((v) => (currentRuleFlag(v) ? 'historical' : 'none'))
         }
         const window = Math.min(ROLLING_WINDOW, Math.max(2, Math.ceil(values.length / 4)))
         const trailingAvg = rollingMean(values, window)
-        return detectSpikesAboveTrend(values, trailingAvg)
-    }, [values, thresholdCtx])
+        const spikeFlags = detectSpikesAboveTrend(values, trailingAvg)
+        return spikeFlags.map((flag) => (flag ? 'historical' : 'none'))
+    }, [values, points, thresholdCtx, hasHistoricalFiringState])
 
     const thresholdAnnotations = useMemo(() => {
         if (!thresholdCtx) {
@@ -223,12 +249,40 @@ export function AlertHistoryChart({
                         borderWidth: 0,
                         backgroundColor: 'transparent',
                         fill: false,
-                        pointRadius: 4,
-                        pointHoverRadius: 5,
-                        pointBackgroundColor: (ctx) =>
-                            spikeFlags[ctx.dataIndex] ? 'rgba(220, 38, 38, 0.92)' : 'transparent',
-                        pointBorderColor: (ctx) =>
-                            spikeFlags[ctx.dataIndex] ? 'rgba(127, 29, 29, 1)' : 'rgba(99, 102, 241, 0.95)',
+                        pointRadius: (ctx) => (pointClass[ctx.dataIndex] === 'none' ? 4 : 4.5),
+                        pointHoverRadius: (ctx) => (pointClass[ctx.dataIndex] === 'none' ? 5 : 5.5),
+                        // Shape encodes category so it's legible without relying on red/orange alone:
+                        //   historical -> square, currentOnly -> triangle, none -> circle.
+                        pointStyle: (ctx) => {
+                            const cls = pointClass[ctx.dataIndex]
+                            if (cls === 'historical') {
+                                return 'rect'
+                            }
+                            if (cls === 'currentOnly') {
+                                return 'triangle'
+                            }
+                            return 'circle'
+                        },
+                        pointBackgroundColor: (ctx) => {
+                            const cls = pointClass[ctx.dataIndex]
+                            if (cls === 'historical') {
+                                return 'rgba(220, 38, 38, 0.92)'
+                            }
+                            if (cls === 'currentOnly') {
+                                return 'rgba(234, 88, 12, 0.85)'
+                            }
+                            return 'transparent'
+                        },
+                        pointBorderColor: (ctx) => {
+                            const cls = pointClass[ctx.dataIndex]
+                            if (cls === 'historical') {
+                                return 'rgba(127, 29, 29, 1)'
+                            }
+                            if (cls === 'currentOnly') {
+                                return 'rgba(154, 52, 18, 1)'
+                            }
+                            return 'rgba(99, 102, 241, 0.95)'
+                        },
                         pointBorderWidth: 1.75,
                     },
                 ],
@@ -252,11 +306,17 @@ export function AlertHistoryChart({
                                     return ctx.dataset.label ?? ''
                                 }
                                 const formatted = humanFriendlyNumber(y)
-                                const tag = spikeFlags[ctx.dataIndex]
-                                    ? thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
-                                        ? ' (outside threshold)'
-                                        : ' (unusual compared to recent values)'
-                                    : ''
+                                const cls = pointClass[ctx.dataIndex]
+                                let tag = ''
+                                if (cls === 'historical') {
+                                    tag = hasHistoricalFiringState
+                                        ? ' (triggered the alert)'
+                                        : thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
+                                          ? ' (outside threshold)'
+                                          : ' (unusual compared to recent values)'
+                                } else if (cls === 'currentOnly') {
+                                    tag = ' (would trigger the alert now)'
+                                }
                                 return `${valueLabel}: ${formatted}${tag}`
                             },
                         },
@@ -287,10 +347,19 @@ export function AlertHistoryChart({
                 },
             },
         }),
-        deps: [chartSeriesComputeds, valueLabel, thresholdAnnotations, spikeFlags, thresholdCtx],
+        deps: [
+            chartSeriesComputeds,
+            valueLabel,
+            thresholdAnnotations,
+            pointClass,
+            thresholdCtx,
+            hasHistoricalFiringState,
+        ],
     })
 
-    const outsideCount = spikeFlags.filter(Boolean).length
+    const historicalCount = pointClass.filter((c) => c === 'historical').length
+    const currentOnlyCount = pointClass.filter((c) => c === 'currentOnly').length
+    const flaggedCount = historicalCount + currentOnlyCount
 
     const historyCaption = useMemo((): string => {
         const displayedCount = points.length
@@ -313,21 +382,40 @@ export function AlertHistoryChart({
             <div className="h-56 w-full min-h-56">
                 <canvas ref={canvasRef} />
             </div>
-            {outsideCount > 0 ? (
+            {flaggedCount > 0 ? (
                 <p className="text-muted text-xs mb-0">
-                    {thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
-                        ? `${pluralize(outsideCount, 'check')} outside threshold.`
-                        : thresholdCtx?.lineMode === 'anomaly_probability'
-                          ? `${pluralize(outsideCount, 'check')} above the probability cutoff.`
-                          : `${pluralize(outsideCount, 'check')} flagged as unusual compared to recent values.`}
+                    {historicalCount > 0 ? (
+                        hasHistoricalFiringState ? (
+                            `${pluralize(historicalCount, 'check')} triggered the alert.`
+                        ) : thresholdCtx?.lineMode === 'anomaly_probability' ? (
+                            `${pluralize(historicalCount, 'check')} above the probability cutoff.`
+                        ) : thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null) ? (
+                            `${pluralize(historicalCount, 'check')} outside threshold.`
+                        ) : (
+                            `${pluralize(historicalCount, 'check')} flagged as unusual compared to recent values.`
+                        )
+                    ) : (
+                        <>No checks triggered the alert at the time.</>
+                    )}
+                    {currentOnlyCount > 0 ? (
+                        <>
+                            {' '}
+                            {historicalCount > 0
+                                ? `${pluralize(currentOnlyCount, 'other check')} would`
+                                : `${pluralize(currentOnlyCount, 'check')} would`}{' '}
+                            trigger the alert under the current thresholds.
+                        </>
+                    ) : null}
                 </p>
             ) : (
                 <p className="text-muted text-xs mb-0">
-                    {thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
-                        ? 'Each hollow dot is one evaluation; red dots mark checks that triggered the alert.'
+                    {hasHistoricalFiringState
+                        ? 'Each hollow dot is one evaluation. When present, red squares mark checks that triggered the alert at the time they ran.'
                         : thresholdCtx?.lineMode === 'anomaly_probability'
-                          ? 'Each hollow dot is one evaluation; red dots mark checks that triggered the alert above the cutoff.'
-                          : 'Each hollow dot is one evaluation; red dots mark values flagged as unusual compared to recent values.'}{' '}
+                          ? 'Each hollow dot is one evaluation. When present, red squares mark checks that triggered the alert above the cutoff.'
+                          : thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
+                            ? 'Each hollow dot is one evaluation. When present, red squares mark checks that triggered the alert.'
+                            : 'Each hollow dot is one evaluation. When present, red squares mark values flagged as unusual compared to recent values.'}{' '}
                     {thresholdCtx
                         ? chartPlotsAnomalyScore
                             ? 'Dashed lines are your configured alert thresholds (or detector probability cutoff).'
@@ -335,6 +423,12 @@ export function AlertHistoryChart({
                         : 'Threshold lines appear when this alert has explicit bounds or a detector probability threshold.'}
                 </p>
             )}
+            {hasHistoricalFiringState && thresholdCtx && currentOnlyCount > 0 ? (
+                <p className="text-muted text-xs mb-0">
+                    {historicalCount > 0 ? 'Red squares fired at the time they ran. ' : ''}
+                    Orange triangles would fire under the current thresholds but didn't when they ran.
+                </p>
+            ) : null}
         </div>
     )
 }

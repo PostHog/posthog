@@ -172,6 +172,23 @@ function makeHourlyPointsWeekdaysOutsideQuietHours(
     }))
 }
 
+/**
+ * Stamp each point with `firedAtTime` derived from the thresholds that were in effect at evaluation time.
+ * Use this for stories that demonstrate the real historical-firing signal (red dots), independent of
+ * whatever thresholds the story's alert is currently configured with.
+ */
+function withHistoricalFirings(
+    points: AlertHistoryChartPoint[],
+    atTimeBounds: { lower?: number | null; upper?: number | null }
+): AlertHistoryChartPoint[] {
+    const lower = atTimeBounds.lower ?? null
+    const upper = atTimeBounds.upper ?? null
+    return points.map((p) => {
+        const firedAtTime = (upper != null && p.value > upper) || (lower != null && p.value < lower)
+        return { ...p, firedAtTime }
+    })
+}
+
 const meta: Meta<typeof AlertHistoryChart> = {
     title: 'Components/Alerts/Alert history chart',
     component: AlertHistoryChart,
@@ -373,6 +390,27 @@ export const AnomalyProbabilityCutoff: Story = {
             detector_config: { type: 'zscore', threshold: 0.88, window: 30 },
             threshold: {
                 configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} },
+            },
+        }),
+    },
+}
+
+/**
+ * Upper bound tightened, lower bound widened.
+ * Red dots above the upper line fired at the time and still would.
+ * Red dots below the lower line fired at the time but wouldn't under current config (widened).
+ * Orange dots between old and new upper bound would now fire but didn't then (tightened).
+ */
+export const MixedThresholdChange: Story = {
+    args: {
+        ...Default.args,
+        points: withHistoricalFirings(makePoints(30, 11), { lower: 38, upper: 80 }),
+        alert: buildStoryAlert({
+            threshold: {
+                configuration: {
+                    type: InsightThresholdType.ABSOLUTE,
+                    bounds: { lower: 25, upper: 62 },
+                },
             },
         }),
     },

@@ -5,6 +5,8 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils'
 
+import { AlertState } from '~/queries/schema/schema-general'
+
 import type { alertLogicType } from './alertLogicType'
 import type { AlertCheck, AlertType } from './types'
 
@@ -24,6 +26,11 @@ export const DEFAULT_CHECKS_HISTORY_PARAMS: ChecksHistoryParams = {
 export interface AlertHistoryChartPoint {
     value: number
     label: string
+    /**
+     * Whether the check was in a firing state at the time it ran — source of truth for historical firings.
+     * Use this instead of re-applying the alert's current thresholds, which may have changed since the check.
+     */
+    firedAtTime?: boolean
 }
 
 export interface AlertLogicProps {
@@ -64,8 +71,11 @@ export const alertLogic = kea<alertLogicType>([
 
     actions({
         setChecksHistoryParams: (limit: number, offset: number) => ({ limit, offset }),
+        // Low-level reducer setter — updates `alertHistoryView` only. Prefer `selectAlertHistoryView`
+        // from UI code so pagination + checks fetch are reset in the same flow.
         setAlertHistoryView: (view: 'chart' | 'table') => ({ view }),
         setChecksHistoryTablePage: (page: number) => ({ page }),
+        // User-facing action: switches view AND re-issues the right checks fetch for the new view.
         selectAlertHistoryView: (view: 'chart' | 'table') => ({ view }),
         alertHistoryTablePageForward: true,
         alertHistoryTablePageBackward: true,
@@ -153,6 +163,7 @@ export const alertLogic = kea<alertLogicType>([
                     points.push({
                         value,
                         label: formatDate(dayjs(check.created_at), 'MMM D, HH:mm'),
+                        firedAtTime: check.state === AlertState.FIRING,
                     })
                 }
                 return points

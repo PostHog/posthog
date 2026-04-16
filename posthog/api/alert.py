@@ -673,6 +673,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             offset = 0
 
+        # Only pay for COUNT(*) when the client is paginating — non-paginated callers (including the chart path
+        # with only date filters) don't render a "X of Y" total, so they get checks_total=None and skip the scan.
         if raw_offset is not None or raw_limit is not None:
             checks_total = checks_qs.count()
             instance.checks_total = checks_total
