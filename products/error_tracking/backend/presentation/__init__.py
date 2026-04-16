@@ -1,6 +1,9 @@
-from .fingerprints import ErrorTrackingFingerprintSerializer, ErrorTrackingFingerprintViewSet
-from .serializers import ErrorTrackingExternalReferenceIntegrationSerializer, ErrorTrackingExternalReferenceSerializer
-from .views import ErrorTrackingExternalReferenceViewSet
+from .serializers import (
+    ErrorTrackingExternalReferenceIntegrationSerializer,
+    ErrorTrackingExternalReferenceSerializer,
+    ErrorTrackingFingerprintSerializer,
+)
+from .views import ErrorTrackingExternalReferenceViewSet, ErrorTrackingFingerprintViewSet
 
 __all__ = [
     "ErrorTrackingFingerprintSerializer",
