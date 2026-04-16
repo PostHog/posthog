@@ -1,6 +1,7 @@
 import avro from 'avsc'
 
 import { parseJSON } from '../utils/json-parse'
+import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'
 import {
     LogRecord,
     decodeLogRecords,
@@ -537,9 +538,46 @@ describe('log-record-avro', () => {
                 pii_scrub_logs: true,
             })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
-            expect(decoded[0]?.attributes?.message).toBeDefined()
-            expect(decoded[0]?.attributes?.message).not.toContain('b.co')
-            expect(decoded[0]?.attributes?.note).not.toContain('d.co')
+            expect(decoded[0]?.attributes).toEqual({
+                level: encodeAttributeCell('info'),
+                message: encodeAttributeCell(PII_REDACTED),
+                note: encodeAttributeCell(PII_REDACTED),
+            })
+        })
+
+        it('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ meta: { api_key: 'leak-value' }, ok: 'keep' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: true,
+                pii_scrub_logs: true,
+            })
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+            const body = parseJSON(decoded[0]?.body || '{}') as { meta: { api_key: string }; ok: string }
+            expect(body.meta.api_key).toBe(PII_REDACTED)
+            expect(body.ok).toBe('keep')
+            expect(decoded[0]?.attributes).toEqual({
+                'meta.api_key': encodeAttributeCell(PII_REDACTED),
+                ok: encodeAttributeCell('keep'),
+            })
         })
 
         it('rejects promise for invalid AVRO data', async () => {

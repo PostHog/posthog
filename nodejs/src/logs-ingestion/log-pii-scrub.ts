@@ -1,7 +1,8 @@
 /**
  * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Plain text applies Bearer-token,
  * Stripe sk_*-shaped, email, and Luhn-valid 13–19 digit (card-like) patterns. JSON bodies are parsed when possible
- * and scrubbed recursively; opaque bodies get plain rules only. Attribute maps redact the whole value on sensitive
+ * and scrubbed recursively (object keys use the same sensitive-key substrings as attribute maps); opaque bodies get
+ * plain rules only. Attribute maps redact the whole value on sensitive
  * key substrings, otherwise pattern-scrub values. Map values are JSON-string cells (JSON.stringify) so ClickHouse
  * JSONExtractString matches Rust OTLP encoding. Misses: secrets without those shapes, digit runs that fail Luhn,
  * keys outside the sensitive substring list (those values still get plain-text patterns only).
@@ -15,8 +16,8 @@ import type { LogRecord } from './log-record-avro'
 
 export const PII_REDACTED = '{{REDACTED}}'
 
-/** Substrings matched case-insensitively against attribute map keys. */
-const SENSITIVE_KEY_SUBSTRINGS = [
+/** Substrings matched case-insensitively against attribute map keys (exported for tests). */
+export const SENSITIVE_KEY_SUBSTRINGS = [
     'password',
     'secret',
     'token',
@@ -29,7 +30,7 @@ const SENSITIVE_KEY_SUBSTRINGS = [
     'refresh_token',
     'bearer',
     'email',
-]
+] as const
 
 /** RFC 6750-ish token chars (ASCII only); body then optional `=` padding, case-insensitive `Bearer`. */
 const BEARER_HEADER_RE = createTrackedRE2('Bearer\\s+[-A-Za-z0-9._~+/]+=*', 'gi', 'log-pii-scrub:bearer')
@@ -110,7 +111,7 @@ function scrubJsonValue(value: unknown): unknown {
     if (value !== null && typeof value === 'object') {
         const out: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(value)) {
-            out[k] = scrubJsonValue(v)
+            out[k] = isSensitiveAttributeKey(k) ? PII_REDACTED : scrubJsonValue(v)
         }
         return out
     }
