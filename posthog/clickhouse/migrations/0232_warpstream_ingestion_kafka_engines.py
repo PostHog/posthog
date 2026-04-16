@@ -56,7 +56,7 @@ ALTER TABLE writable_events
 
 operations = (
     []
-    if not settings.CLOUD_DEPLOYMENT
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
     else [
         # events_json (INGESTION_EVENTS — WS tables go to events ingestion nodes)
         #
