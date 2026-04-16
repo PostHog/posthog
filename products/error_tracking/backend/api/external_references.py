@@ -3,11 +3,11 @@
 The canonical location is now `products.error_tracking.backend.presentation`.
 """
 
-from products.error_tracking.backend.presentation.serializers import (
+from products.error_tracking.backend.presentation.external_references import (
     ErrorTrackingExternalReferenceIntegrationSerializer,
     ErrorTrackingExternalReferenceSerializer,
+    ErrorTrackingExternalReferenceViewSet,
 )
-from products.error_tracking.backend.presentation.views import ErrorTrackingExternalReferenceViewSet
 
 __all__ = [
     "ErrorTrackingExternalReferenceIntegrationSerializer",
