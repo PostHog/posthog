@@ -486,7 +486,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
-    dashboard.description = template.dashboard_description
+    dashboard.description = template.dashboard_description or ""
     for template_tag in template.tags or []:
         tag, _ = Tag.objects.get_or_create(
             name=template_tag,
@@ -496,7 +496,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
-    for template_tile in template.tiles:
+    for template_tile in template.tiles or []:
         if template_tile["type"] == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(

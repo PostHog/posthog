@@ -416,13 +416,17 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):

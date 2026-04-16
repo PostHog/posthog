@@ -141,7 +141,7 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
 
         init_args[key] = _deserialize(value, cls_fields[key])
 
-    return cls(**init_args)  # type: ignore
+    return cls(**init_args)
 
 
 def map_virtual_properties(e: ast.Expr):
