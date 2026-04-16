@@ -301,6 +301,10 @@ jobs:
         permissions:
             id-token: write
         steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .nvmrc
+                  sparse-checkout-cone-mode: false
             - name: Fetch npm packages
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -309,7 +313,7 @@ jobs:
                   merge-multiple: true
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24
+                  node-version-file: .nvmrc
                   registry-url: 'https://registry.npmjs.org'
             - name: Ensure modern npm (OIDC support)
               run: npm install -g npm@11.6.4

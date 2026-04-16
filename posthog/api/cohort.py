@@ -4,7 +4,6 @@ import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
-from datetime import datetime
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -32,7 +31,6 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -59,7 +57,11 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
-from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
+from posthog.models.cohort.util import (
+    cohort_filters_have_values,
+    get_all_cohort_dependencies,
+    get_friendly_error_message,
+)
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -69,7 +71,6 @@ from posthog.models.feature_flag.flag_matching import (
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
@@ -536,7 +537,11 @@ class CohortSerializer(serializers.ModelSerializer):
         validated_data: dict,
         person_ids: list[str] | None,
     ) -> None:
-        from posthog.tasks.calculate_cohort import insert_cohort_from_feature_flag, insert_cohort_from_query
+        from posthog.tasks.calculate_cohort import (
+            insert_cohort_from_feature_flag,
+            insert_cohort_from_filters,
+            insert_cohort_from_query,
+        )
 
         request = self.context["request"]
         if request.FILES.get("csv") or person_ids:
@@ -549,21 +554,24 @@ class CohortSerializer(serializers.ModelSerializer):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+        elif cohort_filters_have_values(validated_data.get("filters")):
+            insert_cohort_from_filters.delay(cohort.pk, self.context["team_id"])
         elif person_ids is not None:
             # Empty list explicitly provided (e.g. MCP creating an empty static cohort to add persons later)
             cohort.insert_users_list_by_uuid([], team_id=self.context["team_id"])
         else:
             raise ValidationError(
-                "Invalid source for static cohort. Requires a csv, feature flag, existing cohort or query."
+                "Invalid source for static cohort. Requires criteria, a csv, feature flag, existing cohort or query."
             )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
+        has_filter_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
-        if validated_data.get("query") and validated_data.get("filters"):
+        if validated_data.get("query") and has_filter_criteria:
             raise ValidationError("Cannot set both query and filters at the same time.")
 
         # Process bytecode for filters if present. Static cohorts define
@@ -587,6 +595,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 self.context.get("from_cohort_id")
                 or self.context.get("from_feature_flag_key")
                 or validated_data.get("query")
+                or has_filter_criteria
             ):
                 cohort.is_calculating = True
                 cohort.save(update_fields=["is_calculating"])
@@ -808,8 +817,8 @@ class CohortSerializer(serializers.ModelSerializer):
         2. domain rules (feature-flag gotchas) → bespoke fn
         3. bytecode generation → add bytecode fields to filters
         """
-        # Skip validation for static cohorts
-        if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
+        is_static = self.initial_data.get("is_static") or getattr(self.instance, "is_static", False)
+        if is_static and not cohort_filters_have_values(raw):
             return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
@@ -892,6 +901,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        existing_has_criteria = cohort_filters_have_values(cohort.filters)
+        filters_changed = "filters" in validated_data and validated_data.get("filters") != cohort.filters
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
@@ -922,6 +933,12 @@ class CohortSerializer(serializers.ModelSerializer):
                 cohort.filters = filters
 
         deleted_state = validated_data.get("deleted", None)
+
+        incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
+        if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):
+            raise ValidationError(
+                "Editing the criteria of a static cohort is not supported yet. Create a new static cohort instead."
+            )
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
@@ -1051,7 +1068,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
             elif cohort.is_static and validated_data.get("query"):
                 insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
-            else:
+            elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(
@@ -1498,67 +1515,6 @@ def will_create_loops(cohort: Cohort) -> bool:
         return False
 
     return dfs_loop_helper(cohort, set(), set())
-
-
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
-    from posthog.helpers.batch_iterators import CursorBatchIterator
-
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-
-    CH_PAGE_SIZE = 10_000
-
-    # Use cursor-based pagination to stream from ClickHouse in pages instead of
-    # loading all rows into memory at once. The old approach fetched every row into
-    # a Python list, which OOM'd for large cohorts (1M+ people).
-    # Cursor-based avoids the O(n²) cost of LIMIT/OFFSET where later pages must
-    # scan and discard all preceding rows.
-    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        rows = sync_execute(
-            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
-            {
-                "cohort_id": cohort.pk,
-                "team_id": team_id,
-                "cursor": cursor,
-                "limit": batch_size,
-            },
-        )
-        if not rows:
-            return [], cursor
-        items = [str(r[0]) for r in rows]
-        return items, items[-1]
-
-    batch_iterator = CursorBatchIterator(
-        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
-    )
-    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
-
-
-def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
-    query = print_cohort_hogql_query(cohort, context, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
-
-
-def insert_actors_into_cohort_by_query(
-    cohort: Cohort,
-    query: str,
-    params: dict[str, Any],
-    context: HogQLContext,
-    *,
-    team_id: int,
-):
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-    sync_execute(
-        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
-        {
-            "cohort_id": cohort.pk,
-            "_timestamp": datetime.now(),
-            "team_id": team_id,
-            **context.values,
-            **params,
-        },
-    )
 
 
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
