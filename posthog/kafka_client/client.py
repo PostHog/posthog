@@ -439,7 +439,7 @@ class ClickhouseProducer:
     can target the cluster mapped in TOPIC_ROUTING.
     """
 
-    def produce(self, sql: str, topic: str, data: dict[str, Any], sync: bool = True):
+    def produce(self, sql: str, topic: str, data: dict[str, Any]):
         if settings.TEST:
             sync_execute(sql, data)
             return

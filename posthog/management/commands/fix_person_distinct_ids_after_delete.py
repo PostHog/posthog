@@ -28,7 +28,7 @@ class Command(BaseCommand):
         run(options)
 
 
-def run(options, sync: bool = False):
+def run(options):
     if not options["team_id"]:
         logger.error("You must specify --team-id to run this script")
         exit(1)
