@@ -7,7 +7,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { colonDelimitedDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -31,7 +31,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
     }
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setSidebarOpen } = useActions(playerSettingsLogic)
+    const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { sessionSummary } = useValues(playerMetaLogic(logicProps))
     // Scrolling to a bit before the moment to better notice it
@@ -43,13 +43,13 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
     useEffect(() => {
-        if (isOpen && sessionPlayerData) {
-            setSidebarOpen(true)
+        if (isOpen && sessionPlayerData && sessionRecordingId) {
+            setSummaryOpen(sessionRecordingId, true)
             if (!sessionSummary) {
                 summarizeSession()
             }
         }
-    }, [isOpen, sessionPlayerData, sessionSummary, setSidebarOpen, summarizeSession])
+    }, [isOpen, sessionPlayerData, sessionSummary, sessionRecordingId, setSummaryOpen, summarizeSession])
     // Handle conditional rendering after all hooks
     if (!event || !event.target_event) {
         return <></>
