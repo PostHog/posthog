@@ -50,7 +50,7 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
 jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -86,24 +86,6 @@ jobs:
               with:
                   list-files: 'escape'
                   filters: "backend:\n  # Avoid running backend tests for irrelevant changes\n  # NOTE: we are at risk of missing a dependency here. We could make\n  # the dependencies more clear if we separated the backend/frontend\n  # code completely\n  # really we should ignore ee/frontend/** but dorny doesn't support that\n  # - '!ee/frontend/**'\n  # including the negated rule appears to work\n  # but makes it always match because the checked file always isn't `ee/frontend/**` \U0001F648\n  - 'ee/**/*'\n  - 'common/__init__.py'\n  - 'common/hogli/**'\n  - 'common/hogql_parser/**'\n  - 'common/hogvm/**'\n  - 'common/ingestion/**'\n  - 'common/migration_utils/**'\n  - 'common/plugin_transpiler/**'\n  - 'posthog/**/*'\n  - 'products/**/backend/**/*'\n  - bin/build-schema-latest-versions.py\n  - bin/build-taxonomy-json.py\n  - bin/check_uv_python_compatibility.py\n  - bin/find_python_dependencies.py\n  - bin/granian_metrics.py\n  - bin/ty.py\n  - bin/unit_metrics.py\n  - pyproject.toml\n  - uv.lock\n  - requirements.txt\n  - requirements-dev.txt\n  - mypy.ini\n  - pytest.ini\n  - .test_durations # Used for pytest-split sharding\n  # generates posthog/schema.py\n  - frontend/src/queries/schema.json\n  # Operator parity check\n  - rust/feature-flags/src/properties/property_models.rs\n  - frontend/src/products.json # Loaded at runtime by posthog/products.py\n  - 'products/*/manifest.tsx' # Generates products.json\n  # Make sure we run if someone is explicitly changing the workflow\n  - .depot/workflows/ci-backend.yml\n  - .github/clickhouse-versions.json\n  # We use docker compose for tests, make sure we rerun on\n  # changes to docker-compose.dev.yml e.g. dependency\n  # version changes\n  - docker-compose.dev.yml\n  - docker-compose.profiles.yml\n  - docker-compose.base.yml\n  - bin/wait-for-docker\n  - bin/ci-wait-for-docker\n  - frontend/public/email/*\n  - 'docker/clickhouse/**'\nlegacy:\n  # Non-product backend code — when only products/ change,\n  # turbo-discover diffs backend:test vs backend:contract-check\n  # to detect isolated products and decide whether Django runs.\n  # Everything from backend: EXCEPT products/**/backend/**/*\n  - 'ee/**/*'\n  - 'common/__init__.py'\n  - 'common/hogli/**'\n  - 'common/hogql_parser/**'\n  - 'common/hogvm/**'\n  - 'common/ingestion/**'\n  - 'common/migration_utils/**'\n  - 'common/plugin_transpiler/**'\n  - 'posthog/**/*'\n  - bin/build-schema-latest-versions.py\n  - bin/build-taxonomy-json.py\n  - bin/check_uv_python_compatibility.py\n  - bin/find_python_dependencies.py\n  - bin/granian_metrics.py\n  - bin/ty.py\n  - bin/unit_metrics.py\n  - pyproject.toml\n  - uv.lock\n  - requirements.txt\n  - requirements-dev.txt\n  - mypy.ini\n  - pytest.ini\n  - .test_durations\n  - frontend/src/queries/schema.json\n  - frontend/src/products.json\n  - 'products/*/manifest.tsx'\n  - rust/feature-flags/src/properties/property_models.rs\n  - .depot/workflows/ci-backend.yml\n  - .github/clickhouse-versions.json\n  - docker-compose.dev.yml\n  - docker-compose.profiles.yml\n  - docker-compose.base.yml\n  - bin/wait-for-docker\n  - bin/ci-wait-for-docker\n  - frontend/public/email/*\n  - 'docker/clickhouse/**'\nmigrations:\n  - 'docker/clickhouse/**'\n  - 'posthog/migrations/*.py'\n  - 'products/*/backend/migrations/*.py'\n  - 'products/*/migrations/*.py'  # Legacy structure\n  - 'rust/persons_migrations/*.sql'\n  - 'rust/bin/migrate-persons'\ntasks_temporal:\n  - 'products/tasks/backend/temporal/**/*'\nllm_gateway:\n  - 'services/llm-gateway/**/*'\nopenapi_types:\n  # Generated OpenAPI types - validate they match schema\n  - 'frontend/src/generated/**/*'\n  - 'products/*/frontend/generated/**/*'\n  - 'services/mcp/src/generated/**/*'\n  - 'services/mcp/src/api/generated.ts'\n  # Generation tooling - changes here could affect output\n  - 'tools/openapi-codegen/**/*'\n  - 'services/mcp/scripts/lib/**'\n  - 'frontend/bin/generate-openapi-types.mjs'\n  - 'frontend/src/lib/api-orval-mutator.ts'\n  - 'services/mcp/scripts/**/*'\n  - 'services/mcp/definitions/**/*.yaml'\n  - 'products/*/mcp/**/*.yaml'\n  - 'services/mcp/src/tools/generated/**/*'\n  - 'services/mcp/schema/generated-tool-definitions.json'\n  - 'services/mcp/schema/tool-definitions-all.json'\n"
-    detect-snapshot-mode:
-        name: Detect snapshot mode
-        runs-on: depot-ubuntu-latest
-        timeout-minutes: 5
-        needs: [changes]
-        continue-on-error: true
-        if: needs.changes.outputs.backend == 'true'
-        outputs:
-            mode: ${{ steps.detect.outputs.mode }}
-        steps:
-            - name: Detect mode
-              id: detect
-              env:
-                  PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-                  REPO: ${{ github.repository }}
-                  HAS_NO_SNAPSHOT_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}
-                  AUTHOR: ${{ github.actor }}
-              run: "if [ \"$PR_REPO\" != \"$REPO\" ] && [ -n \"$PR_REPO\" ]; then\n  echo \"mode=check\" >> $GITHUB_OUTPUT\n  echo \"Fork detected - running in CHECK mode (no commits allowed)\"\nelif [ \"$HAS_NO_SNAPSHOT_LABEL\" == \"true\" ]; then\n  echo \"mode=check\" >> $GITHUB_OUTPUT\n  echo \"::notice::\U0001F50D Running in CHECK mode - 'no-snapshot-update' label detected\"\nelse\n  echo \"Workflow triggered by: $AUTHOR\"\n  # Dependabot is excluded - it creates new PRs that may need snapshot updates\n  # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops\n  if [[ \"$AUTHOR\" != \"dependabot[bot]\" ]] && \\\n     ([[ \"$AUTHOR\" == *\"github-actions\"* ]] || [[ \"$AUTHOR\" == *\"[bot]\"* ]] || [[ \"$AUTHOR\" == \"posthog-bot\" ]]); then\n    echo \"mode=check\" >> $GITHUB_OUTPUT\n    echo \"::notice::\U0001F50D Running in CHECK mode - snapshots must match exactly\"\n  else\n    echo \"mode=update\" >> $GITHUB_OUTPUT\n    echo \"::notice::\U0001F504 Running in UPDATE mode - snapshots can be updated\"\n  fi\nfi\n"
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
     # Runs on depot for turbo remote cache access (cache status drives Django gating)
@@ -152,7 +134,7 @@ jobs:
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode]
+        needs: [changes, turbo-discover]
         if: >-
             always() && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
@@ -249,9 +231,7 @@ jobs:
               env:
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
-                  # On master, also collect timing data for pytest-split sharding.
-                  PYTEST_ADDOPTS: >-
-                      --reuse-db ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }} ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
+                  PYTEST_ADDOPTS: --reuse-db
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
@@ -524,7 +504,7 @@ jobs:
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include")"
     django:
-        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
+        needs: [changes, turbo-discover, get_clickhouse_versions, build_django_matrix]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -685,23 +665,6 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
-            - name: Determine if --snapshot-update should be on
-              # UPDATE mode: human commits - update snapshots
-              # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
-              # persons-on-events: always update (we ignore snapshot divergence there)
-              if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
-              shell: bash
-              # --snapshot-warn-unused: pytest-split shards individual tests across
-              # runners, so each shard only exercises a subset of snapshots per file.
-              # Without this flag, --snapshot-update deletes "unused" snapshots that
-              # belong to other shards, causing cross-shard data loss.
-              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
-            - name: Add snapshot flags for compat subset runs
-              # Compat runs a subset and doesn't own snapshots (main Django rows do).
-              # Warn on unused snapshots to avoid version-specific false negatives.
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.compat }}
-              shell: bash
-              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
             # Tests
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -748,12 +711,11 @@ jobs:
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=1000 --durations-min=1.0 --store-durations \
+                      --durations=1000 --durations-min=1.0 \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
-                      --junitxml=junit-core.xml \
-                      $PYTEST_ARGS
+                      --junitxml=junit-core.xml
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
@@ -799,12 +761,11 @@ jobs:
                   set +e
                   pytest -v --tb=short --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=100 --durations-min=1.0 --store-durations \
+                      --durations=100 --durations-min=1.0 \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
-                      --junitxml=junit-temporal.xml \
-                      $PYTEST_ARGS
+                      --junitxml=junit-temporal.xml
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then

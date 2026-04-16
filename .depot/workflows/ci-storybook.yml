@@ -19,7 +19,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
 jobs:
     # Job to decide if we should run storybook ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -31,7 +31,6 @@ jobs:
         continue-on-error: true
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            mode: ${{ steps.detect.outputs.mode }}
         steps:
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -48,11 +47,6 @@ jobs:
                         - 'package.json'
                         - '.depot/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
-            - name: Detect snapshot mode
-              id: detect
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: "if [ \"${{ github.event.pull_request.head.repo.full_name }}\" != \"${{ github.repository }}\" ]; then\n  echo \"mode=check\" >> $GITHUB_OUTPUT\n  echo \"Fork detected - running in CHECK mode (no commits allowed)\"\nelif [ -n \"${{ github.event.pull_request.number }}\" ] && gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name' | grep -q '^update-snapshots$'; then\n  echo \"mode=update\" >> $GITHUB_OUTPUT\n  echo \"::notice::\U0001F504 Running in UPDATE mode - 'update-snapshots' label detected\"\nelse\n  AUTHOR=\"${{ github.actor }}\"\n  echo \"Workflow triggered by: $AUTHOR\"\n\n  # Trusted bots that are allowed to run in update mode\n  # Add bot usernames here to allow snapshot auto-updates on their PRs\n  TRUSTED_BOTS=(\"mendral-app[bot]\" \"cursor[bot]\")\n\n  IS_TRUSTED=false\n  for bot in \"${TRUSTED_BOTS[@]}\"; do\n    if [[ \"$AUTHOR\" == \"$bot\" ]]; then\n      IS_TRUSTED=true\n      break\n    fi\n  done\n\n  if [[ \"$IS_TRUSTED\" == \"true\" ]]; then\n    echo \"mode=update\" >> $GITHUB_OUTPUT\n    echo \"::notice::\U0001F504 Trusted bot '$AUTHOR' - running in UPDATE mode\"\n  else\n    echo \"mode=check\" >> $GITHUB_OUTPUT\n    echo \"::notice::\U0001F50D Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates\"\n  fi\nfi\n"
     build-storybook:
         name: Build Storybook
         runs-on: depot-ubuntu-latest

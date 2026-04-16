@@ -19,7 +19,7 @@ on:
             - master
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
@@ -77,7 +77,6 @@ jobs:
         outputs:
             shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
-            mode: ${{ steps.detect.outputs.mode }}
         steps:
             # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
@@ -123,11 +122,6 @@ jobs:
                     exit 1
                   fi
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
-            - name: Detect snapshot mode
-              id: detect
-              env:
-                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
-              run: "if [ \"${{ github.event.pull_request.head.repo.full_name }}\" != \"${{ github.repository }}\" ]; then\n  echo \"mode=check\" >> $GITHUB_OUTPUT\n  echo \"Fork detected - running in CHECK mode (no commits allowed)\"\nelif [ \"$HAS_UPDATE_LABEL\" == \"true\" ]; then\n  echo \"mode=update\" >> $GITHUB_OUTPUT\n  echo \"::notice::\U0001F504 Running in UPDATE mode - 'update-snapshots' label detected\"\nelse\n  AUTHOR=\"${{ github.actor }}\"\n  echo \"Workflow triggered by: $AUTHOR\"\n\n  # Trusted bots that are allowed to run in update mode\n  # Add bot usernames here to allow snapshot auto-updates on their PRs\n  TRUSTED_BOTS=(\"mendral-app[bot]\")\n\n  IS_TRUSTED=false\n  for bot in \"${TRUSTED_BOTS[@]}\"; do\n    if [[ \"$AUTHOR\" == \"$bot\" ]]; then\n      IS_TRUSTED=true\n      break\n    fi\n  done\n\n  if [[ \"$IS_TRUSTED\" == \"true\" ]]; then\n    echo \"mode=update\" >> $GITHUB_OUTPUT\n    echo \"::notice::\U0001F504 Trusted bot '$AUTHOR' - running in UPDATE mode\"\n  else\n    echo \"mode=check\" >> $GITHUB_OUTPUT\n    echo \"::notice::\U0001F50D Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates\"\n  fi\nfi\n"
     playwright:
         name: Playwright E2E tests
         needs: [changes]
@@ -372,47 +366,8 @@ jobs:
               id: playwright-tests
               shell: bash
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
-              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
-              run: |
-                  set +e  # Allow snapshot update retry
-                  # Attempt 1: Always verify (fast path when snapshots match)
-                  # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
-                  # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  echo "Attempt 1: Running Playwright tests"
-                  set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 2>&1 | tee /tmp/playwright-output-attempt-1.log
-                  EXIT_CODE=$?
-                  set +o pipefail
-
-                  if [ $EXIT_CODE -ne 0 ]; then
-                    # Check if we should retry with snapshot update
-                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
-                    # Use case-insensitive match to catch variations like "Snapshot does not exist"
-                    if [ "${{ needs.changes.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
-                      echo "Screenshot-related failure detected - retrying with --update-snapshots"
-
-                      # Preserve attempt 1 artifacts
-                      echo "Preserving attempt 1 artifacts..."
-                      mkdir -p playwright/test-results-attempt-1 playwright/playwright-report-attempt-1
-                      cp -r playwright/test-results/* playwright/test-results-attempt-1/ 2>/dev/null || true
-                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
-
-                      # Attempt 2: Update snapshots
-                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
-                      set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
-                      EXIT_CODE=$?
-                      set +o pipefail
-
-                      if [ $EXIT_CODE -ne 0 ]; then
-                        echo "Playwright tests failed after 2 attempts"
-                        exit 1
-                      fi
-                    else
-                      echo "Non-screenshot failure - not retrying (Playwright already retried failed tests 3x)"
-                      exit 1
-                    fi
-                  fi
+              # Shadow trial: pure check mode — no --update-snapshots retry, no snapshot mutations.
+              run: pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5
             - name: Verify changed Playwright tests are stable
               if: success() && github.event_name == 'pull_request'
               shell: bash
