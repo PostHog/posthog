@@ -332,7 +332,7 @@ function DateTimeInput({ date, onChange, dateFormat }: DateTimeInputProps): Reac
             value={year}
             onValueChange={set(setYear)}
             min={0}
-            max={99}
+            max={new Date().getFullYear() % 100}
             format={PAD_2}
             className={segmentClass}
         />

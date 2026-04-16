@@ -1,13 +1,24 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { subDays } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import { Clock } from 'lucide-react'
 import * as React from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
+import { CUSTOM_RANGE } from './date-time-ranges'
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'
+
+function formatTriggerLabel(value: DateTimeValue): string {
+    if (value.range.id !== CUSTOM_RANGE.id) {
+        return value.range.name
+    }
+    const startStr = format(value.start, 'MMM do HH:mm')
+    const diffMs = Math.abs(new Date().getTime() - value.end.getTime())
+    const endStr = diffMs < 60_000 ? 'now' : format(value.end, 'MMM do HH:mm')
+    return `${startStr} to ${endStr}`
+}
 
 const meta = {
     title: 'Components/DateTimePicker',
@@ -48,7 +59,7 @@ export const InPopover: Story = {
                     render={
                         <Button variant="outline" size="sm">
                             <Clock />
-                            {value.range.name}
+                            {formatTriggerLabel(value)}
                         </Button>
                     }
                 />
