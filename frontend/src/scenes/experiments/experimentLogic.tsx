@@ -19,10 +19,8 @@ import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
-    indexToVariantKeyFeatureFlagPayloads,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
-    variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -620,7 +618,7 @@ export const experimentLogic = kea<experimentLogicType>([
             teamLogic,
             ['addProductIntent'],
             featureFlagsLogic,
-            ['updateFlag'],
+            ['updateFlagFromPartial'],
             modalsLogic,
             [
                 'openPrimaryMetricModal',
@@ -795,7 +793,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        updateDistribution: (variants: MultivariateFlagVariant[]) => ({ variants }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
@@ -1707,6 +1705,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
+            if (payload?.update_feature_flag_params && experiment.feature_flag) {
+                actions.updateFlagFromPartial(experiment.feature_flag)
+            }
             if (isLaunched(experiment)) {
                 // For launched experiments, refresh results if any of these fields are updated
                 const forceRefresh =
@@ -1787,22 +1788,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistribution: async ({ featureFlag }) => {
-            const { created_at, id, ...flag } = featureFlag
-
-            const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
-
-            const savedFlag = await api.update(
-                `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                preparedFlag
-            )
-
-            const updatedFlag = variantKeyToIndexFeatureFlagPayloads(savedFlag)
-            actions.updateFlag(updatedFlag)
-
+        updateDistribution: async ({ variants }) => {
+            // Not sending rollout_percentage as it's non-editable in the modal
+            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
+                parameters: {
+                    ...otherParams,
+                    feature_flag_variants: variants,
+                },
                 holdout_id: values.experiment.holdout_id,
-                update_feature_flag_params: false,
+                update_feature_flag_params: true,
             })
         },
         addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
