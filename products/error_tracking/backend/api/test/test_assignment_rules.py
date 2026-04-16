@@ -1,6 +1,6 @@
-from rest_framework import status
-
 from posthog.test.base import APIBaseTest
+
+from rest_framework import status
 
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 
@@ -76,3 +76,29 @@ class TestAssignmentRuleAPI(APIBaseTest):
             "detail": "This field is required.",
             "attr": "assignee",
         }
+
+    def test_create_rejects_non_object_filters(self) -> None:
+        for invalid_filters in ([], 42, "string"):
+            response = self.client.post(
+                self._url(),
+                data={"filters": invalid_filters, "assignee": {"type": "user", "id": self.user.id}},
+                format="json",
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, invalid_filters
+            body = response.json()
+            assert body["type"] == "validation_error"
+            assert body["attr"] == "filters"
+
+    def test_create_rejects_invalid_filters_shape_without_leaking_exception(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": {"not": "a valid property group"}, "assignee": {"type": "user", "id": self.user.id}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
+        assert body["detail"] == "Invalid filters payload."
