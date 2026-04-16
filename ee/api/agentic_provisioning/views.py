@@ -503,6 +503,7 @@ def _handle_new_user(
                 scopes,
                 partner_account_id,
                 region,
+                None,
                 partner,
                 code_challenge,
                 code_challenge_method,
