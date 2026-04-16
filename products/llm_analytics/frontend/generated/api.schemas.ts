@@ -8,6 +8,36 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `active` - Active
+ * `paused` - Paused
+ * `error` - Error
+ */
+export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
+
+export const EvaluationStatusEnumApi = {
+    Active: 'active',
+    Paused: 'paused',
+    Error: 'error',
+} as const
+
+/**
+ * * `trial_limit_reached` - Trial evaluation limit reached
+ * `model_not_allowed` - Model not available on the trial plan
+ * `provider_key_deleted` - Provider API key was deleted
+ */
+export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+
+export const StatusReasonEnumApi = {
+    TrialLimitReached: 'trial_limit_reached',
+    ModelNotAllowed: 'model_not_allowed',
+    ProviderKeyDeleted: 'provider_key_deleted',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
  */
@@ -34,9 +64,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
+export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
 
-export const ProviderEnumApi = {
+export const Provider519EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -48,7 +78,7 @@ export const ProviderEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: ProviderEnumApi
+    provider: Provider519EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -86,10 +116,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -122,6 +148,8 @@ export interface EvaluationApi {
     name: string
     description?: string
     enabled?: boolean
+    readonly status: EvaluationStatusEnumApi
+    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
     evaluation_type: EvaluationTypeEnumApi
     evaluation_config?: unknown
     output_type: OutputTypeEnumApi
@@ -396,7 +424,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: ProviderEnumApi
+    provider: Provider519EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -422,7 +450,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: ProviderEnumApi
+    provider?: Provider519EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi

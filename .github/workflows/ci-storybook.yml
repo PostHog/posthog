@@ -776,3 +776,13 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Visual regression tests pass'
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Visual regression tests pass'

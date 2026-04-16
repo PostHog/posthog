@@ -25,11 +25,12 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { ActivityScope } from '~/types'
 
+import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
-    ActivityScope,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -59,6 +60,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
+    Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
+    DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
+    DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -132,6 +136,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/data-management/sources': ['Sources', 'sources'],
+    '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
+    '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -209,6 +216,8 @@ export const productRedirects: Record<
     '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) =>
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-analytics/settings': (_params, searchParams) =>
@@ -308,6 +317,37 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
         description: 'Write and execute SQL queries against your data warehouse',
+    },
+    Sources: {
+        projectBased: true,
+        name: 'Sources',
+        description:
+            'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/data-warehouse',
+        iconType: 'data_pipeline',
+    },
+    DataWarehouseSource: { projectBased: true, name: 'Data warehouse source', defaultDocsPath: '/docs/cdp/sources' },
+    DataWarehouseSourceNew: {
+        projectBased: true,
+        name: 'New data warehouse source',
+        defaultDocsPath: async () => {
+            try {
+                const { sourceWizardLogic } =
+                    await import('products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic')
+                const logic = sourceWizardLogic.findMounted()
+                if (logic) {
+                    const { selectedConnector } = logic.values
+                    if (selectedConnector?.docsUrl) {
+                        const parsedUrl = new URL(selectedConnector.docsUrl)
+                        return parsedUrl.pathname
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get default docs path for new data warehouse source', error)
+            }
+            return '/docs/cdp/sources'
+        },
     },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -587,6 +627,31 @@ export const productUrls = {
     dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
     models: (): string => '/models',
     nodeDetail: (id: string): string => `/models/${id}`,
+    sources: (): string => '/data-management/sources',
+    dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
+        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (
+        kind?: string,
+        returnUrl?: string,
+        returnLabel?: string,
+        accessMethod?: 'warehouse' | 'direct'
+    ): string => {
+        const params = new URLSearchParams()
+        if (kind) {
+            params.set('kind', kind)
+        }
+        if (returnUrl) {
+            params.set('returnUrl', returnUrl)
+        }
+        if (returnLabel) {
+            params.set('returnLabel', returnLabel)
+        }
+        if (accessMethod) {
+            params.set('access_method', accessMethod)
+        }
+        const queryString = params.toString()
+        return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
+    },
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1242,7 +1307,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataOps',
-        sceneKeys: ['DataOps', 'Models', 'NodeDetail', 'SQLEditor'],
+        sceneKeys: [
+            'DataOps',
+            'Models',
+            'NodeDetail',
+            'SQLEditor',
+            'Sources',
+            'DataWarehouseSource',
+            'DataWarehouseSourceNew',
+        ],
     },
     {
         path: 'Datasets',
@@ -1785,7 +1858,15 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataOps', 'Models', 'NodeDetail', 'SQLEditor'],
+        sceneKeys: [
+            'DataOps',
+            'Models',
+            'NodeDetail',
+            'SQLEditor',
+            'Sources',
+            'DataWarehouseSource',
+            'DataWarehouseSourceNew',
+        ],
     },
     {
         path: 'Models',

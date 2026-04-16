@@ -6,9 +6,10 @@ import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { isManagedSourceTemplate } from 'scenes/data-warehouse/utils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'

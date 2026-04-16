@@ -18,6 +18,7 @@ import {
     RolesRoleMembershipsListParams,
     RolesRoleMembershipsListQueryParams,
 } from '@/generated/platform_features/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ChangeRequestsListSchema = ChangeRequestsListQueryParams
@@ -161,9 +162,14 @@ const commentCount = (): ToolBase<typeof CommentCountSchema, unknown> => ({
     },
 })
 
-const ActivityLogListSchema = ActivityLogListQueryParams
+const ActivityLogListSchema = ActivityLogListQueryParams.extend({
+    page_size: ActivityLogListQueryParams.shape['page_size'].default(10).optional(),
+})
 
-const activityLogList = (): ToolBase<typeof ActivityLogListSchema, Schemas.PaginatedActivityLogList> => ({
+const activityLogList = (): ToolBase<
+    typeof ActivityLogListSchema,
+    WithPostHogUrl<Schemas.PaginatedActivityLogList>
+> => ({
     name: 'activity-log-list',
     schema: ActivityLogListSchema,
     handler: async (context: Context, params: z.infer<typeof ActivityLogListSchema>) => {
@@ -180,15 +186,36 @@ const activityLogList = (): ToolBase<typeof ActivityLogListSchema, Schemas.Pagin
                 user: params.user,
             },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'created_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/activity')
     },
 })
 
-const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams
+const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
+    page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
+})
 
 const advancedActivityLogsList = (): ToolBase<
     typeof AdvancedActivityLogsListSchema,
-    Schemas.PaginatedActivityLogList
+    WithPostHogUrl<Schemas.PaginatedActivityLogList>
 > => ({
     name: 'advanced-activity-logs-list',
     schema: AdvancedActivityLogsListSchema,
@@ -204,6 +231,8 @@ const advancedActivityLogsList = (): ToolBase<
                 hogql_filter: params.hogql_filter,
                 is_system: params.is_system,
                 item_ids: params.item_ids,
+                page: params.page,
+                page_size: params.page_size,
                 scopes: params.scopes,
                 search_text: params.search_text,
                 start_date: params.start_date,
@@ -211,7 +240,27 @@ const advancedActivityLogsList = (): ToolBase<
                 was_impersonated: params.was_impersonated,
             },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'detail.changes',
+                    'created_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/activity')
     },
 })
 
