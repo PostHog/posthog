@@ -74,51 +74,6 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
-    list-2:
-        operation: list_2
-        enabled: false
-    create-2:
-        operation: create_2
-        enabled: false
-    retrieve-2:
-        operation: retrieve_2
-        enabled: false
-    update-2:
-        operation: update_2
-        enabled: false
-    partial-update-2:
-        operation: partial_update_2
-        enabled: false
-    destroy-2:
-        operation: destroy_2
-        enabled: false
-    activity-retrieve:
-        operation: activity_retrieve
-        enabled: false
-    add-product-intent-partial-update:
-        operation: add_product_intent_partial_update
-        enabled: false
-    change-organization-create:
-        operation: change_organization_create
-        enabled: false
-    complete-product-onboarding-partial-update:
-        operation: complete_product_onboarding_partial_update
-        enabled: false
-    delete-secret-token-backup-partial-update:
-        operation: delete_secret_token_backup_partial_update
-        enabled: false
-    generate-conversations-public-token-create:
-        operation: generate_conversations_public_token_create
-        enabled: false
-    is-generating-demo-data-retrieve:
-        operation: is_generating_demo_data_retrieve
-        enabled: false
-    reset-token-partial-update:
-        operation: reset_token_partial_update
-        enabled: false
-    rotate-secret-token-partial-update:
-        operation: rotate_secret_token_partial_update
-        enabled: false
     roles-list:
         operation: roles_list
         enabled: false
@@ -452,10 +407,9 @@ tools:
         list: true
         title: List subscriptions
         description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook
-            deliveries of insight or dashboard snapshots. Each subscription includes its
-            schedule (frequency, interval, byweekday), next_delivery_date, and a
-            human-readable summary.
+            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
+            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
+            next_delivery_date, and a human-readable summary.
     subscriptions-create:
         operation: subscriptions_create
         enabled: true
@@ -467,12 +421,11 @@ tools:
             idempotent: false
         title: Create subscription
         description: >
-            Create a new subscription to receive scheduled deliveries of an insight or dashboard.
-            Requires either an insight ID or dashboard ID. Set target_type to email, slack, or
-            webhook and target_value to the recipient(s). For email: comma-separated addresses.
-            For slack: requires an integration_id for a connected Slack workspace plus a channel
-            name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly)
-            and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
+            Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an
+            insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the
+            recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected
+            Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly,
+            monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
             also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).
         exclude_params:
             - created_by
@@ -491,9 +444,8 @@ tools:
             idempotent: true
         title: Get subscription
         description: >
-            Get a specific subscription by ID. Returns the full subscription configuration
-            including target type and value, schedule details, next delivery date, and
-            associated insight or dashboard.
+            Get a specific subscription by ID. Returns the full subscription configuration including target type and
+            value, schedule details, next delivery date, and associated insight or dashboard.
     subscriptions-update:
         operation: subscriptions_update
         enabled: false
@@ -508,10 +460,9 @@ tools:
             idempotent: true
         title: Update subscription
         description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency,
-            interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to
-            true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value
-            triggers notifications to new recipients.
+            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
+            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
+            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
         exclude_params:
             - created_by
             - next_delivery_date
@@ -616,4 +567,52 @@ tools:
         enabled: false
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
+        enabled: false
+    organizations-projects-list:
+        operation: organizations_projects_list
+        enabled: false
+    organizations-projects-create:
+        operation: organizations_projects_create
+        enabled: false
+    organizations-projects-retrieve:
+        operation: organizations_projects_retrieve
+        enabled: false
+    organizations-projects-update:
+        operation: organizations_projects_update
+        enabled: false
+    organizations-projects-partial-update:
+        operation: organizations_projects_partial_update
+        enabled: false
+    organizations-projects-destroy:
+        operation: organizations_projects_destroy
+        enabled: false
+    organizations-projects-activity-retrieve:
+        operation: organizations_projects_activity_retrieve
+        enabled: false
+    organizations-projects-add-product-intent-partial-update:
+        operation: organizations_projects_add_product_intent_partial_update
+        enabled: false
+    organizations-projects-change-organization-create:
+        operation: organizations_projects_change_organization_create
+        enabled: false
+    organizations-projects-complete-product-onboarding-partial-update:
+        operation: organizations_projects_complete_product_onboarding_partial_update
+        enabled: false
+    organizations-projects-delete-secret-token-backup-partial-update:
+        operation: organizations_projects_delete_secret_token_backup_partial_update
+        enabled: false
+    organizations-projects-generate-conversations-public-token-create:
+        operation: organizations_projects_generate_conversations_public_token_create
+        enabled: false
+    organizations-projects-is-generating-demo-data-retrieve:
+        operation: organizations_projects_is_generating_demo_data_retrieve
+        enabled: false
+    organizations-projects-reset-token-partial-update:
+        operation: organizations_projects_reset_token_partial_update
+        enabled: false
+    organizations-projects-rotate-secret-token-partial-update:
+        operation: organizations_projects_rotate_secret_token_partial_update
+        enabled: false
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
         enabled: false
