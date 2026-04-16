@@ -2240,12 +2240,13 @@
             "label": "Session entry sccid"
         },
         "$session_entry_search_engine": {
-            "description": "The search engine the user came from at the start of the session.",
+            "description": "The search engine the user came in from (if any). Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
                 "Google",
                 "DuckDuckGo"
             ],
-            "label": "Session entry search engine"
+            "ignored_in_assistant": true,
+            "label": "Session entry Search engine"
         },
         "$session_entry_ttclid": {
             "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -5621,14 +5622,6 @@
             "description": "Snapchat Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
             "label": "Session entry sccid"
-        },
-        "$session_entry_search_engine": {
-            "description": "The search engine the user came from at the start of the session.",
-            "examples": [
-                "Google",
-                "DuckDuckGo"
-            ],
-            "label": "Session entry search engine"
         },
         "$session_entry_ttclid": {
             "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",
