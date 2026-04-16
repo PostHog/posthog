@@ -167,7 +167,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
     log_source = "batch_exports"
 
     def get_log_entry_instance_id(self) -> str:
-        return self.parents_query_dict.get("run_id", None)
+        return cast(str, self.parents_query_dict["run_id"])
 
     def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", None)
