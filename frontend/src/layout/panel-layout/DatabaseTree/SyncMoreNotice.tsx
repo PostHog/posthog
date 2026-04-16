@@ -5,11 +5,12 @@ import { IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 
@@ -37,9 +38,9 @@ export const SyncMoreNotice = (): JSX.Element | null => {
                     icon={<IconX />}
                 />
                 <div className="mb-4 flex justify-center gap-6">
-                    <DataWarehouseSourceIcon type="Postgres" size="small" disableTooltip={true} />
-                    <DataWarehouseSourceIcon type="Stripe" size="small" disableTooltip={true} />
-                    <DataWarehouseSourceIcon type="GoogleAds" size="small" disableTooltip={true} />
+                    <SourceIcon type="Postgres" size="small" disableTooltip={true} />
+                    <SourceIcon type="Stripe" size="small" disableTooltip={true} />
+                    <SourceIcon type="GoogleAds" size="small" disableTooltip={true} />
                 </div>
                 <h4 className="mb-2">No data warehouse sources connected</h4>
                 {/* eslint-disable-next-line react/forbid-dom-props */}

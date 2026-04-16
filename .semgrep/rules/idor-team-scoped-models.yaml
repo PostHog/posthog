@@ -176,6 +176,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |Subscription
+                              |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
                               |Tag
@@ -364,6 +365,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |Subscription
+                        |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
                         |Tag

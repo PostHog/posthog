@@ -312,16 +312,21 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(JSONExtractString(log_comment, 'experiment_name'), type) AS experiment_name,
                 argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
                 argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path
-            FROM clusterAllReplicas(%(cluster)s, system, query_log)
-            WHERE
-                event_time > now() - INTERVAL %(hours)s HOUR
-                AND JSONExtractString(log_comment, 'product') = 'experiments'
-                AND is_initial_query
-                AND query NOT LIKE %(not_query)s
+            FROM (
+                SELECT
+                    query_id, query, query_start_time, query_duration_ms, exception,
+                    toInt8(type) AS type, log_comment
+                FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                WHERE
+                    event_time > now() - INTERVAL %(hours)s HOUR
+                    AND JSONExtractString(log_comment, 'product') = 'experiments'
+                    AND is_initial_query
+                    AND query NOT LIKE %(not_query)s
+                SETTINGS skip_unavailable_shards=1
+            )
             GROUP BY query_id
             ORDER BY query_duration_ms DESC
             LIMIT 100
-            SETTINGS skip_unavailable_shards=1
             """,
             {
                 "cluster": CLICKHOUSE_CLUSTER,
