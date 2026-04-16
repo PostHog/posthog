@@ -60,37 +60,9 @@ test.describe('SQL Editor', () => {
             await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
         })
 
-        // i'm removing this because the editor view and materializations are both in flux and
+        // i'm removed the matview e2e because the editor view and materializations are both in flux and
         // we shouldn't block others PRs until they are a bit more stable.
         // TODO(andrew): re-enable this once materialization lives solely in modeling scene
-        //
-        // test('Materialize view pane', async ({ page }) => {
-        //     await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
-        //     await page.locator('[data-attr=hogql-query-editor]').click()
-        //     await page.locator('[data-attr=hogql-query-editor]').pressSequentially('SELECT 1')
-        //     await page.locator('[data-attr=sql-editor-run-button]').click()
-        //     await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
-
-        //     await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
-        //     await page.locator('[data-attr=sql-editor-save-options-button]').click()
-        //     await page.getByText('Save as view', { exact: true }).click()
-
-        //     const uniqueViewName = `materialized_test_view_${Date.now()}`
-        //     const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
-        //     await expect(nameInput).toBeVisible()
-        //     await nameInput.fill(uniqueViewName)
-        //     await page.getByRole('button', { name: 'Submit' }).click()
-        //     await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-
-        //     await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
-
-        //     // Wait for the materialization button — it only renders once editingView
-        //     // is set on the active tab, which happens asynchronously after the view is created.
-        //     const materializationButton = page.locator('[data-attr=sql-editor-materialization-button]')
-        //     await expect(materializationButton).toBeVisible()
-        //     await materializationButton.click()
-        //     await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
-        // })
 
         test('Query variables pane', async ({ page }) => {
             await page.getByText('Variables').click()
