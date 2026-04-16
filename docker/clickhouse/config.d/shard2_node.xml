@@ -1,0 +1,28 @@
+<clickhouse>
+    <tcp_port>9001</tcp_port>
+    <!-- In multinode dev, default.xml provides shared cluster definitions.
+         This file only overrides the two-shard migrations cluster + node macros. -->
+    <remote_servers>
+        <posthog_migrations replace="replace">
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-shard2</host>
+                    <port>9001</port>
+                </replica>
+            </shard>
+        </posthog_migrations>
+    </remote_servers>
+
+    <macros>
+        <shard>02</shard>
+        <replica>ch2</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>data</hostClusterRole>
+    </macros>
+</clickhouse>

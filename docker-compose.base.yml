@@ -165,7 +165,7 @@ services:
             retries: 10
 
     keeper:
-        image: clickhouse/clickhouse-keeper:25.12.8.9
+        image: clickhouse/clickhouse-keeper:26.3.8.4
         hostname: keeper
         restart: on-failure
         volumes:
