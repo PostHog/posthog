@@ -587,9 +587,9 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type KeyApi = (typeof KeyApi)[keyof typeof KeyApi]
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
-export const KeyApi = {
+export const Key10Api = {
     TagName: 'tag_name',
     Text: 'text',
     Href: 'href',
@@ -604,7 +604,7 @@ export const ElementPropertyFilterApiType = {
 } as const
 
 export interface ElementPropertyFilterApi {
-    key: KeyApi
+    key: Key10Api
     /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
@@ -905,6 +905,22 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type WorkflowVariablePropertyFilterApiType =
+    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
+
+export const WorkflowVariablePropertyFilterApiType = {
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: WorkflowVariablePropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     /** @nullable */
@@ -935,6 +951,7 @@ export interface DashboardFilterApi {
               | LogPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
           )[]
         | null
 }
@@ -1072,6 +1089,13 @@ export type EndpointsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number
 }
 
 export type EndpointsVersionsListParams = {

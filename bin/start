@@ -24,10 +24,6 @@ export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
-# Limit Rust parallel compilation jobs to reduce CPU contention when multiple
-# services start simultaneously via phrocs (they share a build lock anyway)
-export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
-
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
     export RUSTC_WRAPPER="sccache"

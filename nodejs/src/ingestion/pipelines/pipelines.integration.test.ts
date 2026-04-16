@@ -115,28 +115,23 @@ const createMockBatchStep = <TInput, TOutput>(
 }
 
 describe('Pipeline Integration Tests', () => {
-    let mockKafkaProducer: any
+    let mockOutputs: jest.Mocked<
+        IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
+    >
     let mockPromiseScheduler: any
     let pipelineConfig: PipelineConfig
 
     beforeEach(() => {
-        mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
-            flush: jest.fn().mockResolvedValue(undefined),
-        }
+        mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
 
         mockPromiseScheduler = {
             schedule: jest.fn(),
         }
 
         pipelineConfig = {
-            outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: [{ topic: 'test-dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
-                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' }],
-                [INGESTION_WARNINGS_OUTPUT]: [
-                    { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
-                ],
-            }),
+            outputs: mockOutputs,
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -443,9 +438,9 @@ describe('Pipeline Integration Tests', () => {
 
             // Should return empty array since event was redirected
             expect(results).toHaveLength(0)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                OVERFLOW_OUTPUT,
                 expect.objectContaining({
-                    topic: 'overflow-topic',
                     value: messages[0].value,
                     key: messages[0].key,
                 })
@@ -519,9 +514,9 @@ describe('Pipeline Integration Tests', () => {
 
             // Should return empty array since event went to DLQ
             expect(results).toHaveLength(0)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                DLQ_OUTPUT,
                 expect.objectContaining({
-                    topic: 'test-dlq-topic',
                     value: messages[0].value,
                     key: messages[0].key,
                 })
@@ -1008,15 +1003,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
                 )
                 .handleResults({
-                    outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
-                        [OVERFLOW_OUTPUT]: [
-                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                        [INGESTION_WARNINGS_OUTPUT]: [
-                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                    }),
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1180,15 +1167,7 @@ describe('Pipeline Integration Tests', () => {
                         .pipeBatch(batchStep3)
                 )
                 .handleResults({
-                    outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
-                        [OVERFLOW_OUTPUT]: [
-                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                        [INGESTION_WARNINGS_OUTPUT]: [
-                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                    }),
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1286,15 +1265,7 @@ describe('Pipeline Integration Tests', () => {
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
                 .handleResults({
-                    outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
-                        [OVERFLOW_OUTPUT]: [
-                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                        [INGESTION_WARNINGS_OUTPUT]: [
-                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                    }),
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1312,8 +1283,8 @@ describe('Pipeline Integration Tests', () => {
             expect(step1).toHaveBeenCalledTimes(4)
             expect(step2).toHaveBeenCalledTimes(1) // Only ok-event reaches step2
 
-            // Verify no messages were produced to Kafka due to exception
-            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(0)
+            // Verify no messages were produced due to exception
+            expect(mockOutputs.produce).toHaveBeenCalledTimes(0)
         })
     })
 
@@ -1408,15 +1379,7 @@ describe('Pipeline Integration Tests', () => {
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
                 .handleResults({
-                    outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
-                        [OVERFLOW_OUTPUT]: [
-                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                        [INGESTION_WARNINGS_OUTPUT]: [
-                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
-                        ],
-                    }),
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })

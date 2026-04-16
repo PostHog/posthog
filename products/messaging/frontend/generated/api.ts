@@ -79,7 +79,9 @@ export const messagingCategoriesCreate = async (
 }
 
 /**
- * Import subscription topics and globally unsubscribed users from Customer.io API
+ * Import subscription topics and globally unsubscribed users from Customer.io API.
+Persists the App API key in Integration(kind="customerio-app").
+If no app_api_key is provided, reuses the stored Integration key.
  */
 export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
@@ -131,6 +133,41 @@ export const messagingCategoriesImportPreferencesCsvCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+/**
+ * Get the Customer.io sync configuration state for this team.
+Used by the frontend to derive step completion.
+ */
+export const getMessagingCategoriesOptoutSyncConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/optout_sync_config/`
+}
+
+export const messagingCategoriesOptoutSyncConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesOptoutSyncConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Remove the Customer.io App API integration and reset import state.
+ */
+export const getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/remove_customerio_app_config/`
+}
+
+export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

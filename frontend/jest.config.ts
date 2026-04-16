@@ -134,7 +134,7 @@ const config: Config = {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
-        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/src/test/mocks/styleMock.js',
+        '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',

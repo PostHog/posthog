@@ -18,6 +18,7 @@ import featureFlagHog from 'public/hedgehog/feature-flag-hog.png'
 import filmCameraHog from 'public/hedgehog/filmcamera.png'
 import graphsHog from 'public/hedgehog/graphs-hog.png'
 import heartHog from 'public/hedgehog/heart-hog.png'
+import hogWelder from 'public/hedgehog/hog-welder.png'
 import hospitalHog from 'public/hedgehog/hospital-hog.png'
 import judgeHog from 'public/hedgehog/judge-hog.png'
 import laptopHog1 from 'public/hedgehog/laptop-hog-01.png'
@@ -72,6 +73,9 @@ export const XRayHog = (props: HedgehogProps): JSX.Element => {
 }
 export const XRayHog2 = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={xRayHog2} {...props} />
+}
+export const HogWelder = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={hogWelder} {...props} />
 }
 export const HospitalHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={hospitalHog} {...props} />

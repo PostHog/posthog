@@ -221,8 +221,8 @@ class AutoProjectMiddleware:
         self.token_allowlist = PROJECT_SWITCHING_TOKEN_ALLOWLIST
 
     def __call__(self, request: HttpRequest):
-        # Skip project switching for CLI authorization page
-        if request.path.startswith("/cli/authorize"):
+        # Skip project switching for CLI authorization page and account social-link confirmation scene
+        if request.path.startswith("/cli/authorize") or request.path.startswith("/account/social-connected"):
             return self.get_response(request)
 
         if request.user.is_authenticated:
@@ -944,6 +944,14 @@ class ActiveOrganizationMiddleware:
 
         if user.current_organization is None:
             return self.get_response(request)
+
+        # Check pending deletion first — takes priority over is_active
+        if user.current_organization.is_pending_deletion:
+            return (
+                self.get_response(request)
+                if request.path == "/organization-pending-deletion"
+                else redirect("/organization-pending-deletion")
+            )
 
         if user.current_organization.is_active is not False:
             return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)

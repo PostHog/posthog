@@ -13,10 +13,8 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { INGESTION_OUTPUT_DEFINITIONS } from '../ingestion/analytics/config/outputs'
-import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/analytics/config/producers'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -24,20 +22,31 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from '../ingestion/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
+import {
+    KafkaProducerEnvConfig,
+    KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaWarpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
 import { EventFilterManager } from '../ingestion/common/event-filters'
+import { ProducerName } from '../ingestion/common/outputs'
+import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
+    IngestionOutputsConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     PersonHogConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
 import { TopHog } from '../ingestion/tophog'
@@ -66,7 +75,10 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
+    IngestionOutputsConfig &
     HogTransformerServiceConfig &
+    KafkaProducerEnvConfig &
+    KafkaWarpstreamProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -139,7 +151,13 @@ export class IngestionApiServer implements NodeServer {
     private topHog!: TopHog
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -220,11 +238,8 @@ export class IngestionApiServer implements NodeServer {
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK, PRODUCER_CONFIG_MAP)
-        const ingestionOutputs = await resolveIngestionOutputs(
-            this.ingestionProducerRegistry,
-            INGESTION_OUTPUT_DEFINITIONS
-        )
+        this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const topicFailures = await ingestionOutputs.checkTopics()

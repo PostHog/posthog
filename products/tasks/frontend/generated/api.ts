@@ -16,6 +16,7 @@ import type {
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
+    PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
@@ -603,11 +604,14 @@ export const tasksRunsSetOutputPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
+    patchedTaskRunSetOutputRequestApi: PatchedTaskRunSetOutputRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
     })
 }
 

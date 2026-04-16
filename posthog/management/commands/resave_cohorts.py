@@ -59,6 +59,7 @@ class Command(BaseCommand):
         global_total = 0
         global_changed = 0
         global_errors = 0
+        global_validation_errors = 0
         global_prospective_realtime = 0
         teams_processed = 0
         total_teams = teams_qs.count()
@@ -78,6 +79,7 @@ class Command(BaseCommand):
             global_total += stats["total"]
             global_changed += stats["changed"]
             global_errors += stats["errors"]
+            global_validation_errors += stats["validation_errors"]
             global_prospective_realtime += stats["prospective_realtime"]
 
             # Log team completion
@@ -89,6 +91,7 @@ class Command(BaseCommand):
                     changed_cohorts=stats["changed"],
                     realtime_cohorts=stats["prospective_realtime"],
                     error_count=stats["errors"],
+                    validation_error_count=stats["validation_errors"],
                     dry_run=dry_run,
                 )
 
@@ -101,6 +104,7 @@ class Command(BaseCommand):
             changed_cohorts=global_changed,
             realtime_cohorts=global_prospective_realtime,
             error_count=global_errors,
+            validation_error_count=global_validation_errors,
             change_percentage=round((global_changed / global_total * 100), 2) if global_total > 0 else 0,
             realtime_percentage=round((global_prospective_realtime / global_total * 100), 2) if global_total > 0 else 0,
         )
@@ -111,6 +115,7 @@ class Command(BaseCommand):
         total = 0
         changed = 0
         errors = 0
+        validation_errors = 0
         prospective_realtime = 0
 
         # Get all cohorts for this team using pagination
@@ -153,9 +158,21 @@ class Command(BaseCommand):
                     continue
 
                 # Compute the new filters with inline bytecode and cohort_type
-                clean_filters, computed_type, _ = validate_filters_and_compute_realtime_support(
+                # Use defensive validation with detailed error reporting
+                clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
                     cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
                 )
+
+                # If validation failed but we got the original filters back, log the issue and skip
+                if validation_error_list:
+                    validation_errors += 1
+                    logger.warning(
+                        "cohort_validation_skipped",
+                        cohort_id=cohort.id,
+                        team_id=team.pk,
+                        reason="Invalid filter structure - keeping original filters",
+                    )
+                    continue
 
                 # Check if any directly referenced cohorts have dependencies
                 if computed_type == "realtime" and cohort.filters:
@@ -213,6 +230,7 @@ class Command(BaseCommand):
             "total": total,
             "changed": changed,
             "errors": errors,
+            "validation_errors": validation_errors,
             "prospective_realtime": prospective_realtime,
         }
 

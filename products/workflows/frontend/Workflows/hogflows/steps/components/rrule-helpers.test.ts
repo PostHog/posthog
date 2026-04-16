@@ -11,8 +11,10 @@ import {
     getNthWeekdayOfMonth,
     isOneTimeSchedule,
     ONE_TIME_RRULE,
+    parseNaturalLanguage,
     parseRRuleToState,
     ScheduleState,
+    scheduleToText,
     stateToRRule,
 } from './rrule-helpers'
 
@@ -348,6 +350,58 @@ describe('rrule-helpers', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily' }
             const result = buildSummary(state, null)
             expect(result.endsWith('.')).toBe(true)
+        })
+    })
+
+    describe('parseNaturalLanguage', () => {
+        it.each([
+            ['every day', 'daily', 1, []],
+            ['every 3 days', 'daily', 3, []],
+            ['every week on Monday', 'weekly', 1, [0]],
+            ['every week on Monday and Wednesday', 'weekly', 1, [0, 2]],
+            ['every 2 weeks on Friday', 'weekly', 2, [4]],
+            ['every month on the 1st', 'monthly', 1, []],
+            ['every month on the last', 'monthly', 1, []],
+            ['every year', 'yearly', 1, []],
+        ])('parses "%s"', (text, expectedFreq, expectedInterval, expectedWeekdays) => {
+            const result = parseNaturalLanguage(text)
+            expect(result).not.toBeNull()
+            expect(result!.frequency).toBe(expectedFreq)
+            expect(result!.interval).toBe(expectedInterval)
+            if (expectedWeekdays.length > 0) {
+                expect(result!.weekdays).toEqual(expectedWeekdays)
+            }
+        })
+
+        it('parses end count', () => {
+            const result = parseNaturalLanguage('every day for 10 times')
+            expect(result).not.toBeNull()
+            expect(result!.endType).toBe('after_count')
+            expect(result!.endCount).toBe(10)
+        })
+
+        it('returns null for invalid input', () => {
+            expect(parseNaturalLanguage('not a schedule')).toBeNull()
+            expect(parseNaturalLanguage('')).toBeNull()
+            expect(parseNaturalLanguage('biweekly')).toBeNull()
+        })
+    })
+
+    describe('scheduleToText', () => {
+        it.each([
+            ['every day', { ...DEFAULT_STATE, frequency: 'daily' as const }, 'every day'],
+            [
+                'every week on Monday, Wednesday',
+                { ...DEFAULT_STATE, frequency: 'weekly' as const, weekdays: [0, 2] },
+                'every week on Monday, Wednesday',
+            ],
+            [
+                'every day for 10 times',
+                { ...DEFAULT_STATE, frequency: 'daily' as const, endType: 'after_count' as const, endCount: 10 },
+                'every day for 10 times',
+            ],
+        ])('converts state to "%s"', (_label, state, expected) => {
+            expect(scheduleToText(state, null)).toBe(expected)
         })
     })
 })
