@@ -29,7 +29,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional timestamp to evaluate flag at a specific point in time (ISO format)"
+            "description": "Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)"
         }
     },
     "required": ["id"],
