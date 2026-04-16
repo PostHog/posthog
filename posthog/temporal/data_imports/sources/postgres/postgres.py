@@ -149,21 +149,29 @@ def pg_connection(
 
 
 def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: list[str]) -> dict[str, list[str]]:
-    """Return ordered PK columns per table: {table_name: [col, ...]}."""
+    """Return ordered PK columns per table: {table_name: [col, ...]}.
+
+    Uses pg_catalog rather than information_schema because information_schema views
+    are ACL-filtered — a user with only SELECT grants may not see PK constraint rows
+    depending on PostgreSQL version, which would silently hide `supports_cdc=True`
+    for their tables and make CDC look unavailable in the source wizard.
+    """
     if not table_names:
         return {}
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT kcu.table_name, kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-                AND tc.table_schema = %s
-                AND tc.table_name = ANY(%s)
-            ORDER BY kcu.table_name, kcu.ordinal_position
+            SELECT c.relname AS table_name,
+                   a.attname AS column_name,
+                   array_position(i.indkey, a.attnum) AS ord
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+            WHERE i.indisprimary
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            ORDER BY c.relname, array_position(i.indkey, a.attnum)
             """,
             (schema, table_names),
         )
@@ -1221,6 +1229,7 @@ def postgres_source(
                 sslrootcert="/tmp/no.txt",
                 sslcert="/tmp/no.txt",
                 sslkey="/tmp/no.txt",
+                options=f"-c statement_timeout={SYNC_STATEMENT_TIMEOUT_MS}",
             )
         except psycopg.OperationalError as e:
             if require_ssl and "SSL" in str(e):
@@ -1356,6 +1365,7 @@ def postgres_source(
                         sslcert="/tmp/no.txt",
                         sslkey="/tmp/no.txt",
                         cursor_factory=cursor_factory,
+                        options=f"-c statement_timeout={SYNC_STATEMENT_TIMEOUT_MS}",
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):
@@ -1373,19 +1383,13 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
-                # Bump statement_timeout for the streaming connection. A server
-                # cursor FETCH inherits the session statement_timeout, and on
-                # wide/partitioned scans the source's default (often 30-60s)
-                # kills the fetch before rows come back.
-                try:
-                    with connection.cursor() as setup_cursor:
-                        setup_cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
-                            )
-                        )
-                except Exception as e:
-                    logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
+                # Use psycopg.Cursor directly to bypass cursor_factory (which may be ServerCursor
+                # and requires a `name` arg).
+                with psycopg.Cursor(connection) as check_cursor:
+                    check_cursor.execute("SHOW statement_timeout")
+                    row = check_cursor.fetchone()
+                    timeout_val = str(row[0]) if row else "unknown"  # type: ignore[index]
+                    logger.info(f"Effective statement_timeout on sync connection: {timeout_val}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):

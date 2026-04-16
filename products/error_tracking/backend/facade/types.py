@@ -55,3 +55,22 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueForAssignmentNotification:
+    id: UUID
+    team_id: int
+    status: str
+    name: str | None
+    description: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueAssignmentNotification:
+    id: UUID
+    created_at: datetime
+    issue: ErrorTrackingIssueForAssignmentNotification
+    assigned_user_id: int | None
+    role_id: UUID | None = None
+    role_member_user_ids: list[int] = field(default_factory=list)

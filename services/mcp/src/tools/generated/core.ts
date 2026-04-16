@@ -24,7 +24,7 @@ const subscriptionsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSubscriptionList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/subscriptions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
             query: {
                 created_by: params.created_by,
                 dashboard: params.dashboard,
@@ -97,9 +97,15 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.invite_message !== undefined) {
             body['invite_message'] = params.invite_message
         }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
+        }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'POST',
-            path: `/api/projects/${projectId}/subscriptions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
             body,
         })
         return result
@@ -115,7 +121,7 @@ const subscriptionsRetrieve = (): ToolBase<typeof SubscriptionsRetrieveSchema, S
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Subscription>({
             method: 'GET',
-            path: `/api/projects/${projectId}/subscriptions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -179,9 +185,15 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         if (params.invite_message !== undefined) {
             body['invite_message'] = params.invite_message
         }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
+        }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/subscriptions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result

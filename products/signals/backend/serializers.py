@@ -6,10 +6,19 @@ from rest_framework import serializers
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.models import User
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.common.client import sync_connect
 
-from .models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from .models import (
+    AutonomyPriority,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
@@ -108,6 +117,40 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             if recording_filters is not None and not isinstance(recording_filters, dict):
                 raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
         return attrs
+
+
+class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalTeamConfig
+        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class _UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "uuid", "first_name", "last_name", "email"]
+        read_only_fields = fields
+
+
+class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
+    user = _UserSerializer(read_only=True)
+
+    class Meta:
+        model = SignalUserAutonomyConfig
+        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "created_at", "updated_at"]
+
+
+class SignalReportTaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalReportTask
+        fields = ["id", "relationship", "task_id", "created_at"]
+        read_only_fields = fields
+
+
+class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
+    autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
 
 
 class SignalReportSerializer(serializers.ModelSerializer):

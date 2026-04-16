@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertCreateDestinationApi,
+    LogsAlertDeleteDestinationApi,
+    LogsAlertDestinationResponseApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
     LogsAlertsListParams,
@@ -25,6 +28,7 @@ import type {
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
     _LogsQueryRequestApi,
+    _LogsSparklineRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -294,6 +298,48 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
 }
 
 /**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ */
+export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/`
+}
+
+export const logsAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertCreateDestinationApi: LogsAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertDestinationResponseApi> => {
+    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertCreateDestinationApi),
+    })
+}
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/delete/`
+}
+
+export const logsAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+/**
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 export const getLogsAlertsSimulateCreateUrl = (projectId: string) => {
@@ -394,10 +440,16 @@ export const getLogsSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/sparkline/`
 }
 
-export const logsSparklineCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const logsSparklineCreate = async (
+    projectId: string,
+    _logsSparklineRequestApi: _LogsSparklineRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsSparklineRequestApi),
     })
 }
 

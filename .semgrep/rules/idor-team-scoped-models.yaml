@@ -61,7 +61,6 @@ rules:
                               |AlertConfiguration
                               |Annotation
                               |ApprovalPolicy
-                              |Artifact
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
@@ -105,6 +104,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingRecommendation
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -160,10 +160,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
-                              |Repo
                               |RepoRoutingRule
-                              |Run
-                              |RunSnapshot
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -172,8 +169,11 @@ rules:
                               |SessionRecording
                               |SessionRecordingPlaylist
                               |SharingConfiguration
+                              |SignalEmissionRecord
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalReportTask
+                              |SignalTeamConfig
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
@@ -255,7 +255,6 @@ rules:
                         |AlertConfiguration
                         |Annotation
                         |ApprovalPolicy
-                        |Artifact
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
@@ -299,6 +298,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingRecommendation
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -351,10 +351,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
-                        |Repo
                         |RepoRoutingRule
-                        |Run
-                        |RunSnapshot
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
@@ -363,8 +360,11 @@ rules:
                         |SessionRecording
                         |SessionRecordingPlaylist
                         |SharingConfiguration
+                        |SignalEmissionRecord
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalReportTask
+                        |SignalTeamConfig
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
@@ -630,6 +630,7 @@ rules:
                               DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
+                              |SignalUserAutonomyConfig
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -680,6 +681,7 @@ rules:
                         DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
+                        |SignalUserAutonomyConfig
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)
