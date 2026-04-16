@@ -206,6 +206,49 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_errored_check_denormalizes_error_onto_alert_row(self, _mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.side_effect = Exception("ClickHouse timeout")
+        alert = self._make_alert()
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.last_error_message == "ClickHouse timeout"
+
+    @freeze_time("2025-01-01T00:02:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_successful_check_clears_previous_error(self, _mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=0, query_duration_ms=100)
+        alert = self._make_alert(last_error_message="Previous CH timeout", consecutive_failures=2)
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 2, 0, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.last_error_message is None
+
+    @freeze_time("2025-01-01T00:03:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_successful_check_does_not_write_when_error_already_empty(self, _mock_produce, mock_query_cls):
+        # Steady-state happy path: no prior error, no new error → last_error_message
+        # must not be touched (otherwise every tick fires an activity-log entry if
+        # signal_exclusions drifts).
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=0, query_duration_ms=100)
+        alert = self._make_alert(last_error_message=None)
+
+        with patch.object(
+            LogsAlertConfiguration, "save", autospec=True, wraps=LogsAlertConfiguration.save
+        ) as mock_save:
+            _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 3, 0, tzinfo=UTC), _make_stats())
+            save_calls_update_fields = [c.kwargs.get("update_fields") for c in mock_save.call_args_list]
+            assert all("last_error_message" not in (fields or []) for fields in save_calls_update_fields), (
+                f"Expected no save to touch last_error_message, got: {save_calls_update_fields}"
+            )
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_emit_event_uses_team_distinct_id(self, mock_produce, mock_query_cls):
         mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
         alert = self._make_alert()

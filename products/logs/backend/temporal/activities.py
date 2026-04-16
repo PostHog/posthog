@@ -136,7 +136,9 @@ def _evaluate_single_alert(
         check_result = CheckResult(
             result_count=None,
             threshold_breached=False,
-            error_message=str(e),
+            # ClickHouse/HogQL exception strings can include the full SQL and server
+            # context — cap to keep the denormalized copies on alert + check rows bounded.
+            error_message=str(e)[:2000],
         )
 
     snapshot = AlertSnapshot(
@@ -223,6 +225,17 @@ def _evaluate_single_alert(
         if notified and outcome.update_last_notified_at:
             alert.last_notified_at = now
             update_fields.append("last_notified_at")
+
+        # Denormalize the latest error onto the alert row so list/detail UIs can surface
+        # "why is this broken/errored" without joining on LogsAlertCheck. Only write when
+        # the value actually changes to keep the steady-state happy path free of writes.
+        if outcome.error_message:
+            if alert.last_error_message != outcome.error_message:
+                alert.last_error_message = outcome.error_message
+                update_fields.append("last_error_message")
+        elif alert.last_error_message:
+            alert.last_error_message = None
+            update_fields.append("last_error_message")
 
         alert.save(update_fields=update_fields)
 

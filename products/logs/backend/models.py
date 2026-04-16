@@ -89,6 +89,11 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    # Denormalized from the latest errored LogsAlertCheck. Kept on the alert row because
+    # checks are pruned after LogsAlertCheck.RETENTION_DAYS — an alert that sits broken
+    # longer than that would lose its error context if we joined. Cleared on the next
+    # successful check.
+    last_error_message = models.TextField(null=True, blank=True)
 
     class Meta:
         db_table = "logs_logsalertconfiguration"

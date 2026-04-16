@@ -294,6 +294,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_checked_at",
         "consecutive_failures",
         "state",
+        "last_error_message",
     ],
     "PersonalAPIKey": [
         "last_used_at",
