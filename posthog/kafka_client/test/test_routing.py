@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 from typing import cast
 
-import pytest
 from unittest import TestCase, mock
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +17,6 @@ from posthog.kafka_client.routing import (
     flush_all_producers,
     get_producer,
     new_async_producer,
-    producer_for_config,
     producer_scope,
     reset_producers,
 )
@@ -260,27 +258,6 @@ class NewAsyncProducerTest(TestCase):
         self.assertEqual(async_build.call_count, 2)
 
 
-class ProducerForConfigTest(TestCase):
-    @patch("posthog.kafka_client.routing._KafkaProducer")
-    def test_forwards_config_verbatim(self, producer_cls):
-        producer_for_config(
-            hosts=["broker-1:9092", "broker-2:9092"],
-            security_protocol="SASL_SSL",
-            acks="all",
-            enable_idempotence=True,
-            max_request_size=123,
-            compression_type="gzip",
-        )
-        producer_cls.assert_called_once_with(
-            kafka_hosts=["broker-1:9092", "broker-2:9092"],
-            kafka_security_protocol="SASL_SSL",
-            acks="all",
-            enable_idempotence=True,
-            max_request_size=123,
-            compression_type="gzip",
-        )
-
-
 class FlushAllProducersTest(TestCase):
     def setUp(self):
         reset_producers()
@@ -302,22 +279,3 @@ class FlushAllProducersTest(TestCase):
     def test_no_op_when_no_producers_cached(self):
         # Just verifying no exceptions from an empty cache.
         flush_all_producers(timeout=0.1)
-
-
-@pytest.mark.parametrize(
-    "profile,expected_attrs",
-    [
-        (
-            KafkaClusterProfile.WAREHOUSE_SOURCES,
-            {"acks": "all", "enable_idempotence": True},
-        ),
-        (
-            KafkaClusterProfile.DEFAULT,
-            {"acks": 1, "enable_idempotence": False},
-        ),
-    ],
-)
-def test_resolve_profile_config_sets_profile_specific_fields(profile, expected_attrs):
-    config = routing._resolve_profile_config(profile)
-    for attr, value in expected_attrs.items():
-        assert getattr(config, attr) == value

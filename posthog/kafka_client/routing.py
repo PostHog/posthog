@@ -18,7 +18,6 @@ Two lifecycle shapes:
 
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
 from threading import Lock
 from typing import Optional
 
@@ -34,38 +33,6 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
 )
 from posthog.settings.kafka import KafkaProfileSettings
-
-
-@dataclass(frozen=True)
-class ClusterProfileConfig:
-    hosts: list[str] | str
-    security_protocol: Optional[str] = None
-    acks: int | str = 1
-    enable_idempotence: bool = False
-    max_request_size: Optional[int] = None
-    compression_type: Optional[str] = None
-
-
-def _resolve_profile_config(profile: KafkaClusterProfile) -> ClusterProfileConfig:
-    """Read the fully resolved profile settings from `settings.KAFKA_PROFILES`.
-
-    Profile-level defaults (acks, enable_idempotence, compression_type,
-    max_request_size) come from the profile's `producer_settings` which is
-    itself the code defaults layered with `KAFKA_<PROFILE>_*` env vars and
-    legacy aliases. See `posthog/settings/kafka.py`.
-    """
-    profile_settings = settings.KAFKA_PROFILES[profile.value]
-    producer = profile_settings.producer_settings
-    return ClusterProfileConfig(
-        hosts=profile_settings.hosts,
-        security_protocol=profile_settings.security_protocol
-        or ("PLAINTEXT" if profile == KafkaClusterProfile.CYCLOTRON else None),
-        acks=producer.get("acks", 1),
-        enable_idempotence=producer.get("enable_idempotence", False),
-        max_request_size=producer.get("max_request_size"),
-        compression_type=producer.get("compression_type"),
-    )
-
 
 # Code-level default topic → profile mapping. Topics not listed resolve to DEFAULT.
 # Callers should not read this directly — use `current_topic_routing()` so env
@@ -145,34 +112,34 @@ def get_profile_settings(
 
 
 def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
-    config = _resolve_profile_config(profile)
-    profile_settings = settings.KAFKA_PROFILES[profile.value]
+    p = settings.KAFKA_PROFILES[profile.value]
+    producer_settings = p.producer_settings
     return _KafkaProducer(
-        kafka_hosts=config.hosts,
-        kafka_security_protocol=config.security_protocol,
-        sasl_mechanism=profile_settings.sasl_mechanism,
-        sasl_user=profile_settings.sasl_user,
-        sasl_password=profile_settings.sasl_password,
-        acks=config.acks,
-        enable_idempotence=config.enable_idempotence,
-        max_request_size=config.max_request_size,
-        compression_type=config.compression_type,
-        producer_settings=profile_settings.producer_settings,
+        kafka_hosts=p.hosts,
+        kafka_security_protocol=p.security_protocol,
+        sasl_mechanism=p.sasl_mechanism,
+        sasl_user=p.sasl_user,
+        sasl_password=p.sasl_password,
+        acks=producer_settings.get("acks", 1),
+        enable_idempotence=producer_settings.get("enable_idempotence", False),
+        max_request_size=producer_settings.get("max_request_size"),
+        compression_type=producer_settings.get("compression_type"),
+        producer_settings=producer_settings,
     )
 
 
 def _build_async_producer(profile: KafkaClusterProfile) -> _AsyncKafkaProducer:
-    config = _resolve_profile_config(profile)
-    profile_settings = settings.KAFKA_PROFILES[profile.value]
+    p = settings.KAFKA_PROFILES[profile.value]
+    producer_settings = p.producer_settings
     return _AsyncKafkaProducer(
-        kafka_hosts=config.hosts,
-        kafka_security_protocol=config.security_protocol,
-        sasl_mechanism=profile_settings.sasl_mechanism,
-        sasl_user=profile_settings.sasl_user,
-        sasl_password=profile_settings.sasl_password,
-        max_request_size=config.max_request_size,
-        compression_type=config.compression_type,
-        producer_settings=profile_settings.producer_settings,
+        kafka_hosts=p.hosts,
+        kafka_security_protocol=p.security_protocol,
+        sasl_mechanism=p.sasl_mechanism,
+        sasl_user=p.sasl_user,
+        sasl_password=p.sasl_password,
+        max_request_size=producer_settings.get("max_request_size"),
+        compression_type=producer_settings.get("compression_type"),
+        producer_settings=producer_settings,
     )
 
 
@@ -249,31 +216,6 @@ def new_async_producer(
     """
     resolved = _resolve_profile(topic, profile)
     return _build_async_producer(resolved)
-
-
-def producer_for_config(
-    *,
-    hosts: list[str] | str,
-    security_protocol: Optional[str] = None,
-    acks: int | str = 1,
-    enable_idempotence: bool = False,
-    max_request_size: Optional[int] = None,
-    compression_type: Optional[str] = None,
-) -> _KafkaProducer:
-    """Construct a sync producer with explicit cluster config (no profile lookup).
-
-    For DLQ consumers that need to mirror the cluster they are reading from,
-    or other rare cases where hosts are only known at runtime. The returned
-    producer is not cached — the caller owns it and is responsible for flush.
-    """
-    return _KafkaProducer(
-        kafka_hosts=hosts,
-        kafka_security_protocol=security_protocol,
-        acks=acks,
-        enable_idempotence=enable_idempotence,
-        max_request_size=max_request_size,
-        compression_type=compression_type,
-    )
 
 
 def flush_all_producers(timeout: Optional[float] = None) -> None:
