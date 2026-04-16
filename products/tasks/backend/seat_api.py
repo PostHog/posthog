@@ -15,7 +15,6 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission
 
 # TODO: Centralize billing proxy through BillingManager (ee/billing/) to avoid
 # duplicating auth header construction and keep all billing communication in one place
@@ -51,8 +50,7 @@ class SeatViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     # ------------------------------------------------------------------
