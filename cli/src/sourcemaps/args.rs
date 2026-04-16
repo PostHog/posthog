@@ -143,10 +143,10 @@ mod tests {
     fn release_args_to_builder() {
         let cases: Vec<(Option<&str>, Option<&str>, bool)> = vec![
             // (version,    build,      has_version)
-            (Some("1.0"), None,       true),   // version only
-            (Some("1.0"), Some("42"), true),   // version+build packed into "1.0+42"
-            (None,        Some("42"), true),   // build-only → version="42"
-            (None,        None,       false),  // neither
+            (Some("1.0"), None, true),       // version only
+            (Some("1.0"), Some("42"), true), // version+build packed into "1.0+42"
+            (None, Some("42"), true),        // build-only → version="42"
+            (None, None, false),             // neither
         ];
 
         for (version, build, expect_version) in cases {
