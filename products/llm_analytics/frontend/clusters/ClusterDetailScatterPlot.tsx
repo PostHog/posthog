@@ -7,6 +7,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
 import { clusterDetailLogic } from './clusterDetailLogic'
+import { formatEvalTitle } from './traceSummaryLoader'
 
 interface ScatterPoint {
     x: number
@@ -108,20 +109,32 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     }
 
                                     const point = context.raw as ScatterPoint
-                                    // For generation-level, summaries are keyed by generation_id
-                                    // For trace-level, summaries are keyed by trace_id
+                                    // For evaluation-level, the cluster item id (= eval uuid) is
+                                    // carried in generationId; traceId is the parent trace being
+                                    // judged, which doesn't key into the summary map.
+                                    // For generation-level, summaries are keyed by generation_id.
+                                    // For trace-level, summaries are keyed by trace_id.
                                     const summaryKey =
-                                        clusteringLevel === 'generation' ? point.generationId : point.traceId
+                                        clusteringLevel === 'generation' || clusteringLevel === 'evaluation'
+                                            ? point.generationId
+                                            : point.traceId
                                     if (summaryKey) {
                                         const summary = traceSummaries[summaryKey]
-                                        if (summary?.title) {
+                                        if (clusteringLevel === 'evaluation') {
+                                            const formatted = formatEvalTitle(summary, 140)
+                                            if (formatted) {
+                                                return formatted
+                                            }
+                                        } else if (summary?.title) {
                                             return summary.title
                                         }
                                     }
                                     if (point.traceId) {
                                         return clusteringLevel === 'generation'
                                             ? `Generation ${(point.generationId || point.traceId).slice(0, 8)}...`
-                                            : `Trace ${point.traceId.slice(0, 8)}...`
+                                            : clusteringLevel === 'evaluation'
+                                              ? `Evaluation ${(point.generationId || point.traceId).slice(0, 8)}...`
+                                              : `Trace ${point.traceId.slice(0, 8)}...`
                                     }
                                     return undefined
                                 },
@@ -132,7 +145,7 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     }
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return clusteringLevel === 'generation'
+                                        return clusteringLevel === 'generation' || clusteringLevel === 'evaluation'
                                             ? 'click to view generation'
                                             : 'click to view trace'
                                     }

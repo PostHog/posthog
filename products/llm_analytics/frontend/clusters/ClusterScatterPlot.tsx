@@ -7,6 +7,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
 import { clustersLogic } from './clustersLogic'
+import { formatEvalTitle } from './traceSummaryLoader'
 import { TraceSummary } from './types'
 
 interface ScatterPoint {
@@ -121,13 +122,23 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                                     }
 
                                     const point = context.raw as ScatterPoint
-                                    // For generation-level, summaries are keyed by generation_id
-                                    // For trace-level, summaries are keyed by trace_id
+                                    // For evaluation-level, the cluster item id (= eval uuid) is
+                                    // carried in generationId; traceId is the parent trace being
+                                    // judged, which doesn't key into the summary map.
+                                    // For generation-level, summaries are keyed by generation_id.
+                                    // For trace-level, summaries are keyed by trace_id.
                                     const summaryKey =
-                                        clusteringLevel === 'generation' ? point.generationId : point.traceId
+                                        clusteringLevel === 'generation' || clusteringLevel === 'evaluation'
+                                            ? point.generationId
+                                            : point.traceId
                                     if (summaryKey) {
                                         const summary = traceSummaries[summaryKey]
-                                        if (summary?.title) {
+                                        if (clusteringLevel === 'evaluation') {
+                                            const formatted = formatEvalTitle(summary, 140)
+                                            if (formatted) {
+                                                return formatted
+                                            }
+                                        } else if (summary?.title) {
                                             return summary.title
                                         }
                                     }
@@ -142,7 +153,7 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return clusteringLevel === 'generation'
+                                        return clusteringLevel === 'generation' || clusteringLevel === 'evaluation'
                                             ? 'click to view generation'
                                             : 'click to view trace'
                                     }

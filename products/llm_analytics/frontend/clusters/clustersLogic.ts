@@ -16,7 +16,12 @@ import { Breadcrumb } from '~/types'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
 import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
-import { loadTraceSummaries } from './traceSummaryLoader'
+import {
+    EvaluationItemAttributes,
+    EvaluationVerdict,
+    loadEvaluationItemAttributes,
+    loadTraceSummaries,
+} from './traceSummaryLoader'
 import {
     Cluster,
     ClusterMetrics,
@@ -92,6 +97,11 @@ export const clustersLogic = kea<clustersLogicType>([
         setClusterMetrics: (metrics: Record<number, ClusterMetrics>) => ({ metrics }),
         setClusterMetricsLoading: (loading: boolean) => ({ loading }),
         loadClusterMetricsForRun: (run: ClusteringRun) => ({ run }),
+        setEvaluationItemAttributes: (attributes: Record<string, EvaluationItemAttributes>) => ({ attributes }),
+        loadEvaluationAttributesForRun: (run: ClusteringRun) => ({ run }),
+        setEvalEvaluatorNamesFilter: (names: string[]) => ({ names }),
+        setEvalVerdictsFilter: (verdicts: EvaluationVerdict[]) => ({ verdicts }),
+        clearEvalFilters: true,
     }),
 
     reducers({
@@ -155,6 +165,33 @@ export const clustersLogic = kea<clustersLogicType>([
             false,
             {
                 setClusterMetricsLoading: (_, { loading }) => loading,
+            },
+        ],
+        evaluationItemAttributes: [
+            {} as Record<string, EvaluationItemAttributes>,
+            {
+                setEvaluationItemAttributes: (_, { attributes }) => attributes,
+                // Wipe between runs / level switches so a stale lookup doesn't leak across.
+                setClusteringLevel: () => ({}),
+                setSelectedRunId: () => ({}),
+            },
+        ],
+        evalFilterEvaluatorNames: [
+            [] as string[],
+            {
+                setEvalEvaluatorNamesFilter: (_, { names }) => names,
+                clearEvalFilters: () => [],
+                setClusteringLevel: () => [],
+                setSelectedRunId: () => [],
+            },
+        ],
+        evalFilterVerdicts: [
+            [] as EvaluationVerdict[],
+            {
+                setEvalVerdictsFilter: (_, { verdicts }) => verdicts,
+                clearEvalFilters: () => [],
+                setClusteringLevel: () => [],
+                setSelectedRunId: () => [],
             },
         ],
     }),
@@ -314,6 +351,102 @@ export const clustersLogic = kea<clustersLogicType>([
             },
         ],
 
+        evalFiltersActive: [
+            (s) => [s.clusteringLevel, s.evalFilterEvaluatorNames, s.evalFilterVerdicts],
+            (level: ClusteringLevel, names: string[], verdicts: EvaluationVerdict[]): boolean =>
+                level === 'evaluation' && (names.length > 0 || verdicts.length > 0),
+        ],
+
+        availableEvaluatorNames: [
+            (s) => [s.evaluationItemAttributes],
+            (attrs: Record<string, EvaluationItemAttributes>): { name: string; count: number }[] => {
+                const counts = new Map<string, number>()
+                for (const a of Object.values(attrs)) {
+                    counts.set(a.evaluatorName, (counts.get(a.evaluatorName) || 0) + 1)
+                }
+                return Array.from(counts.entries())
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count)
+            },
+        ],
+
+        availableVerdictCounts: [
+            (s) => [s.evaluationItemAttributes],
+            (attrs: Record<string, EvaluationItemAttributes>): Record<EvaluationVerdict, number> => {
+                const counts: Record<EvaluationVerdict, number> = { pass: 0, fail: 0, 'n/a': 0, unknown: 0 }
+                for (const a of Object.values(attrs)) {
+                    counts[a.verdict] = (counts[a.verdict] || 0) + 1
+                }
+                return counts
+            },
+        ],
+
+        // Single predicate keeps the filtering rule in one place; consumers (scatter, cards,
+        // distribution bar) all derive from this so any divergence is impossible.
+        evalFilterPredicate: [
+            (s) => [s.clusteringLevel, s.evaluationItemAttributes, s.evalFilterEvaluatorNames, s.evalFilterVerdicts],
+            (
+                level: ClusteringLevel,
+                attrs: Record<string, EvaluationItemAttributes>,
+                names: string[],
+                verdicts: EvaluationVerdict[]
+            ): ((evalId: string) => boolean) => {
+                if (level !== 'evaluation' || (names.length === 0 && verdicts.length === 0)) {
+                    return () => true
+                }
+                // Attributes haven't loaded yet — show everything to avoid an empty flash.
+                if (Object.keys(attrs).length === 0) {
+                    return () => true
+                }
+                const nameSet = new Set(names)
+                const verdictSet = new Set(verdicts)
+                return (evalId: string) => {
+                    const a = attrs[evalId]
+                    if (!a) {
+                        return false
+                    }
+                    if (nameSet.size > 0 && !nameSet.has(a.evaluatorName)) {
+                        return false
+                    }
+                    if (verdictSet.size > 0 && !verdictSet.has(a.verdict)) {
+                        return false
+                    }
+                    return true
+                }
+            },
+        ],
+
+        filteredSortedClusters: [
+            (s) => [s.sortedClusters, s.evalFilterPredicate, s.evalFiltersActive],
+            (clusters: Cluster[], predicate: (id: string) => boolean, active: boolean): Cluster[] => {
+                if (!active) {
+                    return clusters
+                }
+                return clusters
+                    .map((cluster) => {
+                        const filteredTraces = Object.fromEntries(
+                            Object.entries(cluster.traces).filter(([id]) => predicate(id))
+                        )
+                        return {
+                            ...cluster,
+                            traces: filteredTraces,
+                            size: Object.keys(filteredTraces).length,
+                        }
+                    })
+                    .filter((c) => c.size > 0)
+            },
+        ],
+
+        filteredItemCount: [
+            (s) => [s.filteredSortedClusters],
+            (clusters: Cluster[]): number => clusters.reduce((sum, c) => sum + c.size, 0),
+        ],
+
+        totalItemCount: [
+            (s) => [s.sortedClusters],
+            (clusters: Cluster[]): number => clusters.reduce((sum, c) => sum + c.size, 0),
+        ],
+
         isClusterExpanded: [
             (s) => [s.expandedClusterIds],
             (expandedIds: Set<number>) =>
@@ -336,7 +469,7 @@ export const clustersLogic = kea<clustersLogicType>([
         ],
 
         scatterPlotDatasets: [
-            (s) => [s.sortedClusters],
+            (s) => [s.filteredSortedClusters],
             (clusters: Cluster[]): ScatterDataset[] => {
                 const itemDatasets: ScatterDataset[] = []
                 const centroidDatasets: ScatterDataset[] = []
@@ -427,6 +560,25 @@ export const clustersLogic = kea<clustersLogicType>([
             }
         },
 
+        loadEvaluationAttributesForRun: async ({ run }) => {
+            if (run.level !== 'evaluation') {
+                return
+            }
+            const allItemIds: string[] = []
+            for (const cluster of run.clusters) {
+                allItemIds.push(...Object.keys(cluster.traces))
+            }
+            if (allItemIds.length === 0) {
+                return
+            }
+            try {
+                const attrs = await loadEvaluationItemAttributes(allItemIds, run.windowStart, run.windowEnd)
+                actions.setEvaluationItemAttributes(attrs)
+            } catch (error) {
+                console.error('Failed to load evaluation item attributes:', error)
+            }
+        },
+
         loadTraceSummariesForRun: async ({ run }) => {
             // Collect all item IDs from all clusters
             const allItemIds: string[] = []
@@ -504,6 +656,9 @@ export const clustersLogic = kea<clustersLogicType>([
                 actions.loadTraceSummariesForRun(currentRun)
                 // Load cluster metrics for displaying averages in cluster cards
                 actions.loadClusterMetricsForRun(currentRun)
+                // For evaluation runs, also load the per-item (evaluator name, verdict) lookup
+                // so the post-hoc filter bar can drive scatter + cluster card filtering.
+                actions.loadEvaluationAttributesForRun(currentRun)
             }
         },
 
