@@ -178,7 +178,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (hasAutocapture) {
                     return undefined
                 }
-                return 'AI summaries require autocapture events. Enable autocapture in your project settings, or try again once more events are ingested.'
+                const hasAnyEvents = [
+                    'events-posthog',
+                    'events-custom',
+                    'events-pageview',
+                    'events-autocapture',
+                    'events-exceptions',
+                ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
+                return hasAnyEvents
+                    ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
+                    : 'Session events are not available yet. Try again in a few minutes.'
             },
         ],
         loading: [

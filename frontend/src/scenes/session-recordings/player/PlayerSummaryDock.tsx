@@ -68,9 +68,9 @@ export function PlayerSummaryDock(): JSX.Element | null {
                             }
                             setIsOpen(true)
                         }}
-                        data-attr="player-summary-dock-summarize"
+                        data-attr="load-session-summary"
                     >
-                        Summarize this session
+                        Use AI to summarize this session
                     </LemonButton>
                 )}
                 {(hasContentToExpand || isOpen) && (
