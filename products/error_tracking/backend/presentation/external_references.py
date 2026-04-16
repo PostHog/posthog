@@ -1,9 +1,12 @@
 import logging
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -44,6 +47,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
         raise ValidationError("Provider not supported")
 
 
+@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = ErrorTrackingExternalReferenceSerializer
