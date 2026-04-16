@@ -24,14 +24,16 @@ const STEP_ORDER: Record<WizardStep, number> = {
 interface AlertWizardStepperProps {
     currentStep: WizardStep
     onStepClick: (step: WizardStep) => void
+    hiddenSteps?: WizardStep[]
 }
 
-export function AlertWizardStepper({ currentStep, onStepClick }: AlertWizardStepperProps): JSX.Element {
+export function AlertWizardStepper({ currentStep, onStepClick, hiddenSteps }: AlertWizardStepperProps): JSX.Element {
     const currentOrder = STEP_ORDER[currentStep]
+    const visibleSteps = hiddenSteps?.length ? STEPS.filter((s) => !hiddenSteps.includes(s.key)) : STEPS
 
     return (
         <nav className="flex items-center justify-center" aria-label="Alert wizard progress">
-            {STEPS.map((step, index) => {
+            {visibleSteps.map((step, index) => {
                 const order = STEP_ORDER[step.key]
                 const isCompleted = currentOrder > order
                 const isCurrent = currentStep === step.key

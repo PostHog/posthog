@@ -11,10 +11,11 @@ import { TriggerStep } from './steps/TriggerStep'
 
 export interface AlertWizardProps {
     onCancel: () => void
-    onSwitchToTraditional: () => void
+    onSwitchToTraditional?: () => void
+    hiddenSteps?: WizardStep[]
 }
 
-export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProps): JSX.Element {
+export function AlertWizard({ onCancel, onSwitchToTraditional, hiddenSteps }: AlertWizardProps): JSX.Element {
     const { currentStep } = useValues(alertWizardLogic)
     const { setStep } = useActions(alertWizardLogic)
 
@@ -22,7 +23,7 @@ export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProp
         <div className="flex flex-col min-h-[400px]">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center">
                 <div />
-                <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} />
+                <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} hiddenSteps={hiddenSteps} />
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -39,12 +40,14 @@ export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProp
                 {currentStep === WizardStep.Configure && <ConfigureStep />}
             </div>
 
-            <p className="text-center text-xs text-muted mt-6">
-                Need more control?{' '}
-                <button type="button" onClick={onSwitchToTraditional} className="text-link hover:underline">
-                    Go back to traditional editor
-                </button>
-            </p>
+            {onSwitchToTraditional && (
+                <p className="text-center text-xs text-muted mt-6">
+                    Need more control?{' '}
+                    <button type="button" onClick={onSwitchToTraditional} className="text-link hover:underline">
+                        Go back to traditional editor
+                    </button>
+                </p>
+            )}
         </div>
     )
 }

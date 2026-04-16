@@ -1,3 +1,5 @@
+import { HogFunctionSubTemplateIdType } from '~/types'
+
 export type ErrorTrackingRecommendationType = 'cross_sell' | 'alerts'
 
 export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknown> = Record<string, unknown>> {
@@ -54,26 +56,24 @@ export type AlertsRecommendation = ErrorTrackingRecommendation<AlertsRecommendat
 
 export interface AlertInfo {
     name: string
-    enable_url: string
+    sub_template_id: HogFunctionSubTemplateIdType
     reason: string
 }
-
-const ALERTING_URL = '/error_tracking/configuration?tab=error-tracking-alerting'
 
 export const ALERT_INFO: Record<string, AlertInfo> = {
     issue_created: {
         name: 'Issue created',
-        enable_url: ALERTING_URL,
+        sub_template_id: 'error-tracking-issue-created',
         reason: 'Get notified the moment a new error issue is detected.',
     },
     issue_reopened: {
         name: 'Issue reopened',
-        enable_url: ALERTING_URL,
+        sub_template_id: 'error-tracking-issue-reopened',
         reason: 'Hear about regressions when a resolved issue comes back.',
     },
     issue_spiking: {
         name: 'Issue spiking',
-        enable_url: ALERTING_URL,
+        sub_template_id: 'error-tracking-issue-spiking',
         reason: 'Catch incidents when an issue starts firing more than usual.',
     },
 }

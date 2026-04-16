@@ -46,6 +46,7 @@ export interface AlertWizardLogicProps {
     subTemplateIds: HogFunctionSubTemplateIdType[]
     triggers: WizardTrigger[]
     destinations: WizardDestination[]
+    initialTriggerKey?: HogFunctionSubTemplateIdType
 }
 
 const PRIMARY_DESTINATION_LIMIT = 3
@@ -284,7 +285,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ props: logicProps, values, actions }) => ({
         createAlertSuccess: () => {
             actions.resetWizard()
             actions.loadExistingAlerts()
@@ -293,6 +294,17 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         setAlertCreationView: ({ view }) => {
             if (view === AlertCreationView.Wizard) {
                 actions.loadExistingAlerts()
+            }
+        },
+
+        setDestinationKey: ({ destinationKey }) => {
+            const initialTriggerKey = logicProps.initialTriggerKey
+            if (!initialTriggerKey) {
+                return
+            }
+            const destination = values.allDestinations.find((d) => d.key === destinationKey)
+            if (destination && hasSubTemplateForDestination(initialTriggerKey, destination)) {
+                actions.setTriggerKey(initialTriggerKey)
             }
         },
 

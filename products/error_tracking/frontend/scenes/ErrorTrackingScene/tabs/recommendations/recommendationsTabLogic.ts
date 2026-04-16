@@ -1,7 +1,9 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+
+import { HogFunctionSubTemplateIdType } from '~/types'
 
 import type { recommendationsTabLogicType } from './recommendationsTabLogicType'
 import type { AlertsRecommendation, CrossSellRecommendation, ErrorTrackingRecommendation } from './types'
@@ -38,6 +40,8 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
 
     actions({
         toggleDismissedExpanded: true,
+        openAlertSetupModal: (subTemplateId: HogFunctionSubTemplateIdType) => ({ subTemplateId }),
+        closeAlertSetupModal: true,
     }),
 
     reducers({
@@ -47,7 +51,20 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 toggleDismissedExpanded: (state) => !state,
             },
         ],
+        alertSetupSubTemplateId: [
+            null as HogFunctionSubTemplateIdType | null,
+            {
+                openAlertSetupModal: (_, { subTemplateId }) => subTemplateId,
+                closeAlertSetupModal: () => null,
+            },
+        ],
     }),
+
+    listeners(({ actions }) => ({
+        closeAlertSetupModal: () => {
+            actions.loadRecommendations()
+        },
+    })),
 
     selectors({
         activeRecommendations: [

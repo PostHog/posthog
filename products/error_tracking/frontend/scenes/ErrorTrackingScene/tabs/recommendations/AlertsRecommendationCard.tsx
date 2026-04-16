@@ -1,7 +1,9 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { AlertWizardModal } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/AlertWizardModal'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
 import type { AlertsRecommendation } from './types'
@@ -14,7 +16,14 @@ export function AlertsRecommendationCard({
     recommendation: AlertsRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
-    const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { alertSetupSubTemplateId } = useValues(recommendationsTabLogic)
+    const {
+        dismissRecommendation,
+        restoreRecommendation,
+        refreshRecommendation,
+        openAlertSetupModal,
+        closeAlertSetupModal,
+    } = useActions(recommendationsTabLogic)
     const alerts = recommendation.meta.alerts ?? []
     const canRefresh = !recommendation.next_refresh_at || new Date(recommendation.next_refresh_at) <= new Date()
 
@@ -95,7 +104,11 @@ export function AlertsRecommendationCard({
                                 <p className="text-xs text-muted m-0">{info.reason}</p>
                             </div>
                             {!alert.enabled && (
-                                <LemonButton size="xsmall" type="secondary" to={info.enable_url}>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => openAlertSetupModal(info.sub_template_id)}
+                                >
                                     Set up
                                 </LemonButton>
                             )}
@@ -103,6 +116,11 @@ export function AlertsRecommendationCard({
                     )
                 })}
             </div>
+            <AlertWizardModal
+                isOpen={alertSetupSubTemplateId !== null}
+                onClose={closeAlertSetupModal}
+                initialTriggerKey={alertSetupSubTemplateId ?? undefined}
+            />
         </div>
     )
 }
