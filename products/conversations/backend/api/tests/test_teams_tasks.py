@@ -142,8 +142,8 @@ class TestProcessTeamsEvent(BaseTest):
 
 
 class TestPostReplyToTeams(BaseTest):
-    @patch("products.conversations.backend.support_teams.get_bot_from_id", return_value="28:app-id")
-    @patch("products.conversations.backend.support_teams.get_bot_framework_token", return_value="bot-tok")
+    @patch("products.conversations.backend.tasks.get_bot_from_id", return_value="28:app-id")
+    @patch("products.conversations.backend.tasks.get_bot_framework_token", return_value="bot-tok")
     @patch("products.conversations.backend.tasks.requests.post")
     def test_successful_reply(self, mock_post, _mock_token, _mock_from_id):
         from products.conversations.backend.tasks import post_reply_to_teams
@@ -170,8 +170,8 @@ class TestPostReplyToTeams(BaseTest):
         assert payload["from"]["id"] == "28:app-id"
         assert "Reply text" in payload["text"]
 
-    @patch("products.conversations.backend.support_teams.get_bot_from_id", return_value="28:app-id")
-    @patch("products.conversations.backend.support_teams.get_bot_framework_token", return_value="bot-tok")
+    @patch("products.conversations.backend.tasks.get_bot_from_id", return_value="28:app-id")
+    @patch("products.conversations.backend.tasks.get_bot_framework_token", return_value="bot-tok")
     @patch("products.conversations.backend.tasks.requests.post")
     def test_failed_reply_retries(self, mock_post, _mock_token, _mock_from_id):
         from products.conversations.backend.tasks import post_reply_to_teams
@@ -192,9 +192,7 @@ class TestPostReplyToTeams(BaseTest):
                 teams_conversation_id="19:conv@thread.tacv2",
             )
 
-    @patch(
-        "products.conversations.backend.support_teams.get_bot_framework_token", side_effect=ValueError("not configured")
-    )
+    @patch("products.conversations.backend.tasks.get_bot_framework_token", side_effect=ValueError("not configured"))
     def test_no_bot_token_does_not_retry(self, _mock_token):
         from products.conversations.backend.tasks import post_reply_to_teams
 
@@ -209,8 +207,8 @@ class TestPostReplyToTeams(BaseTest):
             teams_conversation_id="19:conv@thread.tacv2",
         )
 
-    @patch("products.conversations.backend.support_teams.get_bot_from_id", return_value="28:app-id")
-    @patch("products.conversations.backend.support_teams.get_bot_framework_token", return_value="bot-tok")
+    @patch("products.conversations.backend.tasks.get_bot_from_id", return_value="28:app-id")
+    @patch("products.conversations.backend.tasks.get_bot_framework_token", return_value="bot-tok")
     @patch("products.conversations.backend.tasks.requests.post")
     def test_nonexistent_team_returns_early(self, mock_post, _mock_token, _mock_from_id):
         from products.conversations.backend.tasks import post_reply_to_teams
