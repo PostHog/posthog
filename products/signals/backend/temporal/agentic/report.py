@@ -302,7 +302,7 @@ async def _maybe_autostart_task_for_report(
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
     )
-    task_run = task.latest_run
+    task_run = await task.runs.order_by("-created_at").afirst()
     if task_run is None:
         raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
 
