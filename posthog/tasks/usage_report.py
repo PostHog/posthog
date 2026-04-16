@@ -53,7 +53,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataJob,
     ExternalDataSchema,
 )
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from products.error_tracking.backend.facade import api as error_tracking_api
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -1917,18 +1917,17 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ff_active_count": list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        "teams_with_issues_created_total": list(
-            ErrorTrackingIssue.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        "teams_with_symbol_sets_count": list(
-            ErrorTrackingSymbolSet.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        "teams_with_resolved_symbol_sets_count": list(
-            ErrorTrackingSymbolSet.objects.filter(storage_ptr__isnull=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
+        "teams_with_issues_created_total": [
+            {"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_issue_counts_by_team()
+        ],
+        "teams_with_symbol_sets_count": [
+            {"team_id": team_id, "total": total}
+            for team_id, total in error_tracking_api.get_symbol_set_counts_by_team()
+        ],
+        "teams_with_resolved_symbol_sets_count": [
+            {"team_id": team_id, "total": total}
+            for team_id, total in error_tracking_api.get_symbol_set_counts_by_team(resolved_only=True)
+        ],
         "teams_with_query_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,

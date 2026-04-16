@@ -139,6 +139,7 @@ export const ThresholdOperatorEnumApi = {
  * `pending_resolve` - Pending resolve
  * `errored` - Errored
  * `snoozed` - Snoozed
+ * `broken` - Broken
  */
 export type LogsAlertConfigurationStateEnumApi =
     (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
@@ -149,6 +150,7 @@ export const LogsAlertConfigurationStateEnumApi = {
     PendingResolve: 'pending_resolve',
     Errored: 'errored',
     Snoozed: 'snoozed',
+    Broken: 'broken',
 } as const
 
 export interface LogsAlertConfigurationApi {

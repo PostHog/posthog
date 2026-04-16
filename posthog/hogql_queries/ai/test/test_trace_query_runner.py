@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,
@@ -199,9 +200,6 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self._create_properties()
-
-    def tearDown(self):
-        super().tearDown()
 
     def _create_properties(self):
         numeric_props = {
@@ -1460,42 +1458,34 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
         self.assertEqual(response.results[0].totalLatency, 300.0)
 
-    @freeze_time("2025-01-16T00:00:00Z")
-    def test_request_and_web_search_cost_aggregation(self):
+    @freeze_time("2025-01-15T12:00:00Z")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
+    def test_fallback_to_events_when_ai_events_empty(self, _mock_flag):
+        """When ai_events has no data, the fallback to events returns correct results with proper numeric types."""
+        trace_id = "fallback-test-trace"
         _create_person(distinct_ids=["person1"], team=self.team)
-        trace_id = "trace_cost_components"
 
-        _create_ai_generation_event(
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="fallback-trace",
+            input_state=None,
+            output_state=None,
             distinct_id="person1",
             team=self.team,
-            trace_id=trace_id,
-            input="first generation",
-            output="first response",
             timestamp=datetime(2025, 1, 15, 0, 0),
-            properties={
-                "$ai_input_cost_usd": 0.01,
-                "$ai_output_cost_usd": 0.02,
-                "$ai_request_cost_usd": 0.003,
-                "$ai_web_search_cost_usd": 0.015,
-                "$ai_total_cost_usd": 0.048,
-            },
         )
-        # Second event omits web_search_cost — verify partial presence sums correctly
         _create_ai_generation_event(
             distinct_id="person1",
-            team=self.team,
             trace_id=trace_id,
-            input="second generation",
-            output="second response",
+            input=[{"role": "user", "content": "Hello"}],
+            output=[{"role": "assistant", "content": "Hi there"}],
+            team=self.team,
             timestamp=datetime(2025, 1, 15, 0, 1),
-            properties={
-                "$ai_input_cost_usd": 0.005,
-                "$ai_output_cost_usd": 0.01,
-                "$ai_request_cost_usd": 0.002,
-                "$ai_total_cost_usd": 0.017,
-            },
+            properties={"$ai_parent_id": trace_id},
         )
 
+        # Events are in the events table only (not ai_events).
+        # With flag on, ai_events is attempted first, finds nothing, falls back to events.
         response = TraceQueryRunner(
             team=self.team,
             query=TraceQuery(
@@ -1504,12 +1494,18 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         trace = response.results[0]
+        assert trace.id == trace_id
+        assert trace.traceName == "fallback-trace"
 
-        # Values chosen to be exact in IEEE 754 after ClickHouse round(..., 10)
-        self.assertEqual(trace.inputCost, 0.015)
-        self.assertEqual(trace.outputCost, 0.03)
-        self.assertEqual(trace.requestCost, 0.005)
-        self.assertEqual(trace.webSearchCost, 0.015)
-        self.assertEqual(trace.totalCost, 0.065)
+        # Numeric fields must be actual numbers, not strings (validates toFloat wrapping)
+        assert isinstance(trace.totalLatency, (int, float))
+        assert isinstance(trace.inputTokens, (int, float))
+        assert isinstance(trace.outputTokens, (int, float))
+
+        # Heavy columns should be present in event properties (from events JSON blob)
+        assert len(trace.events) >= 1
+        gen_event = next(e for e in trace.events if e.event == "$ai_generation")
+        assert "$ai_input" in gen_event.properties
+        assert "$ai_output_choices" in gen_event.properties

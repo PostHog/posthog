@@ -249,6 +249,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     invite_message=inputs.invite_message or "" if inputs.is_new_subscription_target else None,
                     total_asset_count=inputs.total_insight_count,
                     send_async=False,
+                    change_summary=inputs.change_summary,
                 )
                 success_count += 1
                 recipient_results.append(RecipientResult(recipient=email, status="success"))
@@ -342,6 +343,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 assets,
                 total_asset_count=inputs.total_insight_count,
                 is_new_subscription=inputs.is_new_subscription_target,
+                change_summary=inputs.change_summary,
             )
 
             if delivery_result.is_complete_success:
