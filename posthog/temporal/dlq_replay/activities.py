@@ -7,7 +7,7 @@ from aiokafka import TopicPartition
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.kafka_client.routing import async_producer_scope, get_profile_settings
+from posthog.kafka_client.routing import get_profile_settings
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
@@ -133,10 +133,24 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
         api_version="2.5.0",
     )
 
+    # Replay must preserve per-message headers, which confluent-kafka's AIOProducer
+    # refuses to pass through in batch mode. Use aiokafka directly for this activity
+    # only — cluster routing still flows through `get_profile_settings(topic=...)`.
+    target_profile = get_profile_settings(topic=inputs.target_topic)
+    target_ssl_context = configure_ssl_context(target_profile.security_protocol)
+    producer = aiokafka.AIOKafkaProducer(
+        bootstrap_servers=target_profile.hosts,
+        security_protocol=target_profile.security_protocol or "PLAINTEXT",
+        ssl_context=target_ssl_context,
+        acks="all",
+        api_version="2.5.0",
+    )
+
     messages_replayed = 0
 
-    async with Heartbeater(), async_producer_scope(topic=inputs.target_topic) as producer:
+    async with Heartbeater():
         await consumer.start()
+        await producer.start()
 
         try:
             tp = TopicPartition(inputs.source_topic, inputs.partition)
@@ -177,14 +191,14 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                         break
 
                     # Produce the message to the target topic, preserving key, value, and headers.
-                    # value_serializer is identity because we're forwarding raw bytes from the source.
-                    headers = list(record.headers) if record.headers else None
-                    future = await producer.produce(
+                    # aiokafka expects `list[tuple[str, bytes]]`, which is what record.headers
+                    # already is.
+                    headers = list(record.headers) if record.headers else []
+                    future = await producer.send(
                         topic=inputs.target_topic,
-                        data=record.value,
+                        value=record.value,
                         key=record.key,
                         headers=headers,
-                        value_serializer=lambda v: v,
                     )
                     batch_futures.append(future)
                     messages_replayed += 1
@@ -208,7 +222,14 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                     break
 
         finally:
-            await consumer.stop()
+            try:
+                await consumer.stop()
+            except asyncio.CancelledError:
+                pass
+            try:
+                await producer.stop()
+            except asyncio.CancelledError:
+                pass
 
     logger.info("Partition replay completed", messages_replayed=messages_replayed)
 
