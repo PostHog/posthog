@@ -387,14 +387,14 @@ export const SessionRecordingPreview = memo(
                                     <button
                                         type="button"
                                         aria-label="Summarize this recording"
-                                        className="shrink-0 inline-flex items-center justify-center size-5 rounded-md border border-dashed border-brand-yellow text-brand-yellow cursor-pointer hover:bg-brand-yellow/10 mb-1"
+                                        className="shrink-0 inline-flex items-center justify-center size-5 rounded-md border border-dashed border-[var(--warning)] text-[var(--warning)] cursor-pointer hover:bg-[var(--warning)]/10 mb-1"
                                         onClick={(e) => {
                                             e.preventDefault()
                                             e.stopPropagation()
                                             startSummarization(recording.id)
                                         }}
                                     >
-                                        <IconPlusSmall className="size-full" />
+                                        <IconPlusSmall className="size-full text-[var(--warning)]" />
                                     </button>
                                 </Tooltip>
                             )}
