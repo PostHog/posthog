@@ -68,7 +68,7 @@ pub const EVENTS_HIDDEN_PROPERTY_DEFINITIONS: [&str; 14] = [
 // **IMPORTANT** we need to keep this in sync the w/Django original!! see below for more details:
 // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
 // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/taxonomy.py#L1627-L1631
-pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
+pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 261] = [
     (
         "$last_posthog_reset",
         "timestamp of last call to `reset` in the web sdk",
