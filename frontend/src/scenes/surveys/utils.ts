@@ -583,7 +583,7 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
 
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
-        return `AND coalesce(properties.\`${SurveyEventProperties.SURVEY_COMPLETED}\` = true, true)`
+        return `AND JSONExtractString(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') != 'false'`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
