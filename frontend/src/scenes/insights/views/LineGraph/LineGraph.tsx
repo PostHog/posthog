@@ -446,13 +446,8 @@ export function LineGraph_({
             adjustedData = adjustedData.map((value) => (value === 0 ? LOG_ZERO : value))
         }
 
-        // Transform data to percentages if showPercentView is enabled
-        if (showPercentView && Array.isArray(adjustedData)) {
-            const count = dataset.count
-            adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
-        }
-
         // Show first differences (x_t - x_{t-1}) when requested.
+        // Applied before the percentage transform so diffs are always on raw values.
         // Keep series length unchanged by setting the first point to null.
         const trendsFilterWithTransforms = trendsFilter as TrendsFilterWithTransforms | null | undefined
         if (trendsFilterWithTransforms?.showFirstDifferences && Array.isArray(adjustedData)) {
@@ -472,6 +467,12 @@ export function LineGraph_({
                 previousNumericValue = value
                 return diff
             })
+        }
+
+        // Transform data to percentages if showPercentView is enabled
+        if (showPercentView && Array.isArray(adjustedData)) {
+            const count = dataset.count
+            adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
         }
 
         const shouldShowIncompleteLineSegment = type === GraphType.Line && isInProgress && isActiveSeries
