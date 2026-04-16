@@ -11,6 +11,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantStickinessQuery,
     AssistantTrendsQuery,
+    ChartDisplayType,
     DataTableNode,
     DataVisualizationNode,
     FunnelsQuery,
@@ -68,9 +69,11 @@ def format_query_results_for_llm(
         query = query.source
 
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-        boxplot_data = response.get("boxplot_data")
-        if boxplot_data is not None:
-            return BoxPlotResultsFormatter(boxplot_data).format()
+        if (
+            getattr(query, "trendsFilter", None)
+            and getattr(query.trendsFilter, "display", None) == ChartDisplayType.BOX_PLOT
+        ):
+            return BoxPlotResultsFormatter(response["results"]).format()
         return TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()

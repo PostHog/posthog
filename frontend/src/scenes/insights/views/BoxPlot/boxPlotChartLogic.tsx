@@ -40,10 +40,12 @@ export const boxPlotChartLogic = kea<boxPlotChartLogicType>([
         boxplotData: [
             (s) => [s.insightData],
             (insightData): BoxPlotDatum[] => {
-                if (!insightData?.boxplot_data) {
+                const result = insightData?.result ?? insightData?.results
+                const data = Array.isArray(result) && result.length > 0 ? result : insightData?.boxplot_data
+                if (!Array.isArray(data) || data.length === 0) {
                     return []
                 }
-                return insightData.boxplot_data
+                return data
             },
         ],
         seriesGroups: [

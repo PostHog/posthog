@@ -12,7 +12,7 @@ from posthog.test.base import (
 
 from parameterized import parameterized
 
-from posthog.schema import ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
+from posthog.schema import BoxPlotDatum, ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
 
 from posthog.hogql_queries.insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 from posthog.models.utils import uuid7
@@ -61,7 +61,9 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=series or [EventsNode(kind="EventsNode", math="sum", math_property=math_property)],
         )
         runner = BoxPlotTrendsQueryRunner(team=self.team, query=query)
-        return runner.calculate()
+        response = runner.calculate()
+        response.boxplot_data = [BoxPlotDatum(**d) for d in response.results]
+        return response
 
     @snapshot_clickhouse_queries
     def test_no_data_fills_all_dates_with_zeros(self):
@@ -72,7 +74,6 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert datum.min == 0.0
             assert datum.max == 0.0
             assert datum.mean == 0.0
-        assert response.results == []
 
     @parameterized.expand(
         [

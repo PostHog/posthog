@@ -461,10 +461,12 @@ class AssistantQueryExecutor:
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-                boxplot_data = response.get("boxplot_data")
-                if boxplot_data is not None:
+                if (
+                    getattr(query, "trendsFilter", None)
+                    and getattr(query.trendsFilter, "display", None) == ChartDisplayType.BOX_PLOT
+                ):
                     formatter_name = "BoxPlotResultsFormatter"
-                    result = BoxPlotResultsFormatter(boxplot_data).format()
+                    result = BoxPlotResultsFormatter(response["results"]).format()
                 else:
                     formatter_name = "TrendsResultsFormatter"
                     result = TrendsResultsFormatter(query, response["results"]).format()

@@ -1440,7 +1440,7 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
-    /** Box plot data when display type is BoxPlot */
+    /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
 }
 

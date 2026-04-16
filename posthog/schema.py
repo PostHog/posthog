@@ -8489,7 +8489,9 @@ class TrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     boxplot_data: list[BoxPlotDatum] | None = Field(
-        default=None, description="Box plot data when display type is BoxPlot"
+        default=None,
+        description="Deprecated: box plot data is now returned in results. This field is no longer populated.",
+        deprecated="Box plot data is now returned in results.",
     )
     error: str | None = Field(
         default=None,
@@ -11643,7 +11645,9 @@ class CachedTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     boxplot_data: list[BoxPlotDatum] | None = Field(
-        default=None, description="Box plot data when display type is BoxPlot"
+        default=None,
+        description="Deprecated: box plot data is now returned in results. This field is no longer populated.",
+        deprecated="Box plot data is now returned in results.",
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16450,7 +16454,9 @@ class QueryResponseAlternative66(BaseModel):
         extra="forbid",
     )
     boxplot_data: list[BoxPlotDatum] | None = Field(
-        default=None, description="Box plot data when display type is BoxPlot"
+        default=None,
+        description="Deprecated: box plot data is now returned in results. This field is no longer populated.",
+        deprecated="Box plot data is now returned in results.",
     )
     error: str | None = Field(
         default=None,
