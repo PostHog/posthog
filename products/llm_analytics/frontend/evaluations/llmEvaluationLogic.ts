@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
@@ -17,6 +18,7 @@ import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
+import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
@@ -94,6 +96,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
         loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({ evaluation }),
         resetEvaluation: true,
@@ -292,6 +295,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
+                saveEvaluationFailure: () => false,
             },
         ],
         signalEmissionOptimistic: [
@@ -518,7 +522,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
-                console.error('Failed to save evaluation:', error)
+                const message = evaluationErrorMessage(error, 'Failed to save evaluation')
+                lemonToast.error(message)
+                actions.saveEvaluationFailure(message)
             }
         },
 
