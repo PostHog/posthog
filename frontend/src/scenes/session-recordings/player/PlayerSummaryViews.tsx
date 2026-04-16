@@ -35,7 +35,6 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
-import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
     SegmentMeta,
     SessionKeyAction,
@@ -44,7 +43,7 @@ import {
     SessionSegmentOutcome,
     SessionSummaryContent,
     SummarizationProgress,
-} from '../player-meta/types'
+} from './player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
@@ -231,7 +230,7 @@ function PhaseRow({ label, detail, status, elapsedSeconds, subProgressPercent }:
     )
 }
 
-function SummarizationProgressView({
+export function SummarizationProgressView({
     progress,
     sessionDurationMs,
 }: {
@@ -303,7 +302,7 @@ function SummarizationProgressView({
     )
 }
 
-function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
+export function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -846,7 +845,7 @@ export const SessionSummaryComponent = {
     Subtitle: SessionSummarySubtitle,
 }
 
-function SessionSummary(): JSX.Element {
+export function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionSummary } = useValues(playerMetaLogic(logicProps))
 
@@ -956,96 +955,5 @@ function SessionSummary(): JSX.Element {
                 <div className="text-center text-muted-alt">No summary available for this session</div>
             )}
         </SessionSummaryComponent.Root>
-    )
-}
-
-function LoadSessionSummaryButton(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummaryLoading, loading } = useValues(playerMetaLogic(logicProps))
-    const inspectorLogic = playerInspectorLogic(logicProps)
-    const { allItemsByMiniFilterKey } = useValues(inspectorLogic)
-    const { summarizeSession } = useActions(playerMetaLogic(logicProps))
-
-    // We need $autocapture events to be able to generate a summary
-    const hasEvents = [
-        'events-posthog',
-        'events-custom',
-        'events-pageview',
-        'events-autocapture',
-        'events-exceptions',
-    ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
-    const hasAutocaptureEvents = allItemsByMiniFilterKey['events-autocapture']?.length > 0
-
-    return (
-        <div className="space-y-2">
-            <LemonButton
-                size="small"
-                type="primary"
-                icon={<IconMagicWand />}
-                fullWidth={true}
-                data-attr="load-session-summary"
-                disabled={loading || !hasAutocaptureEvents}
-                disabledReason={sessionSummaryLoading ? 'Loading...' : undefined}
-                onClick={summarizeSession}
-            >
-                Use AI to summarise this session
-            </LemonButton>
-
-            {loading ? (
-                <div className="text-sm">
-                    Checking on session events... <Spinner />
-                </div>
-            ) : (
-                !hasAutocaptureEvents && (
-                    <div>
-                        {hasEvents ? (
-                            <>
-                                <h4>No autocapture events found for this session</h4>
-                                <p className="text-sm mb-1">
-                                    Please, ensure that Autocapture is enabled in project's settings, or try again in a
-                                    few minutes.
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <h4>Session events are not available for summary yet</h4>
-                                <p className="text-sm mb-1">Please, try again in a few minutes.</p>
-                            </>
-                        )}
-                    </div>
-                )
-            )}
-        </div>
-    )
-}
-
-export function PlayerSidebarSessionSummary(): JSX.Element | null {
-    const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummary, sessionSummaryLoading, summarizationProgress } = useValues(playerMetaLogic(logicProps))
-
-    return (
-        <div className="rounded border bg-surface-primary px-2 py-1">
-            {sessionSummaryLoading ? (
-                summarizationProgress ? (
-                    <SummarizationProgressView
-                        progress={summarizationProgress}
-                        sessionDurationMs={sessionPlayerData?.durationMs}
-                    />
-                ) : (
-                    <div className="flex items-center justify-between">
-                        <div>
-                            Researching the session... <Spinner />
-                        </div>
-                        <div className="flex items-center gap-1 ml-auto">
-                            <LoadingTimer />
-                        </div>
-                    </div>
-                )
-            ) : sessionSummary ? (
-                <SessionSummary />
-            ) : (
-                <LoadSessionSummaryButton />
-            )}
-        </div>
     )
 }

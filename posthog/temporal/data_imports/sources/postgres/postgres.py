@@ -149,21 +149,29 @@ def pg_connection(
 
 
 def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: list[str]) -> dict[str, list[str]]:
-    """Return ordered PK columns per table: {table_name: [col, ...]}."""
+    """Return ordered PK columns per table: {table_name: [col, ...]}.
+
+    Uses pg_catalog rather than information_schema because information_schema views
+    are ACL-filtered — a user with only SELECT grants may not see PK constraint rows
+    depending on PostgreSQL version, which would silently hide `supports_cdc=True`
+    for their tables and make CDC look unavailable in the source wizard.
+    """
     if not table_names:
         return {}
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT kcu.table_name, kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-                AND tc.table_schema = %s
-                AND tc.table_name = ANY(%s)
-            ORDER BY kcu.table_name, kcu.ordinal_position
+            SELECT c.relname AS table_name,
+                   a.attname AS column_name,
+                   array_position(i.indkey, a.attnum) AS ord
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+            WHERE i.indisprimary
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            ORDER BY c.relname, array_position(i.indkey, a.attnum)
             """,
             (schema, table_names),
         )

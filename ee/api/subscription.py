@@ -16,7 +16,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -31,7 +31,6 @@ from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
-from posthog.subscription_delivery_rollout import hackathon_subscription_feature
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -184,13 +183,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             allowed, error = is_url_allowed(target_value)
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
-
-        if attrs.get("summary_enabled"):
-            from posthog.subscription_delivery_rollout import hackathon_subscription_feature
-
-            team = self.context["get_team"]()
-            if not hackathon_subscription_feature(team.id):
-                raise ValidationError({"summary_enabled": ["AI change summaries are not enabled for this project."]})
 
         prompt_guide = attrs.get("summary_prompt_guide")
         if prompt_guide and len(prompt_guide) > 500:
@@ -528,11 +520,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
 @extend_schema_view(
     list=extend_schema(
         summary="List subscription deliveries",
-        description=(
-            "Paginated delivery history for a subscription. "
-            "Requires premium subscriptions. Listing is gated by the `hackathons_subscriptions` feature flag; "
-            "single-delivery retrieve is not."
-        ),
+        description="Paginated delivery history for a subscription. Requires premium subscriptions.",
         parameters=[
             OpenApiParameter(
                 name="status",
@@ -547,7 +535,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
     ),
     retrieve=extend_schema(
         summary="Retrieve subscription delivery",
-        description="Fetch one delivery row by id (not gated by `hackathons_subscriptions`).",
+        description="Fetch one delivery row by id.",
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
@@ -560,11 +548,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     premium_feature = AvailableFeature.SUBSCRIPTIONS
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if self.action == "list" and not hackathon_subscription_feature(self.team_id):
-            raise NotFound()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")
