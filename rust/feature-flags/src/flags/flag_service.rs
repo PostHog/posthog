@@ -168,13 +168,9 @@ impl FlagService {
         Ok(team)
     }
 
-    /// Fetches the flags from the hypercache or falls back to the database.
-    ///
-    /// Uses HyperCacheReader's built-in fallback pattern which:
-    /// - Tries Redis first
-    /// - Falls back to S3 on Redis miss
-    /// - Falls back to PostgreSQL if both cache tiers miss
-    /// - Emits appropriate metrics for all scenarios
+    /// Fetches flags from the hypercache (Redis → S3), falling back to PostgreSQL
+    /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
+    /// a tombstone rather than serving degraded single-stage PG data.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: TeamId,
