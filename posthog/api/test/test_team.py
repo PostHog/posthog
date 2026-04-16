@@ -2112,7 +2112,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
@@ -2121,7 +2121,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["logs_settings"]["retention_last_updated"] is not None
@@ -2130,7 +2130,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -2139,23 +2139,34 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_invalid_values_rejected(self):
+            for invalid_days in [7, 15, 20, 45, 100]:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": invalid_days}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                    f"Expected 400 for retention_days={invalid_days}"
+                )
+                assert "retention_days must be one of" in response.json()["detail"]
 
         def test_logs_settings_non_retention_changes_not_restricted(self):
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -2165,7 +2176,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 15,  # Same retention
+                            "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
                         }
                     },
@@ -2178,7 +2189,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 16,
+                            "retention_days": 30,
                         }
                     },
                 )

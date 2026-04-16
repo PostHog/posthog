@@ -64,13 +64,16 @@ class TestLogsAlertConfiguration(BaseTest):
         alert = self._create_alert(
             state=LogsAlertConfiguration.State.FIRING,
             next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+            consecutive_failures=3,
         )
         updated = alert.mark_for_recheck(reset_state=True)
         alert.save(update_fields=updated)
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         assert alert.next_check_at is None
+        assert alert.consecutive_failures == 0
         assert "state" in updated
+        assert "consecutive_failures" in updated
         assert "next_check_at" in updated
 
     def test_mark_for_recheck_preserves_state(self):
