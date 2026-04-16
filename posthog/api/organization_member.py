@@ -1,6 +1,6 @@
 from typing import cast
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.db.models import F, Model, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -102,8 +102,7 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
-        .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(
             user__is_active=True,
         )
@@ -135,6 +134,13 @@ class OrganizationMemberViewSet(
 
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
+
+            if search := params.get("search"):
+                queryset = queryset.filter(
+                    Q(user__first_name__icontains=search)
+                    | Q(user__last_name__icontains=search)
+                    | Q(user__email__icontains=search)
+                )
 
             order = self.request.GET.get("order", None)
             if order:

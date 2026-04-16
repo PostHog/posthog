@@ -423,3 +423,44 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["user"]["email"], "specific@posthog.com")
         self.assertEqual(response_data[0]["user"]["uuid"], str(user1.uuid))
+
+    def test_list_organization_members_search_by_first_name(self):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@posthog.com", None, first_name="Bob")
+
+        response = self.client.get("/api/organizations/@current/members/?search=Alice")
+        response_data = response.json()["results"]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["user"]["first_name"], "Alice")
+
+    def test_list_organization_members_search_by_email(self):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@example.com", None, first_name="Bob")
+
+        response = self.client.get("/api/organizations/@current/members/?search=example.com")
+        response_data = response.json()["results"]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["user"]["email"], "bob@example.com")
+
+    def test_list_organization_members_search_case_insensitive(self):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+
+        response = self.client.get("/api/organizations/@current/members/?search=alice")
+        response_data = response.json()["results"]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["user"]["first_name"], "Alice")
+
+    def test_list_organization_members_search_no_results(self):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+
+        response = self.client.get("/api/organizations/@current/members/?search=nonexistent")
+        response_data = response.json()["results"]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data), 0)
