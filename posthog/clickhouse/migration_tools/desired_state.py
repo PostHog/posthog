@@ -106,7 +106,7 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
     inherit_from: str | None = None
     if isinstance(columns_raw, str) and columns_raw.startswith("inherit "):
         inherit_from = columns_raw.split(" ", 1)[1].strip()
-    columns = _parse_columns(columns_raw, all_tables)
+    columns = _parse_columns(columns_raw, all_tables, _visited=(name,))
 
     # Use `or` instead of a dict default so that an explicit `None`
     # (from YAML `on_nodes:` with no value) also falls back to ["ALL"].

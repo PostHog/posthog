@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Keep in sync with NodeRole in posthog/clickhouse/client/connection.py.
+# Plain dict (not imported enum) to avoid Django settings import at parse time.
 ROLE_MAP: dict[str, str] = {
     "DATA": "data",
     "COORDINATOR": "coordinator",
