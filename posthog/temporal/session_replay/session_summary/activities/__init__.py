@@ -4,7 +4,8 @@ from .a3_analyze_video_segment import analyze_video_segment_activity
 from .a4_consolidate_video_segments import consolidate_video_segments_activity
 from .a5_embed_and_store_segments import embed_and_store_segments_activity
 from .a6_store_video_session_summary import store_video_session_summary_activity
-from .a7_cleanup_gemini_file import cleanup_gemini_file_activity
+from .a7_tag_and_highlight_session import tag_and_highlight_session_activity
+from .a8_cleanup_gemini_file import cleanup_gemini_file_activity
 from .capture_timing import CaptureTimingInputs, capture_timing_activity
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "consolidate_video_segments_activity",
     "embed_and_store_segments_activity",
     "store_video_session_summary_activity",
+    "tag_and_highlight_session_activity",
     "cleanup_gemini_file_activity",
     "capture_timing_activity",
 ]

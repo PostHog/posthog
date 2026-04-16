@@ -1,5 +1,5 @@
 """
-Activity 7 of the video-based summarization workflow:
+Activity 8 of the video-based summarization workflow:
 Delete the uploaded video file from Gemini to free storage quota.
 """
 

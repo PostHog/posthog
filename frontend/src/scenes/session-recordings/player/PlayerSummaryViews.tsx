@@ -94,6 +94,7 @@ const PHASE_ORDER = [
     'consolidating',
     'generating_embeddings',
     'saving_summary',
+    'tagging',
     'cleanup',
 ] as const
 
@@ -106,6 +107,7 @@ const PHASE_LABELS: Record<(typeof PHASE_ORDER)[number], string> = {
     consolidating: 'Consolidating analysis',
     generating_embeddings: 'Generating embeddings',
     saving_summary: 'Saving summary',
+    tagging: 'Tagging session',
     cleanup: 'Cleaning up',
 }
 
@@ -151,6 +153,7 @@ const PHASE_TAU_S: Record<(typeof PHASE_ORDER)[number], number> = {
     consolidating: 8,
     generating_embeddings: 4,
     saving_summary: 2,
+    tagging: 4,
     cleanup: 2,
 }
 

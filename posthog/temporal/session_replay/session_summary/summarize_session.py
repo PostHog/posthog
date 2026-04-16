@@ -37,6 +37,7 @@ from posthog.temporal.session_replay.session_summary.activities import (
     embed_and_store_segments_activity,
     prep_session_video_asset_activity,
     store_video_session_summary_activity,
+    tag_and_highlight_session_activity,
     upload_video_to_gemini_activity,
 )
 from posthog.temporal.session_replay.session_summary.activities.video_validation import (
@@ -737,7 +738,7 @@ async def ensure_llm_single_session_summary(
         inactivity_periods=inactivity_periods,
     )
 
-    # Activity 7 (cleanup) must run even if activities 3-6 fail
+    # Activity 8 (cleanup) must run even if activities 3-7 fail
     try:
         # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
         _set_phase(progress, "analyzing_segments")
@@ -776,14 +777,18 @@ async def ensure_llm_single_session_summary(
                 continue
             raw_segments.extend(cast(list[VideoSegmentOutput], result))
 
-        # Activity 4: Consolidate raw segments into meaningful semantic segments
+        # Activity 4: Consolidate raw segments into meaningful semantic segments,
+        # then tag the session in a follow-up turn of the same conversation
         _set_phase(progress, "consolidating")
-        consolidated_analysis = await temporalio.workflow.execute_activity(
+        consolidation_output = await temporalio.workflow.execute_activity(
             consolidate_video_segments_activity,
             args=(video_inputs, raw_segments, trace_id),
-            start_to_close_timeout=timedelta(minutes=3),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
+
+        consolidated_analysis = consolidation_output["consolidated_analysis"]
+        tagging = consolidation_output["tagging"]
 
         # Activity 5: Enqueue embedding requests for each segment via Kafka.
         # The activity just produces Kafka messages and returns; actual embedding
@@ -806,8 +811,17 @@ async def ensure_llm_single_session_summary(
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
+
+        # Activity 7: Write tags and highlight flag to ClickHouse via Kafka
+        _set_phase(progress, "tagging")
+        await temporalio.workflow.execute_activity(
+            tag_and_highlight_session_activity,
+            args=(video_inputs, tagging),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=retry_policy,
+        )
     finally:
-        # Activity 7: Delete uploaded video from Gemini to free storage quota
+        # Activity 8: Delete uploaded video from Gemini to free storage quota
         _set_phase(progress, "cleanup")
         await temporalio.workflow.execute_activity(
             cleanup_gemini_file_activity,
