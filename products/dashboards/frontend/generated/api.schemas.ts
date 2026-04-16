@@ -67,32 +67,6 @@ export interface UserBasicApi {
 }
 
 /**
- * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
- */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
-
-export const DashboardRestrictionLevelApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level: DashboardRestrictionLevelApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
-
-/**
  * * `team` - Only team
  * `global` - Global
  * `feature_flag` - Feature Flag
@@ -164,6 +138,18 @@ export const CreationModeEnumApi = {
     Template: 'template',
     Duplicate: 'duplicate',
     Unlisted: 'unlisted',
+} as const
+
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type DashboardRestrictionLevelApi =
+    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
+
+export const DashboardRestrictionLevelApi = {
+    Number21: 21,
+    Number37: 37,
 } as const
 
 export type EffectiveRestrictionLevelEnumApi =

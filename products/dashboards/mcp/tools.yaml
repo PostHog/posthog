@@ -27,15 +27,6 @@ tools:
     data-color-themes-destroy:
         operation: data_color_themes_destroy
         enabled: false
-    dashboards-collaborators-list:
-        operation: dashboards_collaborators_list
-        enabled: false
-    dashboards-collaborators-create:
-        operation: dashboards_collaborators_create
-        enabled: false
-    dashboards-collaborators-destroy:
-        operation: dashboards_collaborators_destroy
-        enabled: false
     dashboards-get-all:
         operation: dashboards_list
         enabled: true

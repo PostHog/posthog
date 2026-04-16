@@ -421,60 +421,6 @@ export interface PatchedOrganizationMemberApi {
     readonly last_login?: string
 }
 
-export type RoleApiMembersItem = { [key: string]: unknown }
-
-export interface RoleApi {
-    readonly id: string
-    /** @maxLength 200 */
-    name: string
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** Members assigned to this role */
-    readonly members: readonly RoleApiMembersItem[]
-    readonly is_default: boolean
-}
-
-export interface PaginatedRoleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RoleApi[]
-}
-
-export type PatchedRoleApiMembersItem = { [key: string]: unknown }
-
-export interface PatchedRoleApi {
-    readonly id?: string
-    /** @maxLength 200 */
-    name?: string
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** Members assigned to this role */
-    readonly members?: readonly PatchedRoleApiMembersItem[]
-    readonly is_default?: boolean
-}
-
-export interface RoleMembershipApi {
-    readonly id: string
-    readonly role_id: string
-    readonly organization_member: OrganizationMemberApi
-    readonly user: UserBasicApi
-    readonly joined_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
-
-export interface PaginatedRoleMembershipListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RoleMembershipApi[]
-}
-
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
@@ -642,28 +588,6 @@ export type ListParams = {
 }
 
 export type MembersListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type RolesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type RolesRoleMembershipsListParams = {
     /**
      * Number of results to return per page.
      */

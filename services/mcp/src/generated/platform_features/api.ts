@@ -75,30 +75,6 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const RolesListParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
-})
-
-export const RolesListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this role.'),
-    organization_id: zod.string(),
-})
-
-export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
-    role_id: zod.string(),
-})
-
-export const RolesRoleMembershipsListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 export const ActivityLogListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
