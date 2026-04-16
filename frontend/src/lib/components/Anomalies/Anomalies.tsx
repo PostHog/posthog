@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -63,14 +64,14 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
     return (
         <Link
             to={urls.insightView(anomaly.insight_short_id as InsightShortId)}
-            className="group flex items-stretch gap-3 border-b border-border px-2 py-3 no-underline transition-colors hover:bg-surface-secondary"
+            className="group flex h-32 items-stretch gap-3 border-b border-border px-2 py-2 no-underline transition-colors hover:bg-surface-secondary"
             subtle
         >
             {/* Severity left-edge bar — vertical scan cue */}
             <div className={`w-0.5 shrink-0 rounded-full ${severityBar[severity]}`} aria-hidden />
 
             {/* Metadata column — tight, left-aligned */}
-            <div className="flex w-60 shrink-0 flex-col justify-between py-0.5">
+            <div className="flex w-60 shrink-0 flex-col gap-1">
                 <div className="flex items-center gap-1.5">
                     <span
                         className={`rounded border px-1.5 py-0.5 font-mono text-xs font-bold tabular-nums ${severityBadge[severity]}`}
@@ -80,8 +81,13 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                     <LemonTag type="muted" size="small">
                         {intervalLabel(anomaly.interval)}
                     </LemonTag>
+                    {anomaly.timestamp && (
+                        <span className="ml-auto font-mono text-[10px] font-semibold tabular-nums text-danger">
+                            {dayjs(anomaly.timestamp).format('MMM D')}
+                        </span>
+                    )}
                 </div>
-                <div className="mt-1.5 min-w-0">
+                <div className="min-w-0">
                     <div
                         className="line-clamp-1 text-sm font-semibold leading-tight text-default group-hover:text-accent"
                         title={anomaly.insight_name}
@@ -95,18 +101,18 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                     )}
                 </div>
                 {anomaly.timestamp && (
-                    <div className="mt-1 text-xs text-muted">
+                    <div className="text-[11px] text-muted">
                         <TZLabel time={anomaly.timestamp} />
                     </div>
                 )}
             </div>
 
             {/* Chart column — the main focus */}
-            <div className="flex min-w-0 flex-1 items-center">
+            <div className="flex min-w-0 flex-1 items-stretch">
                 {anomaly.data_snapshot?.data?.length ? (
                     <AnomalyChart anomaly={anomaly} />
                 ) : (
-                    <div className="text-xs italic text-muted">No series data</div>
+                    <div className="flex items-center text-xs italic text-muted">No series data</div>
                 )}
             </div>
         </Link>

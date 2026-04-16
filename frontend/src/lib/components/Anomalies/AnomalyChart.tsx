@@ -11,10 +11,6 @@ interface AnomalyChartProps {
 export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
     const { data, dates, anomaly_index } = anomaly.data_snapshot
 
-    const firstDate = dates?.[0]
-    const lastDate = dates?.[dates.length - 1]
-    const anomalyDate = anomaly_index != null ? dates?.[anomaly_index] : undefined
-
     const { canvasRef } = useChart({
         getConfig: () => {
             const lineColor = getSeriesColor(0)
@@ -40,7 +36,7 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
                                 target: 'origin',
                                 above: `${lineColor}14`, // append alpha ~8% (hex 14)
                             },
-                            tension: 0.35,
+                            tension: 0,
                             spanGaps: true,
                         },
                     ],
@@ -86,15 +82,8 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
     })
 
     return (
-        <div className="flex w-full flex-col gap-1">
-            <div className="relative h-20 w-full">
-                <canvas ref={canvasRef} />
-            </div>
-            <div className="flex justify-between px-0.5 text-[10px] font-mono text-muted tabular-nums">
-                <span>{firstDate ? dayjs(firstDate).format('MMM D') : ''}</span>
-                {anomalyDate && <span className="font-semibold text-danger">{dayjs(anomalyDate).format('MMM D')}</span>}
-                <span>{lastDate ? dayjs(lastDate).format('MMM D') : ''}</span>
-            </div>
+        <div className="relative h-full w-full">
+            <canvas ref={canvasRef} />
         </div>
     )
 }
