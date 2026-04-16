@@ -82,9 +82,8 @@ class ExperimentParametersField(serializers.JSONField):
         if isinstance(data, dict) and "feature_flag_variants" in data:
             for variant in data["feature_flag_variants"]:
                 if "split_percent" in variant:
-                    split = variant.pop("split_percent")
-                    if "rollout_percentage" not in variant:
-                        variant["rollout_percentage"] = split
+                    # split_percent wins in case both keys present, as rollout_percentage deprecated
+                    variant["rollout_percentage"] = variant.pop("split_percent")
         return super().to_internal_value(data)
 
 
