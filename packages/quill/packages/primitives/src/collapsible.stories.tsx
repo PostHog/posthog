@@ -23,3 +23,23 @@ export const Default: Story = {
         </Collapsible>
     ),
 } satisfies Story
+
+export const Folder: Story = {
+    render: () => (
+        <Collapsible className="max-w-sm" variant="folder">
+            <CollapsibleTrigger>
+                <p>Collapsible Trigger</p>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+            <Collapsible variant="folder">
+                <CollapsibleTrigger>
+                    <p>Collapsible Trigger</p>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                    <p>Collapsible Content</p>
+                </CollapsibleContent>
+            </Collapsible>
+            </CollapsibleContent>
+        </Collapsible>
+    ),
+} satisfies Story

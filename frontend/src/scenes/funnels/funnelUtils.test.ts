@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode } from '~/queries/schema/schema-general'
+import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
@@ -20,7 +20,10 @@ import {
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
+    getStepBreakdownSeries,
     getVisibilityKey,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     parseDisplayNameForCorrelation,
     stepsWithConversionMetrics,
 } from './funnelUtils'
@@ -699,5 +702,135 @@ describe('getLastFilledStep', () => {
         },
     ])('$scenario', ({ steps, index, expectedOrder }) => {
         expect(getLastFilledStep(steps, index).order).toBe(expectedOrder)
+    })
+})
+
+describe('getStepBreakdownSeries', () => {
+    const series = { breakdown_value: 'NL' } as any
+    it.each([
+        {
+            scenario: 'single breakdown value with breakdown filter set → returns the series',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: series,
+        },
+        {
+            scenario: 'no breakdown filter → null',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: null,
+            expected: null,
+        },
+        {
+            scenario: 'breakdown filter without breakdown property → null',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: {},
+            expected: null,
+        },
+        {
+            scenario: 'multiple breakdown values → null (use existing per-bar handlers)',
+            step: { nested_breakdown: [series, { breakdown_value: 'US' }] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'empty nested_breakdown → null',
+            step: { nested_breakdown: [] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'undefined nested_breakdown → null',
+            step: { nested_breakdown: undefined },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'single entry with null breakdown_value → null',
+            step: { nested_breakdown: [{ breakdown_value: null }] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+    ])('$scenario', ({ step, breakdownFilter, expected }) => {
+        expect(getStepBreakdownSeries(step as any, breakdownFilter as any)).toBe(expected)
+    })
+})
+
+describe('isFunnelWithEnoughSteps', () => {
+    it.each([
+        { scenario: 'no steps', series: [], expected: false },
+        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
+        {
+            scenario: 'two steps',
+            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+    it.each([
+        {
+            scenario: 'no steps',
+            series: [],
+            expected: false,
+        },
+        {
+            scenario: 'non-funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'complete funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    aggregation_target_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'missing aggregation target field',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                },
+            ],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
     })
 })

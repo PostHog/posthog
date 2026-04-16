@@ -100,6 +100,8 @@ export interface SandboxEnvironmentListApi {
     repositories?: string[]
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    internal?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -131,6 +133,8 @@ export interface SandboxEnvironmentApi {
     readonly has_environment_variables: boolean
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    readonly internal: boolean
     /** Computed domain allowlist based on network_access_level and allowed_domains */
     readonly effective_domains: readonly string[]
     readonly created_by: UserBasicApi
@@ -255,6 +259,48 @@ export const RunSourceEnumApi = {
 } as const
 
 /**
+ * * `claude` - claude
+ * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `low` - low
+ * `medium` - medium
+ * `high` - high
+ * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Max: 'max',
+} as const
+
+/**
+ * * `default` - default
+ * `acceptEdits` - acceptEdits
+ * `plan` - plan
+ * `bypassPermissions` - bypassPermissions
+ */
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+
+export const InitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface TaskRunCreateRequestApi {
@@ -287,8 +333,29 @@ export interface TaskRunCreateRequestApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
+
+* `claude` - claude
+* `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** LLM model identifier to run in the selected runtime. */
+    model?: string
+    /** Reasoning effort to request for models that expose an effort control.
+
+* `low` - low
+* `medium` - medium
+* `high` - high
+* `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
+    /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+
+* `default` - default
+* `acceptEdits` - acceptEdits
+* `plan` - plan
+* `bypassPermissions` - bypassPermissions */
+    initial_permission_mode?: InitialPermissionModeEnumApi
 }
 
 /**
@@ -319,6 +386,14 @@ export type EnvironmentEnumApi = (typeof EnvironmentEnumApi)[keyof typeof Enviro
 export const EnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
+} as const
+
+export type TaskRunDetailProviderEnumApi =
+    (typeof TaskRunDetailProviderEnumApi)[keyof typeof TaskRunDetailProviderEnumApi]
+
+export const TaskRunDetailProviderEnumApi = {
+    Anthropic: 'anthropic',
+    Openai: 'openai',
 } as const
 
 export interface TaskRunArtifactResponseApi {
@@ -357,6 +432,17 @@ export interface TaskRunDetailApi {
 * `local` - Local
 * `cloud` - Cloud */
     environment?: EnvironmentEnumApi
+    /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
+    readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
+    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
+    readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
+    /**
+     * Configured LLM model identifier for this run.
+     * @nullable
+     */
+    readonly model: string | null
+    /** Configured reasoning effort for this run when the selected model supports it. */
+    readonly reasoning_effort: ReasoningEffortEnumApi | NullEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -531,6 +617,8 @@ export const JsonrpcEnumApi = {
  * * `user_message` - user_message
  * `cancel` - cancel
  * `close` - close
+ * `permission_response` - permission_response
+ * `set_config_option` - set_config_option
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -538,6 +626,8 @@ export const MethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
+    PermissionResponse: 'permission_response',
+    SetConfigOption: 'set_config_option',
 } as const
 
 /**
@@ -552,7 +642,9 @@ export interface TaskRunCommandRequestApi {
 
 * `user_message` - user_message
 * `cancel` - cancel
-* `close` - close */
+* `close` - close
+* `permission_response` - permission_response
+* `set_config_option` - set_config_option */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
@@ -602,6 +694,11 @@ export interface TaskRunRelayMessageResponseApi {
     status: string
     /** Relay workflow ID when accepted */
     relay_id?: string
+}
+
+export interface PatchedTaskRunSetOutputRequestApi {
+    /** Output data from the run. Validated against the task's json_schema if one is set. */
+    output?: unknown
 }
 
 /**
@@ -770,6 +867,11 @@ export type TasksRunsSessionLogsRetrieveParams = {
      * @maximum 5000
      */
     limit?: number
+    /**
+     * Zero-based offset into the filtered log entries
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type TasksRepositoryReadinessRetrieveParams = {

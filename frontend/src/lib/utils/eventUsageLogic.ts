@@ -49,6 +49,7 @@ import {
     ChartDisplayType,
     CohortType,
     DashboardMode,
+    DashboardTemplateScope,
     DashboardTile,
     DashboardWidgetType,
     DashboardType,
@@ -425,6 +426,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ correlationType, action, props }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
+        reportProjectNoticeShown: (variant: string) => ({ variant }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -558,6 +560,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             template_id: string
             template_name: string
             template_variable_count: number
+            template_scope: DashboardTemplateScope | null
         }) => payload,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -1264,6 +1267,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectNoticeDismissed: async ({ key }) => {
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportProjectNoticeShown: async ({ variant }) => {
+            posthog.capture('project notice shown', { variant })
         },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {

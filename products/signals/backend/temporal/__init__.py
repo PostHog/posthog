@@ -26,8 +26,14 @@ from products.signals.backend.temporal.grouping import (
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
+    TeamSignalReingestionWorkflow,
     delete_report_activity,
+    delete_team_reports_activity,
+    get_grouping_paused_state_activity,
+    pause_grouping_until_activity,
+    process_team_signals_batch_activity,
     reingest_signals_activity,
+    restore_grouping_pause_activity,
     soft_delete_report_signals_activity,
 )
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
@@ -56,6 +62,7 @@ WORKFLOWS = [
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
     SignalReportReingestionWorkflow,
+    TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
 ]
@@ -81,8 +88,13 @@ ACTIVITIES = [
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
+    delete_team_reports_activity,
+    get_grouping_paused_state_activity,
+    pause_grouping_until_activity,
+    process_team_signals_batch_activity,
     reingest_signals_activity,
     reset_report_to_potential_activity,
+    restore_grouping_pause_activity,
     run_agentic_report_activity,
     run_signal_semantic_search_activity,
     report_safety_judge_activity,
