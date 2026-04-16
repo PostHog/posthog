@@ -1086,21 +1086,21 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
             GROUP BY time_window_start
         """
 
-        kwargs = {
-            "team": self.team,
-            "insert_query": query,
-            "time_range_start": datetime(2024, 1, 1, tzinfo=UTC),
-            "time_range_end": datetime(2024, 1, 2, tzinfo=UTC),
-            "sentinel_placeholders": {"my_date"},
-        }
-
         first = ensure_precomputed(
-            **kwargs,
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             placeholders={"my_date": ast.Constant(value=datetime(2024, 1, 5, 12, 0, 0, tzinfo=UTC))},
+            sentinel_placeholders={"my_date"},
         )
         second = ensure_precomputed(
-            **kwargs,
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             placeholders={"my_date": ast.Constant(value=datetime(2024, 1, 5, 12, 0, 30, tzinfo=UTC))},
+            sentinel_placeholders={"my_date"},
         )
 
         assert first.ready is True
@@ -1121,27 +1121,27 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
             GROUP BY time_window_start
         """
 
-        kwargs = {
-            "team": self.team,
-            "insert_query": query,
-            "time_range_start": datetime(2024, 1, 1, tzinfo=UTC),
-            "time_range_end": datetime(2024, 1, 2, tzinfo=UTC),
-            "sentinel_placeholders": {"my_date"},
-        }
-
         first = ensure_precomputed(
-            **kwargs,
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             placeholders={
                 "event_name": ast.Constant(value="$pageview"),
                 "my_date": ast.Constant(value=datetime(2024, 1, 5, tzinfo=UTC)),
             },
+            sentinel_placeholders={"my_date"},
         )
         second = ensure_precomputed(
-            **kwargs,
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             placeholders={
                 "event_name": ast.Constant(value="$pageleave"),
                 "my_date": ast.Constant(value=datetime(2024, 1, 5, tzinfo=UTC)),
             },
+            sentinel_placeholders={"my_date"},
         )
 
         assert first.job_ids[0] != second.job_ids[0]
