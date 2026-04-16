@@ -48,7 +48,7 @@ export function DistributionModal(): JSX.Element {
     }, [
         isDistributionModalOpen,
         experiment.feature_flag?.filters?.multivariate?.variants,
-        experiment.feature_flag.filters.groups,
+        experiment.feature_flag?.filters?.groups,
     ])
 
     const handleClose = (): void => {
