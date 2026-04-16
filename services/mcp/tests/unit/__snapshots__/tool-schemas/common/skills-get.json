@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Exact skill name (lowercase-kebab-case) as returned by skills-list. Use skills-list first to discover available skills.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "search": {
+            "description": "Case-insensitive substring match against skill name and description.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
