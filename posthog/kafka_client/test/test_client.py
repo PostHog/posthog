@@ -3,6 +3,30 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase, override_settings
 
 from posthog.kafka_client.client import _KafkaProducer
+from posthog.settings.kafka import KafkaProfileSettings
+
+
+def _make_profiles(**default_overrides):
+    """Build a KAFKA_PROFILES dict for override_settings, with DEFAULT overridden."""
+
+    def make(name, **kwargs):
+        base = {
+            "name": name,
+            "hosts": [],
+            "security_protocol": None,
+            "sasl_mechanism": None,
+            "sasl_user": None,
+            "sasl_password": None,
+            "producer_settings": {},
+        }
+        base.update(kwargs)
+        return KafkaProfileSettings(**base)
+
+    return {
+        "default": make("default", **default_overrides),
+        "warehouse_sources": make("warehouse_sources"),
+        "cyclotron": make("cyclotron"),
+    }
 
 
 class KafkaConsumerForTests:
@@ -54,10 +78,12 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(config["security.protocol"], "PLAINTEXT")
 
     @override_settings(
-        KAFKA_SECURITY_PROTOCOL="SASL_PLAINTEXT",
-        KAFKA_SASL_MECHANISM="<mechanism>",
-        KAFKA_SASL_USER="<user>",
-        KAFKA_SASL_PASSWORD="<password>",
+        KAFKA_PROFILES=_make_profiles(
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="<mechanism>",
+            sasl_user="<user>",
+            sasl_password="<password>",
+        )
     )
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_sasl_params(self, mock_producer_class: MagicMock):
@@ -70,10 +96,12 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(config["sasl.password"], "<password>")
 
     @override_settings(
-        KAFKA_SECURITY_PROTOCOL="SSL",
-        KAFKA_SASL_MECHANISM="<mechanism>",
-        KAFKA_SASL_USER="<user>",
-        KAFKA_SASL_PASSWORD="<password>",
+        KAFKA_PROFILES=_make_profiles(
+            security_protocol="SSL",
+            sasl_mechanism="<mechanism>",
+            sasl_user="<user>",
+            sasl_password="<password>",
+        )
     )
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_no_sasl_params(self, mock_producer_class: MagicMock):
@@ -87,23 +115,25 @@ class KafkaClientTestCase(TestCase):
         self.assertNotIn("sasl.password", config)
 
     @override_settings(
-        KAFKA_PRODUCER_SETTINGS={
-            "client_id": "my-client",
-            "batch_size": 16000000,
-            "linger_ms": 100,
-            "max_request_size": 6000000,
-            "max_in_flight_requests_per_connection": 1000000,
-            "buffer_memory": 1073741824,  # 1 GiB, should convert to 1048576 kbytes
-            "max_block_ms": 1000,
-            "metadata_max_age_ms": 15000,
-            "topic_metadata_refresh_interval_ms": 60000,
-            "queue_buffering_max_messages": 1000000,
-            "sticky_partitioning_linger_ms": 25,
-        }
+        KAFKA_PROFILES=_make_profiles(
+            producer_settings={
+                "client_id": "my-client",
+                "batch_size": 16000000,
+                "linger_ms": 100,
+                "max_request_size": 6000000,
+                "max_in_flight_requests_per_connection": 1000000,
+                "buffer_memory": 1073741824,  # 1 GiB, should convert to 1048576 kbytes
+                "max_block_ms": 1000,
+                "metadata_max_age_ms": 15000,
+                "topic_metadata_refresh_interval_ms": 60000,
+                "queue_buffering_max_messages": 1000000,
+                "sticky_partitioning_linger_ms": 25,
+            }
+        )
     )
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_producer_settings_flow_to_confluent_config(self, mock_producer_class: MagicMock):
-        """Each entry in KAFKA_PRODUCER_SETTINGS maps to the expected librdkafka config key."""
+        """Each entry in the DEFAULT profile's producer_settings maps to the expected librdkafka config key."""
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
@@ -122,7 +152,7 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(config["queue.buffering.max.messages"], 1000000)
         self.assertEqual(config["sticky.partitioning.linger.ms"], 25)
 
-    @override_settings(KAFKA_PRODUCER_SETTINGS={"partitioner": "murmur2_random"})
+    @override_settings(KAFKA_PROFILES=_make_profiles(producer_settings={"partitioner": "murmur2_random"}))
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_producer_partitioner_is_dropped(self, mock_producer_class: MagicMock):
         """partitioner is handled differently in confluent-kafka and must not leak through."""

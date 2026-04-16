@@ -25,7 +25,7 @@ pytestmark = pytest.mark.asyncio
 
 def configure_ssl_context() -> ssl.SSLContext | None:
     """Configure SSL context for Kafka if needed."""
-    if settings.KAFKA_SECURITY_PROTOCOL != "SSL":
+    if settings.KAFKA_PROFILES["default"].security_protocol != "SSL":
         return None
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -48,7 +48,7 @@ async def kafka_producer():
     ssl_context = configure_ssl_context()
     producer = aiokafka.AIOKafkaProducer(
         bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         acks="all",
         api_version="2.5.0",
@@ -64,7 +64,7 @@ async def kafka_consumer():
     ssl_context = configure_ssl_context()
     consumer = aiokafka.AIOKafkaConsumer(
         bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
@@ -93,7 +93,7 @@ async def test_get_topic_partitions_returns_partition_list(activity_environment,
     # Create the topic explicitly using admin client
     admin_client = AIOKafkaAdminClient(
         bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
     )
     await admin_client.start()
