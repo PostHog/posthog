@@ -263,6 +263,7 @@ export const urls = {
     sdkDoctor: (): string => '/health/sdk-doctor',
     exports: (): string => '/exports',
     subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
 }
 
 export interface UrlMatcher {

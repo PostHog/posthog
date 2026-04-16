@@ -608,6 +608,20 @@ export namespace Schemas {
       actionId: number;
     }
 
+    /**
+     * * `add` - add
+    * `remove` - remove
+    * `set` - set
+     */
+    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
+
+
+    export const ActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -5704,6 +5718,20 @@ export namespace Schemas {
       download_url: string | null;
     }
 
+    export interface AsyncDeletionStatus {
+      /** The UUID of the person whose events are queued for deletion. */
+      person_uuid: string;
+      /** When the deletion was requested. */
+      created_at: string;
+      /** Current status: 'pending' or 'completed'. */
+      readonly status: string;
+      /**
+       * When the deletion was verified complete. Null if still pending.
+       * @nullable
+       */
+      delete_verified_at: string | null;
+    }
+
     /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
@@ -5728,6 +5756,7 @@ export namespace Schemas {
       new: number;
       removed: number;
       unchanged: number;
+      tolerated_matched?: number;
     }
 
     export type RunMetadata = {[key: string]: unknown};
@@ -6875,6 +6904,37 @@ export namespace Schemas {
       DistinctId: 'distinct_id',
       DeviceId: 'device_id',
     } as const;
+
+    export interface BulkUpdateTagsError {
+      id: number;
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsItem {
+      id: number;
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsRequest {
+      /**
+       * List of object IDs to update tags on.
+       * @maxItems 500
+       */
+      ids: number[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+    * `add` - add
+    * `remove` - remove
+    * `set` - set */
+      action: ActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsResponse {
+      updated: BulkUpdateTagsItem[];
+      skipped: BulkUpdateTagsError[];
+    }
 
     /**
      * * `b2b` - B2B
@@ -9930,6 +9990,8 @@ export namespace Schemas {
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
       /** @nullable */
+      requestCost?: number | null;
+      /** @nullable */
       tools?: string[] | null;
       /** @nullable */
       totalCost?: number | null;
@@ -9937,6 +9999,8 @@ export namespace Schemas {
       totalLatency?: number | null;
       /** @nullable */
       traceName?: string | null;
+      /** @nullable */
+      webSearchCost?: number | null;
     }
 
     export interface Response25 {
@@ -14270,6 +14334,27 @@ export namespace Schemas {
       success: boolean;
     }
 
+    export interface ErrorTrackingIssueSplitFingerprint {
+      /** Fingerprint to split into a new issue. */
+      fingerprint: string;
+      /** Optional name for the new issue created from this fingerprint. */
+      name?: string;
+      /** Optional description for the new issue created from this fingerprint. */
+      description?: string;
+    }
+
+    export interface ErrorTrackingIssueSplitRequest {
+      /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+      fingerprints?: ErrorTrackingIssueSplitFingerprint[];
+    }
+
+    export interface ErrorTrackingIssueSplitResponse {
+      /** Whether the split completed successfully. */
+      success: boolean;
+      /** IDs of the new issues created by the split. */
+      new_issue_ids: string[];
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -14475,23 +14560,25 @@ export namespace Schemas {
     * `gemini` - Gemini
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
+    * `azure_openai` - Azure Openai
      */
-    export type Provider519Enum = typeof Provider519Enum[keyof typeof Provider519Enum];
+    export type ProviderC68Enum = typeof ProviderC68Enum[keyof typeof ProviderC68Enum];
 
 
-    export const Provider519Enum = {
+    export const ProviderC68Enum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
     } as const;
 
     /**
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: Provider519Enum;
+      provider: ProviderC68Enum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -15009,7 +15096,7 @@ export namespace Schemas {
       name: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 400
+       * @maxLength 3000
        * @nullable
        */
       description?: string | null;
@@ -16211,6 +16298,66 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+    }
+
+    export type FeatureFlagVersionResponseFilters = {[key: string]: unknown};
+
+    /**
+     * Feature flag state at a given version plus reconstruction metadata.
+     */
+    export interface FeatureFlagVersionResponse {
+      readonly id: number;
+      /** @maxLength 400 */
+      key: string;
+      name?: string;
+      readonly filters: FeatureFlagVersionResponseFilters;
+      active?: boolean;
+      deleted?: boolean;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      version?: number | null;
+      rollback_conditions?: unknown | null;
+      /** @nullable */
+      performed_rollback?: boolean | null;
+      /** @nullable */
+      ensure_experience_continuity?: boolean | null;
+      /** @nullable */
+      has_enriched_analytics?: boolean | null;
+      /** @nullable */
+      is_remote_configuration?: boolean | null;
+      /** @nullable */
+      has_encrypted_payloads?: boolean | null;
+      /** Specifies where this feature flag should be evaluated
+
+    * `server` - Server
+    * `client` - Client
+    * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
+      /** Identifier used for bucketing users into rollout and variants
+
+    * `distinct_id` - User ID (default)
+    * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
+      /**
+       * Last time this feature flag was called (from $feature_flag_called events)
+       * @nullable
+       */
+      last_called_at?: string | null;
+      created_at?: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** False for the current version; true for reconstructed historical versions. */
+      readonly is_historical: boolean;
+      /** @nullable */
+      readonly version_timestamp: string | null;
+      /**
+       * User from the activity log entry that produced this version.
+       * @nullable
+       */
+      readonly modified_by: number | null;
     }
 
     export interface FileSystem {
@@ -19027,7 +19174,7 @@ export namespace Schemas {
 
     export interface LLMProviderKey {
       readonly id: string;
-      provider: Provider519Enum;
+      provider: ProviderC68Enum;
       /** @maxLength 255 */
       name: string;
       readonly state: LLMProviderKeyStateEnum;
@@ -19035,6 +19182,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -19098,6 +19262,7 @@ export namespace Schemas {
     * `pending_resolve` - Pending resolve
     * `errored` - Errored
     * `snoozed` - Snoozed
+    * `broken` - Broken
      */
     export type LogsAlertConfigurationStateEnum = typeof LogsAlertConfigurationStateEnum[keyof typeof LogsAlertConfigurationStateEnum];
 
@@ -19108,6 +19273,7 @@ export namespace Schemas {
       PendingResolve: 'pending_resolve',
       Errored: 'errored',
       Snoozed: 'snoozed',
+      Broken: 'broken',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -19164,6 +19330,46 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
+
+
+    export const LogsAlertCreateDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface LogsAlertCreateDestination {
+      /** Destination type — slack or webhook.
+
+    * `slack` - slack
+    * `webhook` - webhook */
+      type: LogsAlertCreateDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      webhook_url?: string;
+    }
+
+    export interface LogsAlertDeleteDestination {
+      /**
+       * HogFunction IDs to delete as one atomic destination group.
+       * @minItems 1
+       */
+      hog_function_ids: string[];
+    }
+
+    export interface LogsAlertDestinationResponse {
+      hog_function_ids: string[];
     }
 
     export interface LogsAlertSimulateBucket {
@@ -19456,6 +19662,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface MarkToleratedInput {
+      snapshot_id: string;
     }
 
     /**
@@ -20200,7 +20410,14 @@ export namespace Schemas {
       results: Action[];
     }
 
-    export type PaginatedActivityLogList = ActivityLog[];
+    export interface PaginatedActivityLogList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ActivityLog[];
+    }
 
     export interface PaginatedAlertList {
       count: number;
@@ -20227,6 +20444,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ApprovalPolicy[];
+    }
+
+    export interface PaginatedAsyncDeletionStatusList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      count?: number;
+      results?: AsyncDeletionStatus[];
     }
 
     export interface PaginatedBatchExportBackfillList {
@@ -21717,6 +21943,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `conversations` - Conversations
     * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
@@ -21728,6 +21955,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
     } as const;
 
@@ -21800,6 +22028,7 @@ export namespace Schemas {
       id: string;
       identifier: string;
       result: string;
+      classification_reason: string;
       /** @nullable */
       diff_percentage: number | null;
       /** @nullable */
@@ -21808,6 +22037,8 @@ export namespace Schemas {
       /** @nullable */
       reviewed_at: string | null;
       approved_hash: string;
+      /** @nullable */
+      tolerated_hash_id?: string | null;
       metadata?: SnapshotMetadata;
     }
 
@@ -21818,6 +22049,76 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
+    }
+
+    /**
+     * * `starting` - Starting
+    * `completed` - Completed
+    * `failed` - Failed
+    * `skipped` - Skipped
+     */
+    export type SubscriptionDeliveryStatusEnum = typeof SubscriptionDeliveryStatusEnum[keyof typeof SubscriptionDeliveryStatusEnum];
+
+
+    export const SubscriptionDeliveryStatusEnum = {
+      Starting: 'starting',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface SubscriptionDelivery {
+      /** Primary key for this delivery row. */
+      readonly id: string;
+      /** Parent subscription id. */
+      readonly subscription: number;
+      /** Temporal workflow id for this delivery run. */
+      readonly temporal_workflow_id: string;
+      /** Dedupes activity retries for the same logical run. */
+      readonly idempotency_key: string;
+      /** Why the run started (e.g. scheduled, manual, target_change). */
+      readonly trigger_type: string;
+      /**
+       * Planned send time when applicable.
+       * @nullable
+       */
+      readonly scheduled_at: string | null;
+      /** Channel snapshot at send time (email, slack, webhook). */
+      readonly target_type: string;
+      /** Destination snapshot at send time (emails, channel id, URL). */
+      readonly target_value: string;
+      /** ExportedAsset ids generated for this send. */
+      readonly exported_asset_ids: readonly number[];
+      /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
+      readonly content_snapshot: unknown;
+      /** Per-destination outcomes; items use status success, failed, or partial. */
+      readonly recipient_results: unknown;
+      /** Overall run status: starting, completed, failed, or skipped.
+
+    * `starting` - Starting
+    * `completed` - Completed
+    * `failed` - Failed
+    * `skipped` - Skipped */
+      readonly status: SubscriptionDeliveryStatusEnum;
+      /** Top-level failure payload when status is failed, if any. */
+      readonly error: unknown | null;
+      /** When the delivery row was created. */
+      readonly created_at: string;
+      /** Last ORM update to this row. */
+      readonly last_updated_at: string;
+      /**
+       * When the run finished, if applicable.
+       * @nullable
+       */
+      readonly finished_at: string | null;
+    }
+
+    export interface PaginatedSubscriptionDeliveryList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SubscriptionDelivery[];
     }
 
     /**
@@ -21839,55 +22140,96 @@ export namespace Schemas {
      */
     export interface Subscription {
       readonly id: number;
-      /** @nullable */
+      /**
+       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+       * @nullable
+       */
       dashboard?: number | null;
-      /** @nullable */
+      /**
+       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+       * @nullable
+       */
       insight?: number | null;
       /** @nullable */
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
       dashboard_export_insights?: number[];
+      /** Delivery channel: email, slack, or webhook.
+
+    * `email` - Email
+    * `slack` - Slack
+    * `webhook` - Webhook */
       target_type: TargetTypeEnum;
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
+      /** How often to deliver: daily, weekly, monthly, or yearly.
+
+    * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly */
       frequency: FrequencyEnum;
       /**
+       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       interval?: number;
-      /** @nullable */
+      /**
+       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+       * @nullable
+       */
       byweekday?: ByweekdayEnum[] | null;
       /**
+       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       bysetpos?: number | null;
       /**
+       * Total number of deliveries before the subscription stops. Null for unlimited.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       count?: number | null;
+      /** When to start delivering (ISO 8601 datetime). */
       start_date: string;
-      /** @nullable */
+      /**
+       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+       * @nullable
+       */
       until_date?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
+      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
       deleted?: boolean;
       /**
+       * Human-readable name for this subscription.
        * @maxLength 100
        * @nullable
        */
       title?: string | null;
+      /** Human-readable schedule summary, e.g. 'sent daily'. */
       readonly summary: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
-      /** @nullable */
+      /**
+       * ID of a connected Slack integration. Required when target_type is slack.
+       * @nullable
+       */
       integration_id?: number | null;
-      /** @nullable */
+      /**
+       * Optional message included in the invitation email when adding new recipients.
+       * @nullable
+       */
       invite_message?: string | null;
+      summary_enabled?: boolean;
+      /** @maxLength 500 */
+      summary_prompt_guide?: string;
     }
 
     export interface PaginatedSubscriptionList {
@@ -22582,6 +22924,25 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TicketView[];
+    }
+
+    export interface ToleratedHashEntry {
+      id: string;
+      alternate_hash: string;
+      baseline_hash: string;
+      reason: string;
+      created_at: string;
+      /** @nullable */
+      source_run_id: string | null;
+    }
+
+    export interface PaginatedToleratedHashEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ToleratedHashEntry[];
     }
 
     export interface TraceReviewScore {
@@ -24117,7 +24478,7 @@ export namespace Schemas {
       name?: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 400
+       * @maxLength 3000
        * @nullable
        */
       description?: string | null;
@@ -24751,7 +25112,7 @@ export namespace Schemas {
 
     export interface PatchedLLMProviderKey {
       readonly id?: string;
-      provider?: Provider519Enum;
+      provider?: ProviderC68Enum;
       /** @maxLength 255 */
       name?: string;
       readonly state?: LLMProviderKeyStateEnum;
@@ -24759,6 +25120,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display?: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -25731,55 +26109,96 @@ export namespace Schemas {
      */
     export interface PatchedSubscription {
       readonly id?: number;
-      /** @nullable */
+      /**
+       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+       * @nullable
+       */
       dashboard?: number | null;
-      /** @nullable */
+      /**
+       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+       * @nullable
+       */
       insight?: number | null;
       /** @nullable */
       readonly insight_short_id?: string | null;
       /** @nullable */
       readonly resource_name?: string | null;
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
       dashboard_export_insights?: number[];
+      /** Delivery channel: email, slack, or webhook.
+
+    * `email` - Email
+    * `slack` - Slack
+    * `webhook` - Webhook */
       target_type?: TargetTypeEnum;
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
+      /** How often to deliver: daily, weekly, monthly, or yearly.
+
+    * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly */
       frequency?: FrequencyEnum;
       /**
+       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       interval?: number;
-      /** @nullable */
+      /**
+       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+       * @nullable
+       */
       byweekday?: ByweekdayEnum[] | null;
       /**
+       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       bysetpos?: number | null;
       /**
+       * Total number of deliveries before the subscription stops. Null for unlimited.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       count?: number | null;
+      /** When to start delivering (ISO 8601 datetime). */
       start_date?: string;
-      /** @nullable */
+      /**
+       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+       * @nullable
+       */
       until_date?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
+      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
       deleted?: boolean;
       /**
+       * Human-readable name for this subscription.
        * @maxLength 100
        * @nullable
        */
       title?: string | null;
+      /** Human-readable schedule summary, e.g. 'sent daily'. */
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
-      /** @nullable */
+      /**
+       * ID of a connected Slack integration. Required when target_type is slack.
+       * @nullable
+       */
       integration_id?: number | null;
-      /** @nullable */
+      /**
+       * Optional message included in the invitation email when adding new recipients.
+       * @nullable
+       */
       invite_message?: string | null;
+      summary_enabled?: boolean;
+      /** @maxLength 500 */
+      summary_prompt_guide?: string;
     }
 
     /**
@@ -27049,6 +27468,21 @@ export namespace Schemas {
       delete_recordings?: boolean;
       /** If true, keep the person records but delete their events and recordings. */
       keep_person?: boolean;
+    }
+
+    export type PersonBulkDeleteResponseDeletionErrorsItem = {[key: string]: unknown};
+
+    export interface PersonBulkDeleteResponse {
+      /** Number of persons matched by the provided IDs or distinct IDs. */
+      persons_found: number;
+      /** Number of person records deleted from the database. 0 if keep_person was true. */
+      persons_deleted: number;
+      /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+      events_queued_for_deletion: boolean;
+      /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+      recordings_queued_for_deletion: boolean;
+      /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
+      deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
     export interface PersonDeletePropertyRequest {
@@ -30660,6 +31094,18 @@ export namespace Schemas {
       Mapped: 'mapped',
     } as const;
 
+    /**
+     * * `severity` - severity
+    * `service` - service
+     */
+    export type SparklineBreakdownByEnum = typeof SparklineBreakdownByEnum[keyof typeof SparklineBreakdownByEnum];
+
+
+    export const SparklineBreakdownByEnum = {
+      Severity: 'severity',
+      Service: 'service',
+    } as const;
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -31679,13 +32125,6 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
-    export interface UnpauseResponse {
-      /** Always 'unpaused'. */
-      status: string;
-      /** Whether the workflow was actually paused at the time of the call. */
-      was_paused: boolean;
-    }
-
     /**
      * The release condition to evaluate
      */
@@ -31905,6 +32344,29 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
+    }
+
+    export interface _LogsSparklineBody {
+      /** Date range for the sparkline. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Break down sparkline by "severity" (default) or "service".
+
+    * `severity` - severity
+    * `service` - service */
+      sparklineBreakdownBy?: SparklineBreakdownByEnum;
+    }
+
+    export interface _LogsSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _LogsSparklineBody;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -32163,6 +32625,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateFormat = typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsDashboardsBulkUpdateTagsCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -32427,6 +32901,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+      valid?: boolean;
+      errors?: string[];
     };
 
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
@@ -32850,6 +33329,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkUpdateTagsCreateFormat = typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsInsightsCancelCreateParams = {
     format?: EnvironmentsInsightsCancelCreateFormat;
     };
@@ -32967,13 +33458,21 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -32990,6 +33489,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
@@ -33002,7 +33505,7 @@ export namespace Schemas {
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -33010,10 +33513,22 @@ export namespace Schemas {
      */
     attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -33236,6 +33751,43 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsPersonsDeletionStatusListParams = {
+    format?: EnvironmentsPersonsDeletionStatusListFormat;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by a specific person UUID.
+     */
+    person_uuid?: string;
+    /**
+     * Filter by deletion status: 'pending', 'completed', or 'all'.
+     */
+    status?: EnvironmentsPersonsDeletionStatusListStatus;
+    };
+
+    export type EnvironmentsPersonsDeletionStatusListFormat = typeof EnvironmentsPersonsDeletionStatusListFormat[keyof typeof EnvironmentsPersonsDeletionStatusListFormat];
+
+
+    export const EnvironmentsPersonsDeletionStatusListFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsPersonsDeletionStatusListStatus = typeof EnvironmentsPersonsDeletionStatusListStatus[keyof typeof EnvironmentsPersonsDeletionStatusListStatus];
+
+
+    export const EnvironmentsPersonsDeletionStatusListStatus = {
+      All: 'all',
+      Completed: 'completed',
+      Pending: 'pending',
+    } as const;
+
     export type EnvironmentsPersonsFunnelRetrieveParams = {
     format?: EnvironmentsPersonsFunnelRetrieveFormat;
     };
@@ -33439,6 +33991,14 @@ export namespace Schemas {
      * Filter by creator user UUID.
      */
     created_by?: string;
+    /**
+     * Filter by dashboard ID.
+     */
+    dashboard?: number;
+    /**
+     * Filter by insight ID.
+     */
+    insight?: number;
     /**
      * Number of results to return per page.
      */
@@ -34241,6 +34801,27 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus;
+    };
+
+    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
+
+
+    export const SubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
+    } as const;
+
     export type UserInterviewsListParams = {
     /**
      * Number of results to return per page.
@@ -34485,6 +35066,18 @@ export namespace Schemas {
 
 
     export const ActionsReferencesListFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat;
+    };
+
+    export type ActionsBulkUpdateTagsCreateFormat = typeof ActionsBulkUpdateTagsCreateFormat[keyof typeof ActionsBulkUpdateTagsCreateFormat];
+
+
+    export const ActionsBulkUpdateTagsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -34770,6 +35363,17 @@ export namespace Schemas {
      */
     is_system?: boolean | null;
     item_ids?: string[];
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
     scopes?: string[];
     search_text?: string;
     start_date?: string;
@@ -35225,6 +35829,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type DashboardsBulkUpdateTagsCreateFormat = typeof DashboardsBulkUpdateTagsCreateFormat[keyof typeof DashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const DashboardsBulkUpdateTagsCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsCreateFromTemplateJsonCreateParams = {
     format?: DashboardsCreateFromTemplateJsonCreateFormat;
     };
@@ -35591,6 +36207,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+      valid?: boolean;
+      errors?: string[];
     };
 
     export type ExternalDataSourcesConnectionsListParams = {
@@ -36201,6 +36822,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type InsightsBulkUpdateTagsCreateParams = {
+    format?: InsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type InsightsBulkUpdateTagsCreateFormat = typeof InsightsBulkUpdateTagsCreateFormat[keyof typeof InsightsBulkUpdateTagsCreateFormat];
+
+
+    export const InsightsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type InsightsCancelCreateParams = {
     format?: InsightsCancelCreateFormat;
     };
@@ -36361,13 +36994,21 @@ export namespace Schemas {
 
     export type LogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: LogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -36384,6 +37025,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
@@ -36396,7 +37041,7 @@ export namespace Schemas {
 
     export type LogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -36404,10 +37049,22 @@ export namespace Schemas {
      */
     attribute_type?: LogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -36708,6 +37365,43 @@ export namespace Schemas {
     export const PersonsCohortsRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type PersonsDeletionStatusListParams = {
+    format?: PersonsDeletionStatusListFormat;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by a specific person UUID.
+     */
+    person_uuid?: string;
+    /**
+     * Filter by deletion status: 'pending', 'completed', or 'all'.
+     */
+    status?: PersonsDeletionStatusListStatus;
+    };
+
+    export type PersonsDeletionStatusListFormat = typeof PersonsDeletionStatusListFormat[keyof typeof PersonsDeletionStatusListFormat];
+
+
+    export const PersonsDeletionStatusListFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsDeletionStatusListStatus = typeof PersonsDeletionStatusListStatus[keyof typeof PersonsDeletionStatusListStatus];
+
+
+    export const PersonsDeletionStatusListStatus = {
+      All: 'all',
+      Completed: 'completed',
+      Pending: 'pending',
     } as const;
 
     export type PersonsFunnelRetrieveParams = {
@@ -37068,7 +37762,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalProcessingListParams = {
+    export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
      */
@@ -37079,7 +37773,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalSourceConfigsListParams = {
+    export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -37095,6 +37789,14 @@ export namespace Schemas {
      * Filter by creator user UUID.
      */
     created_by?: string;
+    /**
+     * Filter by dashboard ID.
+     */
+    dashboard?: number;
+    /**
+     * Filter by insight ID.
+     */
+    insight?: number;
     /**
      * Number of results to return per page.
      */
@@ -37332,6 +38034,21 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
     /**
      * Number of results to return per page.
      */
