@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { isValidOrganizationId } from '@/lib/validation'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -14,6 +15,18 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     params: Params
 ) => {
     const { orgId } = params
+    // The cached orgId is interpolated into PostHog API URL paths, so any
+    // value the model can supply has to match the documented UUID shape.
+    if (!isValidOrganizationId(orgId)) {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Invalid organization ID format: ${JSON.stringify(orgId)}`,
+                },
+            ],
+        }
+    }
     await context.cache.set('orgId', orgId)
     await context.stateManager.invalidateAiConsent()
 

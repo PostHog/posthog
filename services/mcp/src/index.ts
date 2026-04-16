@@ -3,6 +3,13 @@ import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, sanitizeHeaderValue } from '@/lib/utils'
+import {
+    isValidApiToken,
+    isValidOrganizationId,
+    isValidProjectId,
+    isValidRegion,
+    shouldHonorForwardedHost,
+} from '@/lib/validation'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -13,19 +20,24 @@ const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_UR
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
 // shows http://localhost but the actual URL is https://...ngrok-free.dev
+//
+// Security: X-Forwarded-Host is attacker-controllable over the public internet,
+// so we only honor it when the request hostname is either a known trusted
+// PostHog proxy or a local dev host. Otherwise a hostile client could poison
+// the OAuth `WWW-Authenticate` `resource_metadata` URL and redirect MCP
+// clients to an attacker-controlled authorization server. The forwarded proto
+// is only honored alongside a trusted host override for the same reason.
 function getPublicUrl(request: Request): URL {
     const url = new URL(request.url)
 
-    // Check for X-Forwarded-Host (ngrok, cloudflared, and most reverse proxies)
     const forwardedHost = request.headers.get('X-Forwarded-Host')
-    if (forwardedHost) {
+    if (forwardedHost && shouldHonorForwardedHost(forwardedHost, url.hostname)) {
         url.host = forwardedHost
-    }
 
-    // Check for X-Forwarded-Proto (https vs http)
-    const forwardedProto = request.headers.get('X-Forwarded-Proto')
-    if (forwardedProto) {
-        url.protocol = forwardedProto + ':'
+        const forwardedProto = request.headers.get('X-Forwarded-Proto')
+        if (forwardedProto === 'http' || forwardedProto === 'https') {
+            url.protocol = `${forwardedProto}:`
+        }
     }
 
     return url
@@ -203,7 +215,11 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+    // Strict token-format validation: require the documented `phx_` / `pha_`
+    // prefix AND a URL-safe base64/base32 charset. The validated token is
+    // passed verbatim into the outbound `Authorization: Bearer …` header, so
+    // any whitespace or control character here would enable header smuggling.
+    if (!isValidApiToken(token)) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
@@ -212,10 +228,27 @@ const handleRequest = async (
     }
 
     // Organization and project IDs can be provided via headers or query params.
-    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
-    const organizationId =
+    // When set, they pin the MCP session to a specific org/project and remove
+    // the switch tools. These values are interpolated into PostHog API URL
+    // paths, so we strictly validate them against an allowlist: numeric (or
+    // `@current`) for project IDs, UUID (or `@current`) for org IDs. An
+    // un-validated value such as `123/../../private` would otherwise allow a
+    // client to pivot to unintended endpoints on the PostHog API after being
+    // cached on the durable object.
+    const rawOrganizationId =
         request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
-    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
+    const rawProjectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
+
+    if (rawOrganizationId !== undefined && !isValidOrganizationId(rawOrganizationId)) {
+        log.extend({ authError: 'invalid_organization_id' })
+        return new Response('Invalid organization ID format', { status: 400 })
+    }
+    if (rawProjectId !== undefined && !isValidProjectId(rawProjectId)) {
+        log.extend({ authError: 'invalid_project_id' })
+        return new Response('Invalid project ID format', { status: 400 })
+    }
+    const organizationId = rawOrganizationId
+    const projectId = rawProjectId
 
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
@@ -242,7 +275,14 @@ const handleRequest = async (
 
     // Region param is used to route API calls to the correct PostHog instance (US or EU).
     // This is set by the wizard based on user's cloud region selection during MCP setup.
-    const regionParam = url.searchParams.get('region') || undefined
+    // Validate against the closed enum so a malformed value can't end up in
+    // analytics, cache keys, or downstream URL building.
+    const rawRegionParam = url.searchParams.get('region') || undefined
+    if (rawRegionParam !== undefined && !isValidRegion(rawRegionParam)) {
+        log.extend({ authError: 'invalid_region' })
+        return new Response('Invalid region', { status: 400 })
+    }
+    const regionParam = rawRegionParam?.toLowerCase()
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 

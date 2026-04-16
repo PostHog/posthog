@@ -1,3 +1,5 @@
+import { redactSecrets } from '@/lib/validation'
+
 const SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-api-key']
 
 // Wide log class for accumulating request data and emitting a single log at the end
@@ -50,7 +52,8 @@ export function withLogging<Props>(handler: FetchHandler<Props>) {
             log.emit(response.status)
             return response
         } catch (error) {
-            log.extend({ error: error instanceof Error ? error.message : String(error) })
+            const message = error instanceof Error ? error.message : String(error)
+            log.extend({ error: redactSecrets(message) })
             log.emit(500)
             throw error
         }

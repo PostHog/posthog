@@ -21,6 +21,7 @@ import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { sanitizeHeaderValue } from '@/lib/utils'
+import { isValidOrganizationId, isValidProjectId } from '@/lib/validation'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -346,13 +347,18 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
+        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel.
+        // Defense-in-depth: only cache values that match the documented PostHog
+        // ID shapes. The entry-level handler in `index.ts` already rejects
+        // malformed inputs, but we re-validate here so that any future code
+        // path that constructs `RequestProperties` (tests, internal refactors,
+        // etc.) cannot poison the URL-path-bound cache.
         const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
         const flagPromise = this.resolveVersionFlag()
-        if (organizationId) {
+        if (organizationId && isValidOrganizationId(organizationId)) {
             await this.cache.set('orgId', organizationId)
         }
-        if (projectId) {
+        if (projectId && isValidProjectId(projectId)) {
             await this.cache.set('projectId', projectId)
         }
 

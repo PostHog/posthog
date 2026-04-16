@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getUserAgent } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
+import { encodePostHogIdForPath, redactSecrets } from '@/lib/validation'
 import type {
     ApiEventDefinition,
     ApiOAuthIntrospection,
@@ -78,7 +79,10 @@ export class ApiClient {
             return this.baseUrl
         }
 
-        return `${this.baseUrl}/project/${projectId}`
+        // URL-encode the projectId so a malformed value that somehow survived
+        // the entry-level validation in `index.ts` cannot smuggle additional
+        // path segments into the resulting URL.
+        return `${this.baseUrl}/project/${encodePostHogIdForPath(projectId)}`
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
@@ -156,7 +160,7 @@ export class ApiClient {
         if (opts.responseType === 'text') {
             const response = await this.fetch(url, fetchOptions)
             if (!response.ok) {
-                const errorText = await response.text()
+                const errorText = redactSecrets(await response.text())
                 throw new Error(
                     `Request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
                 )
@@ -200,7 +204,7 @@ export class ApiClient {
                         continue
                     }
                     // Max retries exceeded
-                    const errorText = await response.text()
+                    const errorText = redactSecrets(await response.text())
                     console.error(`[API] Rate limit exceeded after ${maxRetries} retries on ${method} ${url}`)
                     return {
                         success: false,
@@ -215,7 +219,7 @@ export class ApiClient {
                         throw new Error(ErrorCode.INVALID_API_KEY)
                     }
 
-                    const errorText = await response.text()
+                    const errorText = redactSecrets(await response.text())
 
                     let errorData: any
                     try {

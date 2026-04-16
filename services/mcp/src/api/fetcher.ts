@@ -1,4 +1,5 @@
 import { getUserAgent } from '@/lib/constants'
+import { redactSecrets } from '@/lib/validation'
 
 import type { ApiConfig } from './client'
 import { globalRateLimiter } from './rate-limiter'
@@ -86,13 +87,15 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
                     // Max retries exceeded
                     const errorResponse = await response.json()
                     throw new Error(
-                        `Rate limit exceeded after ${maxRetries} retries: [${response.status}] ${JSON.stringify(errorResponse)}`
+                        `Rate limit exceeded after ${maxRetries} retries: [${response.status}] ${redactSecrets(JSON.stringify(errorResponse))}`
                     )
                 }
 
                 if (!response.ok) {
                     const errorResponse = await response.json()
-                    throw new Error(`Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`)
+                    throw new Error(
+                        `Failed request: [${response.status}] ${redactSecrets(JSON.stringify(errorResponse))}`
+                    )
                 }
 
                 return response
