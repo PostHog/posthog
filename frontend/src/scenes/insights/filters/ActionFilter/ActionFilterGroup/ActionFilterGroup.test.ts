@@ -386,67 +386,77 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
     })
 
     describe('duplicating a group filter', () => {
-        it('inserts a new group with a fresh uuid and same nested filters after the original', async () => {
+        const groupFilter = {
+            id: null,
+            type: EntityTypes.GROUPS,
+            name: 'group',
+            order: 0,
+            operator: FilterLogicalOperator.Or,
+            nestedFilters: [
+                { id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 },
+                { id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 1 },
+            ],
+        }
+
+        const mountLogic = (
+            filters: Partial<FilterType>,
+            typeKey: string
+        ): ReturnType<typeof entityFilterLogic.build> => {
             let uuidCounter = 0
             ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
 
-            const setFilters = jest.fn()
-            const filters: Partial<FilterType> = {
-                groups: [
-                    {
-                        id: null,
-                        type: EntityTypes.GROUPS,
-                        name: 'group',
-                        order: 0,
-                        operator: FilterLogicalOperator.Or,
-                        nestedFilters: [
-                            {
-                                id: '$pageview',
-                                type: EntityTypes.EVENTS,
-                                name: '$pageview',
-                                order: 0,
-                            },
-                            {
-                                id: '$exception',
-                                type: EntityTypes.EVENTS,
-                                name: '$exception',
-                                order: 1,
-                            },
-                        ],
-                    },
-                ],
-            }
-
             const logic = entityFilterLogic({
-                setFilters,
+                setFilters: jest.fn(),
                 filters: filters as FilterType,
-                typeKey: 'duplicate_group_test',
+                typeKey,
             })
             logic.mount()
+            return logic
+        }
 
-            const originalGroup = logic.values.localFilters[0]
+        it('duplicates a lone group into two identical groups', async () => {
+            const logic = mountLogic({ groups: [groupFilter] }, 'duplicate_single_group')
+            const original = logic.values.localFilters[0]
 
             await expectLogic(logic, () => {
-                logic.actions.duplicateFilter(originalGroup)
+                logic.actions.duplicateFilter(original)
             }).toDispatchActions(['duplicateFilter', 'setFilters'])
 
-            expect(logic.values.localFilters).toHaveLength(2)
+            const local = logic.values.localFilters
+            expect(local).toHaveLength(2)
+            expect(local.map((f) => ({ type: f.type, order: f.order }))).toEqual([
+                { type: EntityTypes.GROUPS, order: 0 },
+                { type: EntityTypes.GROUPS, order: 1 },
+            ])
+            expect(local[1].uuid).not.toBe(original.uuid)
+            expect(local[1].nestedFilters).toEqual(original.nestedFilters)
 
-            const [first, duplicate] = logic.values.localFilters
-            expect(first.uuid).toBe(originalGroup.uuid)
-            expect(duplicate.uuid).not.toBe(originalGroup.uuid)
-            expect(duplicate.type).toBe(EntityTypes.GROUPS)
-            expect(duplicate.order).toBe(1)
-            expect(duplicate.nestedFilters).toEqual(originalGroup.nestedFilters)
+            logic.unmount()
+        })
 
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    groups: expect.arrayContaining([
-                        expect.objectContaining({ order: 0, type: EntityTypes.GROUPS }),
-                        expect.objectContaining({ order: 1, type: EntityTypes.GROUPS }),
-                    ]),
-                })
+        it('inserts the duplicate directly after the group and shifts trailing events', async () => {
+            const logic = mountLogic(
+                {
+                    groups: [groupFilter],
+                    events: [{ id: '$pageleave', type: EntityTypes.EVENTS, name: '$pageleave', order: 1 }],
+                },
+                'duplicate_group_with_event'
             )
+            const original = logic.values.localFilters[0]
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateFilter(original)
+            }).toDispatchActions(['duplicateFilter', 'setFilters'])
+
+            const local = logic.values.localFilters
+            expect(local).toHaveLength(3)
+            expect(local.map((f) => ({ type: f.type, order: f.order }))).toEqual([
+                { type: EntityTypes.GROUPS, order: 0 },
+                { type: EntityTypes.GROUPS, order: 1 },
+                { type: EntityTypes.EVENTS, order: 2 },
+            ])
+            expect(local[1].uuid).not.toBe(original.uuid)
+            expect(local[1].nestedFilters).toEqual(original.nestedFilters)
 
             logic.unmount()
         })
