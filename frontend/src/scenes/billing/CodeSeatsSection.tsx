@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -213,9 +214,16 @@ export function CodeSeatsSection(): JSX.Element {
                     },
                 ]}
             />
-            {!billing?.has_active_subscription && (
-                <p className="text-muted text-sm mt-2">Subscribe to a paid plan to add Pro seats.</p>
-            )}
+            <div className="mt-4 border-t border-border pt-4">
+                <p className="mt-0 ml-0 text-sm text-secondary italic">
+                    <IconInfo className="mr-1" />
+                    Questions?{' '}
+                    <Link to="https://posthog.com/docs/code" className="italic">
+                        Learn how Code seats work
+                    </Link>
+                    .
+                </p>
+            </div>
         </div>
     )
 }
