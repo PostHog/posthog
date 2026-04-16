@@ -86,6 +86,7 @@ jobs:
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
+                        - playwright/snapshots.yml
                         - requirements.txt
                         - requirements-dev.txt
                         - package.json
