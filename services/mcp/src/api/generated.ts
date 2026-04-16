@@ -19184,6 +19184,46 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
+
+
+    export const LogsAlertCreateDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface LogsAlertCreateDestination {
+      /** Destination type — slack or webhook.
+
+    * `slack` - slack
+    * `webhook` - webhook */
+      type: LogsAlertCreateDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      webhook_url?: string;
+    }
+
+    export interface LogsAlertDeleteDestination {
+      /**
+       * HogFunction IDs to delete as one atomic destination group.
+       * @minItems 1
+       */
+      hog_function_ids: string[];
+    }
+
+    export interface LogsAlertDestinationResponse {
+      hog_function_ids: string[];
+    }
+
     export interface LogsAlertSimulateBucket {
       /** Bucket start timestamp. */
       timestamp: string;
