@@ -437,14 +437,14 @@ class TestTaskAPI(BaseTaskAPITest):
                 "claude",
                 "claude-opus-4-6",
                 "auto",
-                "Invalid choice 'auto'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
+                "Invalid choice 'auto' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
             ),
             (
                 "codex_rejects_claude_mode",
                 "codex",
                 "gpt-5.4",
                 "plan",
-                "Invalid choice 'plan'. Supported values: 'auto', 'read-only', 'full-access'.",
+                "Invalid choice 'plan' for runtime_adapter 'codex'. Supported values: 'auto', 'read-only', 'full-access'.",
             ),
         ]
     )

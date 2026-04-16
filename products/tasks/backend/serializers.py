@@ -553,7 +553,8 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
                 if initial_permission_mode not in allowed_permission_modes:
                     allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
                     errors["initial_permission_mode"] = (
-                        f"Invalid choice '{initial_permission_mode}'. Supported values: {allowed_values}."
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
                     )
 
         runtime_fields = ("runtime_adapter", "model")
