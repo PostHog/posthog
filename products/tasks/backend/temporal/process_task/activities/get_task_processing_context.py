@@ -8,7 +8,7 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxEnvironment, TaskRun
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
@@ -42,6 +42,7 @@ class TaskProcessingContext:
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
     json_schema: dict | None = None
+    ci_prompt: str | None = None
 
     @property
     def mode(self) -> str:
@@ -101,7 +102,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     emit_agent_log(run_id, "info", "Fetching task details")
 
-    task = task_run.task
+    task: Task = task_run.task
     team: Team = task.team
     organization_id = str(team.organization_id)
     if not task.created_by:
@@ -177,4 +178,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
         json_schema=task.json_schema,
+        ci_prompt=task.ci_prompt,
     )

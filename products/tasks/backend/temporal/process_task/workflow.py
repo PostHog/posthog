@@ -72,7 +72,7 @@ INACTIVITY_TIMEOUT = timedelta(minutes=30)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
-CI_MESSAGE = "Fix CI and comments on the PR."
+DEFAULT_CI_MESSAGE = "Inspect the created pull request. Read all logs from any failed checks, read all comments from the PR and implement fixes for the checks. mypy and typechecks should be addressed with high priority. After implementing the fixes, push the changes to the same branch to trigger the CI checks again. Repeat this process until all checks have passed successfully."
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -203,7 +203,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         break
                     case TaskEvent.CI_FOLLOW_UP:
                         self._ci_repetitions += 1
-                        await self._send_followup_to_sandbox(CI_MESSAGE)
+                        ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
+                        await self._send_followup_to_sandbox(ci_message)
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             message = self._pending_followup
