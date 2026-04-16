@@ -813,7 +813,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                 if verification_results:
                     for result in verification_results:
                         status = "passed" if result.passed else "failed"
-                        get_ducklake_copy_data_imports_verification_metric(result.name, status).add(1)
+                        get_ducklake_copy_data_imports_verification_metric(inputs.team_id, result.name, status).add(1)
 
                 failed_checks = [result for result in verification_results if not result.passed]
                 if failed_checks:
@@ -841,7 +841,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                     pending_staging_cleanup.remove(model.staging_uri)
         except Exception:
             failed = True
-            get_ducklake_copy_data_imports_finished_metric(status="failed").add(1)
+            get_ducklake_copy_data_imports_finished_metric(status="failed", team_id=inputs.team_id).add(1)
             raise
         finally:
             for staging_uri in pending_staging_cleanup:
@@ -862,4 +862,4 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                     )
 
         if not failed:
-            get_ducklake_copy_data_imports_finished_metric(status="completed").add(1)
+            get_ducklake_copy_data_imports_finished_metric(status="completed", team_id=inputs.team_id).add(1)
