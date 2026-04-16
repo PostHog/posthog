@@ -31,15 +31,6 @@ export class TeamManager {
         return this.lazyLoader.get(token)
     }
 
-    /**
-     * Next getTeam/getTeamByToken for this team will reload from Postgres.
-     * Team rows can change from outside this process (e.g. logs_settings toggles in the Django UI)
-     * while the LazyLoader cache would otherwise serve stale data for up to refreshAgeMs.
-     */
-    public markTeamForRefresh(teamId: number): void {
-        this.lazyLoader.markForRefresh(String(teamId))
-    }
-
     public async getTeams(teamIds: number[]): Promise<Record<string, Team | null>> {
         return this.lazyLoader.getMany(teamIds.map(String))
     }
