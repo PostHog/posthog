@@ -153,11 +153,11 @@ def _resolve_producer_settings(profile: str) -> dict[str, Any]:
     """
     merged: dict[str, Any] = dict(_PROFILE_PRODUCER_DEFAULTS.get(profile, {}))
     for key, suffix in _PRODUCER_ENV_SUFFIXES_INT:
-        if (value := _env_int(profile, suffix)) is not None:
-            merged[key] = value
+        if (int_value := _env_int(profile, suffix)) is not None:
+            merged[key] = int_value
     for key, suffix in _PRODUCER_ENV_SUFFIXES_STR:
-        if (value := _env_for(profile, suffix)) is not None:
-            merged[key] = value
+        if (str_value := _env_for(profile, suffix)) is not None:
+            merged[key] = str_value
     # acks / enable_idempotence have typed resolution.
     if (acks := _env_for(profile, "PRODUCER_ACKS")) is not None:
         merged["acks"] = int(acks) if acks.isdigit() else acks

@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from typing import cast
 
 import pytest
 from unittest import TestCase, mock
@@ -192,7 +193,7 @@ class ProducerScopeTest(TestCase):
         with _mock_kafka_backend() as (sync_build, _):
             with producer_scope(profile=KafkaClusterProfile.DEFAULT) as producer:
                 pass
-        producer.flush.assert_called_once()
+        cast(MagicMock, producer).flush.assert_called_once()
         sync_build.assert_called_once_with(KafkaClusterProfile.DEFAULT)
 
     def test_flushes_on_error(self):
@@ -203,13 +204,13 @@ class ProducerScopeTest(TestCase):
                     producer = p
                     raise RuntimeError("boom")
         assert producer is not None
-        producer.flush.assert_called_once()
+        cast(MagicMock, producer).flush.assert_called_once()
 
     def test_passes_flush_timeout(self):
         with _mock_kafka_backend():
             with producer_scope(profile=KafkaClusterProfile.DEFAULT, flush_timeout=5) as producer:
                 pass
-        producer.flush.assert_called_once_with(5)
+        cast(MagicMock, producer).flush.assert_called_once_with(5)
 
 
 class AsyncProducerScopeTest(TestCase):
@@ -225,7 +226,7 @@ class AsyncProducerScopeTest(TestCase):
 
             asyncio.run(run())
 
-        producer = captured["producer"]
+        producer = cast(MagicMock, captured["producer"])
         producer.flush.assert_awaited_once()
         producer.close.assert_awaited_once()
         async_build.assert_called_once_with(KafkaClusterProfile.DEFAULT)
@@ -244,7 +245,7 @@ class AsyncProducerScopeTest(TestCase):
             with self.assertRaises(RuntimeError):
                 asyncio.run(run())
 
-        producer = captured["producer"]
+        producer = cast(MagicMock, captured["producer"])
         producer.flush.assert_not_awaited()
         producer.close.assert_awaited_once()
 
@@ -295,8 +296,8 @@ class FlushAllProducersTest(TestCase):
 
             flush_all_producers(timeout=1.5)
 
-        default_producer.flush.assert_called_once_with(1.5)
-        warehouse_producer.flush.assert_called_once_with(1.5)
+        cast(MagicMock, default_producer).flush.assert_called_once_with(1.5)
+        cast(MagicMock, warehouse_producer).flush.assert_called_once_with(1.5)
 
     def test_no_op_when_no_producers_cached(self):
         # Just verifying no exceptions from an empty cache.
