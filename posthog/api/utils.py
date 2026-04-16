@@ -342,18 +342,18 @@ def is_async_query(query: dict) -> bool:
 
     Superset of is_insight_query — also covers expensive non-insight queries.
     """
+    if is_insight_query(query):
+        return True
+
     kind = query.get("kind")
     source = query.get("source")
+    extra_kinds = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
-    if kind in ASYNC_QUERY_KINDS:
+    if kind in extra_kinds:
         return True
-    if kind == "HogQLQuery":
-        return True
-    if kind == "DataTableNode":
-        if source and (source.get("kind") or getattr(source, "kind", None)) in ASYNC_QUERY_KINDS:
-            return True
-    if kind == "DataVisualizationNode":
-        if source and (source.get("kind") or getattr(source, "kind", None)) in ASYNC_QUERY_KINDS:
+    if kind in ("DataTableNode", "DataVisualizationNode"):
+        source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
+        if source_kind in extra_kinds:
             return True
 
     return False
