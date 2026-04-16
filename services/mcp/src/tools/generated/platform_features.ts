@@ -13,6 +13,7 @@ import {
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
     MembersListQueryParams,
+    RetrieveParams,
     RolesListQueryParams,
     RolesRetrieveParams,
     RolesRoleMembershipsListParams,
@@ -357,6 +358,64 @@ const roleMembersList = (): ToolBase<typeof RoleMembersListSchema, Schemas.Pagin
     },
 })
 
+const OrganizationsListSchema = z.object({})
+
+const organizationsList = (): ToolBase<
+    typeof OrganizationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedOrganizationList>
+> => ({
+    name: 'organizations-list',
+    schema: OrganizationsListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof OrganizationsListSchema>) => {
+        const result = await context.api.request<Schemas.PaginatedOrganizationList>({
+            method: 'GET',
+            path: `/api/organizations/`,
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'slug', 'membership_level'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
+    },
+})
+
+const OrganizationGetSchema = RetrieveParams.extend({
+    id: RetrieveParams.shape['id'].describe('Organization ID. If omitted, uses the active organization.').optional(),
+})
+
+const organizationGet = (): ToolBase<typeof OrganizationGetSchema, Schemas.Organization> => ({
+    name: 'organization-get',
+    schema: OrganizationGetSchema,
+    handler: async (context: Context, params: z.infer<typeof OrganizationGetSchema>) => {
+        const id = params.id ?? (await context.stateManager.getOrgID())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active organization first.')
+        }
+        const result = await context.api.request<Schemas.Organization>({
+            method: 'GET',
+            path: `/api/organizations/${id}/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'slug',
+            'created_at',
+            'updated_at',
+            'membership_level',
+            'member_count',
+            'teams.*.id',
+            'teams.*.name',
+            'teams.*.project_id',
+            'projects.*.id',
+            'projects.*.name',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'change-requests-list': changeRequestsList,
     'change-request-get': changeRequestGet,
@@ -373,4 +432,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'roles-list': rolesList,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
+    'organizations-list': organizationsList,
+    'organization-get': organizationGet,
 }
