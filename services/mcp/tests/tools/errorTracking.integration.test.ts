@@ -14,8 +14,17 @@ import {
 import { GENERATED_TOOLS } from '@/tools/generated/error_tracking'
 import type { Context } from '@/tools/types'
 
+type ErrorTrackingIssueListResult = {
+    results?: Array<{ id?: string | null }>
+}
+
+type ErrorTrackingFingerprintListResult = {
+    results?: Array<{ fingerprint?: string | null }>
+}
+
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
+    const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -36,9 +45,45 @@ describe('Error Tracking', { concurrent: false }, () => {
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
-    describe('query-error-tracking-issues tool', () => {
-        const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
+    async function getIssueIds(limit: number = 2): Promise<string[]> {
+        const result = await queryTool.handler(context, { status: 'all', limit })
+        const errors = parseToolResponse(result) as ErrorTrackingIssueListResult
 
+        if (!Array.isArray(errors.results)) {
+            return []
+        }
+
+        return [
+            ...new Set(
+                errors.results
+                    .map((issue: { id?: string | null }) => issue.id)
+                    .filter((id: string | null | undefined): id is string => typeof id === 'string')
+            ),
+        ]
+    }
+
+    async function getFirstIssueId(): Promise<string | undefined> {
+        const [issueId] = await getIssueIds(1)
+        return issueId
+    }
+
+    async function getIssueFingerprints(issueId: string): Promise<string[]> {
+        const result = await context.api.request<ErrorTrackingFingerprintListResult>({
+            method: 'GET',
+            path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/fingerprints/`,
+            query: { issue_id: issueId },
+        })
+
+        if (!Array.isArray(result.results)) {
+            return []
+        }
+
+        return result.results
+            .map((fingerprint: { fingerprint?: string | null }) => fingerprint.fingerprint)
+            .filter((fingerprint: string | null | undefined): fingerprint is string => typeof fingerprint === 'string')
+    }
+
+    describe('query-error-tracking-issues tool', () => {
         it('should list errors with default parameters', async () => {
             const result = await queryTool.handler(context, {})
             const errorData = parseToolResponse(result)
@@ -109,15 +154,23 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('assignment-rules list tool', () => {
+        const assignmentRulesListTool = GENERATED_TOOLS['error-tracking-assignment-rules-list']!()
+
+        it('should list assignment rules', async () => {
+            const result = (await assignmentRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
     describe('update-issue-status tool', () => {
         const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
-        const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
-
-        async function getFirstIssueId(): Promise<string | undefined> {
-            const result = await queryTool.handler(context, { status: 'all' })
-            const errors = parseToolResponse(result)
-            return Array.isArray(errors) && errors.length > 0 ? errors[0].id : undefined
-        }
 
         it('should update issue status to resolved', async () => {
             const issueId = await getFirstIssueId()
@@ -150,6 +203,53 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('merge-issues tool', () => {
+        const mergeTool = GENERATED_TOOLS['error-tracking-issues-merge-create']!()
+
+        it('should merge issues into the selected target issue', async () => {
+            const [targetIssueId, sourceIssueId] = await getIssueIds(2)
+            if (!targetIssueId || !sourceIssueId) {
+                return
+            }
+
+            const result = (await mergeTool.handler(context, {
+                id: targetIssueId,
+                ids: [sourceIssueId],
+            })) as { success: boolean }
+
+            expect(result).toBeTruthy()
+            expect(result.success).toBe(true)
+        })
+    })
+
+    describe('split-issue tool', () => {
+        const splitTool = GENERATED_TOOLS['error-tracking-issues-split-create']!()
+
+        it('should split a fingerprint into a new issue', async () => {
+            for (const issueId of await getIssueIds(10)) {
+                const [fingerprint] = await getIssueFingerprints(issueId)
+                if (!fingerprint) {
+                    continue
+                }
+
+                const result = (await splitTool.handler(context, {
+                    id: issueId,
+                    fingerprints: [{ fingerprint, name: 'Split from MCP integration test' }],
+                })) as { success: boolean; new_issue_ids: string[] }
+
+                expect(result).toBeTruthy()
+                expect(result.success).toBe(true)
+                expect(Array.isArray(result.new_issue_ids)).toBe(true)
+                expect(result.new_issue_ids.length).toBeGreaterThan(0)
+                return
+            }
+
+            throw new Error(
+                'Split integration test requires at least one error tracking issue with an associated fingerprint in the shared test project.'
+            )
+        })
+    })
+
     describe('Error tracking workflow', () => {
         it('should support listing errors and getting details workflow', async () => {
             const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
@@ -159,8 +259,8 @@ describe('Error Tracking', { concurrent: false }, () => {
 
             expect(Array.isArray(errorList.results)).toBe(true)
 
-            if (errorList.length > 0 && errorList[0].issueId) {
-                const firstError = errorList[0]
+            if (errorList.results.length > 0 && errorList.results[0].issueId) {
+                const firstError = errorList.results[0]
                 const detailsResult = await queryTool.handler(context, {
                     issueId: firstError.issueId,
                     volumeResolution: 0,

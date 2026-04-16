@@ -35,7 +35,7 @@ describe('replayTriggersV2Logic', () => {
                         conditions: {
                             matchType: 'all',
                             urls: [{ url: '^/checkout$', matching: 'regex' }],
-                            events: ['$pageview'],
+                            events: [{ name: '$pageview' }],
                             flag: undefined,
                         },
                     },
@@ -109,7 +109,7 @@ describe('replayTriggersV2Logic', () => {
                                 { url: '^/checkout$', matching: 'regex' },
                                 { url: '^/payment$', matching: 'regex' },
                             ],
-                            events: ['invited_team_member', 'signed_up'],
+                            events: [{ name: 'invited_team_member' }, { name: 'signed_up' }],
                             flag: undefined,
                         },
                     },

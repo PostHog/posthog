@@ -61,7 +61,6 @@ rules:
                               |AlertConfiguration
                               |Annotation
                               |ApprovalPolicy
-                              |Artifact
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
@@ -105,6 +104,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingRecommendation
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -120,8 +120,12 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |FileSystem
+                              |GitHubSyncConfig
+                              |GitHubSyncPlan
+                              |GitHubSyncedModel
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
@@ -145,6 +149,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -155,10 +160,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
-                              |Repo
                               |RepoRoutingRule
-                              |Run
-                              |RunSnapshot
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -167,12 +169,16 @@ rules:
                               |SessionRecording
                               |SessionRecordingPlaylist
                               |SharingConfiguration
+                              |SignalEmissionRecord
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalReportTask
+                              |SignalTeamConfig
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |Subscription
+                              |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
                               |Tag
@@ -182,6 +188,7 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |TicketView
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -248,7 +255,6 @@ rules:
                         |AlertConfiguration
                         |Annotation
                         |ApprovalPolicy
-                        |Artifact
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
@@ -292,6 +298,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingRecommendation
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -307,8 +314,12 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |FileSystem
+                        |GitHubSyncConfig
+                        |GitHubSyncPlan
+                        |GitHubSyncedModel
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
@@ -329,6 +340,7 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
@@ -339,10 +351,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
-                        |Repo
                         |RepoRoutingRule
-                        |Run
-                        |RunSnapshot
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
@@ -351,12 +360,16 @@ rules:
                         |SessionRecording
                         |SessionRecordingPlaylist
                         |SharingConfiguration
+                        |SignalEmissionRecord
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalReportTask
+                        |SignalTeamConfig
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |Subscription
+                        |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
                         |Tag
@@ -366,6 +379,7 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |TicketView
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
@@ -616,6 +630,7 @@ rules:
                               DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
+                              |SignalUserAutonomyConfig
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -666,6 +681,7 @@ rules:
                         DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
+                        |SignalUserAutonomyConfig
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)

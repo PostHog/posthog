@@ -126,6 +126,12 @@ async function main(): Promise<void> {
         activities: createActivities(pool, playerHtml),
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
         dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
+        // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
+        // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
+        // (30s → 24s), which means capture-phase frame progress never reaches the
+        // parent workflow on short recordings. 2s matches the summary polling cadence.
+        defaultHeartbeatThrottleInterval: '2s',
+        maxHeartbeatThrottleInterval: '5s',
     })
 
     metricsServer.setReady()

@@ -76,8 +76,8 @@ export function SdkDoctorScene(): JSX.Element {
                 <div>
                     <LemonBanner type="info">
                         <strong>DEVELOPMENT WARNING!</strong> When running in development, make sure you've run the
-                        appropriate Dagster jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
-                        <LemonTag>cache_github_sdk_versions_job</LemonTag>. Data won't be available otherwise.
+                        Dagster job <LemonTag>cache_github_sdk_versions_job</LemonTag>. Team SDK version data is cached
+                        by the Temporal <LemonTag>sdk_outdated</LemonTag> health check.
                     </LemonBanner>
                 </div>
             )}

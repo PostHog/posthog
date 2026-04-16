@@ -70,7 +70,9 @@ class EventFilterConfig(UUIDTModel):
         if self.test_cases:
             validate_test_cases(self.test_cases)
         if self.filter_tree and self.test_cases:
-            run_test_cases(self.filter_tree, self.test_cases)
+            failures = run_test_cases(self.filter_tree, self.test_cases)
+            if failures:
+                raise ValidationError({"test_cases": failures})
 
     def save(self, *args, **kwargs):
         if self.filter_tree:
@@ -206,7 +208,8 @@ def validate_test_cases(test_cases: object) -> None:
                 raise ValidationError({"test_cases": f"Test case {i}: {field} must be a string."})
 
 
-def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> None:
+def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> list[str]:
+    """Run test cases against a filter tree. Returns a list of failure descriptions (empty if all pass)."""
     failures: list[str] = []
     for i, tc in enumerate(test_cases):
         event = {k: v for k, v in tc.items() if k != "expected_result"}
@@ -215,8 +218,7 @@ def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> None:
         expected = tc["expected_result"]
         if actual != expected:
             failures.append(f"Test case {i}: expected '{expected}' but got '{actual}' for {event}")
-    if failures:
-        raise ValidationError({"test_cases": failures})
+    return failures
 
 
 def tree_has_conditions(node: object) -> bool:

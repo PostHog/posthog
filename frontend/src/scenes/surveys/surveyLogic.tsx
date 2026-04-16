@@ -92,6 +92,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
@@ -109,6 +110,18 @@ import {
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
+
+const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
+
+const SURVEY_QUERY_TAGS = {
+    baseStats: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_base_stats' as const },
+    dismissedAndSent: {
+        ...SURVEY_QUERY_TAG_BASE,
+        name: 'survey_dismissed_sent_overlap' as const,
+    },
+    aggregateResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_aggregate' as const },
+    openEndedResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_open_ended' as const },
+}
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -727,7 +740,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     FROM events
                     WHERE team_id = ${teamLogic.values.currentTeamId}
                         AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                         ${values.timestampFilter}
                         ${values.archivedResponsesFilter}
                         AND {filters} -- Apply property filters here to the main query
@@ -735,7 +748,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                         )
                         AND (
                             -- Include non-'sent' events directly
@@ -750,17 +766,13 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.queryHogQL(
-                    query,
-                    { scene: 'Survey', productKey: 'surveys' },
-                    {
-                        queryParams: {
-                            filters: {
-                                properties: values.propertyFilters,
-                            },
+                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.baseStats, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
                         },
-                    }
-                )
+                    },
+                })
                 const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
                 actions.setBaseStatsResults(results)
                 actions.loadConsolidatedSurveyResults()
@@ -786,13 +798,16 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
                             AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                             ${values.timestampFilter}
                             ${values.archivedResponsesFilter}
                             AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                             )
                             AND {filters} -- Apply property filters here to reduce initial events
                         GROUP BY person_id
@@ -800,17 +815,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.queryHogQL(
-                    query,
-                    { scene: 'Survey', productKey: 'surveys' },
-                    {
-                        queryParams: {
-                            filters: {
-                                properties: values.propertyFilters, // Property filters applied in WHERE
-                            },
+                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.dismissedAndSent, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters, // Property filters applied in WHERE
                         },
-                    }
-                )
+                    },
+                })
                 const count = response.results?.[0]?.[0] ?? 0
                 actions.setDismissedAndSentCount(count)
                 return count as DismissedAndSentCountResult
@@ -831,8 +842,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
-                const queryOpts = { scene: 'Survey' as const, productKey: 'surveys' as const }
-
                 const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
                 const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
 
@@ -842,14 +851,24 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const [aggregateResponse, openEndedResponse] = await Promise.all([
                     aggregateQuery
-                        ? api.queryHogQL(aggregateQuery as HogQLQueryString, queryOpts, queryParams).then((r) => {
-                              aggregateDuration = performance.now() - startMs
-                              return r
-                          })
+                        ? api
+                              .queryHogQL(
+                                  aggregateQuery as HogQLQueryString,
+                                  SURVEY_QUERY_TAGS.aggregateResults,
+                                  queryParams
+                              )
+                              .then((r) => {
+                                  aggregateDuration = performance.now() - startMs
+                                  return r
+                              })
                         : Promise.resolve({ results: null }),
                     openEndedResult
                         ? api
-                              .queryHogQL(openEndedResult.query as HogQLQueryString, queryOpts, queryParams)
+                              .queryHogQL(
+                                  openEndedResult.query as HogQLQueryString,
+                                  SURVEY_QUERY_TAGS.openEndedResults,
+                                  queryParams
+                              )
                               .then((r) => {
                                   openEndedDuration = performance.now() - startMs
                                   return r
@@ -1137,7 +1156,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     if (page >= 0) {
                         actions.setSelectedPageIndex(page)
                     }
-                } else if (hasFormErrors(values.survey.appearance)) {
+                } else if (hasFormErrors(values.surveyErrors?.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
                     actions.setSelectedSection(SurveyEditSection.Steps)
@@ -1564,10 +1583,10 @@ export const surveyLogic = kea<surveyLogicType>([
                  * So we return all responses that don't have it.
                  * For posthog-js > 1.240, we use the $survey_completed property.
                  */
-                return `AND (
-                            NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-                            OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
-                        )`
+                return `AND ${buildSurveyOptionalBooleanPropertyFilter(
+                    SurveyEventProperties.SURVEY_COMPLETED,
+                    'false'
+                )}`
             },
         ],
         archivedResponsesFilter: [
@@ -2347,9 +2366,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ) {
                             return {
                                 ...questionErrors,
-                                choices: question.choices.some((choice) => !choice.trim())
-                                    ? 'Please ensure all choices are non-empty.'
-                                    : undefined,
+                                choices:
+                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                        ? 'Please ensure all choices are non-empty.'
+                                        : undefined,
                             }
                         }
 

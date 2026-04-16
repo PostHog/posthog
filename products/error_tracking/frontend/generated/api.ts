@@ -18,7 +18,13 @@ import type {
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueFullApi,
+    ErrorTrackingIssueMergeRequestApi,
+    ErrorTrackingIssueMergeResponseApi,
+    ErrorTrackingIssueSplitRequestApi,
+    ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
+    ErrorTrackingRecommendationApi,
+    ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesList2Params,
     ErrorTrackingReleasesListParams,
@@ -35,6 +41,7 @@ import type {
     PaginatedErrorTrackingFingerprintListApi,
     PaginatedErrorTrackingGroupingRuleListApi,
     PaginatedErrorTrackingIssueFullListApi,
+    PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
     PaginatedErrorTrackingSpikeEventListApi,
     PaginatedErrorTrackingStackFrameListApi,
@@ -719,14 +726,14 @@ export const getErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueMergeRequestApi: ErrorTrackingIssueMergeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueMergeResponseApi> => {
+    return apiMutator<ErrorTrackingIssueMergeResponseApi>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueMergeRequestApi),
     })
 }
 
@@ -737,14 +744,14 @@ export const getErrorTrackingIssuesSplitCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesSplitCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueSplitRequestApi: ErrorTrackingIssueSplitRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueSplitResponseApi> => {
+    return apiMutator<ErrorTrackingIssueSplitResponseApi>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueSplitRequestApi),
     })
 }
 
@@ -776,6 +783,17 @@ export const errorTrackingIssuesBulkCreate = async (
     })
 }
 
+export const getErrorTrackingIssuesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/exists/`
+}
+
+export const errorTrackingIssuesExistsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingIssuesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getErrorTrackingIssuesValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/values/`
 }
@@ -784,6 +802,84 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
     return apiMutator<void>(getErrorTrackingIssuesValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getErrorTrackingRecommendationsListUrl = (
+    projectId: string,
+    params?: ErrorTrackingRecommendationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/recommendations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/recommendations/`
+}
+
+export const errorTrackingRecommendationsList = async (
+    projectId: string,
+    params?: ErrorTrackingRecommendationsListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingRecommendationListApi> => {
+    return apiMutator<PaginatedErrorTrackingRecommendationListApi>(
+        getErrorTrackingRecommendationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getErrorTrackingRecommendationsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/recommendations/${id}/dismiss/`
+}
+
+export const errorTrackingRecommendationsDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingRecommendationApi> => {
+    return apiMutator<ErrorTrackingRecommendationApi>(getErrorTrackingRecommendationsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getErrorTrackingRecommendationsRefreshCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/recommendations/${id}/refresh/`
+}
+
+export const errorTrackingRecommendationsRefreshCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingRecommendationApi> => {
+    return apiMutator<ErrorTrackingRecommendationApi>(getErrorTrackingRecommendationsRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getErrorTrackingRecommendationsRestoreCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/recommendations/${id}/restore/`
+}
+
+export const errorTrackingRecommendationsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingRecommendationApi> => {
+    return apiMutator<ErrorTrackingRecommendationApi>(getErrorTrackingRecommendationsRestoreCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

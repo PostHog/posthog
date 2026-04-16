@@ -10,9 +10,11 @@ Previously, pipelines received raw `KafkaProducerWrapper` instances and hardcode
 
 **A named output abstraction.** Pipeline steps produce messages to an output by name (e.g. `'events'`). The output resolves to one or more targets at startup. Steps never see the producer directly.
 
-**Configurable producer routing.** Each output has a default producer, overridable via env var. Producers are defined with their own env var → rdkafka config mapping, validated with zod at startup.
+**Configurable producer routing.** Each output has a default producer, overridable via the config object (backed by env vars). Producers are defined with their own config key → rdkafka config mapping, validated with zod at startup.
 
-**Configurable topics.** Each output has a default topic, also overridable via env var.
+**Configurable topics.** Each output has a default topic, also overridable via the config object.
+
+**Compile-time config validation.** Both the producer registry builder and the outputs builder enforce at compile time that the server config contains all required keys. Missing keys are caught by the type checker, not at runtime.
 
 **Dual writes.** Each output can optionally have a secondary target (topic + producer on a different broker). When secondary env vars are set, every `produce()` and `queueMessages()` call fans out to both targets in parallel. This enables writing to two Kafka clusters simultaneously without any pipeline step changes.
 
@@ -22,7 +24,7 @@ Previously, pipelines received raw `KafkaProducerWrapper` instances and hardcode
 
 ## Concepts
 
-A **producer** is a Kafka connection configured via env vars. Each producer has a name (e.g. `'DEFAULT'`) and a mapping from env var names to rdkafka config keys. The `KafkaProducerRegistry` creates and caches producers by name — you define the producers and their env var mappings, the registry handles creation and lifecycle. The producer name is set on the `KafkaProducerWrapper` instance and used in metrics labels.
+A **producer** is a Kafka connection configured via the server config object. Each producer has a name (e.g. `'DEFAULT'`) and a mapping from config key names to rdkafka config keys. `KafkaProducerRegistryBuilder` creates all producers at startup, returning a typed `KafkaProducerRegistry<P>` where `P` is the union of registered producer names. The producer name is set on the `KafkaProducerWrapper` instance and used in metrics labels.
 
 A **target** is a single Kafka destination: a topic, a producer, and the producer's name. An output contains one or more targets.
 
@@ -30,33 +32,70 @@ An **output** is a named destination (e.g. `'events'`, `'heatmaps'`). Each outpu
 
 `IngestionOutputs` is the interface pipeline steps use to produce messages. It maps each output name to its resolved targets, exposing `produce()` and `queueMessages()` methods that route messages to the right Kafka cluster(s) and topic(s) without the caller needing to know the details.
 
-The **resolver** (`resolveIngestionOutputs`) is the glue. It takes a registry and a set of output definitions, looks up env var overrides (including secondary target env vars), creates the producers through the registry, and returns an `IngestionOutputs`. This happens once at startup.
+`IngestionOutputsBuilder` registers outputs with their config key pairs, then `build(registry, config)` resolves them — verifying at compile time that all config keys exist and producer values match the registry's type.
 
 ## Dual writes
 
-To enable dual writes for a specific output, set both secondary env vars:
+Each output can have a secondary target with configurable routing via mode and percentage.
+
+### Configuration
+
+Set the secondary target, mode, and percentage for an output:
 
 ```bash
-# Example: dual-write events to a secondary WarpStream cluster
 INGESTION_OUTPUT_EVENTS_SECONDARY_TOPIC=events_json_v2
 INGESTION_OUTPUT_EVENTS_SECONDARY_PRODUCER=WARPSTREAM
+INGESTION_OUTPUT_EVENTS_SECONDARY_MODE=copy
+INGESTION_OUTPUT_EVENTS_SECONDARY_PERCENTAGE=100
 ```
 
-Both env vars must be set — if only one is set, the secondary target is skipped. The secondary producer must be defined in the pipeline's `producers.ts` with its own env var config mapping.
+The secondary producer must be defined in the pipeline's `producers.ts` with its own env var config mapping.
 
-When dual writes are active, `produce()` and `queueMessages()` write to both targets in parallel. If either target fails, the call fails. Other outputs are unaffected — dual writes are per-output.
+### Modes
+
+- **`off`** (default) — secondary is ignored.
+  All messages go to primary only, regardless of other secondary settings.
+- **`copy`** — primary always receives all messages.
+  A percentage of messages (by key hash) is also copied to secondary.
+  Useful for validating a new cluster while keeping the original fully fed.
+- **`move`** — messages are routed to exactly one target.
+  A percentage of messages (by key hash) goes to secondary; the rest go to primary.
+  Useful for gradually migrating traffic from one cluster to another.
+
+### Percentage and key hashing
+
+The `percentage` (0–100) controls what fraction of messages are routed to secondary.
+Routing is deterministic per message key using FNV-1a 32-bit — the same key always routes the same way,
+so related messages (e.g. same `distinct_id`) stay together on the same target.
+
+Messages without a key are routed randomly based on the percentage,
+since the absence of a key means ordering doesn't matter for those messages.
+
+### Failure semantics
+
+If either target fails, the entire produce call fails.
+Other outputs are unaffected — dual writes are per-output.
 
 ## Conventions
 
 Pipeline steps receive `IngestionOutputs<O>` as a dependency and produce messages through it using `outputs.produce(output, message)` or `outputs.queueMessages(output, messages)`. Steps should never access Kafka producers directly.
 
-Each pipeline defines its output and producer config in its own directory (e.g. `analytics/config/`). Shared output constants that appear in multiple pipelines go in `common/outputs.ts`. The server resolves the definitions into an `IngestionOutputs` at startup and passes it down.
+Each pipeline defines its output and producer config in its own directory (e.g. `analytics/config/`). Shared output constants that appear in multiple pipelines go in `common/outputs.ts`. The server builds the outputs at startup and passes them down.
 
 ## How to extend
 
-To add a new output, add the output constant to the appropriate `outputs.ts` file (`common/` if shared, or the pipeline's own) and add an entry to the pipeline's output definitions.
+To add a new output:
 
-To add a new producer, add it to the pipeline's `producers.ts` with its env var mapping. The registry creates it on first use.
+1. Add the output name constant to the appropriate `outputs.ts` file (`common/` if shared, or the pipeline's own)
+2. Add topic and producer config keys to the pipeline's config type (e.g. `IngestionOutputsConfig`)
+3. Add defaults in the `getDefault*Config()` function
+4. Add a `.register()` call in the pipeline's `register*Outputs()` function
+
+To add a new producer:
+
+1. Add the name constant and config map to the pipeline's `producers.ts`
+2. Add the config keys to `KafkaProducerEnvConfig` with defaults
+3. Add a `.register()` call on the `KafkaProducerRegistryBuilder` in the server
 
 To enable dual writes for an existing output, set the `secondaryTopicEnvVar` and `secondaryProducerEnvVar` fields on the output definition, then configure the env vars at deploy time.
 
@@ -65,6 +104,7 @@ To enable dual writes for an existing output, set the `secondaryTopicEnvVar` and
 ```text
 ingestion/outputs/              — generic infrastructure (pipeline-agnostic)
 ingestion/common/outputs.ts     — shared output constants (e.g. EVENTS_OUTPUT)
+ingestion/common/producers.ts   — shared producer constants and config maps
 ingestion/analytics/outputs.ts  — analytics-specific output constants
-ingestion/analytics/config/     — analytics pipeline definitions (outputs + producers)
+ingestion/analytics/config/     — analytics pipeline config (output types, defaults, registration)
 ```

@@ -22,6 +22,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from pydantic import ValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -2728,6 +2729,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert modifiers.inCohortVia == InCohortVia.AUTO
+
+    def test_raises_for_empty_series(self):
+        query_runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[],
+            ),
+        )
+
+        with self.assertRaises(DRFValidationError) as context:
+            query_runner.calculate()
+
+        self.assertIn("Trends insights require at least one series.", str(context.exception))
 
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
@@ -6438,7 +6452,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        # Test 1: Without explicitDate, filtering last 7 days with monthly interval only includes events within range
+        # Test 1: Without explicitDate, filtering last 7 days with monthly interval includes entire month
         with freeze_time("2020-01-31 23:59:59"):
             response_default = TrendsQueryRunner(
                 query=TrendsQuery(
@@ -6451,9 +6465,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(1, len(response_default.results))
         self.assertEqual(
-            8,
+            31,
             response_default.results[0]["count"],
-            "Without explicitDate, only includes events within the date range, not the entire month",
+            "Without explicitDate, includes entire month due to interval boundary adjustment",
         )
 
         # Test 2: With explicitDate=True and explicit dates, STILL has issues (gets 6 instead of 7)

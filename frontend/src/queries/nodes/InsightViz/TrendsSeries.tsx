@@ -15,7 +15,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
@@ -55,7 +55,6 @@ export function TrendsSeries(): JSX.Element | null {
     }
 
     const filters = queryNodeToFilter(querySource)
-    const isFunnels = querySource.kind === NodeKind.FunnelsQuery
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
@@ -65,6 +64,10 @@ export function TrendsSeries(): JSX.Element | null {
             : display === ChartDisplayType.BoxPlot
               ? MathAvailability.BoxPlotOnly
               : MathAvailability.All
+    const supportsDataWarehouse =
+        (isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
+        isLifecycle ||
+        isStickiness
 
     const showFormulaOption =
         editorPanelsEnabled &&
@@ -103,15 +106,6 @@ export function TrendsSeries(): JSX.Element | null {
                                 NodeKind.LifecycleDataWarehouseNode
                             ),
                         } as LifecycleQuery)
-                    } else if (isFunnels) {
-                        updateQuerySource({
-                            series: actionsAndEventsToSeries(
-                                payload as any,
-                                true,
-                                mathAvailability,
-                                NodeKind.FunnelsDataWarehouseNode
-                            ),
-                        } as FunnelsQuery)
                     } else {
                         updateQuerySource({
                             series: actionsAndEventsToSeries(
@@ -146,12 +140,7 @@ export function TrendsSeries(): JSX.Element | null {
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                     TaxonomicFilterGroupType.AutocaptureEvents,
-                    ...((isTrends &&
-                        display !== ChartDisplayType.CalendarHeatmap &&
-                        display !== ChartDisplayType.BoxPlot) ||
-                    isLifecycle
-                        ? [TaxonomicFilterGroupType.DataWarehouse]
-                        : []),
+                    ...(supportsDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
                 hideDeleteBtn={series?.length === 1}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"

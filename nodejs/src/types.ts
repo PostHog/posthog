@@ -127,6 +127,7 @@ export interface HubServices {
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
+    monitoringProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -270,6 +271,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }

@@ -7,6 +7,8 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
+    EndpointsOpenapiJsonRetrieveParams,
+    EndpointsOpenapiJsonRetrieveQueryParams,
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
@@ -30,7 +32,7 @@ const endpointsGetAll = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEndpointResponseList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/endpoints/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/`,
             query: {
                 created_by: params.created_by,
                 is_active: params.is_active,
@@ -43,7 +45,7 @@ const endpointsGetAll = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
             '/endpoints'
@@ -60,7 +62,7 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointVersionResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/endpoints/${params.name}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
@@ -98,7 +100,7 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'POST',
-            path: `/api/projects/${projectId}/endpoints/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/`,
             body,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
@@ -141,7 +143,7 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/endpoints/${params.name}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
@@ -157,16 +159,22 @@ const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.Endpoin
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/endpoints/${params.name}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
             body: { deleted: true },
         })
         return result
     },
 })
 
-const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true }).extend(
-    EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
-)
+const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true })
+    .extend(
+        EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
+    )
+    .extend({
+        variables: EndpointsRunCreateBody.shape['variables'].describe(
+            'Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name as key.'
+        ),
+    })
 
 const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schemas.EndpointRunResponse>> => ({
     name: 'endpoint-run',
@@ -188,7 +196,7 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
         }
         const result = await context.api.request<Schemas.EndpointRunResponse>({
             method: 'POST',
-            path: `/api/projects/${projectId}/endpoints/${params.name}/run/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/run/`,
             body,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
@@ -209,7 +217,7 @@ const endpointVersions = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEndpointVersionResponseList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/endpoints/${params.name}/versions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/versions/`,
             query: {
                 created_by: params.created_by,
                 is_active: params.is_active,
@@ -222,7 +230,7 @@ const endpointVersions = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
             '/endpoints'
@@ -242,9 +250,29 @@ const endpointMaterializationStatus = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointMaterialization>({
             method: 'GET',
-            path: `/api/projects/${projectId}/endpoints/${params.name}/materialization_status/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_status/`,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+    },
+})
+
+const EndpointOpenapiSpecSchema = EndpointsOpenapiJsonRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsOpenapiJsonRetrieveQueryParams.shape
+)
+
+const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({
+    name: 'endpoint-openapi-spec',
+    schema: EndpointOpenapiSpecSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointOpenapiSpecSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/openapi.json/`,
+            query: {
+                version: params.version,
+            },
+        })
+        return result
     },
 })
 
@@ -257,4 +285,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-run': endpointRun,
     'endpoint-versions': endpointVersions,
     'endpoint-materialization-status': endpointMaterializationStatus,
+    'endpoint-openapi-spec': endpointOpenapiSpec,
 }

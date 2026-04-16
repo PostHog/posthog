@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
@@ -16,6 +18,7 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardsAnalyzeRefreshResultCreateParams,
+    DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
@@ -27,6 +30,7 @@ import type {
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRunInsightsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
@@ -38,6 +42,7 @@ import type {
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
     ReorderTilesRequestApi,
+    RunInsightsResponseApi,
     SharingConfigurationApi,
 } from './api.schemas'
 
@@ -649,6 +654,41 @@ export const dashboardsReorderTilesCreate = async (
 }
 
 /**
+ * Run all insights on a dashboard and return their results.
+ */
+export const getDashboardsRunInsightsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/run_insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/run_insights/`
+}
+
+export const dashboardsRunInsightsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams,
+    options?: RequestInit
+): Promise<RunInsightsResponseApi> => {
+    return apiMutator<RunInsightsResponseApi>(getDashboardsRunInsightsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Snapshot the current dashboard state (from cache) for AI analysis.
 Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
  */
@@ -719,6 +759,50 @@ export const dashboardsStreamTilesRetrieve = async (
     return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getDashboardsBulkUpdateTagsCreateUrl = (
+    projectId: string,
+    params?: DashboardsBulkUpdateTagsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/bulk_update_tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/bulk_update_tags/`
+}
+
+export const dashboardsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    params?: DashboardsBulkUpdateTagsCreateParams,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getDashboardsBulkUpdateTagsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 

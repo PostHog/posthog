@@ -40,6 +40,36 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
+def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
+    """Check if a product has legacy interface leak blocks in tach.toml.
+
+    These are products where core (posthog/ee) still imports internals directly,
+    so they can't safely be tested in isolation via contract-check.
+
+    Detected structurally: an [[interfaces]] block that exposes non-facade paths
+    (anything other than backend.facade or backend.presentation) and references
+    this specific module in its from = [...] field.
+    """
+    import re
+
+    # Find all [[interfaces]] blocks and check if any expose non-facade paths
+    # for this specific module.
+    for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
+        block = match.group(1)
+        # Check if this block references our module in from = [...]
+        if not re.search(rf'from\s*=\s*\[\s*"{re.escape(module_path)}"\s*,?\s*\]', block):
+            continue
+        # Check if any expose pattern is NOT facade or presentation
+        expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
+        if not expose_match:
+            continue
+        patterns = re.findall(r'"(.*?)"', expose_match.group(1))
+        for pattern in patterns:
+            if not pattern.startswith("backend\\.facade") and not pattern.startswith("backend\\.presentation"):
+                return True
+    return False
+
+
 def get_tach_block(tach_content: str, module_path: str) -> str:
     """Extract the tach.toml block for a given module path."""
     marker = f'path = "{module_path}"'
@@ -182,7 +212,12 @@ class PackageJsonScriptsCheck(ProductCheck):
         result = CheckResult()
 
         # --- presence checks ---
-        required = ["backend:test"] + (["backend:contract-check"] if ctx.is_isolated else [])
+        module_path = f"products.{ctx.name}"
+        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        has_leaks = has_legacy_interface_leaks(tach_content, module_path)
+
+        needs_contract_check = ctx.is_isolated and not has_leaks
+        required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
             if script not in scripts:
                 result.lines.append(f"✗ missing '{script}'")
@@ -191,11 +226,16 @@ class PackageJsonScriptsCheck(ProductCheck):
                     "turbo cannot discover this product"
                 )
 
-        # --- absence check: non-isolated must NOT have contract-check ---
-        if not ctx.is_isolated and "backend:contract-check" in scripts:
-            result.lines.append("✗ non-isolated product has 'backend:contract-check'")
+        # --- absence check: must NOT have contract-check when not safe for isolation ---
+        must_not_have_contract_check = not ctx.is_isolated or has_leaks
+        if must_not_have_contract_check and "backend:contract-check" in scripts:
+            if has_leaks:
+                reason = "has legacy interface leaks (core imports internals directly)"
+            else:
+                reason = "non-isolated product must not have 'backend:contract-check' script"
+            result.lines.append("✗ must not have 'backend:contract-check'")
             result.issues.append(
-                "Non-isolated product must not have 'backend:contract-check' script — "
+                f"{reason} — remove 'backend:contract-check' from package.json. "
                 "turbo-discover uses this to classify products as isolated, which causes "
                 "the full Django test suite to be skipped when this product changes"
             )
@@ -242,6 +282,21 @@ class MisplacedFilesCheck(ProductCheck):
     label = "misplaced backend files"
     for_lenient = False
 
+    # Directories allowed in backend/ for strict products.
+    # Anything else won't be covered by import-linter's wildcard contracts.
+    _KNOWN_DIRS = {
+        "facade",
+        "presentation",
+        "tasks",
+        "tests",
+        "test",
+        "migrations",
+        "management",
+        "models",
+        "logic",
+        "__pycache__",
+    }
+
     def run(self, ctx: CheckContext) -> CheckResult:
         if not ctx.backend_dir.exists():
             return CheckResult(skip=True)
@@ -255,6 +310,16 @@ class MisplacedFilesCheck(ProductCheck):
                     misplaced.append(f"'{filename}' at backend/ root conflicts with correct location '{correct_path}'")
                 else:
                     misplaced.append(f"backend/{filename} should be at backend/{correct_path}")
+
+        # Flag directories not in the canonical structure — these bypass
+        # import-linter's wildcard enforcement (presentation/facade/etc.)
+        for child in sorted(ctx.backend_dir.iterdir()):
+            if child.is_dir() and child.name not in self._KNOWN_DIRS:
+                misplaced.append(
+                    f"backend/{child.name}/ is not a recognized directory — "
+                    "import-linter only enforces canonical paths (presentation, facade, logic, models). "
+                    "Move code into an existing directory or update the product structure"
+                )
 
         if misplaced:
             return CheckResult(
@@ -310,14 +375,30 @@ class TachCheck(ProductCheck):
             )
 
         if ctx.is_isolated and "interfaces" not in tach_block:
-            return CheckResult(
-                lines=["✗ missing interfaces declaration"],
-                issues=[
-                    f"Isolated product missing 'interfaces' in tach.toml — "
-                    f'add interfaces = ["{module_path}.backend.facade", '
-                    f'"{module_path}.backend.presentation.views"]'
-                ],
+            import re
+
+            # Check global [[interfaces]] blocks — the product name may appear
+            # literally or as part of a regex pattern in a from = [...] field.
+            product_short = ctx.name  # e.g. "experiments"
+            has_global_interface = bool(
+                re.search(
+                    rf"\[\[interfaces\]\].*?from\s*=\s*\[.*?{re.escape(product_short)}",
+                    tach_content,
+                    re.DOTALL,
+                )
             )
+            if not has_global_interface:
+                return CheckResult(
+                    lines=["✗ missing interfaces declaration"],
+                    issues=[
+                        f"Isolated product missing interface definition in tach.toml — "
+                        f'add a [[interfaces]] block with from = ["{module_path}"]'
+                    ],
+                )
+
+        tach_content_for_leaks = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        if has_legacy_interface_leaks(tach_content_for_leaks, module_path):
+            return CheckResult(lines=["⚠ has legacy interface leaks — core bypasses facade (not tested in isolation)"])
 
         return CheckResult(lines=["✓ ok"])
 

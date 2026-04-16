@@ -86,6 +86,17 @@ class QueryDateRange:
             # we can't support multiple week intervals without breaking backwards compatibility
             raise ValueError("IntervalType.WEEK cannot be used with interval_count > 1")
 
+    def pin_now(self, now: datetime) -> None:
+        """Replace the _now_ used by date computations (e.g. to match a materialized
+        snapshot time instead of request time).
+
+        Must be called before any date property is read — otherwise cached values
+        would be stale. Raises ``RuntimeError`` if that happens.
+        """
+        if "now_with_timezone" in self.__dict__:
+            raise RuntimeError("pin_now() called after now_with_timezone was already cached")
+        self._now_without_timezone = now
+
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone
         delta_mapping = None
@@ -332,16 +343,15 @@ class QueryDateRange:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
 
     def date_from_with_adjusted_start_of_interval_hogql(self) -> ast.Call:
-        if self.interval_name in ("week", "month"):
-            # in `where` queries with week/month intervals, we need to return the date_from instead of the
-            # start of the week/month — this ensures that we only fetch records after the date_from,
-            # not from the beginning of the interval period
+        if self.interval_name == "week":
+            # in `where` queries with week intervals, we need to return the date_from instead of the start of the week
+            # this ensures that we only fetch records after the date_from
             return ast.Call(
                 name="toStartOfInterval",
                 args=[
                     self.date_from_as_hogql(),
                     ast.Call(
-                        name="toIntervalDay",
+                        name=f"toIntervalDay",
                         args=[ast.Constant(value=1)],
                     ),
                 ],
