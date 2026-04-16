@@ -74,8 +74,10 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -1329,6 +1331,32 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
 
 
+def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None:
+    """Mirror AI events into the ai_events table during tests."""
+    ai_events = [e for e in events if e.get("event") in _AI_EVENT_TYPES]
+    if not ai_events:
+        return
+
+    for event in ai_events:
+        distinct_id = event.get("distinct_id", "")
+        if distinct_id in person_mapping:
+            person = person_mapping[distinct_id]
+            event["person_id"] = str(person.uuid if hasattr(person, "uuid") else person)
+        elif "person_id" not in event:
+            team = event.get("team")
+            team_id = event.get("team_id") or (team.pk if team else None)
+            if team_id:
+                from posthog.models import PersonDistinctId
+
+                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
+                if pdi:
+                    event["person_id"] = str(pdi.person.uuid)
+
+    from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+    bulk_create_ai_events(ai_events)
+
+
 def flush_persons_and_events():
     """
     Flush any created persons and events to Clickhouse
@@ -1347,6 +1375,7 @@ def flush_persons_and_events():
         persons_cache_tests.clear()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
+        _flush_ai_events(events_cache_tests, person_mapping)
         events_cache_tests.clear()
 
 
@@ -1570,6 +1599,7 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+            TRUNCATE_AI_EVENTS_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(

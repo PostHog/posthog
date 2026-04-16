@@ -43,6 +43,16 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Max rows per FETCH when reading a partitioned parent table. A partitioned
+# parent scan dispatches across every child partition; a large chunk size can
+# blow past the source's statement_timeout even when per-row payload is small.
+PARTITIONED_TABLE_MAX_CHUNK_SIZE = 10_000
+
+# Statement timeout applied to the row-streaming connection so a slow FETCH
+# (large partitioned scan, cold cache, etc.) does not get killed by a short
+# default statement_timeout on the source role.
+SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
@@ -1258,12 +1268,27 @@ def postgres_source(
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     if primary_keys:
                         logger.debug(f"Found primary keys: {primary_keys}")
+                    logger.debug("Checking if table is partitioned...")
+                    is_partitioned = False
+                    try:
+                        is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+                    except Exception as e:
+                        logger.debug(f"Partition detection failed: {e}")
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
                         chunk_size = chunk_size_override
                         logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                        # Cap chunk size for partitioned tables. Server-cursor FETCH
+                        # on a partitioned parent scans across all child partitions,
+                        # so a large chunk can exceed statement_timeout even when
+                        # per-row size is small.
+                        if is_partitioned and chunk_size > PARTITIONED_TABLE_MAX_CHUNK_SIZE:
+                            logger.debug(
+                                f"Capping chunk_size from {chunk_size} to {PARTITIONED_TABLE_MAX_CHUNK_SIZE} for partitioned table"
+                            )
+                            chunk_size = PARTITIONED_TABLE_MAX_CHUNK_SIZE
                     logger.debug("Getting rows to sync...")
                     # For partitioned tables without an incremental cursor (initial
                     # sync, re-sync, or non-incremental), use pg_class.reltuples
@@ -1274,18 +1299,17 @@ def postgres_source(
                     # scan (no incremental cursor value).
                     rows_to_sync: int | None = None
                     full_table_scan = db_incremental_field_last_value is None
-                    if is_initial_sync or full_table_scan:
+                    if is_partitioned and (is_initial_sync or full_table_scan):
                         try:
-                            if _is_partitioned_table(cursor, schema, table_name):
-                                logger.debug(
-                                    f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
-                                    f"full_table_scan={full_table_scan}), using estimated row count"
-                                )
-                                rows_to_sync = _get_estimated_row_count_for_partitioned_table(
-                                    cursor, schema, table_name, logger
-                                )
+                            logger.debug(
+                                f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
+                                f"full_table_scan={full_table_scan}), using estimated row count"
+                            )
+                            rows_to_sync = _get_estimated_row_count_for_partitioned_table(
+                                cursor, schema, table_name, logger
+                            )
                         except Exception as e:
-                            logger.debug(f"Partition detection failed, falling back to exact count: {e}")
+                            logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                     if rows_to_sync is None:
                         rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
                     logger.debug("Getting partition settings...")
@@ -1349,6 +1373,19 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                # Bump statement_timeout for the streaming connection. A server
+                # cursor FETCH inherits the session statement_timeout, and on
+                # wide/partitioned scans the source's default (often 30-60s)
+                # kills the fetch before rows come back.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute(
+                            sql.SQL("SET statement_timeout = {timeout}").format(
+                                timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
+                            )
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
