@@ -139,6 +139,7 @@ export const ThresholdOperatorEnumApi = {
  * `pending_resolve` - Pending resolve
  * `errored` - Errored
  * `snoozed` - Snoozed
+ * `broken` - Broken
  */
 export type LogsAlertConfigurationStateEnumApi =
     (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
@@ -149,6 +150,7 @@ export const LogsAlertConfigurationStateEnumApi = {
     PendingResolve: 'pending_resolve',
     Errored: 'errored',
     Snoozed: 'snoozed',
+    Broken: 'broken',
 } as const
 
 export interface LogsAlertConfigurationApi {
@@ -270,6 +272,46 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly created_by?: UserBasicApi
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * * `slack` - slack
+ * `webhook` - webhook
+ */
+export type LogsAlertCreateDestinationTypeEnumApi =
+    (typeof LogsAlertCreateDestinationTypeEnumApi)[keyof typeof LogsAlertCreateDestinationTypeEnumApi]
+
+export const LogsAlertCreateDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+export interface LogsAlertCreateDestinationApi {
+    /** Destination type — slack or webhook.
+
+* `slack` - slack
+* `webhook` - webhook */
+    type: LogsAlertCreateDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to POST to. Required when type=webhook. */
+    webhook_url?: string
+}
+
+export interface LogsAlertDestinationResponseApi {
+    hog_function_ids: string[]
+}
+
+export interface LogsAlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs to delete as one atomic destination group.
+     * @minItems 1
+     */
+    hog_function_ids: string[]
 }
 
 export interface LogsAlertSimulateRequestApi {

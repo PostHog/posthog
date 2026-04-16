@@ -299,7 +299,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "RetentionQuery":
-        from .insights.retention_query_runner import RetentionQueryRunner
+        from .insights.retention.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -309,7 +309,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "PathsQuery":
-        from .insights.paths_query_runner import PathsQueryRunner
+        from .insights.paths.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -330,7 +330,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "StickinessQuery":
-        from .insights.stickiness_query_runner import StickinessQueryRunner
+        from .insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),

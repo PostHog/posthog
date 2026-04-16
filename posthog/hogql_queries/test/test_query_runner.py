@@ -252,7 +252,7 @@ class TestQueryRunner(BaseTest):
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        class TestSubclassQueryRunner(TestQueryRunner):
+        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
@@ -829,7 +829,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[

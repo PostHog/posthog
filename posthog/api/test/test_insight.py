@@ -3607,7 +3607,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights",
-            data={"short_id": insight.short_id, "refresh": True},
+            data={"short_id": insight.short_id, "refresh": "true"},
         ).json()
 
         self.assertNotIn("code", response)
@@ -3643,7 +3643,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights",
-            data={"short_id": insight.short_id, "refresh": True},
+            data={"short_id": insight.short_id, "refresh": "true"},
         ).json()
 
         self.assertNotIn("code", response)
@@ -3682,7 +3682,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
             data={
-                "from_dashboard": dashboard.pk,
+                "from_dashboard": str(dashboard.pk),
                 "variables_override": json.dumps(
                     {
                         str(variable.id): {
@@ -4084,7 +4084,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Initial query metadata should not be empty
         self.assertIsNotNone(insight.query_metadata)
-        initial_metadata = insight.query_metadata.copy()
+        initial_metadata = insight.query_metadata.copy() if insight.query_metadata is not None else None
 
         # update the query for the insight
         new_query = {
@@ -4139,7 +4139,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Initial query metadata should not be empty
         self.assertIsNotNone(insight.query_metadata)
-        initial_metadata = insight.query_metadata.copy()
+        initial_metadata = insight.query_metadata.copy() if insight.query_metadata is not None else None
 
         # update the name for the insight without changing the query
         insight.name = "Updated Insight Name"

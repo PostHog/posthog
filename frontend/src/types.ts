@@ -63,6 +63,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     QuerySchema,
     QueryStatus,
@@ -5020,6 +5021,9 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6054,6 +6058,7 @@ export type RawBatchExportRun = {
     records_completed?: number
     records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type BatchExportRun = {
@@ -6075,6 +6080,7 @@ export type BatchExportRun = {
     records_completed?: number
     records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type GroupedBatchExportRuns = {
@@ -6829,7 +6835,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }

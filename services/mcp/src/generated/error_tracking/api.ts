@@ -92,6 +92,9 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'firebase',
                         'jira',
                         'pinterest-ads',
+                        'customerio-app',
+                        'customerio-webhook',
+                        'customerio-track',
                     ]),
                 }),
             })

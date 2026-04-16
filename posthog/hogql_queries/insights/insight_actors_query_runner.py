@@ -26,9 +26,9 @@ from posthog.hogql_queries.experiments.experiment_query_runner import Experiment
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
-from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.insights.paths.paths_query_runner import PathsQueryRunner
+from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.models import Team

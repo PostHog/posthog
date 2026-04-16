@@ -484,6 +484,170 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["snooze_until"] is not None
         assert data["threshold_count"] == 200
 
+    # --- Destinations ---
+
+    def _destinations_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/"
+
+    def _destinations_delete_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/delete/"
+
+    def _sync_destination_templates(self) -> None:
+        # Destination creation goes through the full HogFunctionSerializer pipeline,
+        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
+        from posthog.cdp.templates.hog_function_template import sync_template_to_db
+        from posthog.cdp.templates.slack.template_slack import template as template_slack
+        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        sync_template_to_db(template_slack)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "description": "Generic webhook template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
+        self._sync_destination_templates()
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "alerts",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 2  # firing + resolved
+
+        hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
+        event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
+        assert event_ids == ["$logs_alert_firing", "$logs_alert_resolved"]
+        for hf in hog_functions:
+            assert hf.template_id == "template-slack"
+            inputs = hf.inputs or {}
+            assert inputs["channel"]["value"] == "C123"
+            assert inputs["slack_workspace"]["value"] == 42
+            text_value = inputs["text"]["value"]
+            assert "{if(" not in text_value
+            alert_id_filter = (hf.filters or {})["properties"][0]
+            assert alert_id_filter == {
+                "key": "alert_id",
+                "value": created["id"],
+                "operator": "exact",
+                "type": "event",
+            }
+
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
+        assert len(reset_calls) == 1
+
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 2
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-webhook"
+            inputs = hf.inputs or {}
+            assert inputs["url"]["value"] == "https://example.com/hook"
+            body = inputs["body"]["value"]
+            assert body["event"] in ("firing", "resolved")
+
+    @parameterized.expand(
+        [
+            ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
+            ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
+            ("webhook_missing_url", {"type": "webhook"}),
+            ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+        ]
+    )
+    def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
+        created = self._create_via_api()
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_destination_on_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team, name="Other", threshold_count=10, filters={"severityLevels": ["error"]}
+        )
+        response = self.client.post(
+            self._destinations_url(str(other_alert.id)),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_destination_removes_hog_functions(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        ids = create_response.json()["hog_function_ids"]
+
+        delete_response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": ids},
+            format="json",
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+
+    def test_delete_destination_rejects_foreign_hog_function_ids(self):
+        self._sync_destination_templates()
+        created_a = self._create_via_api()
+        created_b = self._create_via_api(name="Another alert")
+
+        a_ids = self.client.post(
+            self._destinations_url(created_a["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/a"},
+            format="json",
+        ).json()["hog_function_ids"]
+        b_ids = self.client.post(
+            self._destinations_url(created_b["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/b"},
+            format="json",
+        ).json()["hog_function_ids"]
+
+        # Trying to delete alert A's HogFunctions via alert B's endpoint should fail.
+        response = self.client.post(
+            self._destinations_delete_url(created_b["id"]),
+            {"hog_function_ids": a_ids + b_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     # --- Simulate ---
 
     def _simulate_url(self) -> str:

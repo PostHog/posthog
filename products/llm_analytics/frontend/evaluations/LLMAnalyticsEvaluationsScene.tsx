@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -43,6 +43,7 @@ import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { statusReasonLabel } from './statusDisplay'
 import { EvaluationConfig } from './types'
 
 export const scene: SceneExport = {
@@ -115,8 +116,20 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
         },
         {
             title: 'Status',
-            key: 'enabled',
+            key: 'status',
             render: (_, evaluation) => {
+                // When the system has marked an eval as errored, the toggle is misleading — flipping it
+                // would just fail. Show an error pill instead so the row is visibly different and users
+                // click through to the detail page to see what's wrong and how to fix it.
+                if (evaluation.status === 'error') {
+                    return (
+                        <Tooltip title={`${statusReasonLabel(evaluation.status_reason)}. Open to fix.`}>
+                            <LemonTag type="danger" icon={<IconWarning />} data-attr="evaluation-status-error">
+                                Error
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
                 const canEnable = canEnableEvaluation(evaluation)
                 const isBlocked = !canEnable && !evaluation.enabled
                 return (
@@ -149,7 +162,11 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                     </div>
                 )
             },
-            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
+            // Sort: errors first (most attention-demanding), then enabled, then paused.
+            sorter: (a, b) => {
+                const rank = (e: EvaluationConfig): number => (e.status === 'error' ? 0 : e.enabled ? 1 : 2)
+                return rank(a) - rank(b)
+            },
         },
         {
             title: 'Method',
