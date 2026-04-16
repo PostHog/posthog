@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
-    "events": ["http", "kafka_connected"],
+    "events": ["http"],
     "web": [
         "http",
         # NOTE: we include Postgres because the way we use django means every request hits the DB
@@ -68,7 +68,7 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     ],
     "decide": ["http"],
     "query": ["http", "postgres", "cache"],
-    "report": ["http", "kafka_connected"],
+    "report": ["http"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy

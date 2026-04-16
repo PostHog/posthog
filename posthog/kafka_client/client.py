@@ -173,7 +173,7 @@ class _KafkaProducer:
         kafka_security_protocol=None,
         max_request_size=None,
         compression_type=None,
-        acks=1,
+        acks: int | str = 1,
         enable_idempotence=False,
     ):
         hostname = os.environ.get("HOSTNAME", "")

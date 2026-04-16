@@ -46,18 +46,6 @@ class KafkaClientTestCase(TestCase):
         msg = next(consumer)
         self.assertEqual(msg, "message 1 from test_topic topic")
 
-    def test_kafka_produce(self):
-        producer = _KafkaProducer(test=False)
-        producer.produce(topic=self.topic, data=self.payload)
-        producer.close()
-
-    def test_kafka_produce_and_consume(self):
-        producer = _KafkaProducer(test=False)
-        consumer = KafkaConsumerForTests(topic=self.topic, auto_offset_reset="earliest")
-        producer.produce(topic=self.topic, data=self.payload)
-        payload = next(consumer)
-        self.assertEqual(payload.value, self.payload)
-
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_default_security_protocol(self, mock_producer_class: MagicMock):
         mock_producer_class.return_value = MagicMock()

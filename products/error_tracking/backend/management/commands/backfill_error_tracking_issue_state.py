@@ -33,12 +33,11 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 from posthog.models.event.util import format_clickhouse_timestamp
 
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
-from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 
 logger = structlog.get_logger(__name__)
 
@@ -108,43 +107,39 @@ class Command(BaseCommand):
             logger.info("backfill_dry_run_complete", total=total_count)
             return
 
-        producer = ClickhouseProducer()
         produced = 0
         since_last_flush = 0
         start_time = time.monotonic()
 
-        for current_team_id in team_ids:
-            team_qs = self._build_queryset(team_id=current_team_id).iterator(chunk_size=batch_size)
-            logger.info("backfill_processing_team", team_id=current_team_id, produced_so_far=produced)
+        with producer_scope(topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE) as producer:
+            for current_team_id in team_ids:
+                team_qs = self._build_queryset(team_id=current_team_id).iterator(chunk_size=batch_size)
+                logger.info("backfill_processing_team", team_id=current_team_id, produced_so_far=produced)
 
-            for fp in team_qs:
-                data = self._build_row(fp)
-                producer.produce(
-                    sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
-                    topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
-                    data=data,
-                )
-
-                produced += 1
-                since_last_flush += 1
-
-                if since_last_flush >= batch_size:
-                    if producer.producer is not None:
-                        producer.producer.flush()
-                    since_last_flush = 0
-                    elapsed = time.monotonic() - start_time
-                    rate = produced / elapsed if elapsed > 0 else 0
-                    logger.info(
-                        "backfill_progress",
-                        produced=produced,
-                        total=total_count,
-                        percent=round(produced / total_count * 100, 1) if total_count > 0 else 0,
-                        rate=round(rate),
-                        elapsed_s=round(elapsed),
+                for fp in team_qs:
+                    data = self._build_row(fp)
+                    producer.produce(
+                        topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+                        data=data,
                     )
 
-        if producer.producer is not None:
-            producer.producer.flush()
+                    produced += 1
+                    since_last_flush += 1
+
+                    if since_last_flush >= batch_size:
+                        producer.flush()
+                        since_last_flush = 0
+                        elapsed = time.monotonic() - start_time
+                        rate = produced / elapsed if elapsed > 0 else 0
+                        logger.info(
+                            "backfill_progress",
+                            produced=produced,
+                            total=total_count,
+                            percent=round(produced / total_count * 100, 1) if total_count > 0 else 0,
+                            rate=round(rate),
+                            elapsed_s=round(elapsed),
+                        )
+
         elapsed = time.monotonic() - start_time
         logger.info("backfill_complete", produced=produced, elapsed_s=round(elapsed))
 

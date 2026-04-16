@@ -119,6 +119,10 @@ class CaptureKafkaProducer:
                 "topic": topic,
                 "value": data,
                 "key": key,
+                # `_AsyncKafkaProducer.produce` doesn't expose partition/timestamp_ms;
+                # kept as None so assertions from the prior aiokafka-based fixture still hold.
+                "partition": None,
+                "timestamp_ms": None,
                 "headers": headers,
             }
         )
