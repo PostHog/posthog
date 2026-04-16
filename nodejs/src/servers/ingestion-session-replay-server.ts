@@ -1,8 +1,10 @@
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
+    KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
@@ -37,6 +39,7 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
@@ -59,6 +62,7 @@ export class IngestionSessionReplayServer implements NodeServer {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
             ...config,
         }
