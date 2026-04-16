@@ -254,7 +254,7 @@ def _resolve_autostart_assignee(
         # Check team membership
         if not user.teams.filter(id=team_id).exists():
             continue
-        config: SignalUserAutonomyConfig = user.signal_autonomy_config  # type: ignore[assignment]
+        config: SignalUserAutonomyConfig = user.signal_autonomy_config
         effective_threshold = (
             Priority(config.autostart_priority) if config.autostart_priority else team_default_priority
         )
