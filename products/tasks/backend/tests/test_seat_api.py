@@ -284,11 +284,12 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
 
 @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
 @patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
-class TestSeatAPIKeyScope(BaseSeatAPITest):
-    """Personal API keys should be rejected (scope_object = INTERNAL)."""
+class TestSeatAPIKeyAccess(BaseSeatAPITest):
+    """Personal API keys are allowed so the LLM gateway can resolve seats."""
 
     @patch("products.tasks.backend.seat_api.requests.request")
-    def test_personal_api_key_rejected(self, mock_request, _mock_license, _mock_token):
+    def test_personal_api_key_allowed(self, mock_request, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="test",
@@ -301,4 +302,4 @@ class TestSeatAPIKeyScope(BaseSeatAPITest):
             "/api/seats/me/?product_key=posthog_code",
             headers={"authorization": f"Bearer {token}"},
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
