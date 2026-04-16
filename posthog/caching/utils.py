@@ -81,7 +81,7 @@ def active_teams() -> set[int]:
 def stale_cache_invalidation_disabled(team: Team) -> bool:
     """Can be disabled temporarly to help in cases of service degradation."""
     if is_cloud():  # on PostHog Cloud, use the feature flag
-        return not posthoganalytics.feature_enabled(
+        result = posthoganalytics.feature_enabled(
             "stale-cache-invalidation-enabled",
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
@@ -94,6 +94,7 @@ def stale_cache_invalidation_disabled(team: Team) -> bool:
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
+        return result is False
     else:
         return False
 
