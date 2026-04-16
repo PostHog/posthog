@@ -189,8 +189,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             placeholder="Select date and time"
                         />
                         <p className="text-xs text-muted">
-                            If provided, evaluates the flag using person properties as they existed at this time. The
-                            flag conditions themselves are always current.
+                            If provided, evaluates the flag using person properties and flag conditions as they existed
+                            at this time.
                         </p>
                     </div>
 
