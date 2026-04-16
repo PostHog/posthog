@@ -57,7 +57,7 @@ test.describe('SQL Editor', () => {
 
             // Wait for the success message which confirms the API call completed
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
         })
 
         test('Materialize view pane', async ({ page }) => {
@@ -78,7 +78,7 @@ test.describe('SQL Editor', () => {
             await page.getByRole('button', { name: 'Submit' }).click()
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
 
-            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
             // Dismiss the quickstart popover if visible, as it can overlay the button
             const quickstart = page.locator('[data-attr=global-product-setup-button]')
             if (await quickstart.isVisible({ timeout: 1000 }).catch(() => false)) {
