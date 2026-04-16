@@ -19,6 +19,9 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../config/kafka-topics'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT, TOPHOG_OUTPUT } from '../ingestion/common/outputs'
+import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
@@ -842,11 +845,38 @@ describe('Session Recording Consumer Integration', () => {
         const kafkaMetadataProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         const kafkaMessageProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
+        const outputs = new IngestionOutputs({
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                'clickhouse_ingestion_warnings_test',
+                kafkaMetadataProducer,
+                'test'
+            ),
+            [DLQ_OUTPUT]: new SingleIngestionOutput(
+                DLQ_OUTPUT,
+                'session_recording_snapshot_item_events_dlq_test',
+                kafkaMessageProducer,
+                'test'
+            ),
+            [OVERFLOW_OUTPUT]: new SingleIngestionOutput(
+                OVERFLOW_OUTPUT,
+                'session_recording_snapshot_item_overflow_test',
+                kafkaMessageProducer,
+                'test'
+            ),
+            [TOPHOG_OUTPUT]: new SingleIngestionOutput(
+                TOPHOG_OUTPUT,
+                'clickhouse_tophog_test',
+                kafkaMessageProducer,
+                'test'
+            ),
+        })
+
         const ingester = new SessionRecordingIngester(
             hub as any,
             hub.postgres,
+            outputs,
             kafkaMetadataProducer,
-            kafkaMessageProducer,
             hub.redisPool,
             hub.redisPool
         )
