@@ -51,8 +51,9 @@ Use `ingest_report_json` to short-circuit the research flow and drop a fully-res
 `SignalReport` into the database, so you can test the autostart path without the sandbox.
 
 ```bash
-# 1. Make sure the team has autonomy configured and at least one opted-in user
-python manage.py enable_signals_autonomy 1 P2 alice@posthog.com
+# 1. Make sure at least one team user has opted into autonomy. Either set a default
+#    threshold for the team via SignalTeamConfig, or have a user POST to
+#    /api/users/<id>/signal_autonomy/ with their personal autostart_priority.
 
 # 2. Ingest a research-output fixture — creates a SignalReport, persists artefacts,
 #    triggers `_maybe_autostart_task_for_report`, then marks the report READY.
@@ -64,8 +65,9 @@ python manage.py ingest_report_json \
 The fixture must match the shape in `report_generation/fixtures/` — a JSON object with
 `repository`, `signal_ids`, and a `result` that parses as `ReportResearchOutput`. Autostart
 still requires a working GitHub integration (for reviewer resolution) and the commit authors
-in `relevant_commit_hashes` to map to an opted-in user, otherwise the report will be saved but
-no `Task` will be created.
+in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective
+priority threshold (personal or team default) covers the report's priority — otherwise the
+report will be saved but no `Task` will be created.
 
 ## Session summary (video-based)
 

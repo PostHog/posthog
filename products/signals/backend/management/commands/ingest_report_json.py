@@ -26,9 +26,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from posthog.models import Team
-from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.signals.backend.models import SignalAutonomyConfig, SignalReport
+from products.signals.backend.models import SignalReport, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
@@ -140,11 +139,13 @@ class Command(BaseCommand):
             report.save(update_fields=ready_fields)
 
     def _warn_if_autonomy_not_configured(self, team: Team) -> None:
-        config = get_or_create_team_extension(team, SignalAutonomyConfig)
-        if not config.opted_in_user_ids:
+        opted_in_exists = SignalUserAutonomyConfig.objects.filter(
+            user__organization_memberships__organization_id=team.organization_id,
+        ).exists()
+        if not opted_in_exists:
             self.stdout.write(
                 self.style.WARNING(
-                    "Team has no opted-in autonomy users — autostart will not trigger. "
-                    "Run `python manage.py enable_signals_autonomy <team_id> <priority> <emails>` first."
+                    "No org users have a SignalUserAutonomyConfig — autostart will not trigger. "
+                    "Opt in via POST /api/users/<id>/signal_autonomy/ first."
                 )
             )
