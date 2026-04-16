@@ -17,7 +17,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedHogFlowMinimalList>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/hog_flows/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
                 query: {
                     created_at: params.created_at,
                     created_by: params.created_by,
@@ -41,7 +41,7 @@ const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, WithPostHogUrl<Sche
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.HogFlow>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/hog_flows/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/pipeline/destinations/hog-${result.id}`)
         },

@@ -23,7 +23,7 @@ const queryLogs = (): ToolBase<typeof QueryLogsSchema, unknown> => ({
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/logs/query/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
             body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -40,7 +40,7 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, unknown
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/logs/attributes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
                 dateRange: params.dateRange,
@@ -65,7 +65,7 @@ const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchem
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/logs/values/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/values/`,
             query: {
                 attribute_type: params.attribute_type,
                 dateRange: params.dateRange,
@@ -93,7 +93,7 @@ const logsSparklineQuery = (): ToolBase<typeof LogsSparklineQuerySchema, unknown
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/logs/sparkline/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/sparkline/`,
             body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result

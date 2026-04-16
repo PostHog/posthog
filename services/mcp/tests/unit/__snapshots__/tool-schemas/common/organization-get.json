@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Organization ID. If omitted, uses the active organization.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

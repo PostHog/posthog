@@ -53,7 +53,7 @@ const errorTrackingIssuesList = (): ToolBase<
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedErrorTrackingIssueFullList>({
                 method: 'GET',
-                path: `/api/environments/${projectId}/error_tracking/issues/`,
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/`,
                 query: {
                     limit: params.limit,
                     offset: params.offset,
@@ -93,7 +93,7 @@ const errorTrackingIssuesRetrieve = (): ToolBase<
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
                 method: 'GET',
-                path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
         },
@@ -133,7 +133,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             }
             const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
                 method: 'PATCH',
-                path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
@@ -158,7 +158,7 @@ const errorTrackingIssuesMergeCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ErrorTrackingIssueMergeResponse>({
             method: 'POST',
-            path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/merge/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/merge/`,
             body,
         })
         return result

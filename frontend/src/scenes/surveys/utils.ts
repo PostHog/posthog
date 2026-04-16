@@ -576,9 +576,16 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
+export function buildSurveyOptionalBooleanPropertyFilter(
+    propertyName: SurveyEventProperties,
+    excludedValue: 'true' | 'false'
+): string {
+    return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
+}
+
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
-        return `AND JSONExtractString(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') != 'false'`
+        return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)

@@ -2130,6 +2130,36 @@
             "readOnlyHint": true
         }
     },
+    "organizations-list": {
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organizations.",
+        "title": "List organizations.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-get": {
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get organization details.",
+        "title": "Get organization details.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insights-list": {
         "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
         "category": "Product analytics",

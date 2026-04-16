@@ -195,36 +195,6 @@
             "readOnlyHint": true
         }
     },
-    "organization-details-get": {
-        "description": "Get the details of the active organization.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the details of the active organization.",
-        "title": "Get organization details",
-        "required_scopes": ["organization:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "organizations-get": {
-        "description": "Get the organizations the user has access to.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the organizations the user has access to.",
-        "title": "Get organizations",
-        "required_scopes": ["user:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "switch-organization": {
         "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
         "category": "Organization & project management",
@@ -2630,6 +2600,36 @@
         "feature": "platform_features",
         "summary": "List members of a role.",
         "title": "List members of a role.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organizations-list": {
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organizations.",
+        "title": "List organizations.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-get": {
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get organization details.",
+        "title": "Get organization details.",
         "required_scopes": ["organization:read"],
         "new_mcp": true,
         "annotations": {
