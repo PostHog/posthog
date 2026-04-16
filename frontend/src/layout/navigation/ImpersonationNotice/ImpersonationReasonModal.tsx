@@ -10,16 +10,17 @@ export interface ImpersonationReasonModalCancelButton {
 
 export interface ImpersonationReasonModalProps {
     isOpen: boolean
-    // Dismissible modals pass a close handler; forced-choice modals (e.g. session-expired)
-    // omit it so the user can't escape without picking a footer action.
     onClose?: () => void
     onConfirm: (reason: string) => void | Promise<void>
     title: string
-    description?: ReactNode
+    description?: string
     confirmText?: string
     loading?: boolean
     children?: ReactNode
     cancelButton?: ImpersonationReasonModalCancelButton
+    // Forced-choice modals (e.g. session-expired) set closable={false} so the user
+    // must pick a footer action — no ESC, no overlay-click, no X button.
+    closable?: boolean
 }
 
 export function ImpersonationReasonModal({
@@ -32,6 +33,7 @@ export function ImpersonationReasonModal({
     loading = false,
     children,
     cancelButton,
+    closable = true,
 }: ImpersonationReasonModalProps): JSX.Element {
     const [reason, setReason] = useState('')
     const reasonInputId = useId()
@@ -53,7 +55,8 @@ export function ImpersonationReasonModal({
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={onClose ? handleClose : undefined}
+            onClose={handleClose}
+            closable={closable}
             title={title}
             footer={
                 <>

@@ -103,12 +103,9 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
     return (
         <ImpersonationReasonModal
             isOpen
+            closable={false}
             title="Impersonation session expired"
-            description={
-                <>
-                    Your session impersonating <strong>{expiredSessionInfo.email}</strong> has expired.
-                </>
-            }
+            description={`Your session impersonating ${expiredSessionInfo.email} has expired.`}
             confirmText="Re-impersonate"
             loading={isReImpersonating}
             onConfirm={(reason) => reImpersonate(reason, readOnly)}
