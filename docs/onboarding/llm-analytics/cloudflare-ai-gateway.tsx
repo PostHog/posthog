@@ -124,11 +124,11 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                 <>
                     <Markdown>
                         {dedent`
-                            Cloudflare AI Gateway exposes a unified OpenAI-compatible \`compat\` endpoint at
-                            \`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat\`. You route the standard
-                            OpenAI SDK at it and specify models as \`provider/model-id\`, for example \`openai/gpt-5-mini\` or
-                            \`anthropic/claude-sonnet-4-5\`. The API key should be the upstream provider's key (for example,
-                            your OpenAI key when calling \`openai/*\` models).
+                            Cloudflare AI Gateway exposes an OpenAI-compatible \`compat\` endpoint at
+                            \`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat\`. Point the OpenAI SDK at
+                            this URL with your upstream provider key (e.g. your OpenAI key) and pass your AI Gateway token via
+                            the \`cf-aig-authorization\` header. Specify models as \`provider/model-id\` (for example
+                            \`openai/gpt-5-mini\` or \`anthropic/claude-sonnet-4-5\`).
                         `}
                     </Markdown>
 
@@ -141,8 +141,11 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                     import openai
 
                                     client = openai.OpenAI(
-                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
                                         api_key="<openai_api_key>",
+                                        default_headers={
+                                            "cf-aig-authorization": "Bearer <cf_aig_token>",
+                                        },
+                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
                                     )
 
                                     response = client.chat.completions.create(
@@ -163,8 +166,11 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                     import OpenAI from 'openai'
 
                                     const client = new OpenAI({
-                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
                                       apiKey: '<openai_api_key>',
+                                      defaultHeaders: {
+                                        'cf-aig-authorization': 'Bearer <cf_aig_token>',
+                                      },
+                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
                                     })
 
                                     const response = await client.chat.completions.create({
