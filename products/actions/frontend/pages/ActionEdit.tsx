@@ -73,7 +73,7 @@ export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, att
     // sceneLogic keeps actionLogic mounted per tab, and useAttachedLogic keeps actionEditLogic
     // alive for as long as actionLogic is mounted, even when this component unmounts.
     useAttachedLogic(logic, attachTo)
-    const { action, actionChanged } = useValues(logic)
+    const { action, actionChanged, isActionSubmitting } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction, setOriginalAction } = useActions(logic)
 
     // Sync the loaded action prop with the logic's internal state. This runs after load even
@@ -244,7 +244,7 @@ export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, att
                                 data-attr="save-action-button"
                                 type="primary"
                                 htmlType="submit"
-                                loading={actionLoading}
+                                loading={isActionSubmitting}
                                 onClick={(e) => {
                                     e.preventDefault()
                                     if (id) {
@@ -255,7 +255,9 @@ export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, att
                                     }
                                 }}
                                 size="small"
-                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                                disabledReason={
+                                    isActionSubmitting ? 'Saving…' : !actionChanged ? 'No changes to save' : undefined
+                                }
                             >
                                 {actionChanged ? 'Save' : 'No changes'}
                             </LemonButton>
