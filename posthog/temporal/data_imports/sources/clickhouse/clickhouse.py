@@ -231,6 +231,37 @@ def get_schemas(
     return schema_list
 
 
+# Match `TO db.table` or `TO table` clause in MV CREATE statement.
+# ClickHouse always emits the target in `system.tables.create_table_query`
+# for MVs created with explicit `TO` target.
+_MV_TO_TARGET_RE = re.compile(
+    r"\bTO\s+(?:`((?:[^`]|``)+)`|(\w+))(?:\.(?:`((?:[^`]|``)+)`|(\w+)))?",
+    re.IGNORECASE,
+)
+
+
+def _parse_mv_target(create_query: str | None) -> tuple[str, str] | None:
+    """Parse (database, table) target from an MV's CREATE statement.
+
+    Only matches `TO <target>` — not `AS SELECT ... FROM <source>`. If the
+    MV has no explicit target, returns None and the caller uses the
+    `.inner_id.<uuid>` lookup instead.
+    """
+    if not create_query:
+        return None
+    match = _MV_TO_TARGET_RE.search(create_query)
+    if match is None:
+        return None
+    first = (match.group(1) or match.group(2) or "").replace("``", "`")
+    second = (match.group(3) or match.group(4) or "").replace("``", "`")
+    if second:
+        return (first, second)
+    # Single identifier means `TO target` without database qualifier — we
+    # can't resolve this without knowing the MV's own database; caller
+    # passes it in.
+    return ("", first)
+
+
 def get_clickhouse_row_count(
     *,
     host: str,
@@ -244,9 +275,14 @@ def get_clickhouse_row_count(
 ) -> dict[str, int]:
     """Return total_rows per table from `system.tables`.
 
-    For MergeTree-family tables this is essentially free — ClickHouse keeps
-    a running counter in metadata. For other engines (Memory, Distributed,
-    View, ...) `total_rows` may be NULL, in which case we omit the entry.
+    Coverage:
+    - MergeTree family: free — ClickHouse keeps a running counter.
+    - Distributed: fall back to `SELECT count()` (cheap, distributed).
+    - MaterializedView with `TO target`: resolve target, use its total_rows.
+    - MaterializedView without TO: resolve `.inner_id.<uuid>` inner table.
+    - Plain View / LiveView / WindowView / Memory / Buffer / Log / Kafka /
+      URL etc: omitted — count would require executing the view or scanning
+      the whole table.
     """
     client = _get_client(
         host=host,
@@ -268,18 +304,87 @@ def get_clickhouse_row_count(
 
         result = client.query(
             f"""
-            SELECT name, total_rows
+            SELECT name, total_rows, engine, uuid, create_table_query
             FROM system.tables
-            WHERE database = %(database)s {names_filter} AND total_rows IS NOT NULL
+            WHERE database = %(database)s {names_filter}
             """,
             parameters=params,
         )
+
+        counts: dict[str, int] = {}
+        distributed_fallbacks: list[str] = []
+        mv_targets: dict[str, tuple[str, str]] = {}  # mv_name -> (target_db, target_table)
+        mv_inner_lookups: dict[str, str] = {}  # mv_name -> uuid (for .inner_id.<uuid>)
+
+        for row in result.result_rows:
+            name, total_rows, engine, uuid_val, create_query = row[0], row[1], row[2], row[3], row[4]
+            if total_rows is not None:
+                counts[name] = int(total_rows)
+                continue
+            if engine == "Distributed":
+                distributed_fallbacks.append(name)
+                continue
+            if engine == "MaterializedView":
+                target = _parse_mv_target(create_query)
+                if target is not None:
+                    target_db, target_table = target
+                    mv_targets[name] = (target_db or database, target_table)
+                elif uuid_val:
+                    mv_inner_lookups[name] = str(uuid_val)
+
+        for name in distributed_fallbacks:
+            try:
+                count_result = client.query(f"SELECT count() FROM {_qualified_table(database, name)}")
+                if count_result.result_rows and count_result.result_rows[0][0] is not None:
+                    counts[name] = int(count_result.result_rows[0][0])
+            except ClickHouseError:
+                continue
+
+        # Batch lookup MV targets' total_rows via system.tables.
+        if mv_targets:
+            target_keys = list({(db, tbl) for db, tbl in mv_targets.values()})
+            try:
+                target_result = client.query(
+                    """
+                    SELECT database, name, total_rows
+                    FROM system.tables
+                    WHERE (database, name) IN %(keys)s AND total_rows IS NOT NULL
+                    """,
+                    parameters={"keys": tuple(target_keys)},
+                )
+                target_counts = {(row[0], row[1]): int(row[2]) for row in target_result.result_rows}
+                for mv_name, (target_db, target_table) in mv_targets.items():
+                    target_count = target_counts.get((target_db, target_table))
+                    if target_count is not None:
+                        counts[mv_name] = target_count
+            except ClickHouseError:
+                pass
+
+        # Batch lookup MVs without TO target via .inner_id.<uuid>.
+        if mv_inner_lookups:
+            inner_names = tuple(f".inner_id.{uuid}" for uuid in mv_inner_lookups.values())
+            try:
+                inner_result = client.query(
+                    """
+                    SELECT name, total_rows
+                    FROM system.tables
+                    WHERE database = %(database)s AND name IN %(names)s AND total_rows IS NOT NULL
+                    """,
+                    parameters={"database": database, "names": inner_names},
+                )
+                inner_counts = {row[0]: int(row[1]) for row in inner_result.result_rows}
+                for mv_name, uuid in mv_inner_lookups.items():
+                    inner_count = inner_counts.get(f".inner_id.{uuid}")
+                    if inner_count is not None:
+                        counts[mv_name] = inner_count
+            except ClickHouseError:
+                pass
     except ClickHouseError:
         return {}
     finally:
         client.close()
 
-    return {row[0]: int(row[1]) for row in result.result_rows if row[1] is not None}
+    return counts
 
 
 def get_connection_metadata(
@@ -669,10 +774,58 @@ def _get_partition_settings(
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
+# ClickHouse types Arrow output can't emit directly — we coerce to String
+# via toString() to avoid ClickHouse error 50 "Type is not supported by Arrow".
+_ARROW_UNSUPPORTED_EXACT = frozenset(
+    {
+        "UUID",
+        "IPv4",
+        "IPv6",
+        "Int128",
+        "Int256",
+        "UInt128",
+        "UInt256",
+        "Dynamic",
+        "JSON",
+    }
+)
+_ARROW_UNSUPPORTED_PREFIXES: tuple[str, ...] = (
+    "Enum8(",
+    "Enum16(",
+    "FixedString(",
+    "Array(",
+    "Map(",
+    "Tuple(",
+    "Nested(",
+    "Variant(",
+    "Object(",
+)
+
+
+def _needs_to_string_cast(inner: str) -> bool:
+    if inner in _ARROW_UNSUPPORTED_EXACT:
+        return True
+    return any(inner.startswith(prefix) for prefix in _ARROW_UNSUPPORTED_PREFIXES)
+
+
+def _build_select_list(columns: list[ClickHouseColumn]) -> str:
+    """Build explicit SELECT list, wrapping Arrow-unsupported types in toString()."""
+    parts: list[str] = []
+    for col in columns:
+        quoted = _quote_identifier(col.name)
+        inner, _ = _strip_type_modifiers(col.data_type)
+        if _needs_to_string_cast(inner):
+            parts.append(f"toString({quoted}) AS {quoted}")
+        else:
+            parts.append(quoted)
+    return ", ".join(parts)
+
+
 def _build_query(
     *,
     database: str,
     table_name: str,
+    columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
@@ -682,19 +835,21 @@ def _build_query(
     Returns the SQL plus a parameter dict for clickhouse-connect's
     parameterized query API. We never interpolate the incremental cursor
     value directly — only identifiers (which are validated) end up in the
-    SQL string.
+    SQL string. Column types ClickHouse can't emit as Arrow (UUID, IPv4,
+    enums, arrays, ...) are wrapped in toString() to avoid error 50.
     """
     qualified = _qualified_table(database, table_name)
+    select_list = _build_select_list(columns)
 
     if not should_use_incremental_field:
-        return f"SELECT * FROM {qualified}", {}
+        return f"SELECT {select_list} FROM {qualified}", {}
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
     quoted_field = _quote_identifier(incremental_field)
     return (
-        f"SELECT * FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC",
+        f"SELECT {select_list} FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC",
         {},
     )
 
@@ -771,9 +926,9 @@ def clickhouse_source(
         )
 
         try:
-            logger.debug(f"Discovering table {database}.{table_name}")
+            logger.info(f"Discovering table {database}.{table_name}")
             table = _get_table(client, database, table_name)
-            logger.debug(f"Source schema: {table.to_arrow_schema()}")
+            logger.info(f"Source schema: {table.to_arrow_schema()}")
 
             primary_keys = _get_primary_keys(client, database, table_name)
             if primary_keys:
@@ -833,6 +988,7 @@ def clickhouse_source(
             client.close()
 
     def get_rows() -> Iterator[Any]:
+        logger.info(f"get_rows: starting stream for {database}.{table_name} chunk_size={chunk_size}")
         # Open a fresh tunnel + client for the streaming read so the
         # connection used for discovery isn't held open longer than needed.
         with tunnel() as (stream_host, stream_port):
@@ -852,6 +1008,7 @@ def clickhouse_source(
                 query, _ = _build_query(
                     database=database,
                     table_name=table_name,
+                    columns=list(table.columns),
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
                     incremental_field_type=incremental_field_type,
@@ -864,14 +1021,14 @@ def clickhouse_source(
                         last_value = incremental_type_to_initial_value(incremental_field_type)
                     parameters["last_value"] = last_value
 
-                logger.debug(f"ClickHouse query: {query}")
+                logger.info(f"ClickHouse query: {query}")
 
-                # query_arrow_stream yields a StreamContext of pyarrow.Table
-                # chunks — one per ClickHouse block, capped by max_block_size.
-                # We accumulate these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS
-                # pa.Tables before yielding, so the pipeline's Delta writer
-                # sees fewer, larger batches and commits fewer Delta files.
-                pending: list[pa.Table] = []
+                # query_arrow_stream yields pa.RecordBatch chunks — one per
+                # ClickHouse block, capped by max_block_size. We accumulate
+                # these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS pa.Tables
+                # before yielding, so the pipeline's Delta writer sees fewer,
+                # larger batches and commits fewer Delta files.
+                pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
                 with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
@@ -882,13 +1039,13 @@ def clickhouse_source(
                         pending_rows += chunk.num_rows
                         pending_bytes += chunk.nbytes
                         if pending_rows >= YIELD_TARGET_ROWS or pending_bytes >= YIELD_TARGET_BYTES:
-                            yield pa.concat_tables(pending, promote_options="default")
+                            yield pa.Table.from_batches(pending)
                             pending = []
                             pending_rows = 0
                             pending_bytes = 0
 
                 if pending:
-                    yield pa.concat_tables(pending, promote_options="default")
+                    yield pa.Table.from_batches(pending)
             finally:
                 stream_client.close()
 

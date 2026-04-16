@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     _build_query,
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
+    _parse_mv_target,
     _qualified_table,
     _query_settings,
     _quote_identifier,
@@ -146,26 +147,32 @@ class TestFilterClickHouseIncrementalFields:
 
 
 class TestBuildQuery:
+    @staticmethod
+    def _cols(*specs: tuple[str, str]) -> list[ClickHouseColumn]:
+        return [ClickHouseColumn(name=n, data_type=t, nullable=False) for n, t in specs]
+
     def test_full_refresh(self):
         query, params = _build_query(
             database="default",
             table_name="events",
+            columns=self._cols(("id", "Int64"), ("name", "String")),
             should_use_incremental_field=False,
             incremental_field=None,
             incremental_field_type=None,
         )
-        assert query == "SELECT * FROM `default`.`events`"
+        assert query == "SELECT `id`, `name` FROM `default`.`events`"
         assert params == {}
 
     def test_incremental(self):
         query, params = _build_query(
             database="default",
             table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
             should_use_incremental_field=True,
             incremental_field="created_at",
             incremental_field_type=IncrementalFieldType.Timestamp,
         )
-        assert "SELECT * FROM `default`.`events`" in query
+        assert "SELECT `id`, `created_at` FROM `default`.`events`" in query
         assert "WHERE `created_at` > %(last_value)s" in query
         assert "ORDER BY `created_at` ASC" in query
         assert params == {}
@@ -174,6 +181,7 @@ class TestBuildQuery:
         query, _ = _build_query(
             database="my-db",
             table_name="weird table",
+            columns=self._cols(("event time", "DateTime")),
             should_use_incremental_field=True,
             incremental_field="event time",
             incremental_field_type=IncrementalFieldType.Timestamp,
@@ -186,10 +194,158 @@ class TestBuildQuery:
             _build_query(
                 database="default",
                 table_name="events",
+                columns=self._cols(("id", "Int64")),
                 should_use_incremental_field=True,
                 incremental_field=None,
                 incremental_field_type=None,
             )
+
+    def test_wraps_arrow_unsupported_types_in_to_string(self):
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=[
+                ClickHouseColumn(name="id", data_type="Int64", nullable=False),
+                ClickHouseColumn(name="user_id", data_type="UUID", nullable=False),
+                ClickHouseColumn(name="ip", data_type="Nullable(IPv4)", nullable=True),
+                ClickHouseColumn(name="tags", data_type="Array(String)", nullable=False),
+                ClickHouseColumn(name="status", data_type="LowCardinality(Enum8('a' = 1))", nullable=False),
+            ],
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+        )
+        assert "`id`" in query
+        assert "toString(`user_id`) AS `user_id`" in query
+        assert "toString(`ip`) AS `ip`" in query
+        assert "toString(`tags`) AS `tags`" in query
+        assert "toString(`status`) AS `status`" in query
+
+
+class TestParseMvTarget:
+    def test_qualified_target(self):
+        q = "CREATE MATERIALIZED VIEW default.mv TO other_db.target_tbl AS SELECT * FROM default.src"
+        assert _parse_mv_target(q) == ("other_db", "target_tbl")
+
+    def test_backticked_target(self):
+        q = "CREATE MATERIALIZED VIEW default.mv TO `weird db`.`weird.tbl` AS SELECT 1"
+        assert _parse_mv_target(q) == ("weird db", "weird.tbl")
+
+    def test_unqualified_target(self):
+        q = "CREATE MATERIALIZED VIEW default.mv TO target AS SELECT 1"
+        assert _parse_mv_target(q) == ("", "target")
+
+    def test_no_target(self):
+        q = "CREATE MATERIALIZED VIEW default.mv (a UInt64) ENGINE = MergeTree ORDER BY a AS SELECT a FROM src"
+        assert _parse_mv_target(q) is None
+
+    def test_empty(self):
+        assert _parse_mv_target(None) is None
+        assert _parse_mv_target("") is None
+
+
+class TestGetClickhouseRowCount:
+    def _mock_client(self, query_side_effect):
+        client = MagicMock()
+        client.query.side_effect = query_side_effect
+        return client
+
+    def _result(self, rows):
+        r = MagicMock()
+        r.result_rows = rows
+        return r
+
+    def _run(self, responses):
+        """responses: list of (expected_substring_in_query_or_None, result_rows)."""
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        calls = list(responses)
+
+        def side_effect(query, **_kwargs):
+            _, rows = calls.pop(0)
+            if isinstance(rows, Exception):
+                raise rows
+            return self._result(rows)
+
+        client = MagicMock()
+        client.query.side_effect = side_effect
+
+        with patch.object(ch_module, "_get_client", return_value=client):
+            return ch_module.get_clickhouse_row_count(
+                host="h",
+                port=1,
+                database="default",
+                user="u",
+                password="p",
+                secure=True,
+                verify=True,
+                names=None,
+            )
+
+    def test_mergetree_uses_total_rows(self):
+        counts = self._run(
+            [
+                (None, [("events", 100, "MergeTree", "u1", "CREATE ...")]),
+            ]
+        )
+        assert counts == {"events": 100}
+
+    def test_distributed_falls_back_to_count(self):
+        counts = self._run(
+            [
+                (None, [("dist_events", None, "Distributed", "u1", "CREATE ...")]),
+                (None, [(42_000,)]),
+            ]
+        )
+        assert counts == {"dist_events": 42_000}
+
+    def test_mv_with_to_target_resolves_target(self):
+        counts = self._run(
+            [
+                (
+                    None,
+                    [
+                        (
+                            "events_mv",
+                            None,
+                            "MaterializedView",
+                            "u1",
+                            "CREATE MATERIALIZED VIEW default.events_mv TO default.events_target AS SELECT * FROM src",
+                        )
+                    ],
+                ),
+                (None, [("default", "events_target", 999)]),
+            ]
+        )
+        assert counts == {"events_mv": 999}
+
+    def test_mv_without_to_uses_inner_id(self):
+        counts = self._run(
+            [
+                (
+                    None,
+                    [
+                        (
+                            "mv",
+                            None,
+                            "MaterializedView",
+                            "abc-uuid",
+                            "CREATE MATERIALIZED VIEW default.mv (a UInt64) ENGINE = MergeTree ORDER BY a AS SELECT a FROM src",
+                        )
+                    ],
+                ),
+                (None, [(".inner_id.abc-uuid", 55)]),
+            ]
+        )
+        assert counts == {"mv": 55}
+
+    def test_plain_view_skipped(self):
+        counts = self._run(
+            [
+                (None, [("v", None, "View", "u1", "CREATE VIEW ...")]),
+            ]
+        )
+        assert counts == {}
 
 
 class TestClickHouseColumnToArrowField:
@@ -612,7 +768,7 @@ class TestGetRowsBatching:
             return list(items)
 
     def _block(self, rows):
-        return pa.table({"id": pa.array(list(range(rows)), type=pa.int64())})
+        return pa.RecordBatch.from_arrays([pa.array(list(range(rows)), type=pa.int64())], names=["id"])
 
     def test_accumulates_until_row_target(self):
         # 5 blocks × 30k rows = 150k total > YIELD_TARGET_ROWS (100k).
