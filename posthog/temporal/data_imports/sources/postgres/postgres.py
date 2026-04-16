@@ -1378,7 +1378,8 @@ def postgres_source(
                 with connection.cursor() as check_cursor:
                     check_cursor.execute("SHOW statement_timeout")
                     row = check_cursor.fetchone()
-                    logger.info(f"Effective statement_timeout on sync connection: {row[0] if row else 'unknown'}")
+                    timeout_val = str(row[0]) if row else "unknown"  # type: ignore[index]
+                    logger.info(f"Effective statement_timeout on sync connection: {timeout_val}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
