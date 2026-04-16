@@ -3,12 +3,14 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+import { BatchExportConfiguration, HogFunctionType, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
 enum NotificationBlock {
     Security = 'security',
@@ -203,6 +205,158 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     )
 }
 
+type PipelineItem = {
+    id: string
+    name: string
+    teamId: number
+    teamName: string
+}
+
+function PipelineNotificationSelector(): JSX.Element {
+    const { user, userLoading } = useValues(userLogic)
+    const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const [expanded, setExpanded] = useState(true)
+    const [pipelines, setPipelines] = useState<PipelineItem[]>([])
+    const [loading, setLoading] = useState(false)
+    const [loaded, setLoaded] = useState(false)
+
+    useEffect(() => {
+        if (!expanded || loaded || !currentOrganization?.teams) {
+            return
+        }
+
+        const fetchPipelines = async (): Promise<void> => {
+            setLoading(true)
+            const items: PipelineItem[] = []
+
+            for (const team of currentOrganization.teams) {
+                try {
+                    const [hogFunctions, batchExports] = await Promise.all([
+                        api.hogFunctions.list({
+                            types: ['destination', 'site_destination'],
+                            limit: 100,
+                        }),
+                        api.batchExports.list({ limit: 100 }),
+                    ])
+
+                    for (const hf of hogFunctions.results) {
+                        items.push({
+                            id: `hog_function:${hf.id}`,
+                            name: hf.name,
+                            teamId: team.id,
+                            teamName: team.name,
+                        })
+                    }
+                    for (const be of batchExports.results) {
+                        items.push({
+                            id: `batch_export:${be.id}`,
+                            name: be.name,
+                            teamId: team.id,
+                            teamName: team.name,
+                        })
+                    }
+                } catch {
+                    // Skip teams the user doesn't have access to
+                }
+            }
+
+            setPipelines(items.sort((a, b) => a.teamName.localeCompare(b.teamName) || a.name.localeCompare(b.name)))
+            setLoading(false)
+            setLoaded(true)
+        }
+
+        void fetchPipelines()
+    }, [expanded, loaded, currentOrganization?.teams])
+
+    const isPipelineDisabled = (pipelineId: string): boolean =>
+        !!user?.notification_settings?.pipeline_notifications_disabled?.[pipelineId]
+
+    const allPipelineIds = pipelines.map((p) => p.id)
+
+    // Group pipelines by team
+    const pipelinesByTeam = pipelines.reduce(
+        (acc, pipeline) => {
+            const key = `${pipeline.teamId}`
+            if (!acc[key]) {
+                acc[key] = { teamName: pipeline.teamName, items: [] }
+            }
+            acc[key].items.push(pipeline)
+            return acc
+        },
+        {} as Record<string, { teamName: string; items: PipelineItem[] }>
+    )
+
+    return (
+        <div>
+            <LemonButton
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+                size="small"
+                type="tertiary"
+                className="p-0"
+            >
+                Select pipelines to mute
+            </LemonButton>
+
+            {expanded && (
+                <div className="mt-3 ml-6 space-y-2">
+                    <span className="text-muted text-xs">
+                        Mute notifications for specific pipelines. You will still receive notifications for all other
+                        pipelines.
+                    </span>
+                    {loading ? (
+                        <div className="flex items-center gap-2 py-2">
+                            <Spinner className="text-lg" />
+                            <span className="text-muted text-sm">Loading pipelines...</span>
+                        </div>
+                    ) : pipelines.length === 0 && loaded ? (
+                        <span className="text-muted text-sm">No pipelines found in your projects.</span>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-row items-center gap-4">
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updatePipelineNotificationForAll(allPipelineIds, true)}
+                                >
+                                    Enable all notifications
+                                </LemonButton>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updatePipelineNotificationForAll(allPipelineIds, false)}
+                                >
+                                    Mute all notifications
+                                </LemonButton>
+                            </div>
+
+                            {Object.entries(pipelinesByTeam).map(([teamId, { teamName, items }]) => (
+                                <div key={teamId} className="space-y-1">
+                                    <span className="text-xs font-medium text-muted">{teamName}</span>
+                                    {items.map((pipeline) => (
+                                        <LemonCheckbox
+                                            key={pipeline.id}
+                                            id={`pipeline-${pipeline.id}`}
+                                            data-attr={`pipeline_notification_${pipeline.id}`}
+                                            onChange={(checked) =>
+                                                updatePipelineNotification(pipeline.id, checked)
+                                            }
+                                            checked={!isPipelineDisabled(pipeline.id)}
+                                            disabled={userLoading}
+                                            label={<span>{pipeline.name}</span>}
+                                        />
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const {
@@ -327,6 +481,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                         </div>
                     </div>
                 )}
+                {user?.notification_settings?.plugin_disabled !== false && <PipelineNotificationSelector />}
             </div>
         ),
         [NotificationBlock.IssueAssigned]: (

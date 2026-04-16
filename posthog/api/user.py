@@ -492,6 +492,7 @@ class UserSerializer(serializers.ModelSerializer):
             "error_tracking_weekly_digest_project_enabled",
             "web_analytics_weekly_digest_project_enabled",
             "organization_member_join_email_disabled",
+            "pipeline_notifications_disabled",
         )
 
         for key, value in notification_settings.items():
