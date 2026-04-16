@@ -80,6 +80,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             dateFrom: string | null
             dateTo: string | null
             shouldFilterTestAccounts: boolean
+            datesChanged: boolean
         }) => state,
     }),
 
@@ -102,7 +103,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyUrlState: (state, { dateFrom, dateTo, datesChanged }) =>
+                    datesChanged ? { dateFrom, dateTo } : state,
             },
         ],
 
@@ -227,6 +229,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     dateFrom: newDateFrom,
                     dateTo: newDateTo,
                     shouldFilterTestAccounts: filterTestAccountsValue,
+                    datesChanged,
                 })
             } else if (options?.stripStaleParams !== false) {
                 // No state changed, but stale params may still need stripping
