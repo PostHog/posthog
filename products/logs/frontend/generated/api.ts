@@ -28,6 +28,7 @@ import type {
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
     _LogsQueryRequestApi,
+    _LogsSparklineRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -439,10 +440,16 @@ export const getLogsSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/sparkline/`
 }
 
-export const logsSparklineCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const logsSparklineCreate = async (
+    projectId: string,
+    _logsSparklineRequestApi: _LogsSparklineRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsSparklineRequestApi),
     })
 }
 

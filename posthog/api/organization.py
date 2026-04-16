@@ -174,7 +174,7 @@ class OrganizationSerializer(
 
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system

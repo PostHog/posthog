@@ -287,6 +287,44 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 require_ssl=require_ssl,
             )
 
+    def check_cdc_prerequisites(
+        self,
+        config: PostgresSourceConfig,
+        management_mode: str,
+        tables: list[str],
+        slot_name: str | None = None,
+        publication_name: str | None = None,
+        require_ssl: bool = True,
+    ) -> list[str]:
+        """Validate Postgres CDC prerequisites against a live connection.
+
+        Pre-creation check — no ExternalDataSource exists yet, so caller passes raw config.
+        Defaults require_ssl=True (all new sources are past the SSL cutoff).
+        """
+        from posthog.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import validate_cdc_prerequisites
+        from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres
+
+        with self.with_ssh_tunnel(config) as (host, port):
+            conn = _connect_to_postgres(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                require_ssl=require_ssl,
+            )
+            try:
+                return validate_cdc_prerequisites(
+                    conn=conn,
+                    management_mode=management_mode,  # type: ignore[arg-type]
+                    tables=tables,
+                    schema=config.schema,
+                    slot_name=slot_name,
+                    publication_name=publication_name,
+                )
+            finally:
+                conn.close()
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 

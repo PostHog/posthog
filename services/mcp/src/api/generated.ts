@@ -14334,6 +14334,27 @@ export namespace Schemas {
       success: boolean;
     }
 
+    export interface ErrorTrackingIssueSplitFingerprint {
+      /** Fingerprint to split into a new issue. */
+      fingerprint: string;
+      /** Optional name for the new issue created from this fingerprint. */
+      name?: string;
+      /** Optional description for the new issue created from this fingerprint. */
+      description?: string;
+    }
+
+    export interface ErrorTrackingIssueSplitRequest {
+      /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+      fingerprints?: ErrorTrackingIssueSplitFingerprint[];
+    }
+
+    export interface ErrorTrackingIssueSplitResponse {
+      /** Whether the split completed successfully. */
+      success: boolean;
+      /** IDs of the new issues created by the split. */
+      new_issue_ids: string[];
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -21843,6 +21864,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `conversations` - Conversations
     * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
@@ -21854,6 +21876,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
     } as const;
 
@@ -30975,6 +30998,18 @@ export namespace Schemas {
       Mapped: 'mapped',
     } as const;
 
+    /**
+     * * `severity` - severity
+    * `service` - service
+     */
+    export type SparklineBreakdownByEnum = typeof SparklineBreakdownByEnum[keyof typeof SparklineBreakdownByEnum];
+
+
+    export const SparklineBreakdownByEnum = {
+      Severity: 'severity',
+      Service: 'service',
+    } as const;
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -31994,13 +32029,6 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
-    export interface UnpauseResponse {
-      /** Always 'unpaused'. */
-      status: string;
-      /** Whether the workflow was actually paused at the time of the call. */
-      was_paused: boolean;
-    }
-
     /**
      * The release condition to evaluate
      */
@@ -32220,6 +32248,29 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
+    }
+
+    export interface _LogsSparklineBody {
+      /** Date range for the sparkline. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Break down sparkline by "severity" (default) or "service".
+
+    * `severity` - severity
+    * `service` - service */
+      sparklineBreakdownBy?: SparklineBreakdownByEnum;
+    }
+
+    export interface _LogsSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _LogsSparklineBody;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -32754,6 +32805,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+      valid?: boolean;
+      errors?: string[];
     };
 
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
@@ -33306,13 +33362,21 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -33329,6 +33393,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
@@ -33341,7 +33409,7 @@ export namespace Schemas {
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -33349,10 +33417,22 @@ export namespace Schemas {
      */
     attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -36033,6 +36113,11 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+      valid?: boolean;
+      errors?: string[];
+    };
+
     export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -36813,13 +36898,21 @@ export namespace Schemas {
 
     export type LogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: LogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -36836,6 +36929,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
@@ -36848,7 +36945,7 @@ export namespace Schemas {
 
     export type LogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -36856,10 +36953,22 @@ export namespace Schemas {
      */
     attribute_type?: LogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -37557,7 +37666,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalProcessingListParams = {
+    export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
      */
@@ -37568,7 +37677,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalSourceConfigsListParams = {
+    export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */
