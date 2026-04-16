@@ -139,10 +139,15 @@ class Command(BaseCommand):
             report.save(update_fields=ready_fields)
 
     def _warn_if_autonomy_not_configured(self, team: Team) -> None:
-        opted_in_exists = SignalUserAutonomyConfig.objects.filter(
-            user__organization_memberships__organization_id=team.organization_id,
-        ).exists()
-        if not opted_in_exists:
+        from posthog.models import OrganizationMembership
+
+        org_member_user_ids = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+        ).values_list("user_id", flat=True)
+        opted_in_user_count = SignalUserAutonomyConfig.objects.filter(
+            user_id__in=org_member_user_ids,
+        ).count()
+        if not opted_in_user_count:
             self.stdout.write(
                 self.style.WARNING(
                     "No org users have a SignalUserAutonomyConfig — autostart will not trigger. "
