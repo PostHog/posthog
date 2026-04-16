@@ -576,6 +576,13 @@ export const clustersLogic = kea<clustersLogicType>([
             }
             try {
                 const attrs = await loadEvaluationItemAttributes(allItemIds, run.windowStart, run.windowEnd)
+                // Guard against a slow response for a prior run overwriting attributes
+                // after the user has switched to a different run. If currentRun has
+                // advanced past the one we were loading for, drop the response on the
+                // floor — the new run's load will have already fired.
+                if (values.currentRun?.runId && values.currentRun.runId !== run.runId) {
+                    return
+                }
                 actions.setEvaluationItemAttributes(attrs)
             } catch (error) {
                 console.error('Failed to load evaluation item attributes:', error)
