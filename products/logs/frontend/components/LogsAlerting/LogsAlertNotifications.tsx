@@ -8,43 +8,37 @@ import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/S
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, SlackChannelType } from '~/types'
+import { SlackChannelType } from '~/types'
 
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
+    LogsAlertDestinationGroup,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingLogsAlertNotification,
 } from './logsAlertUtils'
 
-function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
+function slackChannelLabel(channelValue: string, slackChannels: SlackChannelType[]): string {
     const channelId = channelValue.split('|')[0]
-    return slackChannels.find((c) => c.id === channelId)?.name ?? null
+    const name = slackChannels.find((c) => c.id === channelId)?.name
+    return name ? `Slack #${name}` : 'Slack'
 }
 
-function getHogFunctionDestination(
-    hf: HogFunctionType,
-    slackChannels: SlackChannelType[]
-): { type: string; detail: string | null } {
-    const channelValue = hf.inputs?.channel?.value
-    if (channelValue && typeof channelValue === 'string') {
-        const channelName = resolveSlackChannelName(channelValue, slackChannels)
-        return { type: 'Slack', detail: channelName ? `#${channelName}` : null }
+function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannels: SlackChannelType[]): string {
+    if (group.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
+        const hf = group.hogFunctions[0]
+        const channelValue = hf.inputs?.channel?.value
+        if (typeof channelValue === 'string') {
+            return slackChannelLabel(channelValue, slackChannels)
+        }
     }
-    if (channelValue) {
-        return { type: 'Slack', detail: null }
-    }
-    const urlValue = hf.inputs?.url?.value
-    if (urlValue && typeof urlValue === 'string') {
-        return { type: 'Webhook', detail: urlValue }
-    }
-    return { type: hf.name, detail: null }
+    return group.label
 }
 
 export function LogsAlertNotifications(): JSX.Element {
     const {
-        existingHogFunctions,
         existingHogFunctionsLoading,
+        destinationGroups,
         pendingNotifications,
         firstSlackIntegration,
         selectedType,
@@ -54,7 +48,7 @@ export function LogsAlertNotifications(): JSX.Element {
     const {
         addPendingNotification,
         removePendingNotification,
-        deleteExistingHogFunction,
+        deleteExistingDestination,
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
@@ -104,51 +98,52 @@ export function LogsAlertNotifications(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
-            {(existingHogFunctionsLoading || existingHogFunctions.length > 0) && (
+        <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-alt m-0">
+                Each destination delivers notifications for all alert events — firing and resolved.
+            </p>
+            {(existingHogFunctionsLoading || destinationGroups.length > 0) && (
                 <div>
                     {existingHogFunctionsLoading ? (
                         <LemonSkeleton className="h-8" repeat={2} />
-                    ) : existingHogFunctions.length > 0 ? (
+                    ) : destinationGroups.length > 0 ? (
                         <div className="space-y-2">
-                            {existingHogFunctions.map((hf) => {
-                                const { type: destType, detail } = getHogFunctionDestination(hf, slackChannels)
-                                return (
-                                    <div
-                                        key={hf.id}
-                                        className="flex items-center justify-between border rounded p-2 gap-2"
-                                    >
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">{destType}</span>
-                                                <LemonTag type={hf.enabled ? 'success' : 'default'} size="small">
-                                                    {hf.enabled ? 'Active' : 'Paused'}
-                                                </LemonTag>
-                                            </div>
-                                            {detail && (
-                                                <span className="text-xs text-muted-alt truncate block">{detail}</span>
-                                            )}
+                            {destinationGroups.map((group) => (
+                                <div
+                                    key={group.key}
+                                    className="flex items-center justify-between border rounded p-2 gap-2"
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-sm font-medium truncate">
+                                                {resolveGroupLabel(group, slackChannels)}
+                                            </span>
+                                            <LemonTag type={group.enabled ? 'success' : 'default'} size="small">
+                                                {group.enabled ? 'Active' : 'Paused'}
+                                            </LemonTag>
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {group.hogFunctions.length === 1 && (
                                             <LemonButton
                                                 icon={<IconExternal />}
                                                 size="xsmall"
-                                                to={urls.hogFunction(hf.id)}
+                                                to={urls.hogFunction(group.hogFunctions[0].id)}
                                                 targetBlank
                                                 hideExternalLinkIcon
                                                 tooltip="Open destination"
                                             />
-                                            <LemonButton
-                                                icon={<IconTrash />}
-                                                size="xsmall"
-                                                status="danger"
-                                                onClick={() => deleteExistingHogFunction(hf)}
-                                                tooltip="Delete notification"
-                                            />
-                                        </div>
+                                        )}
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="xsmall"
+                                            status="danger"
+                                            onClick={() => deleteExistingDestination(group)}
+                                            tooltip="Delete notification"
+                                        />
                                     </div>
-                                )
-                            })}
+                                </div>
+                            ))}
                         </div>
                     ) : null}
                 </div>

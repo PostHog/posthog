@@ -445,9 +445,9 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description) {
+            } else if (override.description || override.default !== undefined) {
                 // Locate the Orval source schema this param came from, so we can reference
-                // its original field type via .shape and wrap it with .describe(...).
+                // its original field type via .shape and wrap it with .describe(...) / .default(...).
                 let sourceImport: string | null = null
                 if (bodyFieldNames.includes(paramName)) {
                     sourceImport = `${pascal}Body`
@@ -457,12 +457,19 @@ function composeToolSchema(
                     sourceImport = `${pascal}Params`
                 }
                 if (sourceImport) {
-                    const escaped = override.description
-                        .trim()
-                        .replace(/\\/g, '\\\\')
-                        .replace(/'/g, "\\'")
-                        .replace(/\n\s*/g, ' ')
-                    schemaOverrides.push(`${paramName}: ${sourceImport}.shape['${paramName}'].describe('${escaped}')`)
+                    let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.default !== undefined) {
+                        expr += `.default(${JSON.stringify(override.default)}).optional()`
+                    }
+                    if (override.description) {
+                        const escaped = override.description
+                            .trim()
+                            .replace(/\\/g, '\\\\')
+                            .replace(/'/g, "\\'")
+                            .replace(/\n\s*/g, ' ')
+                        expr += `.describe('${escaped}')`
+                    }
+                    schemaOverrides.push(`${paramName}: ${expr}`)
                 }
             }
         }
@@ -558,7 +565,7 @@ function buildResponseFilter(config: ToolConfig): {
 // ------------------------------------------------------------------
 
 function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
-    const baseUrl = category.url_prefix
+    const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
         const { prefix, field, source } = parseEnrichUrl(config.enrich_url)

@@ -1,6 +1,6 @@
 use crate::{
     api::errors::FlagError,
-    flags::flag_models::FeatureFlagList,
+    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
@@ -118,7 +118,7 @@ impl FlagService {
 
         let (data, source) = self
             .team_hypercache_reader
-            .get_with_source_or_fallback(&key, || async move {
+            .get_typed_with_source_or_fallback::<Team, _, _, FlagError>(&key, || async move {
                 // This closure runs on cache miss (key not found in Redis and
                 // S3) or infrastructure errors (timeouts, connection failures)
                 // as a resilience fallback.
@@ -127,21 +127,14 @@ impl FlagService {
                     return Err(FlagError::TokenValidationError);
                 }
 
-                // Fallback: load from PostgreSQL and convert to JSON Value
                 let team = Team::from_pg(pg_client, &token_owned).await?;
                 inc(DB_TEAM_READS_COUNTER, &[], 1);
 
-                // Convert team to JSON value for consistency with cache format
-                let value = serde_json::to_value(&team).map_err(|e| {
-                    tracing::error!("Failed to serialize team from PG: {}", e);
-                    FlagError::Internal(format!("Failed to serialize team: {e}"))
-                })?;
-                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
+                Ok::<Option<Team>, FlagError>(Some(team))
             })
             .await?;
 
-        // Parse the result (from cache or fallback)
-        let team = Team::from_hypercache_value(data)?;
+        let team = data.ok_or(FlagError::TokenValidationError)?;
         let cache_hit = !matches!(source, CacheSource::Fallback);
 
         with_canonical_log(|log| log.team_cache_source = Some(source.as_log_str()));
@@ -171,34 +164,24 @@ impl FlagService {
 
         let (data, source) = self
             .flags_hypercache_reader
-            .get_with_source_or_fallback(&key, || async move {
-                // Fallback: load from PostgreSQL and convert to JSON Value.
-                // PG has no dependency metadata, so place all flags in a
-                // single evaluation stage — they will be evaluated but
-                // without guaranteed dependency ordering.
-                let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
-                let evaluation_metadata =
-                    crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
-                let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
-                    flags,
-                    cohorts: None,
-                    evaluation_metadata,
-                };
-                let value = serde_json::to_value(&wrapper).map_err(|e| {
-                    tracing::error!(
-                        "Failed to serialize flags from PG for team {}: {}",
-                        team_id,
-                        e
-                    );
-                    FlagError::Internal(format!("Failed to serialize flags: {e}"))
-                })?;
-                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
-            })
+            .get_typed_with_source_or_fallback::<HypercacheFlagsWrapper, _, _, FlagError>(
+                &key,
+                || async move {
+                    // PG has no dependency metadata, so all flags go in a single stage.
+                    let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
+                    let evaluation_metadata =
+                        crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
+                    let wrapper = HypercacheFlagsWrapper {
+                        flags,
+                        cohorts: None,
+                        evaluation_metadata,
+                    };
+                    Ok::<Option<HypercacheFlagsWrapper>, FlagError>(Some(wrapper))
+                },
+            )
             .await?;
 
-        // Parse the result (from cache or fallback)
-        let (flags, evaluation_metadata, cohorts) =
-            FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
 
         Ok(FlagResult {
             flag_list: FeatureFlagList {

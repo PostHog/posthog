@@ -6,8 +6,10 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 
 
 class TestMessageCategoryAPI(APIBaseTest):
@@ -254,3 +256,210 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestOptOutSyncConfigAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        OptOutSyncConfig.objects.filter(team=self.team).delete()
+        Integration.objects.filter(team=self.team, kind="customerio-app").delete()
+
+    def _url(self, action: str) -> str:
+        return f"/api/environments/{self.team.id}/messaging_categories/{action}/"
+
+    def test_optout_sync_config_returns_defaults_when_no_config_exists(self):
+        response = self.client.get(self._url("optout_sync_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "app_integration_id": None,
+                "app_import_result": None,
+                "csv_import_result": None,
+            },
+        )
+
+    def test_optout_sync_config_returns_stored_state(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="customerio-app",
+            sensitive_config={"app_api_key": "test_key"},
+            created_by=self.user,
+        )
+        OptOutSyncConfig.objects.create(
+            team=self.team,
+            app_integration=integration,
+            app_import_result={
+                "status": "completed",
+                "imported_at": "2026-04-13T10:00:00Z",
+                "categories_created": 6,
+                "globally_unsubscribed_count": 42,
+            },
+        )
+
+        response = self.client.get(self._url("optout_sync_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["app_integration_id"], integration.id)
+        self.assertEqual(data["app_import_result"]["status"], "completed")
+        self.assertEqual(data["app_import_result"]["categories_created"], 6)
+        self.assertIsNone(data["csv_import_result"])
+
+    @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
+    def test_import_from_customerio_stores_integration_and_result(self, mock_service_class):
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.import_api_data.return_value = {
+            "status": "completed",
+            "categories_created": 3,
+            "globally_unsubscribed_count": 10,
+            "topics_found": 3,
+            "errors": [],
+        }
+
+        response = self.client.post(
+            self._url("import_from_customerio"),
+            {"app_api_key": "my_secret_key"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "completed")
+
+        integration = Integration.objects.get(team=self.team, kind="customerio-app")
+        self.assertEqual(integration.sensitive_config["app_api_key"], "my_secret_key")
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertEqual(config.app_integration, integration)
+        assert config.app_import_result is not None
+        self.assertEqual(config.app_import_result["status"], "completed")
+        self.assertEqual(config.app_import_result["categories_created"], 3)
+
+    @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
+    def test_import_from_customerio_stores_failure_result(self, mock_service_class):
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.import_api_data.return_value = {
+            "status": "failed",
+            "errors": ["Invalid API key"],
+        }
+
+        response = self.client.post(
+            self._url("import_from_customerio"),
+            {"app_api_key": "bad_key"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "failed")
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        assert config.app_import_result is not None
+        self.assertEqual(config.app_import_result["status"], "failed")
+        self.assertIn("Invalid API key", config.app_import_result["error"])
+
+    @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
+    def test_import_from_customerio_reuses_stored_key(self, mock_service_class):
+        Integration.objects.create(
+            team=self.team,
+            kind="customerio-app",
+            sensitive_config={"app_api_key": "stored_key"},
+            created_by=self.user,
+        )
+
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.import_api_data.return_value = {"status": "completed", "errors": []}
+
+        response = self.client.post(
+            self._url("import_from_customerio"),
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_service_class.assert_called_once_with(team=self.team, api_key="stored_key", user=self.user)
+
+    def test_import_from_customerio_fails_without_key(self):
+        response = self.client.post(
+            self._url("import_from_customerio"),
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No API key", response.json()["error"])
+
+    def test_remove_app_config_clears_integration_and_result(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="customerio-app",
+            sensitive_config={"app_api_key": "test_key"},
+            created_by=self.user,
+        )
+        OptOutSyncConfig.objects.create(
+            team=self.team,
+            app_integration=integration,
+            app_import_result={
+                "status": "completed",
+                "imported_at": "2026-04-13T10:00:00Z",
+                "categories_created": 6,
+            },
+        )
+
+        response = self.client.delete(self._url("remove_customerio_app_config"))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertFalse(Integration.objects.filter(team=self.team, kind="customerio-app").exists())
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertIsNone(config.app_integration)
+        self.assertIsNone(config.app_import_result)
+
+    def test_remove_app_config_succeeds_when_no_config_exists(self):
+        response = self.client.delete(self._url("remove_customerio_app_config"))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
+    def test_csv_import_stores_success_result(self, mock_service_class):
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.process_preferences_csv.return_value = {
+            "status": "completed",
+            "total_rows": 100,
+            "users_with_optouts": 60,
+            "users_skipped": 40,
+            "parse_errors": 2,
+        }
+
+        csv_file = SimpleUploadedFile("prefs.csv", b"email,id,cio_subscription_preferences\n", content_type="text/csv")
+        response = self.client.post(
+            self._url("import_preferences_csv"),
+            {"csv_file": csv_file},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        assert config.csv_import_result is not None
+        self.assertEqual(config.csv_import_result["status"], "completed")
+        self.assertEqual(config.csv_import_result["total_rows"], 100)
+        self.assertEqual(config.csv_import_result["users_with_optouts"], 60)
+
+    @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
+    def test_csv_import_stores_failure_result(self, mock_service_class):
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.process_preferences_csv.return_value = {
+            "status": "failed",
+            "details": "No categories found. Please run API import first.",
+        }
+
+        csv_file = SimpleUploadedFile("prefs.csv", b"email,id,cio_subscription_preferences\n", content_type="text/csv")
+        response = self.client.post(
+            self._url("import_preferences_csv"),
+            {"csv_file": csv_file},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        assert config.csv_import_result is not None
+        self.assertEqual(config.csv_import_result["status"], "failed")
+        self.assertIn("No categories found", config.csv_import_result["error"])
