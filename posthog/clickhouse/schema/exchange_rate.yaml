@@ -1,0 +1,20 @@
+ecosystem: exchange_rate
+cluster: main
+tables:
+    exchange_rate:
+        engine: ReplicatedReplacingMergeTree
+        on_nodes: all
+        order_by:
+            - date
+            - currency
+        columns:
+            - name: currency
+              type: String
+            - name: date
+              type: Date
+            - name: rate
+              type: Decimal64(10)
+            - name: version
+              type: UInt32
+              default_kind: DEFAULT
+              default_expression: toUnixTimestamp(now())
