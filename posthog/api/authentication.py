@@ -43,7 +43,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
-from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.caching.login_device_cache import check_and_cache_login_device, has_valid_known_login_cookie
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
@@ -100,6 +100,8 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
             ).inc()
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+    request._ph_set_known_login_cookie_for_user = user  # type: ignore[attr-defined]
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
@@ -341,7 +343,7 @@ class LoginSerializer(serializers.Serializer):
         request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
-        if not was_authenticated_before_login_attempt:
+        if not was_authenticated_before_login_attempt and not has_valid_known_login_cookie(request, user):
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
             backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
@@ -986,7 +988,10 @@ def social_login_notification(
         report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
 
         request = strategy.request
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        backend_name = getattr(backend, "name", "")
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)
+        if not has_valid_known_login_cookie(request, user):
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            backend_name = getattr(backend, "name", "")
+            login_from_new_device_notification.delay(
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+            )
