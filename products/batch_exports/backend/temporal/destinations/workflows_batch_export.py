@@ -201,7 +201,11 @@ class WorkflowsConsumer(Consumer):
                 InternalServerError,
                 ServiceUnavailable,
                 TooManyRequests,
+                # These two represent the server going away, first gracefully then
+                # ungracefully. Since we are talking to our own server, we know it
+                # should be there, so let's keep trying.
                 aiohttp.ServerDisconnectedError,
+                aiohttp.ClientOSError,
             ),
             # Retry forever on retryable errors
             max_attempts=None,
