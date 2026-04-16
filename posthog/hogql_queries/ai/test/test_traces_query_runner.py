@@ -1764,3 +1764,54 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace_num = int(trace_id.split("_")[1])
             self.assertGreaterEqual(trace_num, 0)
             self.assertLess(trace_num, 10)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_request_and_web_search_cost_aggregation(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_cost_components"
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            team=self.team,
+            trace_id=trace_id,
+            input="first generation",
+            output="first response",
+            timestamp=datetime(2025, 1, 15, 0, 0),
+            properties={
+                "$ai_input_cost_usd": 0.01,
+                "$ai_output_cost_usd": 0.02,
+                "$ai_request_cost_usd": 0.003,
+                "$ai_web_search_cost_usd": 0.015,
+                "$ai_total_cost_usd": 0.048,
+            },
+        )
+        # Second event omits web_search_cost — verify partial presence sums correctly
+        _create_ai_generation_event(
+            distinct_id="person1",
+            team=self.team,
+            trace_id=trace_id,
+            input="second generation",
+            output="second response",
+            timestamp=datetime(2025, 1, 15, 0, 1),
+            properties={
+                "$ai_input_cost_usd": 0.005,
+                "$ai_output_cost_usd": 0.01,
+                "$ai_request_cost_usd": 0.002,
+                "$ai_total_cost_usd": 0.017,
+            },
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+
+        # Values chosen to be exact in IEEE 754 after ClickHouse round(..., 10)
+        self.assertEqual(trace.inputCost, 0.015)
+        self.assertEqual(trace.outputCost, 0.03)
+        self.assertEqual(trace.requestCost, 0.005)
+        self.assertEqual(trace.webSearchCost, 0.015)
+        self.assertEqual(trace.totalCost, 0.065)

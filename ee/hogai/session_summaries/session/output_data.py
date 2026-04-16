@@ -175,6 +175,32 @@ class IntermediateSessionSummarySerializer(RawSessionSummarySerializer):
     )
 
 
+class SentimentSignalSerializer(serializers.Serializer):
+    signal_type = serializers.ChoiceField(
+        choices=[
+            "rage_click",
+            "repeated_error",
+            "backtracking",
+            "long_pause",
+            "abandonment",
+            "dead_click",
+            "confusion_loop",
+            "error_cascade",
+            "other",
+        ],
+        required=True,
+    )
+    segment_index = serializers.IntegerField(min_value=0, required=True)
+    description = serializers.CharField(max_length=10_000, required=True)
+    intensity = serializers.FloatField(min_value=0, max_value=1, required=True)
+
+
+class SessionSentimentSerializer(serializers.Serializer):
+    frustration_score = serializers.FloatField(min_value=0, max_value=1, required=True)
+    outcome = serializers.ChoiceField(choices=["successful", "friction", "frustrated", "blocked"], required=True)
+    sentiment_signals = SentimentSignalSerializer(many=True, required=False, allow_empty=True)
+
+
 class SessionSummarySerializer(IntermediateSessionSummarySerializer):
     """
     Session summary enriched with metadata, expected to be used in the final summary.
@@ -183,6 +209,7 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
     key_actions = serializers.ListField(
         child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
+    sentiment = SessionSentimentSerializer(required=False, allow_null=True)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """

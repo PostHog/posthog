@@ -16,6 +16,7 @@ import {
     IconHide,
     IconLeave,
     IconLive,
+    IconMessage,
     IconNight,
     IconPieChart,
     IconQuestion,
@@ -48,6 +49,7 @@ import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToo
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
+import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
@@ -320,6 +322,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const showSurveys = surveysFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -334,6 +339,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
+    ) : visibleMenu === 'surveys' && showSurveys ? (
+        <SurveysToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -389,6 +396,9 @@ export function Toolbar(): JSX.Element | null {
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const showSurveys = surveysFlag
+
     useEffect(() => {
         setElement(ref.current)
         return () => setElement(null)
@@ -435,8 +445,12 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-1':
+                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2':
+                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3':
+                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -488,6 +502,11 @@ export function Toolbar(): JSX.Element | null {
                         {showProductTours && (
                             <ToolbarButton menuId="product-tours" title="Product tours">
                                 <IconSpotlight />
+                            </ToolbarButton>
+                        )}
+                        {showSurveys && (
+                            <ToolbarButton menuId="surveys" title="Surveys">
+                                <IconMessage />
                             </ToolbarButton>
                         )}
                     </>

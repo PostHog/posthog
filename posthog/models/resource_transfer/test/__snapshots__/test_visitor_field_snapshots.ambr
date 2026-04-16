@@ -192,7 +192,6 @@
   list([
     'description',
     'exposure_criteria',
-    'exposure_preaggregation_enabled',
     'filters',
     'metrics',
     'metrics_secondary',

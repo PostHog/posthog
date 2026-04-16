@@ -5,6 +5,7 @@ import { defaultConfig } from '~/config/config'
 import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
+import { IngestionApiServer } from '~/servers/ingestion-api-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
@@ -18,6 +19,9 @@ function createServer(): NodeServer {
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             return new IngestionGeneralServer()
+
+        case PluginServerMode.ingestion_api:
+            return new IngestionApiServer()
 
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:

@@ -10,10 +10,11 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryOutput,
-)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
+    CreateSandboxForRepositoryOutput,
+    PrepareSandboxForRepositoryOutput,
+)
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import UpdateTaskRunStatusInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput, ProcessTaskWorkflow
@@ -40,15 +41,36 @@ def _mock_update_status(input: UpdateTaskRunStatusInput) -> None:
     _status_updates.append((input.status, input.error_message))
 
 
-@activity.defn(name="get_sandbox_for_repository")
-def _mock_get_sandbox(_input) -> GetSandboxForRepositoryOutput:
-    return GetSandboxForRepositoryOutput(
+@activity.defn(name="prepare_sandbox_for_repository")
+def _mock_prepare_sandbox(_input) -> PrepareSandboxForRepositoryOutput:
+    return PrepareSandboxForRepositoryOutput(
+        sandbox_name="sandbox-name",
+        repository="org/repo",
+        github_token="",
+        branch=None,
+        environment_variables={},
+        snapshot_id=None,
+        snapshot_external_id=None,
+        used_snapshot=False,
+        should_create_snapshot=False,
+        shallow_clone=True,
+        image_source="base_image",
+        image_source_label="published sandbox base image",
+    )
+
+
+@activity.defn(name="create_sandbox_for_repository")
+def _mock_create_sandbox(_input) -> CreateSandboxForRepositoryOutput:
+    return CreateSandboxForRepositoryOutput(
         sandbox_id="sb-1",
         sandbox_url="http://localhost",
         connect_token=None,
-        used_snapshot=False,
-        should_create_snapshot=False,
     )
+
+
+@activity.defn(name="clone_repository_in_sandbox")
+def _mock_clone_repository(_input) -> None:
+    pass
 
 
 @activity.defn(name="start_agent_server")
@@ -81,7 +103,7 @@ def _mock_cleanup(_input) -> None:
     pass
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 class TestFollowupDeliveryFailure:
@@ -101,7 +123,9 @@ class TestFollowupDeliveryFailure:
                 activities=[
                     _mock_get_context,
                     _mock_update_status,
-                    _mock_get_sandbox,
+                    _mock_prepare_sandbox,
+                    _mock_create_sandbox,
+                    _mock_clone_repository,
                     _mock_start_agent,
                     _mock_forward,
                     _mock_send_followup_raises,

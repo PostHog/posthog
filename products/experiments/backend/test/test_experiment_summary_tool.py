@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
@@ -20,11 +22,11 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from products.experiments.backend.experiment_summary_data_service import (
     ExperimentSummaryDataService,
     get_chance_to_win,
-    get_default_metric_title,
     get_delta_from_interval,
     parse_metric_dict,
     transform_variant_for_max,
 )
+from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -161,38 +163,42 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         assert isinstance(result, MaxExperimentVariantResultBayesian)
         self.assertEqual(result.chance_to_win, 0.85)
 
-    def test_get_default_metric_title_funnel_single_event(self):
-        metric_dict = {
-            "metric_type": "funnel",
-            "series": [{"event": "purchase"}],
-        }
-        self.assertEqual(get_default_metric_title(metric_dict), "purchase conversion")
-
-    def test_get_default_metric_title_funnel_multiple_events(self):
-        metric_dict = {
-            "metric_type": "funnel",
-            "series": [
-                {"event": "view_page"},
-                {"event": "add_to_cart"},
-                {"event": "purchase"},
-            ],
-        }
-        self.assertEqual(get_default_metric_title(metric_dict), "view_page to purchase")
-
-    def test_get_default_metric_title_mean(self):
-        metric_dict = {
-            "metric_type": "mean",
-            "source": {"event": "revenue"},
-        }
-        self.assertEqual(get_default_metric_title(metric_dict), "Mean revenue")
-
-    def test_get_default_metric_title_ratio(self):
-        metric_dict = {"metric_type": "ratio"}
-        self.assertEqual(get_default_metric_title(metric_dict), "Ratio metric")
-
-    def test_get_default_metric_title_retention(self):
-        metric_dict = {"metric_type": "retention"}
-        self.assertEqual(get_default_metric_title(metric_dict), "Retention metric")
+    @parameterized.expand(
+        [
+            ("funnel_single", {"metric_type": "funnel", "series": [{"event": "purchase"}]}, "purchase conversion"),
+            (
+                "funnel_multi",
+                {
+                    "metric_type": "funnel",
+                    "series": [{"event": "view_page"}, {"event": "add_to_cart"}, {"event": "purchase"}],
+                },
+                "view_page to purchase",
+            ),
+            ("mean", {"metric_type": "mean", "source": {"event": "revenue"}}, "Mean revenue"),
+            ("ratio_no_events", {"metric_type": "ratio"}, "Event / Event"),
+            (
+                "ratio_with_events",
+                {
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "event": "$pageview"},
+                    "denominator": {"kind": "EventsNode", "event": "experiment timeseries viewed"},
+                },
+                "$pageview / experiment timeseries viewed",
+            ),
+            ("retention_no_events", {"metric_type": "retention"}, "Event / Event"),
+            (
+                "retention_with_events",
+                {
+                    "metric_type": "retention",
+                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                },
+                "$pageview / purchase",
+            ),
+        ]
+    )
+    def test_get_default_metric_title(self, _name, metric_dict, expected):
+        self.assertEqual(get_default_metric_title(metric_dict), expected)
 
 
 @override_settings(IN_UNIT_TESTING=True)

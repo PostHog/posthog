@@ -61,6 +61,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
         )
         .select_related("team")
         .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
+        .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}

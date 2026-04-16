@@ -103,14 +103,16 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders(({ props }: { props: { insightId: string } }) => ({
+    loaders(({ props }: { props: { insightId?: number; experimentId?: number } }) => ({
         debugResponse: [
             {} as DebugResponse,
             {
                 loadDebugResponse: async () => {
                     const params = new URLSearchParams()
                     if (props.insightId) {
-                        params.append('insight_id', props.insightId)
+                        params.append('insight_id', String(props.insightId))
+                    } else if (props.experimentId) {
+                        params.append('experiment_id', String(props.experimentId))
                     }
                     return await api.get(`api/debug_ch_queries/?${params.toString()}`)
                 },
@@ -267,10 +269,11 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
 
 interface DebugCHQueriesProps {
     insightId?: number | null
+    experimentId?: number | null
 }
 
-export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element {
-    const logic = debugCHQueriesLogic({ insightId })
+export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps): JSX.Element {
+    const logic = debugCHQueriesLogic({ insightId, experimentId: experimentId ?? undefined })
     const {
         debugResponseLoading,
         filteredQueries,
@@ -454,6 +457,34 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             </LemonTag>
                                         ) : null}
                                     </div>
+                                    {item.logComment.product === 'experiments' ? (
+                                        <div className="flex flex-wrap gap-1">
+                                            {typeof item.logComment.experiment_name === 'string' ? (
+                                                <LemonTag type="highlight" className="inline-block">
+                                                    <span className="font-bold tracking-wide">Experiment:</span>{' '}
+                                                    <span>{item.logComment.experiment_name}</span>
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_metric_name === 'string' ? (
+                                                <LemonTag type="completion" className="inline-block">
+                                                    <span className="font-bold tracking-wide">Metric:</span>{' '}
+                                                    <span>{item.logComment.experiment_metric_name}</span>
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_execution_path === 'string' ? (
+                                                <LemonTag
+                                                    type={
+                                                        item.logComment.experiment_execution_path === 'precomputed'
+                                                            ? 'success'
+                                                            : 'default'
+                                                    }
+                                                    className="inline-block"
+                                                >
+                                                    {item.logComment.experiment_execution_path}
+                                                </LemonTag>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             <div>{item.exception}</div>

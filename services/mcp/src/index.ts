@@ -227,6 +227,7 @@ const handleRequest = async (
         organizationId,
         projectId,
         clientUserAgent,
+        requestStartTime: Date.now(),
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.

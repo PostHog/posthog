@@ -210,10 +210,32 @@ export function computePreviewOccurrences(
         options.dtstart = dtstart
 
         const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
-        return rule.all((_, i) => i < limit)
+        const isFinite = state.endType !== 'never'
+
+        if (dayjs(dtstart).isBefore(dayjs())) {
+            const all = rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit * 50))
+            const now = new Date()
+            const future = all.filter((d) => d.getTime() > now.getTime())
+            return isFinite ? future : future.slice(0, limit)
+        }
+        return rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit))
     } catch {
         return []
     }
+}
+
+/**
+ * Convert a "fake UTC" date (where UTC values represent local time in the schedule
+ * timezone, as produced by computePreviewOccurrences/rrule) to a real timestamp.
+ *
+ * RRule expands dates using UTC values that actually represent local times in the
+ * schedule timezone. This function reinterprets those values as real moments in time.
+ * For example, a fake-UTC date of 2026-04-03T19:25:00Z representing 19:25 Europe/Riga
+ * becomes 2026-04-03T16:25:00Z (the actual UTC moment).
+ */
+export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
+    const utcStr = dayjs(date).utc().format('YYYY-MM-DD HH:mm:ss')
+    return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
 }
 
 export function buildSummary(state: ScheduleState, startsAt: string | null): string {
@@ -249,4 +271,33 @@ export function buildSummary(state: ScheduleState, startsAt: string | null): str
     }
 
     return summary + '.'
+}
+
+/** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
+export function parseNaturalLanguage(text: string): ScheduleState | null {
+    const trimmed = text.trim().toLowerCase()
+    if (!trimmed || !trimmed.includes('every')) {
+        return null
+    }
+    try {
+        const rule = RRule.fromText(text)
+        if (!rule || rule.options.freq == null) {
+            return null
+        }
+        const rruleStr = rule.toString().replace('RRULE:', '')
+        return parseRRuleToState(rruleStr)
+    } catch {
+        return null
+    }
+}
+
+/** Convert a ScheduleState to a human-readable text like "every week on Monday, Wednesday". */
+export function scheduleToText(state: ScheduleState, startsAt: string | null): string {
+    try {
+        const options = buildRRuleOptions(state, startsAt)
+        const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
+        return rule.toText()
+    } catch {
+        return ''
+    }
 }

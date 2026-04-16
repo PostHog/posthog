@@ -255,8 +255,7 @@ async def _run(
         )
 
     if not ignore_assertions:
-        run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
-
+        run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
         assert run is not None
         assert run.status == ExternalDataJob.Status.COMPLETED
         assert run.finished_at is not None
@@ -1648,7 +1647,8 @@ async def test_billable_job(team, stripe_balance_transaction, mock_stripe_client
         billable=False,
     )
 
-    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+    assert run is not None
     assert run.billable is False
 
 
@@ -3406,6 +3406,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     webhook_event = {
         "id": "evt_abc123",
         "type": "charge.refunded",
+        "created": 1775760601,
         "data": {
             "object": {
                 "id": "ch_abc123",
@@ -3575,6 +3576,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     webhook_event = {
         "id": "evt_abc123",
         "type": "charge.refunded",
+        "created": 1775760601,
         "data": {
             "object": {
                 "id": "ch_abc123",

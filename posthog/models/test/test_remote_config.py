@@ -210,14 +210,20 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.session_recording_sample_rate = Decimal(value) if value else None
         self.team.save()
         self.sync_remote_config()
-        assert self.remote_config.config["sessionRecording"]["sampleRate"] == expected
+        config = self.remote_config.config
+        assert config is not None
+        session_recording = config["sessionRecording"]
+        assert session_recording["sampleRate"] == expected
 
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True
         self.team.recording_domains = ["https://posthog.com", "https://*.posthog.com"]
         self.team.save()
         self.sync_remote_config()
-        assert self.remote_config.config["sessionRecording"]["domains"] == self.team.recording_domains
+        config = self.remote_config.config
+        assert config is not None
+        session_recording = config["sessionRecording"]
+        assert session_recording["domains"] == self.team.recording_domains
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
@@ -289,37 +295,6 @@ class TestRemoteConfigSdkVersion(_RemoteConfigBase):
         assert "sdkVersion" in config
         assert config["sdkVersion"]["requested"] == "1"
         assert config["sdkVersion"]["resolved"] == "1.360.1"
-
-    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket", POSTHOG_JS_SCRIPTS_BASE_URL="https://cdn.example.com/js")
-    def test_sdk_version_includes_script_base_url(self):
-        import json
-
-        from django.core.cache import cache
-
-        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
-
-        manifest = {"versions": ["1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
-        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
-        self.sync_remote_config()
-
-        config = RemoteConfig.get_config_via_token(self.team.api_token)
-        assert config["sdkVersion"]["scriptBaseUrl"] == "https://cdn.example.com/js/1.360.1"
-
-    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket", POSTHOG_JS_SCRIPTS_BASE_URL="")
-    def test_sdk_version_omits_script_base_url_when_not_configured(self):
-        import json
-
-        from django.core.cache import cache
-
-        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
-
-        manifest = {"versions": ["1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
-        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
-        self.sync_remote_config()
-
-        config = RemoteConfig.get_config_via_token(self.team.api_token)
-        assert "sdkVersion" in config
-        assert "scriptBaseUrl" not in config["sdkVersion"]
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     def test_sdk_version_reflects_team_pin(self):
@@ -429,6 +404,12 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         assert self.remote_config.config["surveys"]
 
         actual_surveys = sorted(self.remote_config.config["surveys"], key=lambda s: str(s["id"]))
+        basic_questions = survey_basic.questions
+        assert basic_questions is not None
+        flags_questions = survey_with_flags.questions
+        assert flags_questions is not None
+        actions_questions = survey_with_actions.questions
+        assert actions_questions is not None
         expected_surveys = sorted(
             [
                 {
@@ -437,7 +418,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "type": "popover",
                     "end_date": None,
                     "questions": [
-                        {"id": str(survey_basic.questions[0]["id"]), "type": "open", "question": "What's a survey?"}
+                        {"id": str(basic_questions[0]["id"]), "type": "open", "question": "What's a survey?"}
                     ],
                     "appearance": None,
                     "conditions": None,
@@ -456,7 +437,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "end_date": None,
                     "questions": [
                         {
-                            "id": str(survey_with_flags.questions[0]["id"]),
+                            "id": str(flags_questions[0]["id"]),
                             "type": "open",
                             "question": "What's a hedgehog?",
                         }
@@ -483,7 +464,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "end_date": None,
                     "questions": [
                         {
-                            "id": str(survey_with_actions.questions[0]["id"]),
+                            "id": str(actions_questions[0]["id"]),
                             "type": "open",
                             "question": "Why's a hedgehog?",
                         }

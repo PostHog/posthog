@@ -72,7 +72,6 @@ let counter = 0
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
-const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -105,9 +104,6 @@ const isItemActive = (item: TreeDataItem): boolean => {
 
     // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
     if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-        return true
-    }
-    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
         return true
     }
     if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
@@ -188,11 +184,6 @@ export function ProjectTree({
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
-    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
-        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
-        false
-    )
-
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -210,11 +201,6 @@ export function ProjectTree({
                 children: item.children ? applyChecked(item.children) : undefined,
             }))
         treeData = applyChecked(treeData)
-    }
-
-    // Filter out Data pipelines item if it's been clicked
-    if (dataPipelinesClicked) {
-        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
     }
 
     if (fullFileSystemFiltered.length <= 5) {
@@ -355,11 +341,6 @@ export function ProjectTree({
                         loadFolder(path)
                     }
                     return
-                }
-
-                // Track when Data pipelines button is clicked
-                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
-                    setDataPipelinesClicked(true)
                 }
 
                 if (item?.record?.href) {

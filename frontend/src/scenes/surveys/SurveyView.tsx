@@ -25,12 +25,14 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotificationModal } from 'scenes/surveys/components/SurveyNotificationModal'
+import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
+import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -57,14 +59,13 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
-    PropertyFilterType,
-    PropertyOperator,
     Survey,
     SurveyEventName,
-    SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
+import { NEW_SURVEY } from './constants'
 import { SurveyHeadline } from './SurveyHeadline'
 import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
@@ -91,11 +92,12 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const isRedesignEnabled = useFeatureFlag('SURVEYS_REDESIGNED_VIEW')
 
-    if (isRedesignEnabled) {
-        return <SurveyViewRedesign />
-    }
-
-    return <SurveyViewLegacy id={id} />
+    return (
+        <>
+            {isRedesignEnabled ? <SurveyViewRedesign /> : <SurveyViewLegacy id={id} />}
+            <SurveyNotificationModal surveyId={id} />
+        </>
+    )
 }
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
@@ -106,6 +108,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
@@ -116,7 +119,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     useFileSystemLogView({
         type: 'survey',
         ref: surveyId,
-        enabled: Boolean(surveyId && !surveyLoading),
+        enabled: Boolean(surveyId && !isInitialSurveyLoad),
     })
 
     useEffect(() => {
@@ -129,7 +132,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
 
     return (
         <div>
-            {surveyLoading ? (
+            {isInitialSurveyLoad ? (
                 <LemonSkeleton />
             ) : (
                 <SceneContent>
@@ -353,31 +356,10 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                 key: 'notifications',
                                 label: 'Notifications',
                                 content: (
-                                    <div>
-                                        <p>Get notified whenever a survey result is submitted</p>
-                                        <LinkedHogFunctions
-                                            type="destination"
-                                            subTemplateIds={['survey-response']}
-                                            forceFilterGroups={[
-                                                {
-                                                    events: [
-                                                        {
-                                                            id: SurveyEventName.SENT,
-                                                            type: 'events',
-                                                            properties: [
-                                                                {
-                                                                    key: SurveyEventProperties.SURVEY_ID,
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: id,
-                                                                    operator: PropertyOperator.Exact,
-                                                                },
-                                                            ],
-                                                        },
-                                                    ],
-                                                },
-                                            ]}
-                                        />
-                                    </div>
+                                    <SurveyNotifications
+                                        surveyId={id}
+                                        description="Get notified whenever a survey result is submitted."
+                                    />
                                 ),
                             },
                             {
@@ -421,6 +403,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyLoading,
         surveyAsInsightURL,
         isAnyResultsLoading,
+        resultsRequeryInProgress,
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
@@ -430,6 +413,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         propertyFilters,
     } = useValues(surveyLogic)
     const { clearFilters } = useActions(surveyLogic)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     /**
      * custom column renderer that does:
@@ -486,64 +470,79 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     }, [survey.questions])
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
     return (
         <div className="deprecated-space-y-4">
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
-            <SurveyStatsSummary />
-            {isAnyResultsLoading || atLeastOneResponse ? (
+            <SurveyNotificationsCallout surveyId={survey.id} />
+            {isRefreshingResults || atLeastOneResponse ? (
                 <>
-                    <SurveyResponsesByQuestionV2 />
-                    <LemonButton
-                        type="primary"
-                        data-attr="survey-results-explore"
-                        icon={<IconGraph />}
-                        to={surveyAsInsightURL}
-                        className="max-w-40"
+                    <SurveyResultsRefreshStatus visible={isRefreshingResults} />
+                    <div
+                        aria-busy={isRefreshingResults}
+                        className={
+                            isRefreshingResults
+                                ? 'opacity-75 transition-opacity duration-200 ease-out'
+                                : 'opacity-100 transition-opacity duration-200 ease-out'
+                        }
                     >
-                        Explore results
-                    </LemonButton>
-                    {!disableEventsTable &&
-                        (surveyLoading ? (
-                            <LemonSkeleton />
-                        ) : (
-                            <div className="survey-table-results">
-                                <Query
-                                    query={dataTableQuery}
-                                    context={{
-                                        columns: surveyColumnRenderers,
-                                        rowProps: (record: unknown) => {
-                                            // "mute" archived records
-                                            if (typeof record !== 'object' || !record || !('result' in record)) {
-                                                return {}
-                                            }
-                                            const result = record.result
-                                            if (!Array.isArray(result)) {
-                                                return {}
-                                            }
-                                            return {
-                                                className:
-                                                    result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
-                                                        ? 'opacity-50'
-                                                        : undefined,
-                                            }
-                                        },
-                                    }}
-                                />
-                            </div>
-                        ))}
+                        <SurveyStatsSummary />
+                        <SurveyResponsesByQuestionV2 />
+                        <LemonButton
+                            type="primary"
+                            data-attr="survey-results-explore"
+                            icon={<IconGraph />}
+                            to={surveyAsInsightURL}
+                            className="max-w-40"
+                        >
+                            Explore results
+                        </LemonButton>
+                        {!disableEventsTable &&
+                            (isInitialSurveyLoad ? (
+                                <LemonSkeleton />
+                            ) : (
+                                <div className="survey-table-results">
+                                    <Query
+                                        query={dataTableQuery}
+                                        context={{
+                                            columns: surveyColumnRenderers,
+                                            rowProps: (record: unknown) => {
+                                                // "mute" archived records
+                                                if (typeof record !== 'object' || !record || !('result' in record)) {
+                                                    return {}
+                                                }
+                                                const result = record.result
+                                                if (!Array.isArray(result)) {
+                                                    return {}
+                                                }
+                                                return {
+                                                    className:
+                                                        result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
+                                                            ? 'opacity-50'
+                                                            : undefined,
+                                                }
+                                            },
+                                        }}
+                                    />
+                                </div>
+                            ))}
+                    </div>
                 </>
             ) : (
-                <SurveyNoResponsesBanner
-                    type="survey"
-                    isFiltered={hasActiveFilters}
-                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
-                    activeFilterTypes={{
-                        dateRange: hasActiveDateRange,
-                        answerFilters: hasActiveAnswerFilters,
-                        propertyFilters: propertyFilters.length > 0,
-                    }}
-                />
+                <>
+                    <SurveyStatsSummary />
+                    <SurveyNoResponsesBanner
+                        type="survey"
+                        isFiltered={hasActiveFilters}
+                        onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                        activeFilterTypes={{
+                            dateRange: hasActiveDateRange,
+                            answerFilters: hasActiveAnswerFilters,
+                            propertyFilters: propertyFilters.length > 0,
+                        }}
+                    />
+                </>
             )}
         </div>
     )

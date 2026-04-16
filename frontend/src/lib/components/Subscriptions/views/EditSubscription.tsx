@@ -30,11 +30,13 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
     targetTypeOptions,
     timeOptions,
     weekdayOptions,
+    WEEKDAYS,
 } from '../utils'
 
 interface EditSubscriptionProps {
@@ -92,6 +94,7 @@ export function EditSubscription({
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
+    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
 
     return (
         <Form
@@ -362,21 +365,34 @@ export function EditSubscription({
                                             )}
                                         </LemonField>
                                         <LemonField name="byweekday">
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    dropdownMatchSelectWidth={false}
-                                                    options={monthlyWeekdayOptions}
-                                                    // "day" is a special case where it is a list of all available days
-                                                    value={value ? (value.length === 1 ? value[0] : 'day') : null}
-                                                    onChange={(val) =>
-                                                        onChange(
-                                                            val === 'day'
-                                                                ? Object.values(weekdayOptions).map((v) => v.value)
-                                                                : [val]
-                                                        )
-                                                    }
-                                                />
-                                            )}
+                                            {({ value, onChange }) => {
+                                                const isWeekday =
+                                                    value?.length === 5 && value.every((d: string) => WEEKDAYS.has(d))
+                                                const displayValue = value
+                                                    ? isWeekday
+                                                        ? 'weekday'
+                                                        : value.length === 1
+                                                          ? value[0]
+                                                          : 'day'
+                                                    : null
+
+                                                return (
+                                                    <LemonSelect
+                                                        dropdownMatchSelectWidth={false}
+                                                        options={monthlyWeekdayOptions}
+                                                        value={displayValue}
+                                                        onChange={(val) =>
+                                                            onChange(
+                                                                val === 'day'
+                                                                    ? Object.values(weekdayOptions).map((v) => v.value)
+                                                                    : val === 'weekday'
+                                                                      ? [...WEEKDAYS]
+                                                                      : [val]
+                                                            )
+                                                        }
+                                                    />
+                                                )
+                                            }}
                                         </LemonField>
                                     </>
                                 )}
@@ -399,6 +415,11 @@ export function EditSubscription({
                                     )}
                                 </LemonField>
                             </div>
+                            {nextDeliveryDate && (
+                                <div className="text-xs text-secondary mt-1">
+                                    Next delivery: {dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')}
+                                </div>
+                            )}
                         </div>
 
                         {insightShortId && (
