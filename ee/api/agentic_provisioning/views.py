@@ -880,17 +880,24 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
         return False
 
 
-def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
-    """Try to activate billing with an SPT from payment_credentials.
-
-    Returns True if succeeded, False if failed, None if no SPT was present.
-    """
+def _extract_spt(request: Request) -> str | None:
     payment_credentials = request.data.get("payment_credentials")
     if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
-        spt_token = payment_credentials.get("stripe_payment_token")
-        if spt_token:
-            return _activate_billing_with_spt(team, user, spt_token)
+        return payment_credentials.get("stripe_payment_token") or None
     return None
+
+
+def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
+    """Activate billing if an SPT is present, skipping if billing is already active.
+
+    Returns True if succeeded or already active, False if failed, None if no SPT was present.
+    """
+    spt_token = _extract_spt(request)
+    if not spt_token:
+        return None
+    if _team_has_active_billing(team, user):
+        return True
+    return _activate_billing_with_spt(team, user, spt_token)
 
 
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
@@ -1047,7 +1054,7 @@ def provisioning_resources_create(request: Request) -> Response:
     _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
-    if billing_result is False and not _team_has_active_billing(team, user):
+    if billing_result is False:
         return Response(
             {
                 "status": "error",
@@ -1208,7 +1215,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
-    if billing_result is False and not _team_has_active_billing(team, user):
+    if billing_result is False:
         return _error_response(
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
