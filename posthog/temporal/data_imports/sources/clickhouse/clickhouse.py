@@ -9,6 +9,7 @@ from contextlib import _GeneratorContextManager
 from typing import Any, Literal, Optional
 
 import pyarrow as pa
+import structlog
 from clickhouse_connect import get_client
 from clickhouse_connect.driver.client import Client as ClickHouseClient
 from clickhouse_connect.driver.exceptions import ClickHouseError
@@ -430,7 +431,12 @@ def get_connection_metadata(
 
 
 # Regex helpers for parsing ClickHouse type strings.
-_DECIMAL_RE = re.compile(r"^Decimal(?:32|64|128|256)?\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)$")
+# DecimalN(S) variants have fixed precision implied by N — the single
+# argument is scale, not precision. Decimal(P, S) / Decimal(P) is the
+# explicit form.
+_DECIMAL_FIXED_WIDTHS: dict[str, int] = {"32": 9, "64": 18, "128": 38, "256": 76}
+_DECIMAL_FIXED_RE = re.compile(r"^Decimal(32|64|128|256)\(\s*(\d+)\s*\)$")
+_DECIMAL_VAR_RE = re.compile(r"^Decimal\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)$")
 _DATETIME64_RE = re.compile(r"^DateTime64\(\s*(\d+)\s*(?:,\s*'([^']*)'\s*)?\)$")
 _DATETIME_RE = re.compile(r"^DateTime(?:\(\s*'([^']*)'\s*\))?$")
 _FIXED_STRING_RE = re.compile(r"^FixedString\(\s*\d+\s*\)$")
@@ -525,8 +531,15 @@ class ClickHouseColumn(Column):
             unit = _datetime_unit_for_precision(precision)
             return pa.timestamp(unit, tz=tz) if tz else pa.timestamp(unit)
 
-        # Decimal[32|64|128|256](p[, s])
-        match_dec = _DECIMAL_RE.match(inner)
+        # DecimalN(S) — N fixes precision (9/18/38/76), the lone arg is scale.
+        match_fixed = _DECIMAL_FIXED_RE.match(inner)
+        if match_fixed is not None:
+            precision = _DECIMAL_FIXED_WIDTHS[match_fixed.group(1)]
+            scale = int(match_fixed.group(2))
+            return build_pyarrow_decimal_type(precision, scale)
+
+        # Decimal(P[, S]) — explicit precision and scale.
+        match_dec = _DECIMAL_VAR_RE.match(inner)
         if match_dec is not None:
             precision = int(match_dec.group(1))
             scale = int(match_dec.group(2)) if match_dec.group(2) is not None else 0
@@ -622,6 +635,56 @@ def _get_primary_keys(client: ClickHouseClient, database: str, table_name: str) 
     )
     keys = [row[0] for row in result.result_rows]
     return keys if keys else None
+
+
+def get_primary_keys_for_schemas(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str | None,
+    secure: bool,
+    verify: bool,
+    table_names: list[str],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys (sorting key columns) for multiple tables.
+
+    Opens a single client and reuses `_get_primary_keys` per table. Returns
+    a dict keyed by every input table name, with None for tables where no
+    sorting key exists or the lookup failed.
+    """
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+    if not table_names:
+        return result
+
+    try:
+        client = _get_client(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            secure=secure,
+            verify=verify,
+            query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        )
+        try:
+            for table_name in table_names:
+                try:
+                    result[table_name] = _get_primary_keys(client, database, table_name)
+                except ClickHouseError as e:
+                    structlog.get_logger().warning(
+                        "Failed to detect primary keys for ClickHouse table",
+                        table=table_name,
+                        exc_info=e,
+                    )
+        finally:
+            client.close()
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for ClickHouse schemas", exc_info=e)
+
+    return result
 
 
 # Row budget for the duplicate-PK probe. ClickHouse sorting keys are not
@@ -828,12 +891,10 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
-    incremental_field_type: Optional[IncrementalFieldType],
-) -> tuple[str, dict[str, Any]]:
+) -> str:
     """Build the data extraction query.
 
-    Returns the SQL plus a parameter dict for clickhouse-connect's
-    parameterized query API. We never interpolate the incremental cursor
+    Returns the SQL string. We never interpolate the incremental cursor
     value directly — only identifiers (which are validated) end up in the
     SQL string. Column types ClickHouse can't emit as Arrow (UUID, IPv4,
     enums, arrays, ...) are wrapped in toString() to avoid error 50.
@@ -842,16 +903,13 @@ def _build_query(
     select_list = _build_select_list(columns)
 
     if not should_use_incremental_field:
-        return f"SELECT {select_list} FROM {qualified}", {}
+        return f"SELECT {select_list} FROM {qualified}"
 
-    if incremental_field is None or incremental_field_type is None:
-        raise ValueError("incremental_field and incremental_field_type can't be None")
+    if incremental_field is None:
+        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
 
     quoted_field = _quote_identifier(incremental_field)
-    return (
-        f"SELECT {select_list} FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC",
-        {},
-    )
+    return f"SELECT {select_list} FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC"
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -1005,13 +1063,12 @@ def clickhouse_source(
             )
 
             try:
-                query, _ = _build_query(
+                query = _build_query(
                     database=database,
                     table_name=table_name,
                     columns=list(table.columns),
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
-                    incremental_field_type=incremental_field_type,
                 )
 
                 parameters: dict[str, Any] = {}

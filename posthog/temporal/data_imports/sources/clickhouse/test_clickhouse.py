@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     _quote_identifier,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
+    get_primary_keys_for_schemas,
 )
 from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 
@@ -152,56 +153,50 @@ class TestBuildQuery:
         return [ClickHouseColumn(name=n, data_type=t, nullable=False) for n, t in specs]
 
     def test_full_refresh(self):
-        query, params = _build_query(
+        query = _build_query(
             database="default",
             table_name="events",
             columns=self._cols(("id", "Int64"), ("name", "String")),
             should_use_incremental_field=False,
             incremental_field=None,
-            incremental_field_type=None,
         )
         assert query == "SELECT `id`, `name` FROM `default`.`events`"
-        assert params == {}
 
     def test_incremental(self):
-        query, params = _build_query(
+        query = _build_query(
             database="default",
             table_name="events",
             columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
             should_use_incremental_field=True,
             incremental_field="created_at",
-            incremental_field_type=IncrementalFieldType.Timestamp,
         )
         assert "SELECT `id`, `created_at` FROM `default`.`events`" in query
         assert "WHERE `created_at` > %(last_value)s" in query
         assert "ORDER BY `created_at` ASC" in query
-        assert params == {}
 
     def test_incremental_quotes_field_with_special_chars(self):
-        query, _ = _build_query(
+        query = _build_query(
             database="my-db",
             table_name="weird table",
             columns=self._cols(("event time", "DateTime")),
             should_use_incremental_field=True,
             incremental_field="event time",
-            incremental_field_type=IncrementalFieldType.Timestamp,
         )
         assert "`my-db`.`weird table`" in query
         assert "`event time`" in query
 
     def test_incremental_raises_without_field(self):
-        with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
+        with pytest.raises(ValueError, match="incremental_field can't be None"):
             _build_query(
                 database="default",
                 table_name="events",
                 columns=self._cols(("id", "Int64")),
                 should_use_incremental_field=True,
                 incremental_field=None,
-                incremental_field_type=None,
             )
 
     def test_wraps_arrow_unsupported_types_in_to_string(self):
-        query, _ = _build_query(
+        query = _build_query(
             database="default",
             table_name="events",
             columns=[
@@ -213,7 +208,6 @@ class TestBuildQuery:
             ],
             should_use_incremental_field=False,
             incremental_field=None,
-            incremental_field_type=None,
         )
         assert "`id`" in query
         assert "toString(`user_id`) AS `user_id`" in query
@@ -348,6 +342,72 @@ class TestGetClickhouseRowCount:
         assert counts == {}
 
 
+class TestGetPrimaryKeysForSchemas:
+    def _mock_client_returning(self, per_table_rows: dict[str, list[tuple]]):
+        """MagicMock client whose `query` returns sorting-key rows based on the
+        `table` parameter passed to `_get_primary_keys`."""
+        client = MagicMock()
+
+        def side_effect(query, parameters=None, **_kwargs):
+            table = (parameters or {}).get("table")
+            result = MagicMock()
+            result.result_rows = per_table_rows.get(table, [])
+            return result
+
+        client.query.side_effect = side_effect
+        return client
+
+    def _run(self, client, table_names):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        with patch.object(ch_module, "_get_client", return_value=client):
+            return get_primary_keys_for_schemas(
+                host="h",
+                port=1,
+                database="default",
+                user="u",
+                password="p",
+                secure=True,
+                verify=True,
+                table_names=table_names,
+            )
+
+    def test_returns_keys_per_table(self):
+        client = self._mock_client_returning(
+            {
+                "events": [("timestamp",), ("id",)],
+                "users": [("id",)],
+                "logs": [],  # no sorting key
+            }
+        )
+        result = self._run(client, ["events", "users", "logs"])
+        assert result == {"events": ["timestamp", "id"], "users": ["id"], "logs": None}
+
+    def test_empty_input(self):
+        client = MagicMock()
+        assert self._run(client, []) == {}
+        client.query.assert_not_called()
+
+    def test_continues_past_per_table_error(self):
+        client = MagicMock()
+
+        calls = {"n": 0}
+
+        def side_effect(query, parameters=None, **_kwargs):
+            calls["n"] += 1
+            if parameters["table"] == "broken":
+                raise ClickHouseError("boom")
+            r = MagicMock()
+            r.result_rows = [("id",)]
+            return r
+
+        client.query.side_effect = side_effect
+        result = self._run(client, ["good", "broken", "other"])
+        assert result["good"] == ["id"]
+        assert result["broken"] is None
+        assert result["other"] == ["id"]
+
+
 class TestClickHouseColumnToArrowField:
     @pytest.mark.parametrize(
         "data_type,expected_arrow_type",
@@ -419,18 +479,23 @@ class TestClickHouseColumnToArrowField:
         assert field.type == pa.timestamp("us", tz="America/New_York")
 
     @pytest.mark.parametrize(
-        "data_type",
+        "data_type,expected_precision,expected_scale",
         [
-            "Decimal(10, 2)",
-            "Decimal32(4)",
-            "Decimal64(8)",
-            "Decimal128(20)",
+            ("Decimal(10, 2)", 10, 2),
+            ("Decimal(18)", 18, 0),
+            # DecimalN(S): N fixes precision (9/18/38/76), lone arg is scale.
+            ("Decimal32(4)", 9, 4),
+            ("Decimal64(8)", 18, 8),
+            ("Decimal128(20)", 38, 20),
+            ("Decimal256(40)", 76, 40),
         ],
     )
-    def test_decimal_types(self, data_type):
+    def test_decimal_types(self, data_type, expected_precision, expected_scale):
         col = ClickHouseColumn("amt", data_type, nullable=False)
         field = col.to_arrow_field()
         assert isinstance(field.type, (pa.Decimal128Type, pa.Decimal256Type))
+        assert field.type.precision == expected_precision
+        assert field.type.scale == expected_scale
 
     def test_nullable_wrapper(self):
         col = ClickHouseColumn("id", "Nullable(Int64)", nullable=True)

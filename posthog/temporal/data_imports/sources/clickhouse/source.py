@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     filter_clickhouse_incremental_fields,
     get_clickhouse_row_count,
     get_connection_metadata as get_clickhouse_connection_metadata,
+    get_primary_keys_for_schemas as get_clickhouse_primary_keys_for_schemas,
     get_schemas as get_clickhouse_schemas,
 )
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
@@ -178,6 +179,17 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     names=names,
                 )
 
+            detected_pks = get_clickhouse_primary_keys_for_schemas(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                table_names=list(db_schemas.keys()),
+            )
+
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_clickhouse_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
@@ -199,6 +211,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name),
                     columns=columns,
+                    detected_primary_keys=detected_pks.get(table_name),
                 )
             )
 
