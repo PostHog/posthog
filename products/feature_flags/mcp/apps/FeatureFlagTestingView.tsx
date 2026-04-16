@@ -64,7 +64,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                 </span>
                                 <Stack gap="sm">
                                     {groups.map((group, index) => (
-                                        <Card key={index} variant="secondary">
+                                        <Card key={index}>
                                             <Stack gap="xs">
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-sm font-medium">Condition #{index + 1}</span>
@@ -72,14 +72,14 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                         {group.rollout_percentage}% rollout
                                                     </Badge>
                                                     {group.variant && (
-                                                        <Badge variant="primary" size="sm">
+                                                        <Badge variant="info" size="sm">
                                                             {group.variant}
                                                         </Badge>
                                                     )}
                                                 </div>
                                                 {group.properties && group.properties.length > 0 && (
                                                     <PropertyFilterList
-                                                        properties={group.properties as PropertyFilter[]}
+                                                        filters={group.properties as PropertyFilter[]}
                                                     />
                                                 )}
                                             </Stack>
@@ -105,7 +105,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                             <span className="font-medium text-text-primary">Tags</span>
                             <div className="flex gap-1 flex-wrap">
                                 {flag.tags.map((tag) => (
-                                    <Badge key={tag} variant="secondary" size="sm">
+                                    <Badge key={tag} variant="neutral" size="sm">
                                         {tag}
                                     </Badge>
                                 ))}

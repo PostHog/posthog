@@ -3453,10 +3453,10 @@ class FeatureFlagViewSet(
                 person_properties = build_person_properties_at_time(
                     team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": f"Failed to build person properties at specified timestamp: {str(e)}"},
+                    {"error": "Failed to build person properties at specified timestamp."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
@@ -3489,20 +3489,20 @@ class FeatureFlagViewSet(
                 # Set the reconstructed filters
                 evaluation_flag.filters = reconstructed_flag_data.get("filters", {})
 
-            except VersionNotFound as e:
+            except VersionNotFound:
                 return Response(
-                    {"error": f"Feature flag '{feature_flag.key}' did not exist at the specified timestamp: {str(e)}"},
+                    {"error": f"Feature flag '{feature_flag.key}' did not exist at the specified timestamp."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except VersionHistoryIncomplete as e:
+            except VersionHistoryIncomplete:
                 return Response(
-                    {"error": f"Could not reconstruct flag at timestamp due to incomplete history: {str(e)}"},
+                    {"error": "Could not reconstruct flag at timestamp due to incomplete history."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to reconstruct flag at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": f"Failed to reconstruct flag at specified timestamp: {str(e)}"},
+                    {"error": "Failed to reconstruct flag at specified timestamp."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
