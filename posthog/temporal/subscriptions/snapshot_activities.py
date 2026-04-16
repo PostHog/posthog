@@ -7,7 +7,6 @@ from structlog import get_logger
 
 from posthog.models import Insight
 from posthog.models.subscription import Subscription, SubscriptionDelivery
-from posthog.subscription_delivery_rollout import hackathon_subscription_feature
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
@@ -112,9 +111,6 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     )(pk=inputs.subscription_id)
 
     if not subscription.summary_enabled:
-        return SnapshotInsightsResult()
-
-    if not await database_sync_to_async(hackathon_subscription_feature, thread_sensitive=False)(inputs.team_id):
         return SnapshotInsightsResult()
 
     if not inputs.delivery_id:
