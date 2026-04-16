@@ -58,6 +58,7 @@ export enum Scene {
     Experiments = 'Experiments',
     Exports = 'Exports',
     Subscriptions = 'Subscriptions',
+    Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',

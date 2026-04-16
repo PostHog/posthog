@@ -37,7 +37,7 @@ class TestUtils(BaseTest):
         # Valid request with event
         request = HttpRequest()
         request.method = "POST"
-        request.POST = {"data": json.dumps({"event": "some event"})}
+        request.POST = cast(Any, {"data": json.dumps({"event": "some event"})})
         data, error_response = get_data(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)

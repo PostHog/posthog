@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional
@@ -21,8 +22,15 @@ from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, 
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
+from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
+    RequireAtLeastTwoFunnelSteps,
+    ValidateFunnelExclusions,
+    ValidateFunnelStepRange,
+    ValidateOptionalFunnelSteps,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -46,6 +54,14 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
             query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+        )
+
+    def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
+        return (
+            RequireAtLeastTwoFunnelSteps(),
+            ValidateFunnelStepRange(),
+            ValidateFunnelExclusions(),
+            ValidateOptionalFunnelSteps(),
         )
 
     def _refresh_frequency(self):

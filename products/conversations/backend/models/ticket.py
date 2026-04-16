@@ -82,6 +82,9 @@ class Ticket(UUIDTModel):
     # SLA deadline — set via workflows, null means no SLA
     sla_due_at = models.DateTimeField(null=True, blank=True)
 
+    # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
+    snoozed_until = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -104,6 +107,14 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
             # SLA sort/filter queries
             models.Index(fields=["team", "sla_due_at"], name="posthog_con_team_sla_idx"),
+            # Snooze: dashboard filter/sort by team
+            models.Index(fields=["team", "snoozed_until"], name="posthog_con_team_snooze_idx"),
+            # Snooze: wake task (cross-team, only non-null rows)
+            models.Index(
+                fields=["snoozed_until"],
+                name="posthog_con_snooze_wake_idx",
+                condition=models.Q(snoozed_until__isnull=False),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
