@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.automation_service import run_task_automation
+from products.tasks.backend.automation_service import run_task_automation, update_automation_run_result
 from products.tasks.backend.models import Task, TaskAutomation, TaskRun
 
 
@@ -110,3 +110,21 @@ class TestAutomationService(TestCase):
         automation.refresh_from_db()
         self.assertEqual(automation.last_run_at, task_run.created_at)
         self.assertEqual(automation.last_run_status, TaskAutomation.RunStatus.SUCCESS)
+
+    def test_update_automation_run_result_records_failure_from_previous_run(self):
+        automation = self.create_automation()
+        first_run = automation.task.create_run(mode="background", extra_state={"automation_id": str(automation.id)})
+        second_run = automation.task.create_run(mode="background", extra_state={"automation_id": str(automation.id)})
+
+        automation.last_task_run = second_run
+        automation.save(update_fields=["last_task_run", "updated_at"])
+
+        first_run.status = TaskRun.Status.FAILED
+        first_run.error_message = "Automation failed after a newer run started"
+        first_run.save(update_fields=["status", "error_message", "updated_at"])
+
+        update_automation_run_result(first_run)
+
+        automation.refresh_from_db()
+        self.assertEqual(automation.last_task_run_id, second_run.id)
+        self.assertEqual(automation.last_error, "Automation failed after a newer run started")

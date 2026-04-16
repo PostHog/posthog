@@ -136,11 +136,13 @@ def update_automation_run_result(task_run: TaskRun) -> None:
     if task_run.task.origin_product != Task.OriginProduct.AUTOMATION:
         return
 
-    automation = TaskAutomation.objects.filter(last_task_run=task_run).first()
-    if automation is None:
+    try:
+        automation = task_run.task.automation
+    except TaskAutomation.DoesNotExist:
         return
 
-    automation.last_error = (
-        task_run.error_message if task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED] else None
-    )
+    if task_run.status not in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
+        return
+
+    automation.last_error = task_run.error_message
     automation.save(update_fields=["last_error", "updated_at"])
