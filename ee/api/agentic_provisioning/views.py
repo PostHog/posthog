@@ -472,8 +472,8 @@ def _handle_new_user(
     try:
         reset_token = password_reset_token_generator.make_token(user)
         send_provisioning_welcome.delay(user.id, reset_token, partner_label)
-    except Exception as e:
-        capture_exception(e, {"user_id": user.id, "step": "provisioning_welcome_email"})
+    except Exception:
+        capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
     code = secrets.token_urlsafe(32)
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
