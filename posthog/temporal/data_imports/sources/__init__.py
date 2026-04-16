@@ -133,6 +133,7 @@ from .vitally.source import VitallySource
 from .webflow.source import WebflowSource
 from .woocommerce.source import WooCommerceSource
 from .workday.source import WorkdaySource
+from .workos.source import WorkOSSource
 from .wrike.source import WrikeSource
 from .xero.source import XeroSource
 from .youtube_analytics.source import YouTubeAnalyticsSource
@@ -276,6 +277,7 @@ __all__ = [
     "VitallySource",
     "WebflowSource",
     "WooCommerceSource",
+    "WorkOSSource",
     "WorkdaySource",
     "WrikeSource",
     "XeroSource",

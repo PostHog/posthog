@@ -50,6 +50,18 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -376,18 +388,6 @@ class GreenhouseSourceConfig(config.Config):
 @config.config
 class HelpScoutSourceConfig(config.Config):
     pass
-
-
-@config.config
-class HubspotCustomPropertiesConfig(config.Config):
-    contacts_properties: str | None = None
-    companies_properties: str | None = None
-    deals_properties: str | None = None
-    tickets_properties: str | None = None
-    quotes_properties: str | None = None
-    emails_properties: str | None = None
-    meetings_properties: str | None = None
-    enabled: bool = config.value(converter=config.str_to_bool, default=False)
 
 
 @config.config
@@ -825,6 +825,11 @@ class WooCommerceSourceConfig(config.Config):
 
 
 @config.config
+class WorkOSSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class WorkdaySourceConfig(config.Config):
     pass
 
@@ -1001,6 +1006,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
         ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
+        ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
         ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
         ExternalDataSourceType.WRIKE: WrikeSourceConfig,
         ExternalDataSourceType.XERO: XeroSourceConfig,

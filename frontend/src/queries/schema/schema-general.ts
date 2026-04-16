@@ -5591,6 +5591,7 @@ export const externalDataSources = [
     'Granola',
     'BuildBetter',
     'Convex',
+    'WorkOS',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

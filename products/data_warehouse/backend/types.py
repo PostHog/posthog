@@ -135,6 +135,7 @@ class ExternalDataSourceType(models.TextChoices):
     FACEBOOKPAGES = "FacebookPages", "FacebookPages"
     TWITTERADS = "TwitterAds", "TwitterAds"
     WORKDAY = "Workday", "Workday"
+    WORKOS = "WorkOS", "WorkOS"
     SERVICENOW = "ServiceNow", "ServiceNow"
     PARDOT = "Pardot", "Pardot"
     COPPER = "Copper", "Copper"
