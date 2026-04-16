@@ -64,7 +64,10 @@ function storeNoticeDismissal(key: string): void {
     }
 }
 
-/** Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched). */
+/**
+ * Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched).
+ * Limited to the first 7 days of each month so the nudge stays noticeable without causing fatigue.
+ */
 function shouldFetchProxyRecords(): boolean {
     return new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
