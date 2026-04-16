@@ -194,6 +194,8 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Flag keys that were overridden with custom definitions (for testing/historical evaluation)
+    pub flags_overridden: Option<Vec<String>>,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
     pub flags_cache_source: Option<&'static str>,
 
@@ -283,6 +285,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            flags_overridden: None,
             flags_cache_source: None,
             eval: EvalCounters::default(),
             db_property_fetches: 0,

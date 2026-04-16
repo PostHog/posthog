@@ -1194,6 +1194,7 @@ async fn test_fetch_and_filter_flags() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1221,6 +1222,7 @@ async fn test_fetch_and_filter_flags() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1233,6 +1235,7 @@ async fn test_fetch_and_filter_flags() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1255,6 +1258,7 @@ async fn test_fetch_and_filter_flags() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1332,6 +1336,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )

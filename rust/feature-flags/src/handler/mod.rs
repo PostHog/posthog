@@ -193,6 +193,7 @@ async fn process_request_inner(
                 &context.headers,
                 request.evaluation_runtime,
                 request.evaluation_contexts.as_ref(),
+                request.override_flags_definitions.as_ref(),
             )
             .await?;
 

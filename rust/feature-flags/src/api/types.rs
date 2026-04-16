@@ -696,6 +696,11 @@ impl FlagDetails {
                     "Condition {} matched and passed {}% rollout",
                     index, rollout_percentage
                 )
+            } else if all_properties_matched && !condition_matched {
+                format!(
+                    "Condition {} matched properties but was not evaluated due to an earlier condition matching",
+                    index
+                )
             } else {
                 format!("Condition {} did not match properties", index)
             };

@@ -298,6 +298,14 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     </div>
                                 </div>
 
+                                {/* Timestamp Warning */}
+                                {formData.timestamp && (
+                                    <LemonBanner type="info" className="mb-4">
+                                        <strong>Historical evaluation:</strong> Both flag conditions and person
+                                        properties reflect their state at the specified timestamp, not current values.
+                                    </LemonBanner>
+                                )}
+
                                 {result.payload != null && (
                                     <div className="space-y-2">
                                         <LemonLabel>Payload</LemonLabel>
@@ -316,66 +324,86 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         <LemonLabel>Condition analysis</LemonLabel>
 
                                         <div className="space-y-3 max-h-96 overflow-auto">
-                                            {result.conditions.map((condition: ConditionAnalysis) => (
-                                                <div
-                                                    key={condition.index}
-                                                    className={`border rounded-lg p-3 ${
-                                                        condition.matched && !condition.rollout_excluded
-                                                            ? 'border-success bg-success-highlight'
-                                                            : condition.rollout_excluded
-                                                              ? 'border-warning bg-warning-highlight'
-                                                              : 'border-muted bg-bg-light'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-2 mb-2">
-                                                        <h6 className="font-medium text-sm">
-                                                            Condition #{condition.index}
-                                                        </h6>
-                                                        <span
-                                                            className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                condition.matched && !condition.rollout_excluded
-                                                                    ? 'bg-success text-success-content'
-                                                                    : condition.rollout_excluded
-                                                                      ? 'bg-warning text-warning-content'
-                                                                      : 'bg-muted text-muted-alt'
-                                                            }`}
-                                                        >
-                                                            {condition.rollout_excluded
-                                                                ? 'ROLLOUT EXCLUDED'
-                                                                : condition.matched
-                                                                  ? 'MATCHED'
-                                                                  : 'NOT MATCHED'}
-                                                        </span>
-                                                        {condition.rollout_percentage < 100 && (
-                                                            <span className="px-2 py-1 rounded text-xs bg-bg-light text-muted font-mono">
-                                                                {condition.rollout_percentage}%
+                                            {result.conditions.map((condition: ConditionAnalysis) => {
+                                                // Check if this condition is the actual winner
+                                                const isWinningCondition = result.condition_index === condition.index
+                                                // Determine if this condition matched but wasn't the winner
+                                                const matchedButNotWinner =
+                                                    condition.matched &&
+                                                    !condition.rollout_excluded &&
+                                                    !isWinningCondition
+
+                                                return (
+                                                    <div
+                                                        key={condition.index}
+                                                        className={`border rounded-lg p-3 ${
+                                                            condition.matched &&
+                                                            !condition.rollout_excluded &&
+                                                            isWinningCondition
+                                                                ? 'border-success bg-success-highlight'
+                                                                : matchedButNotWinner
+                                                                  ? 'border-info bg-info-highlight'
+                                                                  : condition.rollout_excluded
+                                                                    ? 'border-warning bg-warning-highlight'
+                                                                    : 'border-muted bg-bg-light'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <h6 className="font-medium text-sm">
+                                                                Condition #{condition.index}
+                                                            </h6>
+                                                            <span
+                                                                className={`px-2 py-1 rounded text-xs font-mono ${
+                                                                    condition.matched &&
+                                                                    !condition.rollout_excluded &&
+                                                                    isWinningCondition
+                                                                        ? 'bg-success text-success-content'
+                                                                        : matchedButNotWinner
+                                                                          ? 'bg-info text-info-content'
+                                                                          : condition.rollout_excluded
+                                                                            ? 'bg-warning text-warning-content'
+                                                                            : 'bg-muted text-muted-alt'
+                                                                }`}
+                                                            >
+                                                                {condition.rollout_excluded
+                                                                    ? 'ROLLOUT EXCLUDED'
+                                                                    : matchedButNotWinner
+                                                                      ? 'PROPERTIES MATCHED'
+                                                                      : condition.matched
+                                                                        ? 'MATCHED'
+                                                                        : 'NOT MATCHED'}
                                                             </span>
-                                                        )}
-                                                    </div>
-
-                                                    <div className="mb-2 text-xs text-muted">
-                                                        {condition.explanation}
-                                                    </div>
-
-                                                    {condition.properties.length > 0 && (
-                                                        <div className="space-y-1">
-                                                            {condition.properties.map(
-                                                                (
-                                                                    property: ConditionAnalysis['properties'][number],
-                                                                    idx: number
-                                                                ) => (
-                                                                    <div
-                                                                        key={`${property.key}-${idx}`}
-                                                                        className="text-xs text-muted pl-2"
-                                                                    >
-                                                                        • {property.explanation}
-                                                                    </div>
-                                                                )
+                                                            {condition.rollout_percentage < 100 && (
+                                                                <span className="px-2 py-1 rounded text-xs bg-bg-light text-muted font-mono">
+                                                                    {condition.rollout_percentage}%
+                                                                </span>
                                                             )}
                                                         </div>
-                                                    )}
-                                                </div>
-                                            ))}
+
+                                                        <div className="mb-2 text-xs text-muted">
+                                                            {condition.explanation}
+                                                        </div>
+
+                                                        {condition.properties.length > 0 && (
+                                                            <div className="space-y-1">
+                                                                {condition.properties.map(
+                                                                    (
+                                                                        property: ConditionAnalysis['properties'][number],
+                                                                        idx: number
+                                                                    ) => (
+                                                                        <div
+                                                                            key={`${property.key}-${idx}`}
+                                                                            className="text-xs text-muted pl-2"
+                                                                        >
+                                                                            • {property.explanation}
+                                                                        </div>
+                                                                    )
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
                                     </div>
                                 )}

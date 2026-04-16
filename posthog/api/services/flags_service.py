@@ -24,6 +24,7 @@ def get_flags_from_service(
     only_use_override_person_properties: bool = False,
     flag_keys: list[str] | None = None,
     internal_request_token: str | None = None,
+    override_flags_definitions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -37,6 +38,7 @@ def get_flags_from_service(
         only_use_override_person_properties: Whether to ignore database person properties and only use provided ones (default: False)
         flag_keys: Optional list of specific flag keys to evaluate (default: None, evaluates all flags)
         internal_request_token: Optional token to mark request as internal (non-billable) (default: None)
+        override_flags_definitions: Optional dict of flag key -> flag definition to override database flags (default: None)
 
     Returns:
         The full response from the flags service as a dict, typically containing:
@@ -74,6 +76,9 @@ def get_flags_from_service(
 
     if flag_keys:
         payload["flag_keys"] = flag_keys
+
+    if override_flags_definitions:
+        payload["override_flags_definitions"] = override_flags_definitions
 
     params: dict[str, str] = {"v": "2"}
 

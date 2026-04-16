@@ -81,6 +81,7 @@ from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.feature_flag.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
+    reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
 from posthog.models.group.group import Group
@@ -1937,7 +1938,7 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(
         required=False,
         allow_null=True,
-        help_text="Optional timestamp to evaluate flag at a specific point in time (ISO format)",
+        help_text="Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)",
     )
     groups = GroupsJSONField(required=False)
 
@@ -3390,8 +3391,8 @@ class FeatureFlagViewSet(
         Test feature flag evaluation against a specific user at an optional point in time.
 
         This endpoint allows testing how a feature flag would evaluate for a specific user,
-        optionally at a historical timestamp. It provides detailed reasoning about why the
-        flag matched or didn't match.
+        optionally at a historical timestamp. When a timestamp is provided, both the flag
+        conditions and person properties are evaluated as they existed at that time.
         """
         feature_flag = self.get_object()
 
@@ -3462,14 +3463,79 @@ class FeatureFlagViewSet(
             # Use current person properties
             person_properties = person.properties or {}
 
-        # Evaluate the flag using Rust service
+        # If timestamp is provided, reconstruct the flag at that point in time
+        evaluation_flag = feature_flag
+        if timestamp:
+            try:
+                # Reconstruct the flag at the timestamp using the efficient single-pass method
+                reconstructed_flag_data = reconstruct_flag_at_timestamp(
+                    flag=feature_flag,
+                    timestamp=timestamp,
+                    team_id=self.team_id,
+                )
+
+                # Create a temporary flag-like object with the reconstructed data for evaluation
+                evaluation_flag = FeatureFlag(
+                    id=feature_flag.id,
+                    key=feature_flag.key,
+                    name=reconstructed_flag_data.get("name", feature_flag.name),
+                    active=reconstructed_flag_data.get("active", feature_flag.active),
+                    team=feature_flag.team,
+                    created_at=feature_flag.created_at,
+                    created_by=feature_flag.created_by,
+                    deleted=reconstructed_flag_data.get("deleted", False),
+                    version=reconstructed_flag_data.get("version", 1),
+                )
+                # Set the reconstructed filters
+                evaluation_flag.filters = reconstructed_flag_data.get("filters", {})
+
+            except VersionNotFound as e:
+                return Response(
+                    {"error": f"Feature flag '{feature_flag.key}' did not exist at the specified timestamp: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except VersionHistoryIncomplete as e:
+                return Response(
+                    {"error": f"Could not reconstruct flag at timestamp due to incomplete history: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception as e:
+                logger.exception("Failed to reconstruct flag at timestamp for flag %s", feature_flag.key)
+                return Response(
+                    {"error": f"Failed to reconstruct flag at specified timestamp: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # Evaluate the flag
         try:
-            # Get the team's API token for the Rust service
+            # Get team API token for Rust service
             team_token = self.team.api_token
 
-            # Call the Rust flags service
-            # Note: detailed_analysis=True and only_use_override_person_properties=True (when timestamp provided)
-            # automatically trigger skip_writes=True in Rust to prevent cache pollution
+            # If we have a reconstructed flag, pass it as override definition
+            override_definitions = None
+            if timestamp:
+                # Convert the reconstructed flag to the format expected by Rust service
+                try:
+                    from django.forms.models import model_to_dict
+
+                    flag_dict = model_to_dict(
+                        evaluation_flag, exclude=["created_by", "last_modified_by", "team", "usage_dashboard"]
+                    )
+                    # Convert datetime fields to strings for JSON serialization
+                    if flag_dict.get("created_at"):
+                        flag_dict["created_at"] = flag_dict["created_at"].isoformat()
+                    if flag_dict.get("updated_at"):
+                        flag_dict["updated_at"] = flag_dict["updated_at"].isoformat()
+
+                    # Add team_id since Rust FeatureFlag struct requires it
+                    flag_dict["team_id"] = evaluation_flag.team_id
+
+                    override_definitions = {feature_flag.key: flag_dict}
+                except Exception as e:
+                    # Log the error but continue without override definitions
+                    logging.exception(f"Failed to serialize flag for override: {e}")
+                    override_definitions = None
+
             rust_response = get_flags_from_service(
                 token=team_token,
                 distinct_id=evaluation_distinct_id,
@@ -3479,6 +3545,7 @@ class FeatureFlagViewSet(
                 only_use_override_person_properties=timestamp is not None,
                 flag_keys=[feature_flag.key],
                 internal_request_token=os.getenv("INTERNAL_REQUEST_TOKEN"),
+                override_flags_definitions=override_definitions,
             )
 
             # Extract the flag result from the Rust response
@@ -3537,6 +3604,7 @@ class FeatureFlagViewSet(
                 "person_properties": person_properties,
                 "conditions": detailed_conditions,
             }
+
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
             response_serializer.is_valid(raise_exception=True)
             return Response(response_serializer.data)
