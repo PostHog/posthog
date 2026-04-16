@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Optional
 
@@ -17,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.settings import TEST
 
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -241,8 +243,17 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             limit_context=self.limit_context,
         )
 
-        previous_period_query = previous_runner.to_query()
-        current_period_query = self.to_query()
+        # Current and previous periods are independent — parallelise them.
+        # Skipped in tests: Django test transactions aren't visible across threads.
+        if TEST:
+            previous_period_query = previous_runner.to_query()
+            current_period_query = self.to_query()
+        else:
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="ma_compare") as pool:
+                previous_future = pool.submit(previous_runner.to_query)
+                current_future = pool.submit(self.to_query)
+                previous_period_query = previous_future.result()
+                current_period_query = current_future.result()
 
         # Create the join manually with proper AST structure
         join_expr = self._build_compare_join(current_period_query, previous_period_query)
