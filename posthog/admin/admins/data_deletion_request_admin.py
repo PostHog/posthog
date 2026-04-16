@@ -11,7 +11,13 @@ from django.utils.html import format_html
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    ExecutionMode,
+    RequestStatus,
+    RequestType,
+    jsonhas_expr,
+)
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
@@ -306,6 +312,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "approved",
         "approved_by",
         "approved_at",
+        "execution_mode",
     )
     ordering = ("-created_at",)
     change_form_template = "admin/posthog/datadeletionrequest/change_form.html"
@@ -354,6 +361,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "approved",
                     "approved_by",
                     "approved_at",
+                    "execution_mode",
                 ),
             },
         ),
@@ -362,6 +370,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not change:
             obj.created_by = request.user
+            obj.created_by_staff = request.user.is_staff
         elif form.changed_data and CRITERIA_FIELDS & set(form.changed_data):
             obj.criteria_updated_by = request.user
             obj.criteria_updated_at = timezone.now()
@@ -511,28 +520,52 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        if request.method != "POST":
+        supports_deferred = obj.request_type == RequestType.EVENT_REMOVAL
+
+        if request.method == "POST":
+            execution_mode = request.POST.get("execution_mode", ExecutionMode.IMMEDIATE)
+            if execution_mode not in ExecutionMode.values:
+                messages.error(request, f"Invalid execution mode: {execution_mode!r}.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
+            if execution_mode == ExecutionMode.DEFERRED and not supports_deferred:
+                messages.error(request, "Deferred execution is only supported for event removal requests.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
+
+            updated = DataDeletionRequest.objects.filter(
+                pk=obj.pk,
+                status=RequestStatus.PENDING,
+            ).update(
+                status=RequestStatus.APPROVED,
+                approved=True,
+                approved_by=request.user,
+                approved_at=timezone.now(),
+                execution_mode=execution_mode,
+                updated_at=timezone.now(),
+            )
+
+            if not updated:
+                messages.error(request, "Only pending requests can be approved.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+            obj.refresh_from_db()
+            self.log_change(request, obj, f"Approved deletion request (execution_mode={execution_mode}).")
+            messages.success(request, f"Deletion request approved ({obj.get_execution_mode_display()}).")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        updated = DataDeletionRequest.objects.filter(
-            pk=obj.pk,
-            status=RequestStatus.PENDING,
-        ).update(
-            status=RequestStatus.APPROVED,
-            approved=True,
-            approved_by=request.user,
-            approved_at=timezone.now(),
-            updated_at=timezone.now(),
-        )
-
-        if not updated:
+        if obj.status != RequestStatus.PENDING:
             messages.error(request, "Only pending requests can be approved.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        obj.refresh_from_db()
-        self.log_change(request, obj, "Approved deletion request.")
-        messages.success(request, "Deletion request approved.")
-        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+        context = {
+            **self.admin_site.each_context(request),
+            "obj": obj,
+            "supports_deferred": supports_deferred,
+            "execution_mode_choices": ExecutionMode.choices,
+            "default_execution_mode": ExecutionMode.IMMEDIATE,
+            "opts": self.model._meta,
+            "title": f"Approve deletion request {obj.pk}",
+        }
+        return TemplateResponse(request, "admin/posthog/datadeletionrequest/approve.html", context)
 
     def revert_to_draft_view(self, request, object_id):
         obj = self.get_object(request, object_id)

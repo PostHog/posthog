@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Approve deletion request{% endblock %}
+
+{% block content %}
+<h1>Approve deletion request</h1>
+
+<table style="margin: 20px 0; border-collapse: collapse; width: 100%;">
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Team ID</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.team_id }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Request type</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.get_request_type_display }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Time range</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.start_time }} &ndash; {{ obj.end_time }}</td></tr>
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Events</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            <ul style="margin: 0; padding-left: 20px;">
+                {% for event in obj.events %}
+                    <li><code>{{ event }}</code></li>
+                {% empty %}
+                    <li><em>None</em></li>
+                {% endfor %}
+            </ul>
+        </td>
+    </tr>
+    {% if obj.properties %}
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Properties</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            <ul style="margin: 0; padding-left: 20px;">
+                {% for prop in obj.properties %}
+                    <li><code>{{ prop }}</code></li>
+                {% endfor %}
+            </ul>
+        </td>
+    </tr>
+    {% endif %}
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Matching events</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.count|default:"—" }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px;">Created by</th><td style="padding: 8px;">{{ obj.created_by|default:"—" }}</td></tr>
+</table>
+
+<form method="post">
+    {% csrf_token %}
+    <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
+        <legend style="font-weight: bold; padding: 0 8px;">Execution mode</legend>
+        {% if supports_deferred %}
+            <p style="color: #555; margin: 4px 0 12px 0;">Pick how this deletion should execute.</p>
+            {% for value, label in execution_mode_choices %}
+                <div style="margin: 8px 0;">
+                    <label style="cursor: pointer;">
+                        <input type="radio" name="execution_mode" value="{{ value }}"
+                               {% if value == default_execution_mode %}checked{% endif %} />
+                        <strong>{{ label }}</strong>
+                        {% if value == "immediate" %}
+                            &mdash; Dispatch a dedicated lightweight-delete mutation now on each shard. Events gone when the job finishes.
+                        {% elif value == "deferred" %}
+                            &mdash; Queue matching event UUIDs into <code>adhoc_events_deletion</code>. The scheduled <code>deletes_job</code> drains them alongside other batched deletes. Request lands in <code>queued</code> and transitions to <code>completed</code> once the events are gone.
+                        {% endif %}
+                    </label>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p style="color: #555; margin: 4px 0;">
+                Property removal requests always execute immediately &mdash; deferred mode is only supported for event removal.
+            </p>
+            <input type="hidden" name="execution_mode" value="immediate" />
+        {% endif %}
+    </fieldset>
+
+    <div style="margin-top: 20px; display: flex; gap: 10px; align-items: center;">
+        <input type="submit" value="Confirm &amp; Approve" class="default" style="padding: 10px 15px; background: #5cb85c; color: white;" />
+        <a href="{% url 'admin:posthog_datadeletionrequest_change' obj.pk %}" style="padding: 10px 15px;">Back</a>
+    </div>
+</form>
+{% endblock %}

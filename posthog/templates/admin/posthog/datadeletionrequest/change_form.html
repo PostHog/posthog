@@ -39,7 +39,7 @@
     {% if can_approve %}
     <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #5cb85c; display: flex; align-items: center; gap: 10px;">
         <div class="info">This request is <strong>pending</strong> and awaiting approval.</div>
-        <button type="submit" formaction="{{ approve_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #5cb85c; color: white;">Approve</button>
+        <a class="button" style="padding: 10px 15px; background: #5cb85c; color: white;" href="{{ approve_url }}">Review &amp; Approve</a>
     </div>
     {% endif %}
 
