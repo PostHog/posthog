@@ -48,7 +48,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        req.uri().path().to_owned()
+        common_metrics::normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();

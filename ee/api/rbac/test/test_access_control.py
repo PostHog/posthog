@@ -23,9 +23,9 @@ from ee.models.rbac.role import Role, RoleMembership
 class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [
-            AvailableFeature.ADVANCED_PERMISSIONS,
-            AvailableFeature.ROLE_BASED_ACCESS,
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
 

@@ -2,5 +2,20 @@
     "name": "@posthog/products-data-warehouse",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-test-utils": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "react": "*"
     }
 }

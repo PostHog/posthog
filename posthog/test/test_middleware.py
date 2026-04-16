@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -558,7 +558,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def get_csrf_token_payload(self):
@@ -719,7 +719,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_other_user(self):
@@ -910,7 +910,7 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_other_user(self):
@@ -1030,7 +1030,7 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def test_impersonation_rejected_without_reason(self):
@@ -1089,7 +1089,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()  # type: ignore[assignment]
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_read_only(self):
