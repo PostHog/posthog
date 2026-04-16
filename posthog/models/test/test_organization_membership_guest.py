@@ -43,3 +43,20 @@ class TestOrganizationMembershipGuest(BaseTest):
         OrganizationMembership.objects.create(organization=self.organization, user=guest_user, is_guest=True)
         self.assertTrue(OrganizationMembership.regular.filter(user=regular_user).exists())
         self.assertFalse(OrganizationMembership.regular.filter(user=guest_user).exists())
+
+    def test_is_guest_change_emits_activity_log(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        user = User.objects.create_user(email="promote@posthog.com", password="x", first_name="P")
+        membership = OrganizationMembership.objects.create(organization=self.organization, user=user, is_guest=True)
+        # Clear any create entries
+        ActivityLog.objects.filter(scope="OrganizationMembership", item_id=str(membership.id)).delete()
+
+        membership.is_guest = False
+        membership.save()
+
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                scope="OrganizationMembership", activity="updated", item_id=str(membership.id)
+            ).exists()
+        )
