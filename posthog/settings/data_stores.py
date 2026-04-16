@@ -443,6 +443,11 @@ KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
+# Per-topic overrides for the kafka_client.routing map. Comma-separated
+# "topic=profile" entries; merged over the code-level defaults at lookup time.
+# Example: "clickhouse_precalculated_person_properties=warpstream_calculated_events,clickhouse_events_json=default"
+KAFKA_TOPIC_ROUTING_OVERRIDES = os.getenv("KAFKA_TOPIC_ROUTING_OVERRIDES", "") or ""
+
 # A list of tokens for which events should be sent to the historical topic
 # TODO: possibly remove this and replace with something that provides the
 # separation of concerns between realtime and historical ingestion but without

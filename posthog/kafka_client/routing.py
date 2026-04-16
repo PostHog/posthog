@@ -72,14 +72,54 @@ def _resolve_profile_config(profile: KafkaClusterProfile) -> ClusterProfileConfi
     raise ValueError(f"Unknown KafkaClusterProfile: {profile}")
 
 
-# Explicit topic → profile mapping. Topics not listed resolve to DEFAULT.
-TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
+# Code-level default topic → profile mapping. Topics not listed resolve to DEFAULT.
+# Callers should not read this directly — use `current_topic_routing()` so env
+# overrides from `KAFKA_TOPIC_ROUTING_OVERRIDES` are applied.
+_DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
 }
+
+
+def _parse_routing_overrides(raw: str) -> dict[str, KafkaClusterProfile]:
+    """Parse 'topic_a=profile_a,topic_b=profile_b' into a dict.
+
+    Raises ValueError on malformed entries or unknown profile names so
+    misconfiguration surfaces at startup rather than silently defaulting.
+    """
+    overrides: dict[str, KafkaClusterProfile] = {}
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        topic, sep, profile_name = chunk.partition("=")
+        topic, profile_name = topic.strip(), profile_name.strip()
+        if not sep or not topic or not profile_name:
+            raise ValueError(f"Malformed KAFKA_TOPIC_ROUTING_OVERRIDES entry: {chunk!r} (expected 'topic=profile')")
+        try:
+            overrides[topic] = KafkaClusterProfile(profile_name)
+        except ValueError:
+            valid = ", ".join(p.value for p in KafkaClusterProfile)
+            raise ValueError(
+                f"Unknown profile {profile_name!r} for topic {topic!r} in KAFKA_TOPIC_ROUTING_OVERRIDES "
+                f"(valid profiles: {valid})"
+            ) from None
+    return overrides
+
+
+def current_topic_routing() -> dict[str, KafkaClusterProfile]:
+    """Return the merged routing map: code defaults overlaid with env overrides.
+
+    Re-reads `settings.KAFKA_TOPIC_ROUTING_OVERRIDES` on every call so tests that
+    use `override_settings` can change routing without reimporting the module.
+    """
+    raw = getattr(settings, "KAFKA_TOPIC_ROUTING_OVERRIDES", "") or ""
+    if not raw.strip():
+        return _DEFAULT_TOPIC_ROUTING
+    return {**_DEFAULT_TOPIC_ROUTING, **_parse_routing_overrides(raw)}
 
 
 _SYNC_PRODUCERS: dict[KafkaClusterProfile, _KafkaProducer] = {}
@@ -90,7 +130,7 @@ def _resolve_profile(topic: Optional[str], profile: Optional[KafkaClusterProfile
     if profile is not None:
         return profile
     if topic is not None:
-        return TOPIC_ROUTING.get(topic, KafkaClusterProfile.DEFAULT)
+        return current_topic_routing().get(topic, KafkaClusterProfile.DEFAULT)
     return KafkaClusterProfile.DEFAULT
 
 
