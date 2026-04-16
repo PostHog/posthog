@@ -1,5 +1,6 @@
 from typing import override
 
+from django.db import IntegrityError
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -34,28 +35,19 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
 def _compute_if_stale(team_id: int, team) -> None:
     now = timezone.now()
     for rec in RECOMMENDATIONS:
-
         try:
-            obj, created = ErrorTrackingRecommendation.objects.get_or_create(
-                team_id=team_id,
-                type=rec.type,
-                defaults={
-                    'meta': rec.compute(team),
-                    'computed_at': now,
-                }
-            )
-            if not created and (obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval):
-                obj.meta = rec.compute(team)
-                obj.computed_at = now
-                obj.save(update_fields=['meta', 'computed_at', 'updated_at'])
-        except IntegrityError:
-            # Another request created it, fetch and update if stale
             obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
-            if obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval:
-                obj.meta = rec.compute(team)
-                obj.computed_at = now
-                obj.save(update_fields=['meta', 'computed_at', 'updated_at'])
-
+        except ErrorTrackingRecommendation.DoesNotExist:
+            try:
+                ErrorTrackingRecommendation.objects.create(
+                    team_id=team_id,
+                    type=rec.type,
+                    meta=rec.compute(team),
+                    computed_at=now,
+                )
+            except IntegrityError:
+                pass
+            continue
         if obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval:
             obj.meta = rec.compute(team)
             obj.computed_at = now
