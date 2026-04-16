@@ -33,13 +33,13 @@ def _ensure_post_fork_init():
     global _post_fork_initialized
     if _post_fork_initialized:
         return
-    _post_fork_initialized = True
 
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
 
     start_continuous_profiling()
     initialize_otel()
+    _post_fork_initialized = True
 
 
 # Django doesn't support lifetime requests and raises an exception
@@ -49,6 +49,10 @@ def lifetime_wrapper(func):
     async def inner(scope, receive, send):
         if scope["type"] != "http":
             return HttpResponse(status=501)
+        # Synchronous and blocks the first request (~1s for gRPC channel +
+        # instrumentor patching). Acceptable: Unit workers handle one request
+        # at a time, so there's no event-loop concurrency to stall, and this
+        # only runs once per worker lifetime.
         _ensure_post_fork_init()
         return await func(scope, receive, send)
 
