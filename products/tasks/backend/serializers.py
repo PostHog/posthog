@@ -724,23 +724,23 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("id must be a string or number")
         return value
 
+    @staticmethod
+    def _require_nonempty_string(params: dict, key: str) -> None:
+        value = params.get(key)
+        if not value or not isinstance(value, str) or not value.strip():
+            raise serializers.ValidationError({"params": f"{key} is required and must be a non-empty string"})
+
     def validate(self, attrs):
         method = attrs["method"]
         params = attrs.get("params", {})
         if method == "user_message":
-            content = params.get("content")
-            if not content or not isinstance(content, str) or not content.strip():
-                raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
+            self._require_nonempty_string(params, "content")
         elif method == "permission_response":
-            if not params.get("requestId") or not isinstance(params.get("requestId"), str):
-                raise serializers.ValidationError({"params": "requestId is required and must be a non-empty string"})
-            if not params.get("optionId") or not isinstance(params.get("optionId"), str):
-                raise serializers.ValidationError({"params": "optionId is required and must be a non-empty string"})
+            self._require_nonempty_string(params, "requestId")
+            self._require_nonempty_string(params, "optionId")
         elif method == "set_config_option":
-            if not params.get("configId") or not isinstance(params.get("configId"), str):
-                raise serializers.ValidationError({"params": "configId is required and must be a non-empty string"})
-            if not params.get("value") or not isinstance(params.get("value"), str):
-                raise serializers.ValidationError({"params": "value is required and must be a non-empty string"})
+            self._require_nonempty_string(params, "configId")
+            self._require_nonempty_string(params, "value")
         return attrs
 
 

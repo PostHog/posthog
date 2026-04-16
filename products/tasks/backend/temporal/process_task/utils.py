@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -153,7 +153,18 @@ class RunState(BaseModel, extra="allow"):
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
     pending_user_message_ts: str | None = None
-    initial_permission_mode: str | None = None
+    initial_permission_mode: (
+        Literal[
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+        ]
+        | None
+    ) = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None

@@ -363,7 +363,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
-            {"initial_permission_mode": mode},
+            {"initial_permission_mode": mode, "runtime_adapter": "claude", "model": "claude-sonnet-4-6"},
             format="json",
         )
 
@@ -405,6 +405,8 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "pending_user_message": "Start with this",
                 "initial_permission_mode": "plan",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-6",
             },
             format="json",
         )
