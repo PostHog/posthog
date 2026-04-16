@@ -122,17 +122,6 @@ class TestAzureOpenAIListModels:
         mock_get.assert_called_once()
         assert mock_get.call_args.args[0] == f"{MOCK_ENDPOINT.rstrip('/')}/openai/deployments"
 
-    @patch("products.llm_analytics.backend.llm.providers.azure_openai.time.sleep")
-    @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
-    def test_list_models_5xx_retries_then_returns_empty(self, mock_get, _mock_sleep):
-        mock_get.return_value = _mock_http_response(status_code=503)
-
-        result = AzureOpenAIAdapter.list_models("key", azure_endpoint=MOCK_ENDPOINT)
-
-        assert result == []
-        # One initial + two retries = 3 calls total on persistent 5xx.
-        assert mock_get.call_count == 3
-
     @patch("products.llm_analytics.backend.llm.providers.azure_openai.httpx.get")
     def test_list_models_handles_missing_created_at(self, mock_get):
         mock_get.return_value = _mock_http_response(

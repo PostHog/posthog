@@ -4,7 +4,6 @@ Azure OpenAI uses deployment-based model naming and requires an azure_endpoint
 and api_version in addition to an API key. This provider is BYOK-only.
 """
 
-import time
 import logging
 from typing import Any
 
@@ -21,15 +20,8 @@ logger = logging.getLogger(__name__)
 # Keep in sync with frontend DEFAULT_AZURE_API_VERSION in llmProviderKeysLogic.ts.
 DEFAULT_API_VERSION = "2024-10-21"
 
-# Tight timeout for catalog/listing calls — validation and deployment listing are
-# cheap calls that shouldn't inherit the generous completion timeout.
+# Listing is a cheap call; don't inherit the long completion timeout.
 AZURE_LIST_TIMEOUT = 10.0
-
-# Retry transient connection errors and 5xx responses. Deployments listing is
-# idempotent so retrying is safe. Validation paths reuse the same helper.
-_RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
-_MAX_RETRIES = 2
-_BACKOFF_BASE_SECONDS = 0.5
 
 
 def _list_azure_deployments(api_key: str, azure_endpoint: str, api_version: str) -> list[str]:
@@ -42,33 +34,16 @@ def _list_azure_deployments(api_key: str, azure_endpoint: str, api_version: str)
     endpoint = azure_endpoint.rstrip("/")
     url = f"{endpoint}/openai/deployments"
 
-    last_exc: Exception | None = None
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            response = httpx.get(
-                url,
-                params={"api-version": api_version},
-                headers={"api-key": api_key},
-                timeout=AZURE_LIST_TIMEOUT,
-            )
-            if response.status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_RETRIES:
-                time.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
-                continue
-            response.raise_for_status()
-            data = response.json().get("data", [])
-            # Sort by creation time descending, falling back to name.
-            data.sort(key=lambda d: (d.get("created_at") or 0, d.get("id") or ""), reverse=True)
-            return [d["id"] for d in data if "id" in d]
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            if attempt < _MAX_RETRIES:
-                time.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
-                continue
-            raise
-
-    # Unreachable — loop either returns or raises — but appeases type checker.
-    assert last_exc is not None
-    raise last_exc
+    response = httpx.get(
+        url,
+        params={"api-version": api_version},
+        headers={"api-key": api_key},
+        timeout=AZURE_LIST_TIMEOUT,
+    )
+    response.raise_for_status()
+    data = response.json().get("data", [])
+    data.sort(key=lambda d: (d.get("created_at") or 0, d.get("id") or ""), reverse=True)
+    return [d["id"] for d in data if "id" in d]
 
 
 class AzureOpenAIAdapter(OpenAIAdapter):

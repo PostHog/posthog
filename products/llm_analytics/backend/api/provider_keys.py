@@ -139,13 +139,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             state, error_message = validate_provider_key(provider, api_key, **azure_kwargs)
             if state != LLMProviderKey.State.OK:
                 raise serializers.ValidationError({"api_key": error_message or "Key validation failed"})
-            encrypted_config: dict = {"api_key": api_key}
-            if provider == LLMProvider.AZURE_OPENAI:
-                if azure_kwargs.get("azure_endpoint"):
-                    encrypted_config["azure_endpoint"] = azure_kwargs["azure_endpoint"]
-                if azure_kwargs.get("api_version"):
-                    encrypted_config["api_version"] = azure_kwargs["api_version"]
-            validated_data["encrypted_config"] = encrypted_config
+            validated_data["encrypted_config"] = {"api_key": api_key, **azure_kwargs}
             validated_data["state"] = state
             validated_data["error_message"] = None
 
