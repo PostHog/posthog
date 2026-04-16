@@ -24,6 +24,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flag_analytics import (
     SDK_LIBRARIES,
     _extract_sdk_breakdown_from_redis,
+    _flag_key_filter_sql,
     capture_team_decide_usage,
     capture_usage_for_all_teams,
     find_flags_with_enriched_analytics,
@@ -1072,3 +1073,24 @@ class TestCachedCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
 
     def test_cached_returns_empty_dict_when_no_team_ids(self):
         assert get_cached_evaluations_7d_by_team("any_flag", []) == {}
+
+
+class TestFlagKeyFilterSQL(BaseTest):
+    def test_falls_back_to_json_extract_when_not_materialized(self):
+        with patch(
+            "posthog.models.feature_flag.flag_analytics.get_materialized_column_for_property",
+            return_value=None,
+        ):
+            sql = _flag_key_filter_sql()
+        assert "JSONExtractString(properties, '$feature_flag')" in sql
+
+    def test_uses_materialized_column_when_available(self):
+        fake_column = MagicMock()
+        fake_column.name = "mat_$feature_flag"
+        with patch(
+            "posthog.models.feature_flag.flag_analytics.get_materialized_column_for_property",
+            return_value=fake_column,
+        ):
+            sql = _flag_key_filter_sql()
+        assert "mat_$feature_flag" in sql
+        assert "JSONExtractString" not in sql

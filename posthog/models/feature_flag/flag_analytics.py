@@ -7,6 +7,7 @@ from django.core.cache import cache
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -260,17 +261,31 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
 
 # Cross-project evaluation counts (used by the organization feature-flag projects grid)
 
-CROSS_PROJECT_EVALS_QUERY = """
+CROSS_PROJECT_EVALS_CACHE_TTL = 300
+
+
+def _flag_key_filter_sql() -> str:
+    """SQL for matching the `$feature_flag` property, using the materialized column when available.
+
+    Falls back to JSONExtractString so the query still works when the property
+    isn't materialized on this ClickHouse instance.
+    """
+    column = get_materialized_column_for_property("events", "properties", "$feature_flag")
+    if column is not None:
+        return f"{column.name} = %(flag_key)s"
+    return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
+
+
+def _build_cross_project_evals_query() -> str:
+    return f"""
 SELECT team_id, count() AS evaluations
 FROM events
 PREWHERE event = '$feature_flag_called'
-WHERE JSONExtractString(properties, '$feature_flag') = %(flag_key)s
+WHERE {_flag_key_filter_sql()}
   AND team_id IN %(team_ids)s
   AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY team_id
 """
-
-CROSS_PROJECT_EVALS_CACHE_TTL = 300
 
 
 def get_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, int] | None:
@@ -285,7 +300,7 @@ def get_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, 
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, name="get_evaluations_7d_by_team")
     try:
-        rows = sync_execute(CROSS_PROJECT_EVALS_QUERY, {"flag_key": flag_key, "team_ids": tuple(team_ids)})
+        rows = sync_execute(_build_cross_project_evals_query(), {"flag_key": flag_key, "team_ids": tuple(team_ids)})
     except Exception as error:
         capture_exception(error)
         return None
