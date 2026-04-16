@@ -126,6 +126,32 @@ class TestCustomerIOWebhook(APIBaseTest):
         response = self._post_webhook(body, sig, ts)
         self.assertEqual(response.status_code, 401)
 
+    def test_cross_team_signature_rejected(self):
+        other_team = self.organization.teams.create(name="Other team")
+        Integration.objects.create(
+            team=other_team,
+            kind="customerio-webhook",
+            sensitive_config={"webhook_signing_secret": "other_team_secret_456"},
+            config={"webhook_enabled": True},
+            created_by=self.user,
+        )
+        body = {"metric": "unsubscribed", "data": {"email_address": "cross@example.com"}}
+        body_str = json.dumps(body)
+        sig, ts = self._sign(body_str, secret=self.SIGNING_SECRET)
+
+        self.client.logout()
+        response = self.client.post(
+            f"/api/environments/{other_team.id}/messaging/customerio/webhook/",
+            data=body_str,
+            content_type="application/json",
+            HTTP_X_CIO_SIGNATURE=sig,
+            HTTP_X_CIO_TIMESTAMP=ts,
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(
+            MessageRecipientPreference.objects.filter(team=other_team, identifier="cross@example.com").exists()
+        )
+
     def test_missing_email_returns_200_no_side_effects(self):
         body = {"metric": "unsubscribed", "data": {"customer_id": "42"}}
         response = self._post_webhook(body)
