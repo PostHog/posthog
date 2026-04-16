@@ -36,7 +36,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
-from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
+from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
@@ -178,7 +178,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
             elif (
-                is_insight_query(query_dict)
+                is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
                 or is_insight_actors_options_query(query_dict)
             ) and get_query_tag_value("access_method") != "personal_api_key":

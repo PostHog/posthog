@@ -12279,3 +12279,135 @@ class TestFeatureFlagLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+
+class TestFeatureFlagVersions(APIBaseTest):
+    def _create_flag_via_api(self, key="test-flag", **kwargs):
+        data = {
+            "name": "Test Flag",
+            "key": key,
+            "filters": {"groups": [{"rollout_percentage": 100}]},
+            **kwargs,
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            data,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def _update_flag_via_api(self, flag_id, **kwargs):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            kwargs,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def test_get_version_1_after_update(self):
+        flag = self._create_flag_via_api(name="V1 Name")
+        flag_id = flag["id"]
+
+        self._update_flag_via_api(flag_id, name="V2 Name", version=flag["version"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["version"] == 1
+        assert data["name"] == "V1 Name"
+        assert data["is_historical"] is True
+        assert data["id"] == flag_id
+
+    def test_get_current_version(self):
+        flag = self._create_flag_via_api(name="V1 Name")
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["version"] == 1
+        assert data["is_historical"] is False
+
+    def test_version_not_found_returns_404(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/999/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_version_zero_returns_404(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/0/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reconstruct_filters_change(self):
+        v1_filters = {"groups": [{"rollout_percentage": 50}]}
+        v2_filters = {
+            "groups": [
+                {
+                    "rollout_percentage": 100,
+                    "properties": [{"key": "email", "value": "test@example.com", "type": "person"}],
+                }
+            ]
+        }
+
+        flag = self._create_flag_via_api(filters=v1_filters)
+        flag_id = flag["id"]
+
+        self._update_flag_via_api(flag_id, filters=v2_filters, version=flag["version"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["filters"]["groups"][0]["rollout_percentage"] == 50
+
+    def test_multiple_versions(self):
+        flag = self._create_flag_via_api(name="V1")
+        flag_id = flag["id"]
+
+        updated = self._update_flag_via_api(flag_id, name="V2", version=flag["version"])
+        self._update_flag_via_api(flag_id, name="V3", version=updated["version"])
+
+        v1 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/").json()
+        v2 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/2/").json()
+        v3 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/3/").json()
+
+        assert v1["name"] == "V1"
+        assert v1["is_historical"] is True
+        assert v2["name"] == "V2"
+        assert v2["is_historical"] is True
+        assert v3["name"] == "V3"
+        assert v3["is_historical"] is False
+
+    def test_incomplete_history_returns_422(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(version=5)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/2/")
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "incomplete" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            ("remote_configuration", {"is_remote_configuration": True}),
+            ("encrypted_payloads", {"has_encrypted_payloads": True}),
+        ]
+    )
+    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available" in response.json()["detail"].lower()

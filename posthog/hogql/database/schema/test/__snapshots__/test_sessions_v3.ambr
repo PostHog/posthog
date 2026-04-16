@@ -238,7 +238,7 @@
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), greaterOrEquals(raw_sessions_v3.session_timestamp, minus('1970-01-01', toIntervalDay(3))))
      GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '1970-01-01'))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(events.timestamp, toDateTime64('1970-01-01', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

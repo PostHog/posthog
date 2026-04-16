@@ -53,6 +53,8 @@ export const subscriptionsCreateBodyCountMax = 2147483647
 
 export const subscriptionsCreateBodyTitleMax = 100
 
+export const subscriptionsCreateBodySummaryPromptGuideMax = 500
+
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod
@@ -135,6 +137,8 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
 
@@ -166,6 +170,8 @@ export const subscriptionsPartialUpdateBodyCountMin = -2147483648
 export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyTitleMax = 100
+
+export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -252,5 +258,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
