@@ -130,6 +130,14 @@ jobs:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'recording-rasterizer-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
+            - name: Report failure to DevEx PostHog
+              if: failure()
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'recording-rasterizer-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
     deploy:
         name: Deploy recording-rasterizer service

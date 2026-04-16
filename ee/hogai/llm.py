@@ -45,6 +45,9 @@ Current time in the project's timezone, {{{project_timezone}}}: {{{project_datet
 # https://platform.openai.com/docs/guides/flex-processing
 OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
 
+# Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
+_BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}
+
 
 class MaxChatMixin(BaseModel):
     # We don't want to validate Django models here.
@@ -241,12 +244,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
 
     bypass_proxy: bool = False
     """
-    When True, build the underlying httpx client with ``trust_env=False`` so that
-    ``HTTP(S)_PROXY`` / ``NO_PROXY`` env vars are ignored. Set this only when routing
-    traffic to the internal LLM gateway, which must not be reached via the Smokescreen
-    egress proxy (private-range resolution is blocked). When False, upstream default
-    behavior is preserved so traffic to ``api.anthropic.com`` still flows through the
-    egress proxy as expected.
+    If True, bypasses egress proxies (HTTP_PROXY/etc)—use for private LLM gateway; if False, default behavior.
     """
 
     @cached_property
@@ -254,29 +252,38 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         if not self.bypass_proxy:
             # Defer to upstream so the lru_cache'd httpx client and default proxy behavior are preserved.
             return cast(anthropic.Client, ChatAnthropic._client.func(self))  # type: ignore[attr-defined]
-        client_params = self._client_params
-        http_client_kwargs: dict[str, Any] = {
-            "base_url": client_params["base_url"] or "https://api.anthropic.com",
-            "trust_env": False,
-        }
-        if "timeout" in client_params:
-            http_client_kwargs["timeout"] = client_params["timeout"]
-        return anthropic.Client(**client_params, http_client=anthropic.DefaultHttpxClient(**http_client_kwargs))
+        return anthropic.Client(
+            **self._client_params,
+            http_client=anthropic.DefaultHttpxClient(**self._bypass_http_client_kwargs()),
+        )
 
     @cached_property
     def _async_client(self) -> anthropic.AsyncClient:
         if not self.bypass_proxy:
             return cast(anthropic.AsyncClient, ChatAnthropic._async_client.func(self))  # type: ignore[attr-defined]
+        return anthropic.AsyncClient(
+            **self._client_params,
+            http_client=anthropic.DefaultAsyncHttpxClient(**self._bypass_http_client_kwargs()),
+        )
+
+    def _bypass_http_client_kwargs(self) -> dict[str, Any]:
+        """Builds kwargs for ``anthropic.DefaultHttpxClient`` / ``DefaultAsyncHttpxClient`` to bypass the Smokescreen egress proxy without altering other SDK defaults.
+
+        Instead of using ``trust_env=False``, which is ineffective due to SDK internals, we set ``mounts={"http://": None, "https://": None, "all://": None}`` to override environment proxy settings. This approach preserves all other Anthropic SDK connection defaults, such as timeouts, pool limits, and transport settings.
+
+        This depends on the SDK merging the ``mounts`` kwarg on top of its proxy settings and retaining its defaults—guarded by tests in ``test_llm.py``.
+        """
+
         client_params = self._client_params
-        http_client_kwargs: dict[str, Any] = {
-            "base_url": client_params["base_url"] or "https://api.anthropic.com",
-            "trust_env": False,
+        kwargs: dict[str, Any] = {
+            "base_url": client_params["base_url"],
+            "mounts": dict(_BYPASS_PROXY_MOUNTS),
         }
         if "timeout" in client_params:
-            http_client_kwargs["timeout"] = client_params["timeout"]
-        return anthropic.AsyncClient(
-            **client_params, http_client=anthropic.DefaultAsyncHttpxClient(**http_client_kwargs)
-        )
+            # Forward the caller's timeout (langchain-anthropic always sets this key, even when
+            # the value is None) so the bypass path matches the non-bypass path's timeout exactly.
+            kwargs["timeout"] = client_params["timeout"]
+        return kwargs
 
     def generate(
         self,
