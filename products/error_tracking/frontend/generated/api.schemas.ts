@@ -306,6 +306,27 @@ export interface ErrorTrackingIssueMergeResponseApi {
     success: boolean
 }
 
+export interface ErrorTrackingIssueSplitFingerprintApi {
+    /** Fingerprint to split into a new issue. */
+    fingerprint: string
+    /** Optional name for the new issue created from this fingerprint. */
+    name?: string
+    /** Optional description for the new issue created from this fingerprint. */
+    description?: string
+}
+
+export interface ErrorTrackingIssueSplitRequestApi {
+    /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+    fingerprints?: ErrorTrackingIssueSplitFingerprintApi[]
+}
+
+export interface ErrorTrackingIssueSplitResponseApi {
+    /** Whether the split completed successfully. */
+    success: boolean
+    /** IDs of the new issues created by the split. */
+    new_issue_ids: string[]
+}
+
 export interface ErrorTrackingReleaseApi {
     readonly id: string
     hash_id: string

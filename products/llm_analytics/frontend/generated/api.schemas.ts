@@ -64,9 +64,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
+export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
 
-export const ProviderEnumApi = {
+export const Provider519EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -78,7 +78,7 @@ export const ProviderEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: ProviderEnumApi
+    provider: Provider519EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -424,7 +424,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: ProviderEnumApi
+    provider: Provider519EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -450,7 +450,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: ProviderEnumApi
+    provider?: Provider519EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi

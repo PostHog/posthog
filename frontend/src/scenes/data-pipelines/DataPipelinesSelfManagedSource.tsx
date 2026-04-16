@@ -1,20 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { DatawarehouseTableForm } from 'scenes/data-warehouse/new/DataWarehouseTableForm'
-import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
-
 import { DataWarehouseTable } from '~/types'
+
+import { SelfManagedSourceForm } from 'products/data_warehouse/frontend/scenes/NewSourceScene/components/SelfManagedSourceForm'
+import { selfManagedSourceLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/selfManagedSourceLogic'
 
 interface SelfManagedProps {
     id: string
 }
 
 export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.Element => {
-    const { table } = useValues(dataWarehouseTableLogic({ id }))
-    const { updateTable } = useActions(dataWarehouseTableLogic({ id }))
+    const { table } = useValues(selfManagedSourceLogic({ id }))
+    const { updateTable } = useActions(selfManagedSourceLogic({ id }))
 
     return (
-        <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
+        <BindLogic logic={selfManagedSourceLogic} props={{ id }}>
             <DataPipelinesSelfManagedSourceTable table={table} updateTable={updateTable} />
         </BindLogic>
     )
@@ -29,7 +29,7 @@ export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Prop
     return (
         <>
             <div className="deprecated-space-y-4">
-                <DatawarehouseTableForm
+                <SelfManagedSourceForm
                     onUpdate={() =>
                         updateTable({
                             name: table.name,

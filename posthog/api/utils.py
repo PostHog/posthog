@@ -288,7 +288,7 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)
+        UUID(str(key))
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
@@ -303,6 +303,14 @@ INSIGHT_KINDS = {
     "StickinessQuery",
     "LifecycleQuery",
 }
+
+# Queries that should run asynchronously with an extended ClickHouse timeout.
+# Superset of INSIGHT_KINDS — includes expensive non-insight queries like TracesQuery
+# whose two-phase GROUP BY over the events table can exceed the default 60s limit.
+ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
+    "TracesQuery",
+}
+_EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
@@ -325,6 +333,27 @@ def is_insight_query(query: dict) -> bool:
             return True
     if kind == "DataVisualizationNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_async_query(query: dict) -> bool:
+    """Check if a query should run asynchronously with an extended timeout.
+
+    Superset of is_insight_query — also covers expensive non-insight queries.
+    """
+    if is_insight_query(query):
+        return True
+
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in _EXTRA_ASYNC_KINDS:
+        return True
+    if kind in ("DataTableNode", "DataVisualizationNode"):
+        source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
+        if source_kind in _EXTRA_ASYNC_KINDS:
             return True
 
     return False
