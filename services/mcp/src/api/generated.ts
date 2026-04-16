@@ -14288,19 +14288,9 @@ export namespace Schemas {
       success: boolean;
     }
 
-    /**
-     * * `cross_sell` - Cross sell
-     */
-    export type ErrorTrackingRecommendationTypeEnum = typeof ErrorTrackingRecommendationTypeEnum[keyof typeof ErrorTrackingRecommendationTypeEnum];
-
-
-    export const ErrorTrackingRecommendationTypeEnum = {
-      CrossSell: 'cross_sell',
-    } as const;
-
     export interface ErrorTrackingRecommendation {
       readonly id: string;
-      readonly type: ErrorTrackingRecommendationTypeEnum;
+      readonly type: string;
       readonly meta: unknown;
       /** @nullable */
       readonly computed_at: string | null;

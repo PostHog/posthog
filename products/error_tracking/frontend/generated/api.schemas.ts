@@ -306,19 +306,9 @@ export interface ErrorTrackingIssueMergeResponseApi {
     success: boolean
 }
 
-/**
- * * `cross_sell` - Cross sell
- */
-export type ErrorTrackingRecommendationTypeEnumApi =
-    (typeof ErrorTrackingRecommendationTypeEnumApi)[keyof typeof ErrorTrackingRecommendationTypeEnumApi]
-
-export const ErrorTrackingRecommendationTypeEnumApi = {
-    CrossSell: 'cross_sell',
-} as const
-
 export interface ErrorTrackingRecommendationApi {
     readonly id: string
-    readonly type: ErrorTrackingRecommendationTypeEnumApi
+    readonly type: string
     readonly meta: unknown
     /** @nullable */
     readonly computed_at: string | null
