@@ -56,6 +56,14 @@ class TestCheckAlertsSync(APIBaseTest):
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_skips_broken_alerts(self, mock_query_cls):
+        self._make_alert(state=LogsAlertConfiguration.State.BROKEN)
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 0
+        mock_query_cls.assert_not_called()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     def test_picks_up_due_alert(self, mock_query_cls):
         mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
         self._make_alert()
