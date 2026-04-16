@@ -49,7 +49,7 @@ function shouldFilterBySessionId(item: TimelineItem, sessionId?: string): boolea
 function buildEventDetailsWhere(item: TimelineItem, sessionId?: string): string[] {
     const where: string[] = [`equals(uuid, '${escapeHogQLString(item.id)}')`]
 
-    if (shouldFilterBySessionId(item, sessionId)) {
+    if (sessionId && shouldFilterBySessionId(item, sessionId)) {
         where.push(`equals($session_id, '${escapeHogQLString(sessionId)}')`)
     }
 
