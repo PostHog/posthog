@@ -88,7 +88,6 @@ class BillingConsumer(SQSConsumer):
 
         if content_encoding == "gzip":
             try:
-                raw_body_bytes = raw_body.encode("utf-8")
                 if isinstance(raw_body, str):
                     import base64
 
@@ -96,6 +95,8 @@ class BillingConsumer(SQSConsumer):
                         raw_body_bytes = base64.b64decode(raw_body)
                     except Exception:
                         raw_body_bytes = raw_body.encode("utf-8")
+                else:
+                    raw_body_bytes = raw_body
 
                 decompressed_data = gzip.decompress(raw_body_bytes)
                 return cast(dict[str, Any], json.loads(decompressed_data.decode("utf-8")))
