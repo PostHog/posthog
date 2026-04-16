@@ -188,10 +188,8 @@ impl FlagService {
         {
             Ok(ok) => ok,
             Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
-                // Cache corruption is a data problem, not a transient infra issue.
-                // Emit a tombstone for visibility and hard-fail rather than paper over
-                // with PG data that lacks dependency metadata. team_id goes in the log,
-                // not the metric label, to avoid high-cardinality series.
+                // Parse errors mean data corruption, not a transient issue. Hard-fail
+                // rather than fall back to PG, which lacks dependency metadata.
                 tracing::error!("Failed to parse hypercache data for team {team_id}: {e}");
                 counter!(
                     TOMBSTONE_COUNTER,
@@ -205,7 +203,6 @@ impl FlagService {
                 )));
             }
             Err(_) => {
-                // CacheMiss or infra error: fall back to PG for resilience.
                 // PG has no dependency metadata, so all flags go in a single stage.
                 let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
                 let evaluation_metadata =

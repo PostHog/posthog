@@ -1603,8 +1603,8 @@ mod tests {
     #[cfg(feature = "mock-client")]
     #[tokio::test]
     async fn test_get_typed_with_source_redis_json_error_falls_through_to_s3_hit() {
-        // Happy-path counterpart: Redis JSON parse error must not short-circuit —
-        // the reader must still consult S3, and return S3 data on hit.
+        // Redis JSON error must not short-circuit — the reader must still
+        // consult S3 and return its data on hit.
         let expected = make_test_flags();
         let json_string = serde_json::to_string(&expected).unwrap();
 
