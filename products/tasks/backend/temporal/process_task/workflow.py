@@ -156,8 +156,33 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)  # Ensure all pending tasks are cancelled
-        return done.pop().result()
+        pending_tasks_results = await asyncio.gather(
+            *pending, return_exceptions=True
+        )  # Ensure all pending tasks are cancelled
+        for task in done:
+            if task.exception():
+                workflow.logger.warning(
+                    "Event wait task failed",
+                    run_id=self.context.run_id,
+                    error=str(task.exception()),
+                )
+                continue
+            return task.result()
+        for task in pending_tasks_results:
+            if isinstance(task, Exception):
+                workflow.logger.warning(
+                    "Pending event wait task failed during cancellation",
+                    run_id=self.context.run_id,
+                    error=str(task),
+                )
+            if isinstance(task, TaskEvent):
+                workflow.logger.info(
+                    "Pending event wait task completed during cancellation",
+                    run_id=self.context.run_id,
+                    event=task.value,
+                )
+                return task
+        raise RuntimeError("No event was completed successfully")
 
     @temporalio.workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
