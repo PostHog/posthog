@@ -132,7 +132,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not _is_org_admin(request.user):
             raise PermissionDenied("Only organization admins can perform this action.")
 
-    def _require_org_member(self, distinct_id: str, request: Request) -> None:
+    def _require_org_member(self, request: Request, distinct_id: str) -> None:
         org = cast(User, request.user).organization
         if (
             not org
@@ -142,6 +142,12 @@ class SeatViewSet(viewsets.ViewSet):
             ).exists()
         ):
             raise PermissionDenied("Target user is not a member of this organization.")
+
+    def _resolve_and_check_membership(self, request: Request, pk: str | None) -> str:
+        distinct_id = self._resolve_distinct_id(pk, request)
+        if pk != "me":
+            self._require_org_member(request, distinct_id)
+        return distinct_id
 
     @staticmethod
     def _filtered_query_params(request: Request) -> dict[str, str]:
@@ -179,7 +185,7 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "Invalid user_distinct_id format"}, status=status.HTTP_400_BAD_REQUEST)
         if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
-            self._require_org_member(str(body_distinct_id), request)
+        self._require_org_member(request, str(body_distinct_id))
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -197,9 +203,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
-        if pk != "me":
-            self._require_org_member(distinct_id, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "GET",
             f"/api/v2/seats/{distinct_id}/",
@@ -217,9 +221,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
-        if pk != "me":
-            self._require_org_member(distinct_id, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
@@ -237,9 +239,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
-        if pk != "me":
-            self._require_org_member(distinct_id, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "DELETE",
             f"/api/v2/seats/{distinct_id}/",
@@ -258,9 +258,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
-        if pk != "me":
-            self._require_org_member(distinct_id, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",
