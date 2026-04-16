@@ -53,13 +53,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import (
-    ClassicBehaviorBooleanFieldSerializer,
-    PublicIPOnlyHttpAdapter,
-    action,
-    raise_if_user_provided_url_unsafe,
-    unparsed_hostname_in_allowed_url_list,
-)
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -1205,35 +1199,3 @@ def redirect_to_website(request):
     userData = urllib.parse.quote(json.dumps({"jwt": token}), safe="")
 
     return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
-
-
-@require_http_methods(["POST"])
-@session_auth_required
-def test_slack_webhook(request):
-    """Test webhook."""
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    webhook = body.get("webhook")
-
-    if not webhook:
-        return JsonResponse({"error": "no webhook URL"})
-    message = {"text": "_Greetings_ from PostHog!"}
-    try:
-        session = requests.Session()
-
-        if not settings.DEBUG:
-            raise_if_user_provided_url_unsafe(webhook)
-            session.mount("https://", PublicIPOnlyHttpAdapter())
-            session.mount("http://", PublicIPOnlyHttpAdapter())
-
-        response = session.post(webhook, verify=False, json=message)
-
-        if response.ok:
-            return JsonResponse({"success": True})
-        else:
-            return JsonResponse({"error": response.text})
-    except:
-        return JsonResponse({"error": "invalid webhook URL"})
