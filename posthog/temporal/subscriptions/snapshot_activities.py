@@ -57,7 +57,6 @@ def _build_states_from_content_snapshot(
                 "insight_id": insight_id,
                 "insight_name": insight_name,
                 "query_kind": query_kind,
-                "query_definition": {"query_hash": insight_snap.get("query_hash")},
                 "results_summary": results_summary,
                 "timestamp": timestamp,
             }
