@@ -36,7 +36,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
-import { sessionRecordingExistsLogic } from 'lib/components/ViewRecordingButton/sessionRecordingExistsLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -102,7 +101,6 @@ import {
     formatLLMLatency,
     formatLLMUsage,
     getEventType,
-    getSessionID,
     getSessionStartTimestamp,
     getTraceTimestamp,
     hasCostBreakdown,
@@ -1424,21 +1422,6 @@ function EventContentDisplay({
     )
 }
 
-function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
-    for (const node of tree) {
-        if (node.event.id === eventId) {
-            return node
-        }
-        if (node.children) {
-            const result = findNodeForEvent(node.children, eventId)
-            if (result) {
-                return result
-            }
-        }
-    }
-    return null
-}
-
 const EventContent = React.memo(
     ({
         trace,
@@ -1456,27 +1439,15 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+        const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
+        const { sessionId, selectedNode } = useValues(traceDataLogic)
 
-        const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
-        const aggregation = node?.aggregation || null
+        const aggregation = selectedNode?.aggregation || null
 
-        const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
-        const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
-
-        const { checkRecordingExists: registerRecordingCheck } = useActions(sessionRecordingExistsLogic)
-        const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
-
-        useEffect(() => {
-            if (sessionId) {
-                registerRecordingCheck(sessionId)
-            }
-        }, [sessionId, registerRecordingCheck])
-
-        const recordingExists = sessionId ? getRecordingExists(sessionId) : false
-        const hasSessionRecording = !!sessionId && recordingExists !== false
+        const hasSessionRecording = !!sessionId
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
@@ -1646,6 +1617,7 @@ const EventContent = React.memo(
                                             data-attr="llm-analytics"
                                             sessionId={sessionId || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
+                                            checkRecordingExists
                                         />
                                     )}
                                 </div>
