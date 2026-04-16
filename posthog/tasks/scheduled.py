@@ -80,6 +80,13 @@ from products.conversations.backend.tasks import wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.streamlit_apps.backend.tasks import (
+    auto_restart_crashed_streamlit_sandboxes,
+    cleanup_deleted_streamlit_app_zips,
+    cleanup_expired_streamlit_oauth_tokens,
+    prune_old_streamlit_app_versions,
+    stop_idle_streamlit_sandboxes,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -634,4 +641,41 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+
+    # Delete expired Streamlit bridge OAuth tokens.
+    sender.add_periodic_task(
+        # Hourly because tokens have a 1-hour TTL and every connect_info
+        # call mints a fresh one.
+        crontab(hour="*", minute="55"),
+        cleanup_expired_streamlit_oauth_tokens.s(),
+        name="cleanup expired streamlit oauth tokens",
+    )
+
+    # Hard-delete S3 zips for Streamlit apps past their soft-delete retention.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="10"),
+        cleanup_deleted_streamlit_app_zips.s(),
+        name="cleanup deleted streamlit app zips",
+    )
+
+    # Stop streamlit sandboxes left idle past their inactivity window.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        stop_idle_streamlit_sandboxes.s(),
+        name="stop idle streamlit sandboxes",
+    )
+
+    # Restart streamlit sandboxes that died on their own (Modal TTL timeout).
+    sender.add_periodic_task(
+        crontab(minute="*"),
+        auto_restart_crashed_streamlit_sandboxes.s(),
+        name="auto restart crashed streamlit sandboxes",
+    )
+
+    # Prune non-active streamlit app versions past their retention window.
+    sender.add_periodic_task(
+        crontab(hour="3", minute="0"),
+        prune_old_streamlit_app_versions.s(),
+        name="prune old streamlit app versions",
     )
