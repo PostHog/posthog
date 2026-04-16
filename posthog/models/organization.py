@@ -506,6 +506,17 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_guest = models.BooleanField(default=False, db_index=True)
+    """Marks this membership as a guest — an external collaborator with scoped read-only access
+    to a few specific resources. Guests are categorically separate from regular members:
+    they never appear in user pickers, AC dropdowns, assignee lists, or @ mentions, and they
+    are deflected from every endpoint outside a small whitelist by `GuestDeflectionMiddleware`
+    (landing in PR #2).
+
+    A guest membership always has at least one `GuestResourceGrant` when active (is_pending=False).
+    Admins promote guests to regular members via the `/promote_to_member/` action (one-way).
+    Demotion from regular → guest is not supported.
+    """
 
     class Meta:
         constraints = [
