@@ -157,7 +157,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
         })
         const anonymizedTeam = createTestTeam({ id: 123, project_id: 456 as any, anonymize_ips: true })
 
-        const result = await step({ event, team: anonymizedTeam, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team: anonymizedTeam, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -172,7 +172,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             properties: { $ip: '1.2.3.4' },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
