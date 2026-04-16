@@ -313,7 +313,7 @@ export interface ActivityLogApi {
     /** @nullable */
     is_system?: boolean | null
     /**
-     * @maxLength 200
+     * @maxLength 32
      * @nullable
      */
     client?: string | null
