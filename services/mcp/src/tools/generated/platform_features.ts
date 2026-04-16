@@ -12,6 +12,7 @@ import {
     CommentsListQueryParams,
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
+    ListQueryParams,
     MembersListQueryParams,
     RetrieveParams,
     RolesListQueryParams,
@@ -358,7 +359,7 @@ const roleMembersList = (): ToolBase<typeof RoleMembersListSchema, Schemas.Pagin
     },
 })
 
-const OrganizationsListSchema = z.object({})
+const OrganizationsListSchema = ListQueryParams
 
 const organizationsList = (): ToolBase<
     typeof OrganizationsListSchema,
@@ -366,11 +367,14 @@ const organizationsList = (): ToolBase<
 > => ({
     name: 'organizations-list',
     schema: OrganizationsListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof OrganizationsListSchema>) => {
         const result = await context.api.request<Schemas.PaginatedOrganizationList>({
             method: 'GET',
             path: `/api/organizations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
         const filtered = {
             ...result,
