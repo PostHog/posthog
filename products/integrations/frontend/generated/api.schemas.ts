@@ -79,29 +79,6 @@ export interface UserBasicApi {
 /**
  * Serializer for organization-level integrations.
  */
-export interface OrganizationIntegrationApi {
-    readonly id: string
-    readonly kind: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id: string | null
-    readonly config: unknown
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-}
-
-export interface PaginatedOrganizationIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationIntegrationApi[]
-}
-
-/**
- * Serializer for organization-level integrations.
- */
 export interface PatchedOrganizationIntegrationApi {
     readonly id?: string
     readonly kind?: OrganizationIntegrationKindEnumApi
@@ -111,6 +88,20 @@ export interface PatchedOrganizationIntegrationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
+export interface OrganizationIntegrationApi {
+    readonly id: string
+    readonly kind: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id: string | null
+    readonly config: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
 }
 
 /**
@@ -244,17 +235,6 @@ export interface GitHubReposResponseApi {
 }
 
 export type IntegrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */

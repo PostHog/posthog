@@ -1771,7 +1771,7 @@ export type OauthApplicationsListParams = {
     offset?: number
 }
 
-export type List2Params = {
+export type OrganizationsProjectsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -1968,7 +1968,7 @@ export type SurveysListParams = {
     search?: string
 }
 
-export type SurveysStatsRetrieve2Params = {
+export type SurveysStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */
@@ -1979,7 +1979,7 @@ export type SurveysStatsRetrieve2Params = {
     date_to?: string
 }
 
-export type SurveysStatsRetrieveParams = {
+export type SurveysGlobalStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */

@@ -1518,37 +1518,8 @@ Args:
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const SurveysStatsRetrieve2Params = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this survey.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SurveysStatsRetrieve2QueryParams = /* @__PURE__ */ zod.object({
-    date_from: zod.iso
-        .datetime({})
-        .optional()
-        .describe('Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)'),
-    date_to: zod.iso
-        .datetime({})
-        .optional()
-        .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
-})
-
-/**
- * Get aggregated response statistics across all surveys.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-
-Returns:
-    Aggregated statistics across all surveys including total counts and rates
- */
 export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
         .describe(

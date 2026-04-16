@@ -18,8 +18,8 @@ import type {
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonUpdatePropertyRequestApi,
-    PersonsActivityRetrieve2Params,
     PersonsActivityRetrieveParams,
+    PersonsAllActivityRetrieveParams,
     PersonsBatchByDistinctIdsCreateParams,
     PersonsBatchByUuidsCreateParams,
     PersonsBulkDeleteCreateParams,
@@ -195,10 +195,10 @@ export const personsPartialUpdate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const getPersonsActivityRetrieve2Url = (
+export const getPersonsActivityRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: PersonsActivityRetrieve2Params
+    params?: PersonsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -215,13 +215,13 @@ export const getPersonsActivityRetrieve2Url = (
         : `/api/projects/${projectId}/persons/${id}/activity/`
 }
 
-export const personsActivityRetrieve2 = async (
+export const personsActivityRetrieve = async (
     projectId: string,
     id: number,
-    params?: PersonsActivityRetrieve2Params,
+    params?: PersonsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getPersonsActivityRetrieve2Url(projectId, id, params), {
+    return apiMutator<void>(getPersonsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -375,7 +375,7 @@ export const personsUpdatePropertyCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const getPersonsActivityRetrieveUrl = (projectId: string, params?: PersonsActivityRetrieveParams) => {
+export const getPersonsAllActivityRetrieveUrl = (projectId: string, params?: PersonsAllActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -391,12 +391,12 @@ export const getPersonsActivityRetrieveUrl = (projectId: string, params?: Person
         : `/api/projects/${projectId}/persons/activity/`
 }
 
-export const personsActivityRetrieve = async (
+export const personsAllActivityRetrieve = async (
     projectId: string,
-    params?: PersonsActivityRetrieveParams,
+    params?: PersonsAllActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getPersonsActivityRetrieveUrl(projectId, params), {
+    return apiMutator<void>(getPersonsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

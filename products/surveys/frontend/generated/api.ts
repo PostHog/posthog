@@ -16,8 +16,8 @@ import type {
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
+    SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
-    SurveysStatsRetrieve2Params,
     SurveysStatsRetrieveParams,
 } from './api.schemas'
 
@@ -140,12 +140,12 @@ export const surveysDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
-export const getSurveysActivityRetrieve2Url = (projectId: string, id: string) => {
+export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
-export const surveysActivityRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieve2Url(projectId, id), {
+export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -251,7 +251,7 @@ Args:
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const getSurveysStatsRetrieve2Url = (projectId: string, id: string, params?: SurveysStatsRetrieve2Params) => {
+export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params?: SurveysStatsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -267,13 +267,13 @@ export const getSurveysStatsRetrieve2Url = (projectId: string, id: string, param
         : `/api/projects/${projectId}/surveys/${id}/stats/`
 }
 
-export const surveysStatsRetrieve2 = async (
+export const surveysStatsRetrieve = async (
     projectId: string,
     id: string,
-    params?: SurveysStatsRetrieve2Params,
+    params?: SurveysStatsRetrieveParams,
     options?: RequestInit
 ): Promise<SurveyStatsResponseApi> => {
-    return apiMutator<SurveyStatsResponseApi>(getSurveysStatsRetrieve2Url(projectId, id, params), {
+    return apiMutator<SurveyStatsResponseApi>(getSurveysStatsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -315,12 +315,12 @@ export const surveysSummaryHeadlineCreate = async (
     })
 }
 
-export const getSurveysActivityRetrieveUrl = (projectId: string) => {
+export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/activity/`
 }
 
-export const surveysActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId), {
+export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -357,7 +357,7 @@ Args:
 Returns:
     Aggregated statistics across all surveys including total counts and rates
  */
-export const getSurveysStatsRetrieveUrl = (projectId: string, params?: SurveysStatsRetrieveParams) => {
+export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: SurveysGlobalStatsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -373,12 +373,12 @@ export const getSurveysStatsRetrieveUrl = (projectId: string, params?: SurveysSt
         : `/api/projects/${projectId}/surveys/stats/`
 }
 
-export const surveysStatsRetrieve = async (
+export const surveysGlobalStatsRetrieve = async (
     projectId: string,
-    params?: SurveysStatsRetrieveParams,
+    params?: SurveysGlobalStatsRetrieveParams,
     options?: RequestInit
 ): Promise<SurveyGlobalStatsResponseApi> => {
-    return apiMutator<SurveyGlobalStatsResponseApi>(getSurveysStatsRetrieveUrl(projectId, params), {
+    return apiMutator<SurveyGlobalStatsResponseApi>(getSurveysGlobalStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

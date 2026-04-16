@@ -442,14 +442,14 @@ export const PersonsPartialUpdateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieve2Params = {
-    format?: PersonsActivityRetrieve2Format
+export type PersonsActivityRetrieveParams = {
+    format?: PersonsActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieve2Format =
-    (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
+export type PersonsActivityRetrieveFormat =
+    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
-export const PersonsActivityRetrieve2Format = {
+export const PersonsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -501,14 +501,14 @@ export const PersonsUpdatePropertyCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieveParams = {
-    format?: PersonsActivityRetrieveFormat
+export type PersonsAllActivityRetrieveParams = {
+    format?: PersonsAllActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieveFormat =
-    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
+export type PersonsAllActivityRetrieveFormat =
+    (typeof PersonsAllActivityRetrieveFormat)[keyof typeof PersonsAllActivityRetrieveFormat]
 
-export const PersonsActivityRetrieveFormat = {
+export const PersonsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

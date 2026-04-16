@@ -306,35 +306,6 @@ export interface ErrorTrackingIssueMergeResponseApi {
     success: boolean
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown | null
-    version: string
-    project: string
-}
-
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown | null
-    version?: string
-    project?: string
-}
-
 export interface ErrorTrackingSpikeEventIssueApi {
     readonly id: string
     /** @nullable */
@@ -358,6 +329,16 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
+}
+
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown | null
+    version: string
+    project: string
 }
 
 export interface ErrorTrackingStackFrameApi {
@@ -416,6 +397,25 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
+}
+
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown | null
+    version?: string
+    project?: string
 }
 
 /**
@@ -530,17 +530,6 @@ export type ErrorTrackingIssuesListParams = {
     offset?: number
 }
 
-export type ErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -574,29 +563,18 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingReleasesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingSymbolSetsList2Params = {
     /**
      * Number of results to return per page.
      */

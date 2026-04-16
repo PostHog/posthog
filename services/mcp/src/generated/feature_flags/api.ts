@@ -698,33 +698,6 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const featureFlagsActivityRetrieve2QueryLimitDefault = 10
-
-export const featureFlagsActivityRetrieve2QueryPageDefault = 1
-
-export const FeatureFlagsActivityRetrieve2QueryParams = /* @__PURE__ */ zod.object({
-    limit: zod
-        .number()
-        .min(1)
-        .default(featureFlagsActivityRetrieve2QueryLimitDefault)
-        .describe('Number of items per page'),
-    page: zod.number().min(1).default(featureFlagsActivityRetrieve2QueryPageDefault).describe('Page number'),
-})
-
-/**
  * Get other active flags that depend on this flag.
  */
 export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
