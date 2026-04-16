@@ -686,10 +686,20 @@ def mysql_source(
                 user=user,
                 password=password,
                 connect_timeout=10,
+                read_timeout=600,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
+                # Bump server-side timeouts for large table scans. The
+                # defaults (60s each) are too low for multi-GB unbuffered
+                # queries — the server drops the connection before the first
+                # rows are ready.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute("SET SESSION net_write_timeout = 600, net_read_timeout = 600")
+                except Exception as e:
+                    logger.debug(f"Failed to set session timeouts on MySQL sync connection: {e}")
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(
                         schema,
