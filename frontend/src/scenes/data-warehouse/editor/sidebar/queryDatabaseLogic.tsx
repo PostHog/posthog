@@ -14,8 +14,6 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -36,7 +34,10 @@ import {
     QueryTabState,
 } from '~/types'
 
-import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
+import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -1003,7 +1004,7 @@ const createSourceFolderNode = (
         name: sourceType,
         type: 'node',
         icon: (
-            <DataWarehouseSourceIcon
+            <SourceIcon
                 type={
                     sourceType === 'Self-managed' && (tables.length > 0 || matches.length > 0)
                         ? mapUrlToProvider(
@@ -1185,7 +1186,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     }),
     connect(() => ({
         values: [
-            dataWarehouseJoinsLogic,
+            joinsLogic,
             ['joins', 'joinsLoading'],
             databaseTableListLogic,
             [
@@ -1220,7 +1221,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         actions: [
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['deleteJoin'],
             dataWarehouseViewsLogic,
             [

@@ -227,16 +227,21 @@ function toCamelCase(str: string): string {
 }
 
 /**
- * Parse enrich_url template into prefix and field.
- * '{id}' → { prefix: '', field: 'id' }
- * 'hog-{id}' → { prefix: 'hog-', field: 'id' }
+ * Parse enrich_url template into prefix, field, and source.
+ * '{id}' → { prefix: '', field: 'id', source: 'result' }
+ * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
+ * '{params.id}' → { prefix: '', field: 'id', source: 'params' }
+ *
+ * Use '{params.x}' when the response has no usable identifier (e.g. action endpoints
+ * that return {results: [...]} with no top-level id) — the URL is built from the
+ * request params instead of the response body.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
-    const match = enrichUrl.match(/^(.*?)\{(\w+)\}$/)
+function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string; source: 'result' | 'params' } {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[2]! }
+    return { prefix: match[1]!, field: match[3]!, source: match[2] === 'params' ? 'params' : 'result' }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -440,9 +445,9 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description) {
+            } else if (override.description || override.default !== undefined) {
                 // Locate the Orval source schema this param came from, so we can reference
-                // its original field type via .shape and wrap it with .describe(...).
+                // its original field type via .shape and wrap it with .describe(...) / .default(...).
                 let sourceImport: string | null = null
                 if (bodyFieldNames.includes(paramName)) {
                     sourceImport = `${pascal}Body`
@@ -452,12 +457,19 @@ function composeToolSchema(
                     sourceImport = `${pascal}Params`
                 }
                 if (sourceImport) {
-                    const escaped = override.description
-                        .trim()
-                        .replace(/\\/g, '\\\\')
-                        .replace(/'/g, "\\'")
-                        .replace(/\n\s*/g, ' ')
-                    schemaOverrides.push(`${paramName}: ${sourceImport}.shape['${paramName}'].describe('${escaped}')`)
+                    let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.default !== undefined) {
+                        expr += `.default(${JSON.stringify(override.default)}).optional()`
+                    }
+                    if (override.description) {
+                        const escaped = override.description
+                            .trim()
+                            .replace(/\\/g, '\\\\')
+                            .replace(/'/g, "\\'")
+                            .replace(/\n\s*/g, ' ')
+                        expr += `.describe('${escaped}')`
+                    }
+                    schemaOverrides.push(`${paramName}: ${expr}`)
                 }
             }
         }
@@ -553,10 +565,17 @@ function buildResponseFilter(config: ToolConfig): {
 // ------------------------------------------------------------------
 
 function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
-    const baseUrl = category.url_prefix
+    const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        // For list endpoints, 'params.x' is not meaningful (items come from the response
+        // array, not request params), so force 'result' source here.
+        if (source === 'params') {
+            throw new Error(
+                `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
+            )
+        }
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
@@ -571,9 +590,10 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     if (config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${resultVar}.${field}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
     }
 
     return `        return ${resultVar}\n`
@@ -715,7 +735,8 @@ function generateToolCode(
 
     const appKey = config.ui_app ?? null
 
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
+    const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
+    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''

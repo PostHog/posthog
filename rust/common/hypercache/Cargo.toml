@@ -15,6 +15,7 @@ common-metrics = { path = "../metrics" }
 common-redis = { path = "../redis" }
 common-s3 = { path = "../s3" }
 common-types = { path = "../types" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 serde-pickle = "1.2.0"

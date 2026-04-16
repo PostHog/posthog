@@ -104,3 +104,22 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
+        task_run = test_task.create_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "provider": "openai",
+                "model": "gpt-5.3-codex",
+                "reasoning_effort": "high",
+            }
+        )
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.runtime_adapter == "codex"
+        assert result.provider == "openai"
+        assert result.model == "gpt-5.3-codex"
+        assert result.reasoning_effort == "high"

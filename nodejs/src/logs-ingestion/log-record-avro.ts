@@ -3,14 +3,16 @@ import avro from 'avsc'
 import { Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
+import type { LogsSettings } from '../types'
 import { parseJSON } from '../utils/json-parse'
+import { scrubLogRecord } from './log-pii-scrub'
 
 const MAX_JSON_ATTRIBUTES = 50
 
 const logProcessingDurationHistogram = new Histogram({
     name: 'logs_ingestion_processing_duration_seconds',
     help: 'Time spent processing log messages (AVRO decode/encode cycle)',
-    labelNames: ['json_parse_enabled', 'compression_codec'],
+    labelNames: ['json_parse_enabled', 'pii_scrub_enabled', 'compression_codec'],
     buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
 })
 
@@ -215,15 +217,15 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord): LogRecord 
 }
 
 /**
- * Processes an AVRO-encoded log message buffer containing multiple records
- * If json-parse is disabled it does nothing (does not decode or encode the buffer)
- * If it's enabled, it has to decode, process and re-encode the buffer
+ * Processes an AVRO-encoded log message buffer containing multiple records.
+ * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
+ * Otherwise: decode → optional JSON enrich → optional PII scrub → encode.
  */
-export async function processLogMessageBuffer(
-    buffer: Buffer,
-    settings: { json_parse_logs?: boolean | undefined }
-): Promise<Buffer> {
-    if (!settings.json_parse_logs) {
+export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
+    const jsonParse = settings.json_parse_logs ?? false
+    const piiScrub = settings.pii_scrub_logs ?? false
+
+    if (!jsonParse && !piiScrub) {
         return buffer
     }
 
@@ -238,9 +240,16 @@ export async function processLogMessageBuffer(
             throw new Error('avro schema metadata not found')
         }
 
-        // Enrich each record with JSON attributes from body
-        for (const record of records) {
-            enrichLogRecordWithJsonAttributes(record)
+        if (jsonParse) {
+            for (const record of records) {
+                enrichLogRecordWithJsonAttributes(record)
+            }
+        }
+
+        if (piiScrub) {
+            for (const record of records) {
+                scrubLogRecord(record)
+            }
         }
 
         const resultBuffer = await encodeLogRecords(logRecordType, codec, records)
@@ -248,7 +257,11 @@ export async function processLogMessageBuffer(
     } finally {
         const durationSeconds = (Date.now() - startTime) / 1000
         logProcessingDurationHistogram.observe(
-            { json_parse_enabled: String(settings.json_parse_logs), compression_codec: codec },
+            {
+                json_parse_enabled: String(jsonParse),
+                pii_scrub_enabled: String(piiScrub),
+                compression_codec: codec,
+            },
             durationSeconds
         )
     }

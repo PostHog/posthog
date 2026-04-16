@@ -1,6 +1,11 @@
 import type { StorybookConfig } from '@storybook/types'
+import * as path from 'path'
 
 import { createEntry } from '../webpack.config.js'
+import { ModuleGraphPlugin } from './plugins/module-graph-plugin'
+
+// Repo root = three levels up from this file (common/storybook/.storybook/main.ts).
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
 const config: StorybookConfig = {
     stories: [
@@ -31,6 +36,7 @@ const config: StorybookConfig = {
             // Disable filesystem cache in CI to avoid heap OOM during cache shutdown
             // (especially on memory-constrained environments like Cloudflare Pages)
             cache: process.env.CI ? false : { type: 'filesystem' },
+            plugins: [...(config.plugins ?? []), new ModuleGraphPlugin(REPO_ROOT)],
             resolve: {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
