@@ -13,7 +13,7 @@ import {
     IconLive,
     IconPlusSmall,
 } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -262,6 +262,55 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
+const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
+    recording,
+}: {
+    recording: SessionRecordingType
+}): JSX.Element | null {
+    const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
+    const { startSummarization } = useActions(sessionSummaryProgressLogic)
+
+    const isSummarizing = !!loadingBySessionId[recording.id]
+    const summaryOutcome = recording.summary_outcome ?? summaryBySessionId[recording.id]?.session_outcome ?? null
+    const hasSummary = !!summaryOutcome?.description
+
+    if (isSummarizing) {
+        return (
+            <Tooltip title="Generating summary…">
+                <Spinner className="shrink-0 text-lg mb-1" />
+            </Tooltip>
+        )
+    }
+    if (hasSummary && summaryOutcome) {
+        return (
+            <Tooltip title={summaryOutcome.description}>
+                <IconAIText
+                    className={clsx(
+                        'shrink-0 text-lg mb-1',
+                        summaryOutcome.success === false ? 'text-danger' : 'text-success'
+                    )}
+                />
+            </Tooltip>
+        )
+    }
+    return (
+        <LemonButton
+            type="tertiary"
+            size="xxsmall"
+            icon={<IconPlusSmall className="text-[var(--warning)]" />}
+            tooltip="Summarize this recording"
+            aria-label="Summarize this recording"
+            data-attr="summarize-recording-from-list"
+            className="shrink-0 border border-dashed border-[var(--warning)] text-[var(--warning)] hover:bg-[var(--warning)]/10 mb-1"
+            onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                startSummarization(recording.id)
+            }}
+        />
+    )
+})
+
 export const SessionRecordingPreview = memo(
     function SessionRecordingPreview({
         recording,
@@ -272,14 +321,9 @@ export const SessionRecordingPreview = memo(
 
         const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-        const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
-        const { startSummarization } = useActions(sessionSummaryProgressLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const summaryEnabled =
             !!featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || !!featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]
-        const isSummarizing = !!loadingBySessionId[recording.id]
-        const summaryOutcome = recording.summary_outcome ?? summaryBySessionId[recording.id]?.session_outcome ?? null
-        const hasSummary = !!summaryOutcome?.description
 
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading
@@ -369,35 +413,7 @@ export const SessionRecordingPreview = memo(
 
                         <div className="flex items-center justify-between">
                             <FirstURL startUrl={recording.start_url} />
-                            {!summaryEnabled ? null : isSummarizing ? (
-                                <Tooltip title="Generating summary…">
-                                    <Spinner className="shrink-0 text-lg mb-1" />
-                                </Tooltip>
-                            ) : hasSummary && summaryOutcome ? (
-                                <Tooltip title={summaryOutcome.description}>
-                                    <IconAIText
-                                        className={clsx(
-                                            'shrink-0 text-lg mb-1',
-                                            summaryOutcome.success === false ? 'text-danger' : 'text-success'
-                                        )}
-                                    />
-                                </Tooltip>
-                            ) : (
-                                <Tooltip title="Summarize this recording">
-                                    <button
-                                        type="button"
-                                        aria-label="Summarize this recording"
-                                        className="shrink-0 inline-flex items-center justify-center size-5 rounded-md border border-dashed border-[var(--warning)] text-[var(--warning)] cursor-pointer hover:bg-[var(--warning)]/10 mb-1"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            startSummarization(recording.id)
-                                        }}
-                                    >
-                                        <IconPlusSmall className="size-full text-[var(--warning)]" />
-                                    </button>
-                                </Tooltip>
-                            )}
+                            {summaryEnabled && <RecordingSummaryIcon recording={recording} />}
                         </div>
                     </div>
 

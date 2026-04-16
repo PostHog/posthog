@@ -30,6 +30,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
@@ -118,6 +119,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
             ['loadingBySessionId', 'progressBySessionId', 'summaryBySessionId', 'feedbackBySessionId'],
+            playerInspectorLogic(props),
+            ['allItemsByMiniFilterKey'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
@@ -167,6 +170,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summaryHasHadFeedback: [
             (s) => [s.feedbackBySessionId],
             (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
+        ],
+        summaryDisabledReason: [
+            (s) => [s.allItemsByMiniFilterKey],
+            (allItemsByMiniFilterKey): string | undefined => {
+                const hasAutocapture = !!allItemsByMiniFilterKey['events-autocapture']?.length
+                if (hasAutocapture) {
+                    return undefined
+                }
+                return 'AI summaries require autocapture events. Enable autocapture in your project settings, or try again once more events are ingested.'
+            },
         ],
         loading: [
             (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],

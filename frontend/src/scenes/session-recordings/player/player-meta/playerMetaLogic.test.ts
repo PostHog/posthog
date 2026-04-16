@@ -64,4 +64,12 @@ describe('playerMetaLogic', () => {
                 .toMatchValues({ loading: false })
         })
     })
+
+    describe('summaryDisabledReason', () => {
+        it('returns an error string when the session has no autocapture events', () => {
+            expectLogic(logic).toMatchValues({
+                summaryDisabledReason: expect.stringContaining('autocapture events'),
+            })
+        })
+    })
 })

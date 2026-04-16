@@ -86,6 +86,9 @@ function SessionRecordingPlayerInternal({
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const showSummaryDock =
+        !noMeta && (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
 
     return (
         <div
@@ -96,7 +99,7 @@ function SessionRecordingPlayerInternal({
         >
             <div className="flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                <PlayerSummaryDock />
+                {showSummaryDock && <PlayerSummaryDock />}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>

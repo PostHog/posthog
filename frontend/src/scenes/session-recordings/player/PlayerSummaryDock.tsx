@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -6,7 +7,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { playerInspectorLogic } from './inspector/playerInspectorLogic'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
 import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgressLogic'
 import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
@@ -17,31 +18,25 @@ const EXPANDED_MAX_HEIGHT = 480
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { logicProps, sessionRecordingId, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummary, sessionSummaryLoading, summarizationProgress } = useValues(playerMetaLogic(logicProps))
+    const { sessionSummary, sessionSummaryLoading, summarizationProgress, summaryDisabledReason } = useValues(
+        playerMetaLogic(logicProps)
+    )
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { openBySessionId } = useValues(sessionSummaryProgressLogic)
     const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
-    const { allItemsByMiniFilterKey } = useValues(playerInspectorLogic(logicProps))
+    const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
+
+    useEffect(() => {
+        if (sessionRecordingId) {
+            reportAISessionSummaryViewed(sessionRecordingId, 'dock')
+        }
+    }, [sessionRecordingId, reportAISessionSummaryViewed])
 
     const isEnabled =
         featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
-    const hasAutocaptureEvents = !!allItemsByMiniFilterKey['events-autocapture']?.length
-    const hasAnyEvents = [
-        'events-posthog',
-        'events-custom',
-        'events-pageview',
-        'events-autocapture',
-        'events-exceptions',
-    ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
-    const disabledReason = hasAutocaptureEvents
-        ? undefined
-        : hasAnyEvents
-          ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
-          : 'Session events are not available yet. Try again in a few minutes.'
-
     if (!isEnabled) {
         return null
     }
@@ -66,7 +61,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         type="primary"
                         icon={<IconMagicWand />}
                         loading={sessionSummaryLoading}
-                        disabledReason={disabledReason}
+                        disabledReason={summaryDisabledReason}
                         onClick={() => {
                             if (!sessionSummaryLoading) {
                                 summarizeSession()
