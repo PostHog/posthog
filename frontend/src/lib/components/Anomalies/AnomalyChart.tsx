@@ -1,59 +1,100 @@
+import { getColorVar, getSeriesColor } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 
 import { AnomalyScoreType } from './types'
 
-interface AnomalySparklineProps {
+interface AnomalyChartProps {
     anomaly: AnomalyScoreType
 }
 
-export function AnomalySparkline({ anomaly }: AnomalySparklineProps): JSX.Element {
-    const { data, anomaly_index } = anomaly.data_snapshot
+export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
+    const { data, dates, anomaly_index } = anomaly.data_snapshot
+
+    const firstDate = dates?.[0]
+    const lastDate = dates?.[dates.length - 1]
+    const anomalyDate = anomaly_index != null ? dates?.[anomaly_index] : undefined
 
     const { canvasRef } = useChart({
-        getConfig: () => ({
-            type: 'line' as const,
-            data: {
-                labels: data.map((_, i) => String(i)),
-                datasets: [
-                    {
-                        data,
-                        borderColor: 'rgba(99, 102, 241, 0.8)',
-                        borderWidth: 1.5,
-                        pointRadius: data.map((_, i) => (i === anomaly_index ? 4 : 0)),
-                        pointBackgroundColor: data.map((_, i) =>
-                            i === anomaly_index ? 'rgba(220, 38, 38, 0.9)' : 'transparent'
-                        ),
-                        pointBorderColor: data.map((_, i) =>
-                            i === anomaly_index ? 'rgba(153, 27, 27, 1)' : 'transparent'
-                        ),
-                        pointBorderWidth: data.map((_, i) => (i === anomaly_index ? 1 : 0)),
-                        fill: false,
-                        tension: 0.3,
+        getConfig: () => {
+            const lineColor = getSeriesColor(0)
+            const anomalyColor = getColorVar('danger')
+            const pointBorder = getColorVar('color-bg-primary')
+            return {
+                type: 'line' as const,
+                data: {
+                    labels: data.map((_, i) => dates?.[i] ?? String(i)),
+                    datasets: [
+                        {
+                            data,
+                            borderColor: lineColor,
+                            borderWidth: 1.75,
+                            pointRadius: data.map((_, i) => (i === anomaly_index ? 6 : 0)),
+                            pointBackgroundColor: data.map((_, i) =>
+                                i === anomaly_index ? anomalyColor : 'transparent'
+                            ),
+                            pointBorderColor: data.map((_, i) => (i === anomaly_index ? pointBorder : 'transparent')),
+                            pointBorderWidth: data.map((_, i) => (i === anomaly_index ? 2 : 0)),
+                            pointHoverRadius: data.map((_, i) => (i === anomaly_index ? 8 : 3)),
+                            fill: {
+                                target: 'origin',
+                                above: `${lineColor}14`, // append alpha ~8% (hex 14)
+                            },
+                            tension: 0.35,
+                            spanGaps: true,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            enabled: true,
+                            intersect: false,
+                            mode: 'index',
+                            callbacks: {
+                                title: (items) => {
+                                    const idx = items[0]?.dataIndex
+                                    if (idx == null || !dates?.[idx]) {
+                                        return ''
+                                    }
+                                    return dayjs(dates[idx]).format('MMM D, YYYY')
+                                },
+                                label: (item) => {
+                                    const isAnomaly = item.dataIndex === anomaly_index
+                                    const prefix = isAnomaly ? '⚠ anomaly  ' : 'value  '
+                                    return `${prefix}${item.parsed.y}`
+                                },
+                            },
+                        },
                     },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { enabled: false },
+                    scales: {
+                        x: { display: false },
+                        y: { display: false, grace: '15%' },
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index',
+                    },
                 },
-                scales: {
-                    x: { display: false },
-                    y: { display: false },
-                },
-                elements: {
-                    line: { borderWidth: 1.5 },
-                },
-            },
-        }),
-        deps: [data, anomaly_index],
+            }
+        },
+        deps: [data, anomaly_index, dates],
     })
 
     return (
-        <div className="w-[120px] h-[32px]">
-            <canvas ref={canvasRef} />
+        <div className="flex w-full flex-col gap-1">
+            <div className="relative h-20 w-full">
+                <canvas ref={canvasRef} />
+            </div>
+            <div className="flex justify-between px-0.5 text-[10px] font-mono text-muted tabular-nums">
+                <span>{firstDate ? dayjs(firstDate).format('MMM D') : ''}</span>
+                {anomalyDate && <span className="font-semibold text-danger">{dayjs(anomalyDate).format('MMM D')}</span>}
+                <span>{lastDate ? dayjs(lastDate).format('MMM D') : ''}</span>
+            </div>
         </div>
     )
 }

@@ -2,32 +2,42 @@ import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { anomaliesLogic } from './anomaliesLogic'
-import { AnomalySparkline } from './AnomalySparkline'
+import { AnomalyChart } from './AnomalyChart'
 import { AnomalyInterval, AnomalyScoreType, AnomalyWindow } from './types'
 
-function scoreColor(score: number): 'danger' | 'warning' | 'muted' {
-    if (score >= 0.95) {
-        return 'danger'
+type Severity = 'critical' | 'high' | 'moderate'
+
+function scoreSeverity(score: number): Severity {
+    if (score >= 0.98) {
+        return 'critical'
     }
     if (score >= 0.9) {
-        return 'warning'
+        return 'high'
     }
-    return 'muted'
+    return 'moderate'
+}
+
+const severityBadge: Record<Severity, string> = {
+    critical: 'bg-danger-highlight text-danger border-danger/30',
+    high: 'bg-warning-highlight text-warning border-warning/30',
+    moderate: 'bg-surface-secondary text-muted border-border',
+}
+
+const severityBar: Record<Severity, string> = {
+    critical: 'bg-danger',
+    high: 'bg-warning',
+    moderate: 'bg-border-bold',
 }
 
 function intervalLabel(interval: string): string {
@@ -45,130 +55,128 @@ function intervalLabel(interval: string): string {
     }
 }
 
+function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
+    const severity = scoreSeverity(anomaly.score)
+    const scorePct = Math.round(anomaly.score * 100)
+    const hasSeriesLabel = anomaly.series_label && anomaly.series_label !== anomaly.insight_name
+
+    return (
+        <Link
+            to={urls.insightView(anomaly.insight_short_id as InsightShortId)}
+            className="group flex items-stretch gap-3 border-b border-border px-2 py-3 no-underline transition-colors hover:bg-surface-secondary"
+            subtle
+        >
+            {/* Severity left-edge bar — vertical scan cue */}
+            <div className={`w-0.5 shrink-0 rounded-full ${severityBar[severity]}`} aria-hidden />
+
+            {/* Metadata column — tight, left-aligned */}
+            <div className="flex w-60 shrink-0 flex-col justify-between py-0.5">
+                <div className="flex items-center gap-1.5">
+                    <span
+                        className={`rounded border px-1.5 py-0.5 font-mono text-xs font-bold tabular-nums ${severityBadge[severity]}`}
+                    >
+                        {scorePct}%
+                    </span>
+                    <LemonTag type="muted" size="small">
+                        {intervalLabel(anomaly.interval)}
+                    </LemonTag>
+                </div>
+                <div className="mt-1.5 min-w-0">
+                    <div
+                        className="line-clamp-1 text-sm font-semibold leading-tight text-default group-hover:text-accent"
+                        title={anomaly.insight_name}
+                    >
+                        {anomaly.insight_name}
+                    </div>
+                    {hasSeriesLabel && (
+                        <div className="line-clamp-1 text-xs text-muted" title={anomaly.series_label}>
+                            {anomaly.series_label}
+                        </div>
+                    )}
+                </div>
+                {anomaly.timestamp && (
+                    <div className="mt-1 text-xs text-muted">
+                        <TZLabel time={anomaly.timestamp} />
+                    </div>
+                )}
+            </div>
+
+            {/* Chart column — the main focus */}
+            <div className="flex min-w-0 flex-1 items-center">
+                {anomaly.data_snapshot?.data?.length ? (
+                    <AnomalyChart anomaly={anomaly} />
+                ) : (
+                    <div className="text-xs italic text-muted">No series data</div>
+                )}
+            </div>
+        </Link>
+    )
+}
+
 export function Anomalies(): JSX.Element {
     const { filteredAnomalies, anomaliesLoading, window, search, intervalFilter } = useValues(anomaliesLogic)
     const { setWindow, setSearch, setIntervalFilter } = useActions(anomaliesLogic)
 
-    const columns: LemonTableColumns<AnomalyScoreType> = [
-        {
-            title: 'Score',
-            dataIndex: 'score',
-            width: 80,
-            sorter: (a, b) => a.score - b.score,
-            render: function renderScore(_, anomaly) {
-                return (
-                    <LemonTag type={scoreColor(anomaly.score)} size="small">
-                        {Math.round(anomaly.score * 100)}%
-                    </LemonTag>
-                )
-            },
-        },
-        {
-            title: 'Insight',
-            key: 'insight',
-            render: function renderInsight(_, anomaly) {
-                return (
-                    <LemonTableLink
-                        to={urls.insightView(anomaly.insight_short_id as InsightShortId)}
-                        title={anomaly.insight_name}
-                        description={anomaly.series_label !== anomaly.insight_name ? anomaly.series_label : undefined}
-                    />
-                )
-            },
-        },
-        {
-            title: 'Sparkline',
-            key: 'sparkline',
-            width: 140,
-            render: function renderSparkline(_, anomaly) {
-                if (!anomaly.data_snapshot?.data?.length) {
-                    return <span className="text-muted">No data</span>
-                }
-                return <AnomalySparkline anomaly={anomaly} />
-            },
-        },
-        {
-            title: 'When',
-            dataIndex: 'timestamp',
-            sorter: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-            render: function renderTimestamp(timestamp: any) {
-                return <div className="whitespace-nowrap">{timestamp && <TZLabel time={timestamp} />}</div>
-            },
-        },
-        {
-            title: 'Interval',
-            dataIndex: 'interval',
-            width: 90,
-            render: function renderInterval(interval: any) {
-                return (
-                    <LemonTag type="muted" size="small">
-                        {intervalLabel(interval)}
-                    </LemonTag>
-                )
-            },
-        },
-    ]
-
     return (
-        <div className="space-y-4">
-            {filteredAnomalies.length === 0 && !anomaliesLoading ? (
-                <ProductIntroduction
-                    productName="Anomalies"
-                    productKey={ProductKey.PRODUCT_ANALYTICS}
-                    thingName="anomaly"
-                    description="Anomaly detection automatically monitors your time-series insights and surfaces unusual metrics. Anomalies will appear here once the scoring pipeline has processed your recently viewed insights."
-                    isEmpty={true}
-                    customHog={DetectiveHog}
+        <div className="space-y-3">
+            {/* Sticky filter bar */}
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border bg-primary py-2">
+                <LemonSelect
+                    size="small"
+                    value={window}
+                    onChange={(value) => setWindow(value as AnomalyWindow)}
+                    options={[
+                        { value: '24h', label: 'Last 24 hours' },
+                        { value: '7d', label: 'Last 7 days' },
+                        { value: '30d', label: 'Last 30 days' },
+                    ]}
                 />
-            ) : (
-                <>
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <LemonSelect
-                            size="small"
-                            value={window}
-                            onChange={(value) => setWindow(value as AnomalyWindow)}
-                            options={[
-                                { value: '24h', label: 'Last 24 hours' },
-                                { value: '7d', label: 'Last 7 days' },
-                                { value: '30d', label: 'Last 30 days' },
-                            ]}
-                        />
-                        <LemonSegmentedButton
-                            size="small"
-                            value={intervalFilter}
-                            onChange={(value) => setIntervalFilter(value as AnomalyInterval)}
-                            options={[
-                                { value: '', label: 'All' },
-                                { value: 'hour', label: 'Hourly' },
-                                { value: 'day', label: 'Daily' },
-                                { value: 'week', label: 'Weekly' },
-                                { value: 'month', label: 'Monthly' },
-                            ]}
-                        />
-                        <LemonInput
-                            type="search"
-                            size="small"
-                            placeholder="Search insights..."
-                            value={search}
-                            onChange={setSearch}
-                            className="max-w-60"
-                        />
-                        <div className="flex items-center gap-1 text-muted text-xs ml-auto">
-                            <IconSparkles className="text-warning" />
-                            {filteredAnomalies.length} anomal{filteredAnomalies.length === 1 ? 'y' : 'ies'} found
-                        </div>
+                <LemonSegmentedButton
+                    size="small"
+                    value={intervalFilter}
+                    onChange={(value) => setIntervalFilter(value as AnomalyInterval)}
+                    options={[
+                        { value: '', label: 'All' },
+                        { value: 'hour', label: 'Hourly' },
+                        { value: 'day', label: 'Daily' },
+                        { value: 'week', label: 'Weekly' },
+                        { value: 'month', label: 'Monthly' },
+                    ]}
+                />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search insights..."
+                    value={search}
+                    onChange={setSearch}
+                    className="max-w-60"
+                />
+                <div className="ml-auto flex items-center gap-1 text-xs text-muted">
+                    <IconSparkles className="text-warning" />
+                    <span className="font-mono tabular-nums">{filteredAnomalies.length}</span>
+                    <span>anomal{filteredAnomalies.length === 1 ? 'y' : 'ies'}</span>
+                    <span className="text-border-bold">·</span>
+                    <span>sorted by score</span>
+                </div>
+            </div>
+
+            {anomaliesLoading && filteredAnomalies.length === 0 ? (
+                <div className="py-16 text-center text-sm text-muted">Loading anomalies…</div>
+            ) : filteredAnomalies.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-16 text-center">
+                    <IconSparkles className="text-2xl text-muted" />
+                    <div className="text-sm font-medium text-default">No anomalies in this window</div>
+                    <div className="max-w-md text-xs text-muted">
+                        Anomaly detection monitors your recently viewed time-series insights. Try widening the window or
+                        changing the interval.
                     </div>
-                    <LemonTable
-                        loading={anomaliesLoading}
-                        columns={columns}
-                        dataSource={filteredAnomalies}
-                        rowKey="id"
-                        pagination={{ pageSize: 20 }}
-                        noSortingCancellation
-                        defaultSorting={{ columnKey: 'score', order: -1 }}
-                        emptyState="No anomalies found for the selected filters."
-                    />
-                </>
+                </div>
+            ) : (
+                <div>
+                    {filteredAnomalies.map((a: AnomalyScoreType) => (
+                        <AnomalyRow key={a.id} anomaly={a} />
+                    ))}
+                </div>
             )}
         </div>
     )

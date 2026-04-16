@@ -17,7 +17,7 @@ export const anomaliesLogic = kea<anomaliesLogicType>([
 
     reducers({
         window: [
-            '7d' as AnomalyWindow,
+            '30d' as AnomalyWindow,
             {
                 setWindow: (_, { window }) => window,
             },
