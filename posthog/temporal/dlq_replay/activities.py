@@ -2,14 +2,12 @@ import ssl
 import asyncio
 import dataclasses
 
-from django.conf import settings
-
 import aiokafka
 from aiokafka import TopicPartition
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.kafka_client.routing import async_producer_scope
+from posthog.kafka_client.routing import async_producer_scope, get_profile_settings
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
@@ -56,9 +54,9 @@ class ReplayPartitionResult:
     messages_replayed: int
 
 
-def configure_ssl_context() -> ssl.SSLContext | None:
-    """Configure SSL context for Kafka if needed."""
-    if settings.KAFKA_SECURITY_PROTOCOL != "SSL":
+def configure_ssl_context(security_protocol: str | None) -> ssl.SSLContext | None:
+    """Configure SSL context for Kafka if the profile uses SSL."""
+    if security_protocol != "SSL":
         return None
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -75,11 +73,12 @@ async def get_topic_partitions(inputs: GetTopicPartitionsInputs) -> list[int]:
     logger = LOGGER.bind(topic=inputs.topic)
     logger.info("Getting partitions for topic")
 
-    ssl_context = configure_ssl_context()
+    profile = get_profile_settings(topic=inputs.topic)
+    ssl_context = configure_ssl_context(profile.security_protocol)
 
     consumer = aiokafka.AIOKafkaConsumer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        bootstrap_servers=profile.hosts,
+        security_protocol=profile.security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         api_version="2.5.0",
     )
@@ -122,11 +121,12 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
     )
     logger.info("Starting partition replay")
 
-    ssl_context = configure_ssl_context()
+    source_profile = get_profile_settings(topic=inputs.source_topic)
+    ssl_context = configure_ssl_context(source_profile.security_protocol)
 
     consumer = aiokafka.AIOKafkaConsumer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        bootstrap_servers=source_profile.hosts,
+        security_protocol=source_profile.security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         enable_auto_commit=False,
         auto_offset_reset="earliest",

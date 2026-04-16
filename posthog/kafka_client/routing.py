@@ -128,6 +128,21 @@ def _resolve_profile(topic: Optional[str], profile: Optional[KafkaClusterProfile
     return KafkaClusterProfile.DEFAULT
 
 
+def get_profile_settings(
+    *,
+    topic: Optional[str] = None,
+    profile: Optional[KafkaClusterProfile] = None,
+):
+    """Return the fully-resolved `KafkaProfileSettings` for a topic or profile.
+
+    Use this from Kafka consumer classes that keep their own consumer
+    construction but want hosts/security/SASL resolved through the router (so
+    topics moved via `KAFKA_TOPIC_ROUTING_OVERRIDES` land on the right cluster).
+    """
+    resolved = _resolve_profile(topic, profile)
+    return settings.KAFKA_PROFILES[resolved.value]
+
+
 def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
     config = _resolve_profile_config(profile)
     profile_settings = settings.KAFKA_PROFILES[profile.value]

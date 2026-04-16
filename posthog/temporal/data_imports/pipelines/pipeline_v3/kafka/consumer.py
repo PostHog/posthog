@@ -6,8 +6,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
 from confluent_kafka import (
@@ -18,7 +16,7 @@ from confluent_kafka import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
-from posthog.kafka_client.routing import producer_for_config
+from posthog.kafka_client.routing import get_producer, get_profile_settings
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
     BATCH_PROCESSING_DURATION_SECONDS,
     BATCH_RETRY_EXHAUSTED_TOTAL,
@@ -68,13 +66,12 @@ class KafkaConsumerService:
         self,
         config: ConsumerConfig,
         process_message: Callable[..., None],
-        kafka_hosts: Optional[list[str]] = None,
-        kafka_security_protocol: Optional[str] = None,
     ):
         self._config = config
         self._process_message = process_message
-        self._kafka_hosts = kafka_hosts or settings.WAREHOUSE_PIPELINES_KAFKA_HOSTS
-        self._kafka_security_protocol = kafka_security_protocol or settings.WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL
+        # Hosts + security come from the routing profile that the input topic maps to.
+        # Topics unknown to the routing map fall through to DEFAULT.
+        self._kafka_profile = get_profile_settings(topic=config.input_topic)
         self._shutdown_requested = False
         self._consumer: Optional[ConfluentConsumer] = None
         self._dlq_producer: Optional[_KafkaProducer] = None
@@ -94,15 +91,22 @@ class KafkaConsumerService:
                 logger.warning("signal_registration_failed", signal=sig)
 
     def _create_consumer(self) -> ConfluentConsumer:
+        profile = self._kafka_profile
+        hosts = profile.hosts
         config: dict[str, str | int | float | bool | None] = {
-            "bootstrap.servers": ",".join(self._kafka_hosts)
-            if isinstance(self._kafka_hosts, list)
-            else self._kafka_hosts,
+            "bootstrap.servers": ",".join(hosts) if isinstance(hosts, list) else hosts,
             "group.id": self._config.consumer_group,
             "auto.offset.reset": "latest",
             "enable.auto.commit": False,
-            "security.protocol": self._kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+            "security.protocol": profile.security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
         }
+        if profile.security_protocol in (
+            _KafkaSecurityProtocol.SASL_PLAINTEXT,
+            _KafkaSecurityProtocol.SASL_SSL,
+        ):
+            config["sasl.mechanism"] = profile.sasl_mechanism
+            config["sasl.username"] = profile.sasl_user
+            config["sasl.password"] = profile.sasl_password
         consumer = ConfluentConsumer(config)
         consumer.subscribe(
             [self._config.input_topic],
@@ -141,10 +145,9 @@ class KafkaConsumerService:
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:
-            self._dlq_producer = producer_for_config(
-                hosts=self._kafka_hosts,
-                security_protocol=self._kafka_security_protocol,
-            )
+            # The DLQ topic is in TOPIC_ROUTING and resolves to the same profile
+            # as the input topic, so this lands on the consumer's cluster.
+            self._dlq_producer = get_producer(topic=self._config.dlq_topic)
         return self._dlq_producer
 
     def _send_to_dlq(self, message: Any, error: Exception) -> None:
@@ -197,7 +200,7 @@ class KafkaConsumerService:
             consumer_group=self._config.consumer_group,
             batch_size=self._config.batch_size,
             batch_timeout_seconds=self._config.batch_timeout_seconds,
-            kafka_hosts=self._kafka_hosts,
+            kafka_hosts=self._kafka_profile.hosts,
             dlq_topic=self._config.dlq_topic,
         )
 
