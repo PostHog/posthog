@@ -224,6 +224,96 @@ class TestOnNodesCoercion:
         state = parse_desired_state(f)
         assert state.tables["t"].on_nodes == ["ALL"]
 
+    def test_empty_list_not_coerced_to_all(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: id
+                    type: String
+                on_nodes: []
+                order_by: [id]
+            """,
+        )
+        state = parse_desired_state(f)
+        # [] is an intentional "deploy nowhere" — must not become ["ALL"]
+        assert state.tables["t"].on_nodes == []
+
+
+class TestInheritanceEdgeCases:
+    def test_chain_inheritance_a_to_b_to_c(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              grandparent:
+                engine: MergeTree
+                columns:
+                  - name: id
+                    type: String
+              parent:
+                engine: MergeTree
+                columns: inherit grandparent
+              child:
+                engine: MergeTree
+                columns: inherit parent
+            """,
+        )
+        state = parse_desired_state(f)
+        child = state.tables["child"]
+        assert len(child.columns) == 1
+        assert child.columns[0].name == "id"
+
+    def test_inherit_from_unknown_table_raises(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns: inherit nonexistent
+            """,
+        )
+        with pytest.raises(ValueError, match="nonexistent"):
+            parse_desired_state(f)
+
+    def test_inherit_from_table_with_non_list_columns_raises(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              base:
+                engine: MergeTree
+                columns: not_an_inherit_string
+              child:
+                engine: MergeTree
+                columns: inherit base
+            """,
+        )
+        with pytest.raises(ValueError, match="no column list"):
+            parse_desired_state(f)
+
+    def test_columns_wrong_type_raises(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns: 42
+            """,
+        )
+        with pytest.raises(ValueError, match="columns"):
+            parse_desired_state(f)
+
 
 class TestKafkaSettings:
     def test_integer_values_coerced_to_strings(self, tmp_path):

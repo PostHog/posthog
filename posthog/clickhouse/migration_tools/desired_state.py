@@ -108,9 +108,12 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
         inherit_from = columns_raw.split(" ", 1)[1].strip()
     columns = _parse_columns(columns_raw, all_tables, _visited=(name,))
 
-    # Use `or` instead of a dict default so that an explicit `None`
-    # (from YAML `on_nodes:` with no value) also falls back to ["ALL"].
-    on_nodes_raw = raw.get("on_nodes") or ["ALL"]
+    # Default to ["ALL"] only when the key is absent or explicitly null
+    # (YAML `on_nodes:` with no value parses as None). An empty list `[]`
+    # is intentional — "deploy nowhere" — so we must NOT coerce it here.
+    on_nodes_raw = raw.get("on_nodes")
+    if on_nodes_raw is None:
+        on_nodes_raw = ["ALL"]
     if isinstance(on_nodes_raw, str):
         on_nodes_raw = [on_nodes_raw]
 
