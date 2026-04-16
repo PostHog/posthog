@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="activitylog",
             name="client",
-            field=models.CharField(blank=True, max_length=200, null=True),
+            field=models.CharField(blank=True, max_length=32, null=True),
         ),
     ]

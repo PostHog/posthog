@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+
 
 class ActivityLoggingStorage:
     """

@@ -17,7 +17,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -185,7 +185,7 @@ class ActivityLog(UUIDTModel):
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
     # Value of the x-posthog-client request header captured when the activity was logged
-    client = models.CharField(max_length=200, null=True, blank=True)
+    client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged

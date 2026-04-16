@@ -1433,11 +1433,13 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.assertIsNone(self.captured["client"])
 
     def test_long_header_value_is_truncated(self):
-        long_value = "x" * 500
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "x" * 200)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
 
 
 class TestCSPMiddleware(APIBaseTest):
