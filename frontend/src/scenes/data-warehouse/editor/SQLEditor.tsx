@@ -250,6 +250,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         updateInsightButtonEnabled,
         saveAsMenuItems,
         isSourceQueryLastRun,
+        isMultiQuery,
     } = useValues(sqlEditorLogic)
     const {
         updateView,
@@ -320,6 +321,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return ['Saving...', Spinner]
         }
 
+        if (isMultiQuery) {
+            return ['Views must be a single query — remove extra statements to update', IconDownload]
+        }
+
         if (!response) {
             return ['Run query to update', IconDownload]
         }
@@ -329,7 +334,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
 
     if (isEmbeddedMode) {
         return null

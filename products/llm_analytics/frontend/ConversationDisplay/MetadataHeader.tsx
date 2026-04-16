@@ -5,12 +5,14 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { lowercaseFirstLetter } from 'lib/utils'
 
+import { CostBreakdownTooltip } from '../components/CostBreakdownTooltip'
 import { MetadataTag } from '../components/MetadataTag'
+import { CostContext, formatLLMCost, hasCostBreakdown } from '../utils'
 
 export function MetadataHeader({
     inputTokens,
     outputTokens,
-    totalCostUsd,
+    costContext,
     model,
     latency,
     className,
@@ -25,7 +27,7 @@ export function MetadataHeader({
     outputTokens?: number
     cacheReadTokens?: number
     cacheWriteTokens?: number
-    totalCostUsd?: number
+    costContext?: CostContext
     model?: string
     latency?: number
     isError?: boolean
@@ -66,8 +68,15 @@ export function MetadataHeader({
                     {model}
                 </MetadataTag>
             )}
-            {typeof totalCostUsd === 'number' && (
-                <MetadataTag label="Total generation cost">{`$${Math.round(totalCostUsd * 10e6) / 10e6}`}</MetadataTag>
+            {costContext && (
+                <MetadataTag
+                    label="Total generation cost"
+                    tooltipContent={
+                        hasCostBreakdown(costContext) ? <CostBreakdownTooltip costContext={costContext} /> : undefined
+                    }
+                >
+                    {formatLLMCost(costContext.totalCost)}
+                </MetadataTag>
             )}
         </div>
     )

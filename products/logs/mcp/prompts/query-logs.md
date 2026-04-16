@@ -1,8 +1,20 @@
 Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.
 
-Use 'logs-list-attributes' and 'logs-list-attribute-values' to discover available attributes before building filters.
+Use `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.
+
+# Workflow — follow this order every time
+
+1. **Discover services first.** Call `logs-attribute-values-list` with `key: "service.name"` and `attribute_type: "resource"` to see available services.
+2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: "resource"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: "resource"` for relevant attributes to validate what data exists.
+3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.
+4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.
+5. **Only then query logs.** Once you have confirmed the service name, volume looks right, and relevant filters are set, call `query-logs` with `serviceNames` and any additional filters.
+
+10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
+
+MANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.
 
 All parameters must be nested inside a `query` object.
 
@@ -18,9 +30,11 @@ When using a property filter, you should:
   - `log` — filters the log body/message. Use key "message" for this type.
   - `log_attribute` — filters log-level attributes (e.g. "k8s.container.name", "http.method").
   - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
-- **Use `logs-list-attributes` to discover available attribute keys** before building filters.
-- **Use `logs-list-attribute-values` to discover valid values** for a specific attribute key.
+- **Use `logs-attributes-list` to discover available attribute keys** before building filters.
+- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.
 - **Find the suitable operator for the value type** (see supported operators below).
+
+**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: "log"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: "resource"`. Forgetting this will return log-level attributes when you intended resource-level ones.
 
 Supported operators:
 
@@ -45,7 +59,7 @@ Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit
 
 ## query.serviceNames
 
-Filter by service names. Use `logs-list-attribute-values` with `key: "service.name"` to discover available services.
+Filter by service names. Use `logs-attribute-values-list` with `key: "service.name"` and `attribute_type: "resource"` to discover available services.
 
 ## query.searchTerm
 
@@ -81,7 +95,8 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 ```json
 {
   "query": {
-    "severityLevels": ["error", "fatal"]
+    "severityLevels": ["error", "fatal"],
+    "serviceNames": ["<service>"]
   }
 }
 ```
@@ -92,6 +107,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 {
   "query": {
     "searchTerm": "connection refused",
+    "serviceNames": ["<service>"],
     "dateRange": { "date_from": "-6h" }
   }
 }
@@ -113,6 +129,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 ```json
 {
   "query": {
+    "serviceNames": ["<service>"],
     "filterGroup": [{ "key": "http.status_code", "operator": "exact", "type": "log_attribute", "value": "500" }],
     "dateRange": { "date_from": "-1d" }
   }
@@ -138,6 +155,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 ```json
 {
   "query": {
+    "serviceNames": ["<service>"],
     "filterGroup": [{ "key": "message", "operator": "icontains", "type": "log", "value": "timeout" }]
   }
 }
@@ -148,6 +166,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 ```json
 {
   "query": {
+    "serviceNames": ["<service>"],
     "filterGroup": [{ "key": "trace_id", "operator": "is_set", "type": "log_attribute" }]
   }
 }
@@ -155,6 +174,9 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 # Reminders
 
+- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.
+- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.
+- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: "log"`. Pass `attribute_type: "resource"` to search resource-level attributes.
 - Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.
-- Use `logs-list-attributes` and `logs-list-attribute-values` to discover attributes before guessing filter keys/values.
+- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.
 - Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.
