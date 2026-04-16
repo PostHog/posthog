@@ -3,17 +3,42 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ErrorTrackingAssignmentRulesListQueryParams,
     ErrorTrackingIssuesListQueryParams,
     ErrorTrackingIssuesMergeCreateBody,
     ErrorTrackingIssuesMergeCreateParams,
     ErrorTrackingIssuesPartialUpdateBody,
     ErrorTrackingIssuesPartialUpdateParams,
     ErrorTrackingIssuesRetrieveParams,
+    ErrorTrackingIssuesSplitCreateBody,
+    ErrorTrackingIssuesSplitCreateParams,
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ErrorTrackingAssignmentRulesListSchema = ErrorTrackingAssignmentRulesListQueryParams
+
+const errorTrackingAssignmentRulesList = (): ToolBase<
+    typeof ErrorTrackingAssignmentRulesListSchema,
+    Schemas.PaginatedErrorTrackingAssignmentRuleList
+> => ({
+    name: 'error-tracking-assignment-rules-list',
+    schema: ErrorTrackingAssignmentRulesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingAssignmentRulesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingAssignmentRuleList>({
+            method: 'GET',
+            path: `/api/environments/${projectId}/error_tracking/assignment_rules/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
 
 const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams
 
@@ -134,6 +159,31 @@ const errorTrackingIssuesMergeCreate = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingIssueMergeResponse>({
             method: 'POST',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/merge/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingIssuesSplitCreateSchema = ErrorTrackingIssuesSplitCreateParams.omit({ project_id: true }).extend(
+    ErrorTrackingIssuesSplitCreateBody.shape
+)
+
+const errorTrackingIssuesSplitCreate = (): ToolBase<
+    typeof ErrorTrackingIssuesSplitCreateSchema,
+    Schemas.ErrorTrackingIssueSplitResponse
+> => ({
+    name: 'error-tracking-issues-split-create',
+    schema: ErrorTrackingIssuesSplitCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesSplitCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.fingerprints !== undefined) {
+            body['fingerprints'] = params.fingerprints
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingIssueSplitResponse>({
+            method: 'POST',
+            path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/split/`,
             body,
         })
         return result
@@ -465,10 +515,12 @@ const QueryErrorTrackingIssuesSchema = AssistantErrorTrackingQuery.extend({
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'error-tracking-assignment-rules-list': errorTrackingAssignmentRulesList,
     'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
+    'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
         schema: QueryErrorTrackingIssuesSchema,

@@ -18,6 +18,7 @@ import type {
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
+    FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -378,6 +379,27 @@ export const featureFlagsStatusRetrieve = async (
     options?: RequestInit
 ): Promise<FeatureFlagStatusResponseApi> => {
     return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: number, versionNumber: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/`
+}
+
+export const featureFlagsVersionsRetrieve = async (
+    projectId: string,
+    id: number,
+    versionNumber: number,
+    options?: RequestInit
+): Promise<FeatureFlagVersionResponseApi> => {
+    return apiMutator<FeatureFlagVersionResponseApi>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
         ...options,
         method: 'GET',
     })

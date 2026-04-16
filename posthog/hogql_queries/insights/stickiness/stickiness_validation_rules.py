@@ -12,6 +12,8 @@ STICKINESS_INTERVAL_COUNT_TOO_LARGE_CODE = "stickiness_interval_count_too_large"
 
 
 class ValidateStickinessCriteria:
+    code = STICKINESS_CRITERIA_NEGATIVE_CODE
+
     def validate(self, context: QueryValidationContext[StickinessQuery]) -> None:
         criteria = context.query.stickinessFilter.stickinessCriteria if context.query.stickinessFilter else None
         if criteria is None:
@@ -30,6 +32,8 @@ class ValidateStickinessCriteria:
 
 
 class ValidateIntervalCount:
+    code = STICKINESS_INTERVAL_COUNT_NON_POSITIVE_CODE
+
     def validate(self, context: QueryValidationContext[StickinessQuery]) -> None:
         interval_count = context.query.intervalCount
         if interval_count is None:
