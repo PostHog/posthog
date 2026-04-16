@@ -113,7 +113,9 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Organization',
-            dataIndex: 'organization_name',
+            render: function OrgCell(_, item) {
+                return <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+            },
         },
         {
             title: 'Team',
