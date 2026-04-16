@@ -110,3 +110,19 @@ class TestCustomerIOSyncService(BaseTest):
         sync_preferences_to_customerio(self.team.id, "user@test.com", prefs)
 
         mock_client.update_subscription_preferences.assert_called_once_with("user@test.com", {"topic_7": False})
+
+    @patch("products.messaging.backend.services.customerio_sync_service.CustomerIOTrackClient")
+    def test_syncs_global_unsubscribe_without_customerio_categories(self, mock_client_class):
+        """Global unsub must still sync when no customerio_* categories exist."""
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        # Team has only PostHog-native categories, no customerio_* ones
+        MessageCategory.objects.filter(team=self.team, key__startswith="customerio_").delete()
+
+        prefs = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
+
+        sync_preferences_to_customerio(self.team.id, "user@test.com", prefs)
+
+        mock_client.set_global_unsubscribe.assert_called_once_with("user@test.com", True)
+        mock_client.update_subscription_preferences.assert_not_called()

@@ -46,9 +46,6 @@ def sync_preferences_to_customerio(
         return
 
     category_to_topic = _build_category_to_topic_map(team_id)
-    if not category_to_topic:
-        return
-
     topic_prefs: dict[str, bool] = {}
     for category_id, topic_key in category_to_topic.items():
         status = preferences.get(category_id)
