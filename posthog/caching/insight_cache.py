@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -75,7 +75,7 @@ def update_cache(caching_state_id: UUID):
         try:
             response = process_query_dict(
                 insight.team,
-                insight.query,
+                cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 analytics_props={"source": EventSource.CACHE_WARMING},
