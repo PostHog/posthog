@@ -1,16 +1,20 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-
-import api from 'lib/api'
+import { cleanup, render, screen } from '@testing-library/react'
+import { useValues } from 'kea'
 
 import { ReplayCaptureDiagnosticsPanel } from './ReplayCaptureDiagnosticsPanel'
 
-jest.mock('lib/api', () => ({
-    queryHogQL: jest.fn(),
+jest.mock('kea', () => ({
+    ...jest.requireActual('kea'),
+    useValues: jest.fn(),
 }))
 
-const mockedQueryHogQL = api.queryHogQL as jest.Mock
+jest.mock('./replayCaptureDiagnosticsPanelLogic', () => ({
+    replayCaptureDiagnosticsPanelLogic: jest.fn(),
+}))
+
+const mockedUseValues = useValues as jest.Mock
 
 describe('ReplayCaptureDiagnosticsPanel', () => {
     describe('with eventProperties prop', () => {
@@ -136,86 +140,48 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             cleanup()
         })
 
-        beforeEach(() => {
-            jest.clearAllMocks()
-        })
-
-        it('shows loading state initially', () => {
-            mockedQueryHogQL.mockReturnValue(new Promise(() => {}))
+        it('shows loading state when properties are loading', () => {
+            mockedUseValues.mockReturnValue({
+                sessionEventProperties: null,
+                sessionEventPropertiesLoading: true,
+            })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
 
             expect(screen.getByText('Loading capture diagnostics…')).toBeInTheDocument()
         })
 
-        it('renders diagnosis after fetching properties', async () => {
-            mockedQueryHogQL.mockResolvedValue({
-                results: [[{ $recording_status: 'disabled' }]],
+        it('renders diagnosis when properties are loaded', () => {
+            mockedUseValues.mockReturnValue({
+                sessionEventProperties: { $recording_status: 'disabled' },
+                sessionEventPropertiesLoading: false,
             })
 
-            await act(async () => {
-                render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
-            })
+            render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
 
-            await waitFor(() => {
-                expect(screen.getByText('Session recording was disabled for this session')).toBeInTheDocument()
-            })
+            expect(screen.getByText('Session recording was disabled for this session')).toBeInTheDocument()
         })
 
-        it('renders nothing when fetch returns no results', async () => {
-            mockedQueryHogQL.mockResolvedValue({
-                results: [],
+        it('renders nothing when properties are null after loading', () => {
+            mockedUseValues.mockReturnValue({
+                sessionEventProperties: null,
+                sessionEventPropertiesLoading: false,
             })
 
-            const { container } = await act(async () => {
-                return render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
-            })
+            const { container } = render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
 
-            await waitFor(() => {
-                expect(screen.queryByText('Loading capture diagnostics…')).not.toBeInTheDocument()
-            })
             expect(container.innerHTML).toBe('')
         })
 
-        it('renders nothing when fetch errors', async () => {
-            mockedQueryHogQL.mockRejectedValue(new Error('network error'))
-
-            const { container } = await act(async () => {
-                return render(<ReplayCaptureDiagnosticsPanel sessionId="session-456" />)
+        it('renders sampled out diagnosis from loaded properties', () => {
+            mockedUseValues.mockReturnValue({
+                sessionEventProperties: { $recording_status: 'sampled' },
+                sessionEventPropertiesLoading: false,
             })
 
-            await waitFor(() => {
-                expect(screen.queryByText('Loading capture diagnostics…')).not.toBeInTheDocument()
-            })
-            expect(container.innerHTML).toBe('')
-        })
+            render(<ReplayCaptureDiagnosticsPanel sessionId="session-789" />)
 
-        it('parses JSON string result from HogQL', async () => {
-            mockedQueryHogQL.mockResolvedValue({
-                results: [[JSON.stringify({ $recording_status: 'sampled' })]],
-            })
-
-            await act(async () => {
-                render(<ReplayCaptureDiagnosticsPanel sessionId="session-789" />)
-            })
-
-            await waitFor(() => {
-                expect(screen.getByText('This session was excluded by sampling')).toBeInTheDocument()
-            })
-        })
-
-        it('calls queryHogQL with the session ID', async () => {
-            mockedQueryHogQL.mockResolvedValue({
-                results: [[{ $recording_status: 'active', $sdk_debug_replay_flushed_size: 100 }]],
-            })
-
-            await act(async () => {
-                render(<ReplayCaptureDiagnosticsPanel sessionId="my-session-id" />)
-            })
-
-            expect(mockedQueryHogQL).toHaveBeenCalledTimes(1)
-            const query = mockedQueryHogQL.mock.calls[0][0]
-            expect(query).toContain('my-session-id')
+            expect(screen.getByText('This session was excluded by sampling')).toBeInTheDocument()
         })
     })
 })

@@ -1,15 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useValues } from 'kea'
 
-import api from 'lib/api'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonBanner, LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { hogql } from '~/queries/utils'
-
 import { DiagnosisVerdict, ReplayCaptureDiagnosis, diagnoseReplayCapture } from '../utils/replayCaptureDiagnostics'
+import { replayCaptureDiagnosticsPanelLogic } from './replayCaptureDiagnosticsPanelLogic'
 
 type ReplayCaptureDiagnosticsPanelProps =
     | { eventProperties: Record<string, any>; sessionId?: undefined }
@@ -136,61 +134,19 @@ function DiagnosisContent({ diagnosis }: { diagnosis: ReplayCaptureDiagnosis }):
 }
 
 export function ReplayCaptureDiagnosticsPanel(props: ReplayCaptureDiagnosticsPanelProps): JSX.Element | null {
-    const [fetchedProperties, setFetchedProperties] = useState<Record<string, any> | null>(null)
-    const [loading, setLoading] = useState<boolean>(props.sessionId !== undefined)
-    const [fetchError, setFetchError] = useState<boolean>(false)
-    const sessionId = props.sessionId
-
-    useEffect(() => {
-        if (!sessionId) {
-            return
-        }
-        let cancelled = false
-        setLoading(true)
-        setFetchError(false)
-        const query = hogql`
-SELECT properties
-FROM events
-WHERE $session_id = ${sessionId}
-ORDER BY timestamp DESC
-LIMIT 1`
-        api.queryHogQL(query, { scene: 'ReplayCaptureDiagnostics', productKey: 'session_replay' })
-            .then((result: any) => {
-                if (cancelled) {
-                    return
-                }
-                const row = result?.results?.[0]?.[0]
-                if (!row) {
-                    setFetchError(true)
-                    setFetchedProperties(null)
-                    return
-                }
-                try {
-                    setFetchedProperties(typeof row === 'string' ? JSON.parse(row) : row)
-                } catch {
-                    setFetchError(true)
-                }
-            })
-            .catch(() => {
-                if (!cancelled) {
-                    setFetchError(true)
-                }
-            })
-            .finally(() => {
-                if (!cancelled) {
-                    setLoading(false)
-                }
-            })
-        return () => {
-            cancelled = true
-        }
-    }, [sessionId])
-
     if (props.eventProperties) {
         return <DiagnosisContent diagnosis={diagnoseReplayCapture(props.eventProperties)} />
     }
 
-    if (loading) {
+    return <SessionIdDiagnosticsPanel sessionId={props.sessionId} />
+}
+
+function SessionIdDiagnosticsPanel({ sessionId }: { sessionId: string }): JSX.Element | null {
+    const { sessionEventProperties, sessionEventPropertiesLoading } = useValues(
+        replayCaptureDiagnosticsPanelLogic({ sessionId })
+    )
+
+    if (sessionEventPropertiesLoading) {
         return (
             <div className="flex justify-center items-center p-4">
                 <Spinner />
@@ -199,9 +155,9 @@ LIMIT 1`
         )
     }
 
-    if (fetchError || !fetchedProperties) {
+    if (!sessionEventProperties) {
         return null
     }
 
-    return <DiagnosisContent diagnosis={diagnoseReplayCapture(fetchedProperties)} />
+    return <DiagnosisContent diagnosis={diagnoseReplayCapture(sessionEventProperties)} />
 }
