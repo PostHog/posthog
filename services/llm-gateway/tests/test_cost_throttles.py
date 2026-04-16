@@ -1124,7 +1124,6 @@ class TestPlanAwareThrottling:
         assert result.allowed is True
 
 
-
 class TestCostAccumulatorTTL:
     def test_cost_expires_after_window(self) -> None:
         from unittest.mock import patch

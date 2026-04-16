@@ -75,14 +75,10 @@ class TestUsageEndpoint:
         assert data["sustained"]["used_percent"] == 0
         assert data["is_rate_limited"] is False
 
-    def test_returns_trial_limits_for_free_plan_with_seat(
-        self, authenticated_usage_client: TestClient
-    ) -> None:
+    def test_returns_trial_limits_for_free_plan_with_seat(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(
-                plan_key=None, in_trial_period=True, seat_created_at="2026-01-01T00:00:00+00:00"
-            )
+            return_value=PlanInfo(plan_key=None, in_trial_period=True, seat_created_at="2026-01-01T00:00:00+00:00")
         )
 
         response = authenticated_usage_client.get(
@@ -95,9 +91,7 @@ class TestUsageEndpoint:
         assert data["burst"]["used_percent"] == 0
         assert data["sustained"]["used_percent"] == 0
 
-    def test_returns_zero_limits_when_trial_expired(
-        self, authenticated_usage_client: TestClient
-    ) -> None:
+    def test_returns_zero_limits_when_trial_expired(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         app.state.plan_resolver.get_plan = AsyncMock(
             return_value=PlanInfo(
@@ -120,9 +114,7 @@ class TestUsageEndpoint:
         assert data["sustained"]["exceeded"] is True
         assert data["is_rate_limited"] is True
 
-    def test_returns_pro_limits_with_pro_plan(
-        self, authenticated_usage_client: TestClient
-    ) -> None:
+    def test_returns_pro_limits_with_pro_plan(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         app.state.plan_resolver.get_plan = AsyncMock(
             return_value=PlanInfo(plan_key="posthog-code-200-20260301", in_trial_period=False, seat_created_at=None)
