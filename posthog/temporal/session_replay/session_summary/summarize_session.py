@@ -170,6 +170,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> boo
         user_distinct_id_to_log=inputs.user_distinct_id_to_log,
         summary_data=summary_data,
         model_to_use=inputs.model_to_use,
+        trigger_session_id=inputs.trigger_session_id,
     )
     # Store the input in Redis
     input_data_str = json.dumps(dataclasses.asdict(input_data))
@@ -284,6 +285,7 @@ async def get_llm_single_session_summary_activity(
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
         user_distinct_id=llm_input.user_distinct_id_to_log,
+        trigger_session_id=llm_input.trigger_session_id,
     )
     # Store the final summary in the DB
     await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
@@ -377,6 +379,7 @@ async def stream_llm_single_session_summary_activity(
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
         user_distinct_id=llm_input.user_distinct_id_to_log,
+        trigger_session_id=llm_input.trigger_session_id,
     )
     async for current_summary_state_str in session_summary_generator:
         if current_summary_state_str == last_summary_state_str:
@@ -901,6 +904,7 @@ def _prepare_execution(
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
+    trigger_session_id: str | None = None,
 ) -> tuple[Redis, str, str, SingleSessionSummaryInputs, str]:
     # Use shared identifier to be able to construct all the ids to check/debug
     # Using session id instead of random UUID to be able to check the data in Redis
@@ -932,6 +936,7 @@ def _prepare_execution(
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
         video_validation_enabled=video_validation_enabled,
+        trigger_session_id=trigger_session_id,
     )
     workflow_id = (
         f"session-summary:single:{'stream' if stream else 'direct'}:{team.id}:{session_id}:{shared_id}:{uuid.uuid4()}"
@@ -947,6 +952,7 @@ async def execute_summarize_session(
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
+    trigger_session_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Start the direct summarization workflow (no streaming) and return the summary.
@@ -973,6 +979,7 @@ async def execute_summarize_session(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
         video_validation_enabled=video_validation_enabled,
+        trigger_session_id=trigger_session_id,
     )
     # Wait for the workflow to complete
     try:

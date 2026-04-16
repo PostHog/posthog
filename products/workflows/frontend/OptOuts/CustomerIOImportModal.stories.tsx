@@ -22,6 +22,8 @@ const emptySyncConfig: OptOutSyncConfigResponse = {
     app_integration_id: null,
     app_import_result: null,
     csv_import_result: null,
+    webhook_enabled: false,
+    has_webhook_secret: false,
 }
 
 const step1FailedConfig: OptOutSyncConfigResponse = {
@@ -118,3 +120,31 @@ BothStepsCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollaps
 export const Step2Failed: StoryFn<StoryProps> = Template.bind({})
 Step2Failed.args = { syncConfig: step2FailedConfig }
 Step2Failed.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+const allStepsCompletedConfig: OptOutSyncConfigResponse = {
+    ...bothStepsCompletedConfig,
+    webhook_enabled: true,
+    has_webhook_secret: true,
+}
+
+const webhookDisabledConfig: OptOutSyncConfigResponse = {
+    ...bothStepsCompletedConfig,
+    webhook_enabled: false,
+    has_webhook_secret: true,
+}
+
+export const AllStepsCompleted: StoryFn<StoryProps> = Template.bind({})
+AllStepsCompleted.args = { syncConfig: allStepsCompletedConfig }
+AllStepsCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+export const Step3WebhookNotConfigured: StoryFn<StoryProps> = Template.bind({})
+Step3WebhookNotConfigured.args = { syncConfig: bothStepsCompletedConfig }
+Step3WebhookNotConfigured.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+export const Step3WebhookEnabled: StoryFn<StoryProps> = Template.bind({})
+Step3WebhookEnabled.args = { syncConfig: allStepsCompletedConfig }
+Step3WebhookEnabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+export const Step3WebhookDisabled: StoryFn<StoryProps> = Template.bind({})
+Step3WebhookDisabled.args = { syncConfig: webhookDisabledConfig }
+Step3WebhookDisabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }

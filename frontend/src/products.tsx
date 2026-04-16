@@ -72,8 +72,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
     ErrorTrackingIssueFingerprints: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
-    ErrorTrackingConfiguration: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
@@ -144,7 +142,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
-    '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -218,6 +215,14 @@ export const productRedirects: Record<
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
+        const { tab, ...restSearchParams } = searchParams
+        return combineUrl(
+            '/error_tracking',
+            { ...restSearchParams, activeTab: 'configuration' },
+            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
+        ).url
+    },
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-analytics/settings': (_params, searchParams) =>
@@ -380,7 +385,6 @@ export const productConfiguration: Record<string, any> = {
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
-    ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
     FeatureFlagTemplates: {
         projectBased: true,
         name: 'Feature flag templates',
@@ -695,7 +699,8 @@ export const productUrls = {
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-    errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
+    errorTrackingConfiguration: (params = {}): string =>
+        combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
     errorTrackingIssue: (
         id: string,
         params: {
@@ -1384,12 +1389,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: [
-            'ErrorTracking',
-            'ErrorTrackingIssue',
-            'ErrorTrackingIssueFingerprints',
-            'ErrorTrackingConfiguration',
-        ],
+        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingIssueFingerprints'],
     },
     {
         path: 'Evaluations',

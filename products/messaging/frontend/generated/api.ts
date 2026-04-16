@@ -172,6 +172,47 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
 }
 
 /**
+ * Remove the Customer.io webhook integration and reset inbound sync state.
+ */
+export const getMessagingCategoriesRemoveWebhookConfigDestroyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/remove_webhook_config/`
+}
+
+export const messagingCategoriesRemoveWebhookConfigDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingCategoriesRemoveWebhookConfigDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Save webhook signing secret and/or toggle the Customer.io webhook sync.
+
+Accepts:
+  - webhook_signing_secret (optional): set on first creation only
+  - webhook_enabled (required): enable or disable the webhook
+ */
+export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/save_webhook_config/`
+}
+
+export const messagingCategoriesSaveWebhookConfigCreate = async (
+    projectId: string,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesSaveWebhookConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageCategoryApi),
+    })
+}
+
+/**
  * Generate an unsubscribe link for the current user's email address
  */
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
@@ -197,6 +238,23 @@ export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => 
 
 export const messagingPreferencesOptOutsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getMessagingPreferencesOptOutsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Return the webhook URL for Customer.io integration setup.
+ */
+export const getMessagingPreferencesWebhookUrlRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_preferences/webhook_url/`
+}
+
+export const messagingPreferencesWebhookUrlRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingPreferencesWebhookUrlRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
