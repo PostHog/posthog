@@ -4876,6 +4876,8 @@ export interface LLMTraceApi {
     outputTokens?: number | null
     person?: LLMTracePersonApi | null
     /** @nullable */
+    requestCost?: number | null
+    /** @nullable */
     tools?: string[] | null
     /** @nullable */
     totalCost?: number | null
@@ -4883,6 +4885,8 @@ export interface LLMTraceApi {
     totalLatency?: number | null
     /** @nullable */
     traceName?: string | null
+    /** @nullable */
+    webSearchCost?: number | null
 }
 
 export interface Response25Api {
@@ -6204,6 +6208,8 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
+    /** @nullable */
+    metric_events_precomputation?: boolean | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
