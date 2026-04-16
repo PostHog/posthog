@@ -3155,6 +3155,7 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @extend_schema(operation_id="feature_flags_all_activity_retrieve")
     @validated_request(
         query_serializer=ActivityQuerySerializer,
         responses={

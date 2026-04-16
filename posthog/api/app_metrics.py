@@ -5,6 +5,7 @@ from typing import Any
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, request, response, viewsets
 
 from posthog.schema import ProductKey
@@ -132,6 +133,7 @@ class HistoricalExportsAppMetricsViewSet(
 ):
     scope_object = "plugin"
 
+    @extend_schema(operation_id="app_metrics_historical_exports_list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return response.Response(
             {

@@ -588,9 +588,23 @@ class FilterActionSerializer(serializers.Serializer):
 # Global mapping of (path, method) → product folder, populated during preprocessing
 _endpoint_product_mapping: dict[tuple[str, str], str] = {}
 
+# Set of (path, method) for org-level paths that duplicate a /api/projects/ path.
+# These get marked deprecated and prefixed with "org_" in postprocessing.
+_org_paths_with_project_dup: set[tuple[str, str]] = set()
+
 # Prefix used to identify deprecated environment duplicates in postprocessing.
 # Only env paths that duplicate a /api/projects/ path get this prefix (via {environment_id}).
 _DEPRECATED_ENV_PREFIX = "/api/environments/{environment_id}/"
+
+# Match any /api/{root}/{parent_lookup_*}/ prefix regardless of the lookup variable name.
+# This handles registrations that use team_id, project_id, organization_id, etc.
+_PROJECTS_PREFIX_RE = re.compile(r"^/api/projects/\{parent_lookup_\w+\}/")
+_ENVIRONMENTS_PREFIX_RE = re.compile(r"^/api/environments/\{parent_lookup_\w+\}/")
+_ORG_PREFIX_RE = re.compile(r"^/api/organizations/\{parent_lookup_\w+\}/")
+
+# Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
+_ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
+_PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 
 def _get_product_from_module(module: str) -> str | None:
@@ -602,12 +616,10 @@ def _get_product_from_module(module: str) -> str | None:
     return None
 
 
-def _extract_env_suffix(path: str) -> str | None:
-    """Extract the resource suffix from an /api/environments/ path, or None if not an env path."""
-    prefix = "/api/environments/{parent_lookup_team_id}/"
-    if path.startswith(prefix):
-        return path[len(prefix) :]
-    return None
+def _extract_root_suffix(prefix_re: re.Pattern, path: str) -> str | None:
+    """Extract the resource suffix after the root /api/{resource}/{lookup}/ prefix, or None."""
+    m = prefix_re.match(path)
+    return path[m.end() :] if m else None
 
 
 def preprocess_exclude_path_format(endpoints, **kwargs):
@@ -616,20 +628,26 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     format_suffix_patterns is used and {format} path params are unwanted.
 
     Also tracks endpoints registered under both /api/environments/ and
-    /api/projects/ (via register_grandfathered_environment_nested_viewset),
-    so that environment duplicates can be marked deprecated in postprocessing.
+    /api/projects/ so that environment duplicates can be marked deprecated in
+    postprocessing.  Also detects /api/organizations/ paths that duplicate a
+    /api/projects/ path (same resource suffix) for the same treatment.
+
+    Uses regex-based prefix matching so it works regardless of which
+    {parent_lookup_*} variable name a registration chose (team_id vs project_id
+    vs organization_id, etc.).
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
     include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
 
-    # Clear previous mapping
+    # Clear previous mappings
     _endpoint_product_mapping.clear()
+    _org_paths_with_project_dup.clear()
 
     # Pass 1: collect all included endpoints and build a set of suffixes that
-    # exist under /api/projects/ so we can identify /api/environments/ duplicates.
+    # exist under /api/projects/ so we can identify /api/environments/ and
+    # /api/organizations/ duplicates.
     included: list[tuple[str, str, str, Any]] = []
     projects_suffixes: set[tuple[str, str]] = set()
-    projects_prefix = "/api/projects/{parent_lookup_team_id}/"
 
     for path, path_regex, method, callback in endpoints:
         if getattr(callback.cls, "param_derived_from_user_current_team", None):
@@ -641,24 +659,37 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             continue
 
         included.append((path, path_regex, method, callback))
-        if path.startswith(projects_prefix):
-            suffix = path[len(projects_prefix) :]
+        suffix = _extract_root_suffix(_PROJECTS_PREFIX_RE, path)
+        if suffix is not None:
             projects_suffixes.add((suffix, method))
 
-    # Pass 2: keep all endpoints, but mark env duplicates for deprecation in postprocessing.
-    # Env duplicates get {environment_id} param (matching _DEPRECATED_ENV_PREFIX), others get {project_id}.
+    # Pass 2: keep all endpoints, but mark env/org duplicates for deprecation in postprocessing.
+    # Env duplicates get {environment_id} param (matching _DEPRECATED_ENV_PREFIX).
+    # Org duplicates are tracked in _org_paths_with_project_dup by their final path string.
+    # All other {parent_lookup_*} variables are collapsed to the simple name.
     # drf-spectacular may rewrite other params (e.g. {pk} → {id}) between pre- and postprocessing,
-    # so postprocessing identifies deprecated paths by the {environment_id} prefix, not exact match.
+    # so postprocessing identifies deprecated paths by prefix/set membership, not exact match.
     result = []
     for path, path_regex, method, callback in included:
-        env_suffix = _extract_env_suffix(path)
+        env_suffix = _extract_root_suffix(_ENVIRONMENTS_PREFIX_RE, path)
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
+        org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
+        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+
         if is_env_duplicate:
-            path = path.replace("{parent_lookup_team_id}", "{environment_id}")
+            path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)
+        elif _ENVIRONMENTS_PREFIX_RE.match(path):
+            path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{project_id}/", path, count=1)
         else:
+            # For projects/org paths, {parent_lookup_team_id} → {project_id} (legacy convention).
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
+        # Collapse any remaining {parent_lookup_X} → {X}
         path = path.replace("{parent_lookup_", "{")
+
+        if is_org_duplicate:
+            # Normalize {pk} → {id} to match what drf-spectacular emits in postprocessing.
+            _org_paths_with_project_dup.add((path.replace("{pk}", "{id}"), method))
 
         # Track product folder for auto-tagging
         product = _get_product_from_module(callback.cls.__module__)
@@ -775,12 +806,43 @@ def custom_postprocessing_hook(result, generator, request, public):
                 all_tags.append(tag)
 
             # Strip router-derived prefixes from operationIds.
-            # Keep environments_ on deprecated env paths to avoid collisions with projects_ versions.
-            definition["operationId"] = definition["operationId"].replace("organizations_", "", 1)
-            if not is_deprecated_env:
-                definition["operationId"] = (
-                    definition["operationId"].replace("projects_", "", 1).replace("environments_", "", 1)
-                )
+            #
+            # Rules:
+            # - Deprecated env paths keep their environments_ prefix (distinguishes them from the
+            #   canonical project version that Orval will use).
+            # - Org paths that duplicate a project path get an org_ prefix and are marked deprecated.
+            # - /api/organizations/{id}/projects/… paths must NOT have projects_ stripped — that
+            #   segment is the resource name, not a router namespace, and stripping it collapses
+            #   everything to e.g. "list"/"create" which then collides with top-level org paths.
+            # - /api/projects/{id}/environments/… paths must NOT have environments_ stripped for the
+            #   same reason — those are sub-resources, not the main /api/environments/ router.
+            # - Everything else: strip projects_/environments_ (router-namespace noise).
+            is_org_dup = (path, method.upper()) in _org_paths_with_project_dup
+            is_org_projects = bool(_ORG_PROJECTS_FINAL_RE.match(path))
+            is_project_envs = bool(_PROJECT_ENVS_FINAL_RE.match(path))
+
+            if is_org_dup:
+                definition["deprecated"] = True
+                op_id = definition["operationId"]
+                if not op_id.startswith("org_"):
+                    definition["operationId"] = "org_" + op_id
+            elif not is_org_projects:
+                # Only strip organizations_ for non-org/projects paths (it's a root-level prefix)
+                definition["operationId"] = definition["operationId"].replace("organizations_", "", 1)
+
+            if is_deprecated_env:
+                # Ensure the operationId carries the environments_ namespace even when an
+                # explicit @extend_schema(operation_id=...) was used on the ViewSet method.
+                op_id = definition["operationId"]
+                if not op_id.startswith("environments_"):
+                    definition["operationId"] = "environments_" + op_id
+            elif not is_org_dup:
+                op_id = definition["operationId"]
+                if not is_org_projects:
+                    op_id = op_id.replace("projects_", "", 1)
+                if not is_project_envs:
+                    op_id = op_id.replace("environments_", "", 1)
+                definition["operationId"] = op_id
 
             if "parameters" in definition:
                 definition["parameters"] = [
