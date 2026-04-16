@@ -96,7 +96,8 @@ export function Login(): JSX.Element {
     const prevEmail = usePrevious(login.email)
 
     // Hide the "Last used" badge when there's only one login method (e.g. self-hosted with just password)
-    const hasMultipleLoginMethods = socialAuthAvailable || precheckResponse.saml_available
+    const hasMultipleLoginMethods =
+        socialAuthAvailable || precheckResponse.saml_available || lastLoginMethod === 'passkey'
     const effectiveLastLoginMethod: LoginMethod = hasMultipleLoginMethods ? lastLoginMethod : null
 
     useEffect(() => {
