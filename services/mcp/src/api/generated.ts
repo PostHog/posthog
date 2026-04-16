@@ -22080,6 +22080,9 @@ export namespace Schemas {
        * @nullable
        */
       invite_message?: string | null;
+      summary_enabled?: boolean;
+      /** @maxLength 500 */
+      summary_prompt_guide?: string;
     }
 
     export interface PaginatedSubscriptionList {
@@ -26029,6 +26032,9 @@ export namespace Schemas {
        * @nullable
        */
       invite_message?: string | null;
+      summary_enabled?: boolean;
+      /** @maxLength 500 */
+      summary_prompt_guide?: string;
     }
 
     /**
