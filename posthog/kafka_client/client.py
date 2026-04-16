@@ -127,7 +127,9 @@ def _kafka_python_sasl_params() -> dict[str, Any]:
     return {}
 
 
-# Mapping from kafka-python style keys to confluent-kafka style keys
+# Mapping from our internal setting key names to confluent-kafka config keys.
+# Historically these mirror kafka-python's snake_case API; the three topic/queue/sticky
+# entries use confluent's librdkafka names directly since there's no kafka-python analog.
 _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "client_id": "client.id",
     "metadata_max_age_ms": "metadata.max.age.ms",
@@ -137,6 +139,9 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "max_in_flight_requests_per_connection": "max.in.flight.requests.per.connection",
     "buffer_memory": "queue.buffering.max.kbytes",
     "max_block_ms": "queue.buffering.max.ms",
+    "topic_metadata_refresh_interval_ms": "topic.metadata.refresh.interval.ms",
+    "queue_buffering_max_messages": "queue.buffering.max.messages",
+    "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",
 }
 
 

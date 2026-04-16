@@ -85,3 +85,49 @@ class KafkaClientTestCase(TestCase):
         self.assertNotIn("sasl.mechanism", config)
         self.assertNotIn("sasl.username", config)
         self.assertNotIn("sasl.password", config)
+
+    @override_settings(
+        KAFKA_PRODUCER_SETTINGS={
+            "client_id": "my-client",
+            "batch_size": 16000000,
+            "linger_ms": 100,
+            "max_request_size": 6000000,
+            "max_in_flight_requests_per_connection": 1000000,
+            "buffer_memory": 1073741824,  # 1 GiB, should convert to 1048576 kbytes
+            "max_block_ms": 1000,
+            "metadata_max_age_ms": 15000,
+            "topic_metadata_refresh_interval_ms": 60000,
+            "queue_buffering_max_messages": 1000000,
+            "sticky_partitioning_linger_ms": 25,
+        }
+    )
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_producer_settings_flow_to_confluent_config(self, mock_producer_class: MagicMock):
+        """Each entry in KAFKA_PRODUCER_SETTINGS maps to the expected librdkafka config key."""
+        mock_producer_class.return_value = MagicMock()
+        _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertEqual(config["client.id"], "my-client")
+        self.assertEqual(config["batch.size"], 16000000)
+        self.assertEqual(config["linger.ms"], 100)
+        self.assertEqual(config["message.max.bytes"], 6000000)
+        self.assertEqual(config["max.in.flight.requests.per.connection"], 1000000)
+        # buffer_memory is in bytes but confluent expects kbytes.
+        self.assertEqual(config["queue.buffering.max.kbytes"], 1048576)
+        self.assertEqual(config["queue.buffering.max.ms"], 1000)
+        self.assertEqual(config["metadata.max.age.ms"], 15000)
+        # Warpstream-friendly tuning knobs wired from the same-named env vars
+        # that the Node.js and rust services already use in Helm charts.
+        self.assertEqual(config["topic.metadata.refresh.interval.ms"], 60000)
+        self.assertEqual(config["queue.buffering.max.messages"], 1000000)
+        self.assertEqual(config["sticky.partitioning.linger.ms"], 25)
+
+    @override_settings(KAFKA_PRODUCER_SETTINGS={"partitioner": "murmur2_random"})
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_producer_partitioner_is_dropped(self, mock_producer_class: MagicMock):
+        """partitioner is handled differently in confluent-kafka and must not leak through."""
+        mock_producer_class.return_value = MagicMock()
+        _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertNotIn("partitioner", config)
+        self.assertNotIn("partitioner", config.values())

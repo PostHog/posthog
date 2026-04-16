@@ -434,6 +434,18 @@ KAFKA_PRODUCER_SETTINGS = {
         ),
         "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
         "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
+        # Warpstream-friendly tuning knobs. Names match the librdkafka-style env vars
+        # already used by the Node.js plugin-server and rust services so chart config
+        # blocks can be shared across languages.
+        "topic_metadata_refresh_interval_ms": get_from_env(
+            "KAFKA_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS", optional=True, type_cast=int
+        ),
+        "queue_buffering_max_messages": get_from_env(
+            "KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES", optional=True, type_cast=int
+        ),
+        "sticky_partitioning_linger_ms": get_from_env(
+            "KAFKA_PRODUCER_STICKY_PARTITIONING_LINGER_MS", optional=True, type_cast=int
+        ),
     }.items()
     if value is not None
 }
