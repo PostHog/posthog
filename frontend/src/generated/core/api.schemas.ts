@@ -1277,6 +1277,9 @@ export interface SubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    summary_enabled?: boolean
+    /** @maxLength 500 */
+    summary_prompt_guide?: string
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -1380,6 +1383,9 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    summary_enabled?: boolean
+    /** @maxLength 500 */
+    summary_prompt_guide?: string
 }
 
 /**
