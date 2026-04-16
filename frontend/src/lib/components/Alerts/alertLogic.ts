@@ -29,7 +29,7 @@ export interface AlertHistoryChartPoint {
 export interface AlertLogicProps {
     alertId?: AlertType['id'] | null
     /** `FEATURE_FLAGS.ALERTS_HISTORY_CHART` — drives default checks fetch window; keep in sync wherever `alertLogic` is built. */
-    historyChartEnabled?: boolean
+    historyChartEnabled: boolean
 }
 
 function initialChecksHistoryParams(historyChartEnabled: boolean | undefined): ChecksHistoryParams {
@@ -126,17 +126,17 @@ export const alertLogic = kea<alertLogicType>([
 
     // Selector deps must be functions from `logic.selectors` / propSelectors — not raw state values.
     selectors(() => ({
-        alertHistoryIsAnomalyDetection: [(s) => [s.alert], (alert) => !!alert?.detector_config],
+        alertHistoryIsAnomalyDetection: [(s) => [s.alert], (alert: AlertType | null) => !!alert?.detector_config],
         alertHistoryChecksSortedDesc: [
             (s) => [s.alert],
-            (alert): AlertCheck[] => {
+            (alert: AlertType | null): AlertCheck[] => {
                 const checks = alert?.checks ?? []
                 return [...checks].sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf())
             },
         ],
         alertHistoryChartSeries: [
             (s, p) => [p.historyChartEnabled, s.alert],
-            (historyChartEnabled, alert): AlertHistoryChartPoint[] => {
+            (historyChartEnabled: boolean, alert: AlertType | null): AlertHistoryChartPoint[] => {
                 if (!historyChartEnabled || !alert) {
                     return []
                 }
@@ -160,12 +160,12 @@ export const alertLogic = kea<alertLogicType>([
         ],
         alertHistoryUsesAnomalyScores: [
             (s, p) => [p.historyChartEnabled, s.alert],
-            (historyChartEnabled, alert): boolean => {
+            (historyChartEnabled: boolean, alert: AlertType | null): boolean => {
                 if (!historyChartEnabled || !alert?.detector_config) {
                     return false
                 }
                 const checks = alert.checks ?? []
-                return checks.some((c) => {
+                return checks.some((c: AlertCheck) => {
                     const scores = c.anomaly_scores
                     const last = scores?.length ? scores[scores.length - 1] : null
                     return last != null && !Number.isNaN(last)
@@ -174,11 +174,11 @@ export const alertLogic = kea<alertLogicType>([
         ],
         alertHistoryChartSeriesName: [
             (s) => [s.alertHistoryUsesAnomalyScores],
-            (usesAnomalyScores) => (usesAnomalyScores ? 'Anomaly score' : 'Value'),
+            (usesAnomalyScores: boolean) => (usesAnomalyScores ? 'Anomaly score' : 'Value'),
         ],
         alertHistoryHasHistory: [
             (s) => [s.alert],
-            (alert): boolean => {
+            (alert: AlertType | null): boolean => {
                 const total = alert?.checks_total
                 if (total !== undefined && total > 0) {
                     return true
@@ -188,11 +188,12 @@ export const alertLogic = kea<alertLogicType>([
         ],
         alertHistoryHasChartableHistory: [
             (s, p) => [s.alertHistoryChartSeries, p.historyChartEnabled],
-            (series, historyChartEnabled) => !!historyChartEnabled && series.length > 0,
+            (series: AlertHistoryChartPoint[], historyChartEnabled: boolean) =>
+                !!historyChartEnabled && series.length > 0,
         ],
         alertHistoryTablePageCount: [
             (s) => [s.alert],
-            (alert): number => {
+            (alert: AlertType | null): number => {
                 const checksTotal = alert?.checks_total
                 const resolvedTotal = checksTotal ?? 0
                 return Math.max(1, Math.ceil(resolvedTotal / TABLE_CHECKS_PAGE_SIZE) || 1)
@@ -200,7 +201,7 @@ export const alertLogic = kea<alertLogicType>([
         ],
         alertHistoryTableEntryCount: [
             (s) => [s.alert],
-            (alert): number => {
+            (alert: AlertType | null): number => {
                 const resolvedTotal = alert?.checks_total ?? 0
                 const checksLen = alert?.checks?.length ?? 0
                 return resolvedTotal > 0 ? resolvedTotal : checksLen
