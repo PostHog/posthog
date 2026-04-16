@@ -1,9 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { AlertWizard } from 'scenes/hog-functions/AlertWizard/AlertWizard'
 import { AlertCreationView, WizardStep, alertWizardLogic } from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
 
@@ -61,6 +63,16 @@ function AlertWizardModalInner({
                 onCancel={() => {
                     resetWizard()
                     onClose()
+                }}
+                onSwitchToTraditional={() => {
+                    resetWizard()
+                    onClose()
+                    router.actions.push(
+                        urls.errorTrackingConfiguration({
+                            tab: 'error-tracking-alerting',
+                            creation_view: 'traditional',
+                        })
+                    )
                 }}
                 hiddenSteps={hideTriggerStep ? [WizardStep.Trigger] : undefined}
             />

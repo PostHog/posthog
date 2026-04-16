@@ -504,6 +504,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     destinationKey: wizardDest ?? null,
                     triggerKey: wizardTrigger ?? null,
                 })
+            } else if (
+                searchParams.creation_view === 'traditional' &&
+                values.alertCreationView === AlertCreationView.None
+            ) {
+                actions.setAlertCreationView(AlertCreationView.Traditional)
             }
         },
     })),
