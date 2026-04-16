@@ -287,11 +287,7 @@ export class LogsIngestionConsumer {
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
-        // logs_settings changes from the app do not invalidate TeamManager's LazyLoader; force a fresh
-        // row read once per team per batch so PII / JSON-parse toggles apply immediately.
-        for (const teamId of new Set(messages.map((m) => m.teamId))) {
-            this.deps.teamManager.markTeamForRefresh(teamId)
-        }
+        // logs_settings uses TeamManager's LazyLoader TTL (same as other consumers); no per-batch invalidation.
 
         const results = await Promise.allSettled(
             messages.map(async (message) => {
