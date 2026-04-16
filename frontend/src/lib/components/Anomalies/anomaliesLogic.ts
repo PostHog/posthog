@@ -1,10 +1,13 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
 import type { anomaliesLogicType } from './anomaliesLogicType'
 import { AnomalyInterval, AnomalyScoreType, AnomalyWindow } from './types'
+
+export type AnomalyFeedback = 'up' | 'down'
 
 export const anomaliesLogic = kea<anomaliesLogicType>([
     path(['lib', 'components', 'Anomalies', 'anomaliesLogic']),
@@ -13,6 +16,7 @@ export const anomaliesLogic = kea<anomaliesLogicType>([
         setWindow: (window: AnomalyWindow) => ({ window }),
         setSearch: (search: string) => ({ search }),
         setIntervalFilter: (interval: AnomalyInterval) => ({ interval }),
+        setAnomalyFeedback: (anomaly: AnomalyScoreType, feedback: AnomalyFeedback) => ({ anomaly, feedback }),
     }),
 
     reducers({
@@ -32,6 +36,12 @@ export const anomaliesLogic = kea<anomaliesLogicType>([
             '' as AnomalyInterval,
             {
                 setIntervalFilter: (_, { interval }) => interval,
+            },
+        ],
+        feedbackByAnomaly: [
+            {} as Record<string, AnomalyFeedback>,
+            {
+                setAnomalyFeedback: (state, { anomaly, feedback }) => ({ ...state, [anomaly.id]: feedback }),
             },
         ],
     }),
@@ -68,6 +78,20 @@ export const anomaliesLogic = kea<anomaliesLogicType>([
         setWindow: () => actions.loadAnomalies(),
         setSearch: () => actions.loadAnomalies(),
         setIntervalFilter: () => actions.loadAnomalies(),
+        setAnomalyFeedback: ({ anomaly, feedback }) => {
+            posthog.capture('anomaly feedback', {
+                rating: feedback === 'up' ? 'thumbs_up' : 'thumbs_down',
+                anomaly_id: anomaly.id,
+                insight_id: anomaly.insight_id,
+                insight_short_id: anomaly.insight_short_id,
+                series_index: anomaly.series_index,
+                series_label: anomaly.series_label,
+                score: anomaly.score,
+                interval: anomaly.interval,
+                anomaly_timestamp: anomaly.timestamp,
+                scored_at: anomaly.scored_at,
+            })
+        },
     })),
 
     afterMount(({ actions }) => actions.loadAnomalies()),

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconSparkles, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -57,9 +58,21 @@ function intervalLabel(interval: string): string {
 }
 
 function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
+    const { feedbackByAnomaly } = useValues(anomaliesLogic)
+    const { setAnomalyFeedback } = useActions(anomaliesLogic)
     const severity = scoreSeverity(anomaly.score)
     const scorePct = Math.round(anomaly.score * 100)
     const hasSeriesLabel = anomaly.series_label && anomaly.series_label !== anomaly.insight_name
+    const feedback = feedbackByAnomaly[anomaly.id]
+
+    const onFeedback = (e: React.MouseEvent, value: 'up' | 'down'): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (feedback === value) {
+            return
+        }
+        setAnomalyFeedback(anomaly, value)
+    }
 
     return (
         <Link
@@ -100,11 +113,29 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                         </div>
                     )}
                 </div>
-                {anomaly.timestamp && (
-                    <div className="text-[11px] text-muted">
-                        <TZLabel time={anomaly.timestamp} />
+                <div className="mt-auto flex items-center justify-between gap-1">
+                    {anomaly.timestamp && (
+                        <div className="text-[11px] text-muted">
+                            <TZLabel time={anomaly.timestamp} />
+                        </div>
+                    )}
+                    <div className="flex items-center gap-0.5">
+                        <LemonButton
+                            size="xsmall"
+                            icon={feedback === 'up' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                            tooltip={feedback === 'up' ? 'Marked helpful' : 'Helpful'}
+                            active={feedback === 'up'}
+                            onClick={(e) => onFeedback(e, 'up')}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            icon={feedback === 'down' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                            tooltip={feedback === 'down' ? 'Marked not helpful' : 'Not helpful'}
+                            active={feedback === 'down'}
+                            onClick={(e) => onFeedback(e, 'down')}
+                        />
                     </div>
-                )}
+                </div>
             </div>
 
             {/* Chart column — the main focus */}
