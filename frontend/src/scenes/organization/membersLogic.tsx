@@ -211,6 +211,7 @@ export const membersLogic = kea<membersLogicType>([
         },
 
         setSearch: async ({ search }, breakpoint) => {
+            actions.searchMembersSuccess(null)
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.searchMembers(search)
         },
