@@ -63,11 +63,11 @@ export const OutputTypeEnumApi = {
  * `gemini` - Gemini
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
- * `azure_openai` - Azure Openai
+ * `azure_openai` - Azure OpenAI
  */
-export type ProviderC68EnumApi = (typeof ProviderC68EnumApi)[keyof typeof ProviderC68EnumApi]
+export type Provider8edEnumApi = (typeof Provider8edEnumApi)[keyof typeof Provider8edEnumApi]
 
-export const ProviderC68EnumApi = {
+export const Provider8edEnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -80,7 +80,7 @@ export const ProviderC68EnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: ProviderC68EnumApi
+    provider: Provider8edEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -426,7 +426,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: ProviderC68EnumApi
+    provider: Provider8edEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -469,7 +469,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: ProviderC68EnumApi
+    provider?: Provider8edEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
