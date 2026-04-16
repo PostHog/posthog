@@ -14560,12 +14560,12 @@ export namespace Schemas {
     * `gemini` - Gemini
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
-    * `azure_openai` - Azure Openai
+    * `azure_openai` - Azure OpenAI
      */
-    export type ProviderC68Enum = typeof ProviderC68Enum[keyof typeof ProviderC68Enum];
+    export type Provider8edEnum = typeof Provider8edEnum[keyof typeof Provider8edEnum];
 
 
-    export const ProviderC68Enum = {
+    export const Provider8edEnum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
@@ -14578,7 +14578,7 @@ export namespace Schemas {
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: ProviderC68Enum;
+      provider: Provider8edEnum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -19174,7 +19174,7 @@ export namespace Schemas {
 
     export interface LLMProviderKey {
       readonly id: string;
-      provider: ProviderC68Enum;
+      provider: Provider8edEnum;
       /** @maxLength 255 */
       name: string;
       readonly state: LLMProviderKeyStateEnum;
@@ -25112,7 +25112,7 @@ export namespace Schemas {
 
     export interface PatchedLLMProviderKey {
       readonly id?: string;
-      provider?: ProviderC68Enum;
+      provider?: Provider8edEnum;
       /** @maxLength 255 */
       name?: string;
       readonly state?: LLMProviderKeyStateEnum;
