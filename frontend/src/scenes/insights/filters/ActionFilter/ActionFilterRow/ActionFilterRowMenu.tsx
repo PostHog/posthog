@@ -131,11 +131,11 @@ export function ActionFilterRowMenu({
                 items={menuItems.map((el) => ({ label: () => el }))}
             >
                 <LemonButton
+                    size="medium"
                     aria-label="Show more actions"
                     data-attr={`more-button-${index}`}
                     icon={<IconEllipsis />}
                     noPadding
-                    className="p-0.5"
                 />
             </LemonMenu>
             <LemonBadge

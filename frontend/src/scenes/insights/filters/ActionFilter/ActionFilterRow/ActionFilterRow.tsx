@@ -388,7 +388,6 @@ export function ActionFilterRow({
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
-                className="p-0.5"
                 active={propertyFiltersVisible}
                 onClick={() => {
                     typeof filter.order === 'number'
@@ -466,8 +465,7 @@ export function ActionFilterRow({
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
-            noPadding
-            className="p-0.5"
+            noPadding={!enablePopup}
             onClick={() => {
                 onClose()
             }}
@@ -621,7 +619,7 @@ export function ActionFilterRow({
                         </div>
                         {/* right section fixed */}
                         {(rowEndElements.length > 0 || showPopupMenu) && (
-                            <div className="ActionFilterRow__end [&_.LemonButton]:[--lemon-button-icon-size:1.25rem] @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto] @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-height:1.75rem] @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-icon-size:1rem]">
+                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]">
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
