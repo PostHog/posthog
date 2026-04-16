@@ -35,12 +35,22 @@ from products.tasks.backend.services.agentsh import (
     generate_policy_yaml,
 )
 from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.services.local_skills import (
+    BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
+    LocalSkillsCache,
+    populate_skills_directory,
+)
 from products.tasks.backend.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.services.sandbox import WORKING_DIR, SandboxBase, wait_for_health_check
+from products.tasks.backend.services.sandbox import (
+    WORKING_DIR,
+    SandboxBase,
+    build_agent_runtime_env_prefix,
+    wait_for_health_check,
+)
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -73,8 +83,6 @@ def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
 
 
-LOCAL_BUILT_SKILLS_PATH = Path("products/posthog_ai/dist/skills")
-LOCAL_SOURCE_SKILLS_PATHS = (Path(".agents/skills"), Path("products/posthog_ai/skills"))
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
@@ -162,35 +170,6 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     return _attach_local_package_mounts(image, template)
 
 
-def _copy_directory_contents(source: Path, destination: Path) -> None:
-    if not source.exists():
-        return
-
-    destination.mkdir(parents=True, exist_ok=True)
-    for child in source.iterdir():
-        if child.name == "__pycache__":
-            continue
-
-        target = destination / child.name
-        if child.is_dir():
-            shutil.copytree(child, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
-        elif child.is_file():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(child, target)
-
-
-def _populate_local_skills_directory(destination: Path) -> None:
-    built_skills_dir = Path(settings.BASE_DIR) / LOCAL_BUILT_SKILLS_PATH
-    if built_skills_dir.exists() and any(built_skills_dir.iterdir()):
-        logger.info(f"Using pre-built skills from {built_skills_dir} for local Modal sandbox builds")
-        _copy_directory_contents(built_skills_dir, destination)
-        return
-
-    logger.info("Built skills directory empty or missing; falling back to local skill sources for Modal sandbox builds")
-    for relative_path in LOCAL_SOURCE_SKILLS_PATHS:
-        _copy_directory_contents(Path(settings.BASE_DIR) / relative_path, destination)
-
-
 @lru_cache(maxsize=2)
 def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, str]:
     dockerfile_relative_path = LOCAL_MODAL_DOCKERFILES.get(template)
@@ -213,7 +192,10 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         destination_install_script_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_install_script_path, destination_install_script_path)
 
-        _populate_local_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH)
+        # Refresh dist/skills if out of date so the context picks up the
+        # latest rendered output.
+        LocalSkillsCache(base_dir).ensure_built()
+        populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 
     return str(destination_dockerfile_path), str(context_dir)
 
@@ -543,11 +525,19 @@ class ModalSandbox(SandboxBase):
         create_pr: bool,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
     ) -> str:
-        env_prefix = (
-            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        env_prefix = build_agent_runtime_env_prefix(
+            interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
+            provider=provider,
+            model=model,
+            reasoning_effort=reasoning_effort,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
@@ -585,6 +575,10 @@ class ModalSandbox(SandboxBase):
         create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
     ) -> None:
@@ -618,6 +612,10 @@ class ModalSandbox(SandboxBase):
             create_pr,
             interaction_origin,
             branch,
+            runtime_adapter,
+            provider,
+            model,
+            reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
         )

@@ -93,6 +93,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.errors import classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
@@ -1832,7 +1833,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if dashboard_filter.properties:
-            if self.query.properties and _has_any_property_filters(self.query.properties):
+            if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
                 expects_only_list = properties_field and get_origin(properties_field.annotation) is list
@@ -1876,32 +1877,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                 )
         self.__post_init__()
-
-
-def _has_any_property_filters(
-    properties: object,
-) -> bool:
-    """Check if properties contain any actual filter values, not just empty group structure."""
-    if isinstance(properties, PropertyGroupFilter):
-        return any(_has_any_property_filters_in_group(v) for v in properties.values)
-    if isinstance(properties, list):
-        return len(properties) > 0
-    return bool(properties)
-
-
-def _has_any_property_filters_in_group(
-    group: PropertyGroupFilterValue,
-) -> bool:
-    if not group.values:
-        return False
-    for v in group.values:
-        if isinstance(v, PropertyGroupFilterValue):
-            if _has_any_property_filters_in_group(v):
-                return True
-        else:
-            # It's an actual property filter
-            return True
-    return False
 
 
 # Type constraint for analytics query responses

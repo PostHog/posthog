@@ -156,6 +156,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
+        updateFlagFromPartial: (flag: Partial<FeatureFlagType> & { id: number }) => ({ flag }),
         updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
@@ -211,6 +212,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 ...state,
                 results: state.results.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag)),
             }),
+            updateFlagFromPartial: (state, { flag }) => ({
+                ...state,
+                results: state.results.map((stateFlag) =>
+                    stateFlag.id === flag.id ? { ...stateFlag, ...flag } : stateFlag
+                ),
+            }),
             deleteFlag: (state, { id }) => ({
                 ...state,
                 count: state.count - 1,
@@ -227,6 +234,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return featureFlags.results
                 },
                 updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
+                updateFlagFromPartial: (state, { flag }) =>
+                    state.map((f) => (f.id === flag.id ? { ...f, ...flag } : f)),
                 deleteFlag: (state, { id }) => state.filter((f) => f.id !== id),
             },
         ],

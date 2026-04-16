@@ -916,9 +916,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    VALID_RETENTION_DAYS = {14, 30, 90}
+
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None or not self.instance:
             return value
+
+        new_retention = value.get("retention_days")
+        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
+            raise exceptions.ValidationError(
+                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
+            )
 
         # Only validate retention changes if we have an existing instance
         logs_settings = (
@@ -928,7 +936,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
         if self.instance and logs_settings:
             old_retention = logs_settings.get("retention_days")
-            new_retention = value.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed

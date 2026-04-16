@@ -1553,33 +1553,11 @@ class TestUserAPI(APIBaseTest):
         )
 
 
-class TestUserSlackWebhook(APIBaseTest):
-    ENDPOINT: str = "/api/user/test_slack_webhook/"
-
-    def send_request(self, payload):
-        return self.client.post(self.ENDPOINT, payload)
-
-    def test_slack_webhook_no_webhook(self):
-        response = self.send_request({})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "no webhook URL")
-
-    def test_slack_webhook_bad_url(self):
-        response = self.send_request({"webhook": "blabla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
-
-    def test_slack_webhook_bad_url_full(self):
-        response = self.send_request({"webhook": "http://localhost/bla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
-
-
 class TestSessionAuthEndpoints(APIBaseTest):
     """
     Tests that certain endpoints require session authentication and reject Personal API Keys.
 
-    These endpoints (redirect_to_site, test_slack_webhook, etc.) are browser-interactive
+    These endpoints (redirect_to_site, etc.) are browser-interactive
     features that should not be accessible via API keys.
     """
 
@@ -1610,23 +1588,6 @@ class TestSessionAuthEndpoints(APIBaseTest):
         response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-    def test_test_slack_webhook_rejects_personal_api_key(self):
-        """Personal API Keys should not be able to call test_slack_webhook."""
-        self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
-
-        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "https://hooks.slack.com/test"})
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
-
-    def test_test_slack_webhook_works_with_session_auth(self):
-        """Session authentication should still work for test_slack_webhook."""
-        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "invalid"})
-
-        # Returns 200 with error message (not 401) - endpoint is accessible
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_prepare_toolbar_preloaded_flags_rejects_personal_api_key(self):
         """Personal API Keys should not be able to call prepare_toolbar_preloaded_flags."""
