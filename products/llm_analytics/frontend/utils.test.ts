@@ -2,7 +2,9 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
+    formatErrorRate,
     formatLLMEventTitle,
+    formatTokens,
     getSessionID,
     getSessionStartTimestamp,
     isLangChainMessage,
@@ -1808,6 +1810,36 @@ describe('LLM Analytics utils', () => {
             const trace = baseTrace(childEvents)
 
             expect(getSessionID(trace)).toBeNull()
+        })
+    })
+
+    describe('formatTokens', () => {
+        it.each([
+            { input: 0, expected: '0' },
+            { input: 500, expected: '500' },
+            { input: 999, expected: '999' },
+            { input: 1000, expected: '1.0k' },
+            { input: 1500, expected: '1.5k' },
+            { input: 99900, expected: '99.9k' },
+            { input: 1000000, expected: '1.0M' },
+            { input: 2500000, expected: '2.5M' },
+        ])('formats $input as $expected', ({ input, expected }) => {
+            expect(formatTokens(input)).toBe(expected)
+        })
+    })
+
+    describe('formatErrorRate', () => {
+        it.each([
+            { input: 0, expected: '0%' },
+            { input: 0.0005, expected: '<0.1%' },
+            { input: 0.005, expected: '0.5%' },
+            { input: 0.009, expected: '0.9%' },
+            { input: 0.01, expected: '1%' },
+            { input: 0.156, expected: '16%' },
+            { input: 0.5, expected: '50%' },
+            { input: 1.0, expected: '100%' },
+        ])('formats $input as $expected', ({ input, expected }) => {
+            expect(formatErrorRate(input)).toBe(expected)
         })
     })
 })
