@@ -214,7 +214,7 @@ class TestPlanResolver:
         result = await resolver.get_plan(user_id=1, auth_header="")
         assert result.plan_key is None
         assert result.in_trial_period is True
-        resolver._http.get.assert_not_called()
+        resolver._http.get.assert_not_called()  # type: ignore[attr-defined]
 
     async def test_api_error_not_cached(self, resolver_with_redis: PlanResolver) -> None:
         resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
