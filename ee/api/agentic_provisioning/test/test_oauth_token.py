@@ -112,6 +112,7 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
         assert res2.json()["error"] == "invalid_grant"
 
     def test_missing_signature_returns_401(self):
+        self._store_auth_code("test_code")
         body = self._token_request_body()
         res = self.client.post(
             "/api/agentic/oauth/token",

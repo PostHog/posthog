@@ -81,6 +81,7 @@ from products.data_warehouse.backend.models.external_data_schema import sync_old
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 
 logger = structlog.get_logger(__name__)
 
@@ -149,7 +150,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             # SSH tunnel has a known nested structure not declared in the field tree.
             # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
-            nonsensitive.update({"host", "port", "username", "auth", "auth_type"})
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
     return nonsensitive, sensitive
@@ -191,9 +192,9 @@ def get_direct_postgres_connection_metadata(
     if not callable(metadata_fetcher):
         return fallback or {}
 
-    from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+    from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
-    require_ssl = source_model is not None and source_model.created_at >= SSL_REQUIRED_AFTER_DATE
+    require_ssl = source_model is not None and source_requires_ssl(source_model, source_config)
 
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
@@ -390,6 +391,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 # Normalize 'type' (legacy) -> 'selection'
                 if "type" in auth and "selection" not in auth:
                     auth["selection"] = auth.pop("type")
+            # Backfill require_tls default for sources created before the toggle existed
+            if "require_tls" not in tunnel:
+                tunnel["require_tls"] = {"enabled": True}
 
         representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
         return representation
@@ -699,7 +703,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
         # CDC: create slot + publication for PostHog-managed sources
-        cdc_enabled = payload.get("cdc_enabled", False) and self._is_cdc_enabled()
+        cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
         if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
             cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
             if cdc_result is not None:
@@ -755,6 +759,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
 
@@ -791,6 +796,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
                 }
             elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -822,7 +828,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     # `schema` is the postgres database schema name, not a CDC field — read raw.
                     db_schema_name = (new_source_model.job_inputs or {}).get("schema", "public")
                     self._add_table_to_cdc_publication(
-                        source, source_config, cdc_config.publication_name, db_schema_name, schema_name
+                        new_source_model, cdc_config.publication_name, db_schema_name, schema_name
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -863,6 +869,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
+            ensure_person_join(self.team.pk, new_source_model.prefix)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
@@ -875,7 +882,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         Updates source_model.job_inputs with CDC config.
         Returns a Response on error, None on success.
         """
-        import psycopg
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 
         management_mode = payload.get("cdc_management_mode", "posthog")
         slot_name = payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}"
@@ -899,23 +906,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import create_slot_and_publication
 
             try:
-                with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                    conn = psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=15,
+                with cdc_pg_connection(source_model) as conn:
+                    consistent_point = create_slot_and_publication(
+                        conn, slot_name, pub_name, source_config.schema, tables=[]
                     )
-                    try:
-                        # Create with empty table list — tables added per-schema
-                        consistent_point = create_slot_and_publication(
-                            conn, slot_name, pub_name, source_config.schema, tables=[]
-                        )
-                        job_inputs["cdc_consistent_point"] = consistent_point
-                    finally:
-                        conn.close()
+                    job_inputs["cdc_consistent_point"] = consistent_point
             except Exception as e:
                 source_model.delete()
                 logger.exception("Failed to create CDC slot and publication", error=str(e))
@@ -931,30 +926,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import publication_exists, slot_exists
 
             try:
-                with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                    conn = psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=15,
-                    )
-                    try:
-                        if not slot_exists(conn, slot_name):
-                            source_model.delete()
-                            return Response(
-                                status=status.HTTP_400_BAD_REQUEST,
-                                data={"message": f"Replication slot '{slot_name}' does not exist"},
-                            )
-                        if not publication_exists(conn, pub_name):
-                            source_model.delete()
-                            return Response(
-                                status=status.HTTP_400_BAD_REQUEST,
-                                data={"message": f"Publication '{pub_name}' does not exist"},
-                            )
-                    finally:
-                        conn.close()
+                with cdc_pg_connection(source_model) as conn:
+                    if not slot_exists(conn, slot_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Replication slot '{slot_name}' does not exist"},
+                        )
+                    if not publication_exists(conn, pub_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Publication '{pub_name}' does not exist"},
+                        )
             except Exception as e:
                 source_model.delete()
                 logger.exception("Failed to validate self-managed CDC slot", error=str(e))
@@ -968,27 +952,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return None
 
     def _add_table_to_cdc_publication(
-        self, source_impl, source_config, pub_name: str, db_schema: str, table_name: str
+        self, source_model: ExternalDataSource, pub_name: str, db_schema: str, table_name: str
     ) -> None:
         """Best-effort add a table to the CDC publication during source creation."""
-        import psycopg
-
-        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import add_table_to_publication
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+            add_table_to_publication,
+            cdc_pg_connection,
+        )
 
         try:
-            with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                conn = psycopg.connect(
-                    host=host,
-                    port=port,
-                    dbname=source_config.database,
-                    user=source_config.user,
-                    password=source_config.password,
-                    connect_timeout=15,
-                )
-                try:
-                    add_table_to_publication(conn, pub_name, db_schema, table_name)
-                finally:
-                    conn.close()
+            with cdc_pg_connection(source_model) as conn:
+                add_table_to_publication(conn, pub_name, db_schema, table_name)
         except Exception as e:
             logger.exception(
                 "Failed to add table to CDC publication",
@@ -996,9 +970,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 pub_name=pub_name,
                 error=str(e),
             )
-
-    def _is_cdc_enabled(self) -> bool:
-        return is_cdc_enabled_for_team(self.team)
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -1239,7 +1210,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if self._is_cdc_enabled() else None,
+                "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -1248,6 +1219,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
+                "available_columns": [
+                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    for col_name, col_type, nullable in schema.columns
+                ],
+                "detected_primary_keys": schema.detected_primary_keys,
             }
             for schema in schemas
         ]
@@ -1351,12 +1327,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
 
+        table_prefix = external_data_source.prefix or ""
+
         if config.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
+            ensure_person_join(self.team.pk, table_prefix)
         else:
             try:
                 managed_viewset = DataWarehouseManagedViewSet.objects.get(
@@ -1367,6 +1346,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             except DataWarehouseManagedViewSet.DoesNotExist:
                 pass
+            remove_person_join(self.team.pk, table_prefix)
 
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
@@ -1475,7 +1455,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         db_schemas = ExternalDataSchema.objects.filter(
             source=instance,
             team_id=self.team_id,
-            sync_type="incremental",
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
             should_sync=True,
         ).exclude(deleted=True)
 
@@ -1548,7 +1528,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSchema.objects.filter(
                 source=instance,
                 team_id=self.team_id,
-                sync_type="incremental",
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
                 should_sync=True,
             )
             .exclude(deleted=True)
@@ -1596,21 +1576,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "This source type does not support webhooks"},
             )
 
-        # Check that no schemas are using incremental sync — deleting the webhook
+        # Check that no schemas are still relying on the webhook — deleting it
         # would break their sync pipeline.
-        incremental_schemas = ExternalDataSchema.objects.filter(
+        webhook_schemas = ExternalDataSchema.objects.filter(
             source=instance,
             team_id=self.team_id,
-            sync_type="incremental",
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
             should_sync=True,
         ).exclude(deleted=True)
 
-        if incremental_schemas.exists():
-            schema_names = list(incremental_schemas.values_list("name", flat=True))
+        if webhook_schemas.exists():
+            schema_names = list(webhook_schemas.values_list("name", flat=True))
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
-                    "message": f"Cannot delete webhook while tables are using incremental sync: {', '.join(schema_names)}. Switch them to full refresh or disable syncing first.",
+                    "message": f"Cannot delete webhook while tables are using webhook sync: {', '.join(schema_names)}. Switch them to full refresh, incremental, or disable syncing first.",
                 },
             )
 

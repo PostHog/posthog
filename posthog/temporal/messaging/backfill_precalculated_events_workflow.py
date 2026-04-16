@@ -228,7 +228,11 @@ async def backfill_precalculated_events_activity(
         total_events_produced = 0
         total_flushed = 0
         kafka_results: list = []
-        KAFKA_FLUSH_BATCH_SIZE = int(os.environ.get("BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+        try:
+            KAFKA_FLUSH_BATCH_SIZE = int(os.environ.get("BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+        except ValueError:
+            logger.warning("Invalid BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE, using default 1000")
+            KAFKA_FLUSH_BATCH_SIZE = 1000
 
         events_query = """
             SELECT
@@ -280,7 +284,7 @@ async def backfill_precalculated_events_activity(
                     event_date = str(row["date"])
                     distinct_id = str(row["distinct_id"])
                     person_id = str(row["person_id"])
-                    event_properties = parse_event_properties(row.get("properties"), event_uuid)
+                    event_properties = parse_event_properties(row["properties"], event_uuid)
 
                     # Look up the combined bytecode for this event name
                     combined_bytecode = combined_bytecodes_by_event.get(event_name)
@@ -312,7 +316,8 @@ async def backfill_precalculated_events_activity(
                     for condition_hash, matches in filter_results.items():
                         if matches:
                             try:
-                                produce_result = kafka_producer.produce(
+                                produce_result = await asyncio.to_thread(
+                                    kafka_producer.produce,
                                     topic=KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
                                     data={
                                         "uuid": event_uuid,

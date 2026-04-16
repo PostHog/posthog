@@ -77,8 +77,14 @@ def extend_api_router() -> None:
         ["project_id", "dashboard_id"],
     )
 
-    register_grandfathered_environment_nested_viewset(
+    env_subscriptions_router, _ = register_grandfathered_environment_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
+    env_subscriptions_router.register(
+        r"deliveries",
+        subscription.SubscriptionDeliveryViewSet,
+        "environment_subscription_deliveries",
+        ["team_id", "subscription_id"],
     )
 
     environments_router.register(

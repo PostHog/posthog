@@ -7,11 +7,12 @@ import { Provider } from 'kea'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { Modifiers } from './Modifiers'
 
@@ -75,14 +76,14 @@ describe('Modifiers', () => {
 
     beforeEach(() => {
         initKeaTests()
-        externalDataSourcesLogic.mount()
+        sourcesDataLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
             [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: false,
         })
     })
 
     afterEach(() => {
-        externalDataSourcesLogic.unmount()
+        sourcesDataLogic.unmount()
         jest.restoreAllMocks()
         cleanup()
     })

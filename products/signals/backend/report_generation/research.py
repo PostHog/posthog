@@ -118,7 +118,7 @@ If the report already has a title that is PR-specific and still accurate after y
 - Bad: fix(funnel): various funnel improvements and bug fixes
 - Bad: multiple analytics issues
         """,
-        max_length=72,  # Simply the same as GitHub's max commit name length before truncation, 2 chars for breathing room
+        max_length=96,
     )
     summary: str = Field(
         description="""

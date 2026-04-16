@@ -24,12 +24,19 @@ class BackfillPrecalculatedEventsForm(forms.Form):
         label="Days to backfill",
     )
     concurrent_workflows = forms.IntegerField(
+        required=False,
         initial=5,
         min_value=1,
         max_value=100,
         help_text="Number of concurrent child workflows to run (1-100, default: 5)",
         label="Concurrent workflows",
     )
+
+    def clean_concurrent_workflows(self):
+        value = self.cleaned_data.get("concurrent_workflows")
+        if value is None:
+            return 5
+        return value
 
 
 def backfill_precalculated_events_view(request):

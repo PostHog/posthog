@@ -330,8 +330,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Now the dashboard has data without having to refresh
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
+        last_accessed_at = Dashboard.objects.get().last_accessed_at
+        assert last_accessed_at is not None
         self.assertAlmostEqual(
-            Dashboard.objects.get().last_accessed_at,
+            last_accessed_at,
             now(),
             delta=datetime.timedelta(seconds=5),
         )
