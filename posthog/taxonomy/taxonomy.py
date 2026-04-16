@@ -245,6 +245,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
         },
+        "$ai_trace_summary": {
+            "label": "AI trace summary (LLM)",
+            "description": "An LLM-generated summary of a trace. Produced by PostHog's batch summarization pipeline.",
+        },
+        "$ai_generation_summary": {
+            "label": "AI generation summary (LLM)",
+            "description": "An LLM-generated summary of a single generation. Produced by PostHog's batch summarization pipeline.",
+        },
+        "$ai_trace_clusters": {
+            "label": "AI trace clusters (LLM)",
+            "description": "Clustering results for traces. Contains cluster assignments, labels, and metadata from PostHog's batch clustering pipeline.",
+        },
+        "$ai_generation_clusters": {
+            "label": "AI generation clusters (LLM)",
+            "description": "Clustering results for generations. Contains cluster assignments, labels, and metadata from PostHog's batch clustering pipeline.",
+        },
         "$csp_violation": {
             "label": "CSP violation",
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
@@ -2138,6 +2154,186 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace Name (LLM)",
             "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
             "examples": ["summarize_text", "chat_completion"],
+        },
+        "$ai_output": {
+            "label": "AI Output (LLM)",
+            "description": "The output from the LLM API.",
+            "examples": ['{"content": "Quantum computing uses quantum mechanics to process data."}'],
+        },
+        "$ai_framework": {
+            "label": "AI Framework (LLM)",
+            "description": "The framework used to instrument the LLM call (e.g., LangChain, LlamaIndex).",
+            "examples": ["langchain", "llamaindex", "openai-agents"],
+        },
+        "$ai_prompt_name": {
+            "label": "AI Prompt Name (LLM)",
+            "description": "The name of the prompt template used for this LLM call.",
+            "examples": ["summarize_article", "chat_system_prompt"],
+        },
+        "$ai_span_type": {
+            "label": "AI Span Type (LLM)",
+            "description": "The type of the span (e.g., tool, chain, agent, retriever).",
+            "examples": ["tool", "chain", "agent", "retriever"],
+        },
+        "$ai_generation_id": {
+            "label": "AI Generation ID (LLM)",
+            "description": "The unique identifier for a specific LLM generation within a trace.",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_experiment_id": {
+            "label": "AI Experiment ID (LLM)",
+            "description": "The unique identifier for the experiment this generation belongs to.",
+            "examples": ["exp-001", "550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_total_tokens": {
+            "label": "AI Total Tokens (LLM)",
+            "description": "The total number of tokens used in the LLM API call (input + output).",
+            "examples": [150],
+        },
+        "$ai_text_input_tokens": {
+            "label": "AI Text Input Tokens (LLM)",
+            "description": "The number of text input tokens sent to the LLM API (for multimodal models).",
+            "examples": [100],
+        },
+        "$ai_text_output_tokens": {
+            "label": "AI Text Output Tokens (LLM)",
+            "description": "The number of text output tokens received from the LLM API (for multimodal models).",
+            "examples": [50],
+        },
+        "$ai_image_input_tokens": {
+            "label": "AI Image Input Tokens (LLM)",
+            "description": "The number of image input tokens sent to the LLM API.",
+            "examples": [1024],
+        },
+        "$ai_image_output_tokens": {
+            "label": "AI Image Output Tokens (LLM)",
+            "description": "The number of image output tokens received from the LLM API.",
+            "examples": [512],
+        },
+        "$ai_audio_input_tokens": {
+            "label": "AI Audio Input Tokens (LLM)",
+            "description": "The number of audio input tokens sent to the LLM API.",
+            "examples": [200],
+        },
+        "$ai_audio_output_tokens": {
+            "label": "AI Audio Output Tokens (LLM)",
+            "description": "The number of audio output tokens received from the LLM API.",
+            "examples": [100],
+        },
+        "$ai_video_input_tokens": {
+            "label": "AI Video Input Tokens (LLM)",
+            "description": "The number of video input tokens sent to the LLM API.",
+            "examples": [500],
+        },
+        "$ai_video_output_tokens": {
+            "label": "AI Video Output Tokens (LLM)",
+            "description": "The number of video output tokens received from the LLM API.",
+            "examples": [250],
+        },
+        "$ai_web_search_count": {
+            "label": "AI Web Search Count (LLM)",
+            "description": "The number of web searches performed during the LLM API request.",
+            "examples": [3],
+        },
+        "$ai_audio_cost_usd": {
+            "label": "AI Audio Cost USD (LLM)",
+            "description": "The cost in USD of audio processing in the LLM API request.",
+            "examples": [0.001],
+        },
+        "$ai_image_cost_usd": {
+            "label": "AI Image Cost USD (LLM)",
+            "description": "The cost in USD of image processing in the LLM API request.",
+            "examples": [0.002],
+        },
+        "$ai_video_cost_usd": {
+            "label": "AI Video Cost USD (LLM)",
+            "description": "The cost in USD of video processing in the LLM API request.",
+            "examples": [0.005],
+        },
+        # AI Summarization properties (from batch trace summarization pipeline)
+        "$ai_batch_run_id": {
+            "label": "AI Batch Run ID (LLM)",
+            "description": "The unique identifier for the summarization batch run that produced this summary.",
+            "examples": ["batch-2025-01-15-abc123"],
+        },
+        "$ai_summary_mode": {
+            "label": "AI Summary Mode (LLM)",
+            "description": "The summarization mode used to generate this summary (e.g., detailed).",
+            "examples": ["detailed"],
+        },
+        "$ai_summary_title": {
+            "label": "AI Summary Title (LLM)",
+            "description": "The LLM-generated title summarizing this trace or generation.",
+            "examples": ["User asks about quantum computing"],
+        },
+        "$ai_summary_flow_diagram": {
+            "label": "AI Summary Flow Diagram (LLM)",
+            "description": "A text-based flow diagram describing the sequence of steps in the trace.",
+            "examples": ["User → Agent → Tool(search) → Agent → User"],
+        },
+        "$ai_summary_bullets": {
+            "label": "AI Summary Bullets (LLM)",
+            "description": "JSON array of bullet-point summaries of the trace or generation.",
+            "examples": ['["Used GPT-4 to summarize", "Called search tool twice"]'],
+        },
+        "$ai_summary_interesting_notes": {
+            "label": "AI Summary Notes (LLM)",
+            "description": "JSON array of interesting observations from the trace or generation.",
+            "examples": ['["High latency on first call", "Fallback model used"]'],
+        },
+        "$ai_text_repr_length": {
+            "label": "AI Text Representation Length (LLM)",
+            "description": "The character length of the text representation used as input for summarization.",
+            "examples": [15000],
+        },
+        "$ai_event_count": {
+            "label": "AI Event Count (LLM)",
+            "description": "The number of events in the trace used for summarization.",
+            "examples": [12],
+        },
+        # AI Clustering properties (from batch trace clustering pipeline)
+        "$ai_clustering_run_id": {
+            "label": "AI Clustering Run ID (LLM)",
+            "description": "The unique identifier for the clustering run that produced these results.",
+            "examples": ["cluster-run-2025-01-15-abc123"],
+        },
+        "$ai_clustering_level": {
+            "label": "AI Clustering Level (LLM)",
+            "description": "The analysis level for clustering: trace-level or generation-level.",
+            "examples": ["trace", "generation"],
+        },
+        "$ai_clustering_job_id": {
+            "label": "AI Clustering Job ID (LLM)",
+            "description": "The ID of the clustering job configuration that triggered this run.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_clustering_job_name": {
+            "label": "AI Clustering Job Name (LLM)",
+            "description": "The name of the clustering job configuration that triggered this run.",
+            "examples": ["Default clustering"],
+        },
+        "$ai_window_start": {
+            "label": "AI Window Start (LLM)",
+            "description": "The start of the time window analyzed for clustering.",
+            "examples": ["2025-01-08T00:00:00Z"],
+        },
+        "$ai_window_end": {
+            "label": "AI Window End (LLM)",
+            "description": "The end of the time window analyzed for clustering.",
+            "examples": ["2025-01-15T00:00:00Z"],
+        },
+        "$ai_total_items_analyzed": {
+            "label": "AI Total Items Analyzed (LLM)",
+            "description": "The total number of traces or generations analyzed in this clustering run.",
+            "examples": [500],
+        },
+        "$ai_clusters": {
+            "label": "AI Clusters (LLM)",
+            "description": "JSON array of cluster data including IDs, labels, sizes, and item assignments.",
+        },
+        "$ai_clustering_params": {
+            "label": "AI Clustering Params (LLM)",
+            "description": "JSON object of parameters used for this clustering run.",
         },
         "$csp_document_url": {
             "label": "Document URL",
