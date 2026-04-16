@@ -209,3 +209,23 @@ class TestPlanResolver:
 
         assert result.plan_key is None
         assert result.in_trial_period is True
+
+    async def test_empty_auth_header_skips_fetch(self, resolver: PlanResolver) -> None:
+        result = await resolver.get_plan(user_id=1, auth_header="")
+        assert result.plan_key is None
+        assert result.in_trial_period is True
+        resolver._http.get.assert_not_called()
+
+    async def test_api_error_not_cached(self, resolver_with_redis: PlanResolver) -> None:
+        resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
+
+        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
+            mock_settings.return_value.posthog_api_url = "https://app.posthog.com"
+            mock_settings.return_value.plan_cache_ttl = 300
+            mock_settings.return_value.free_plan_trial_period_days = 30
+            result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+
+        assert result.plan_key is None
+        assert result.in_trial_period is True
+        assert resolver_with_redis._redis is not None
+        resolver_with_redis._redis.set.assert_not_called()  # type: ignore[attr-defined]

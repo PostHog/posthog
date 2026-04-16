@@ -113,11 +113,19 @@ class PlanResolver:
 
     async def get_plan(self, user_id: int, auth_header: str) -> PlanInfo:
         """Return the user's plan info, using cache when available."""
+        if not auth_header:
+            return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
+
         cached = await self._get_cached(user_id)
         if cached is not None:
             return cached
 
-        plan_key, seat_created_at = await self._fetch_plan(auth_header)
+        try:
+            plan_key, seat_created_at = await self._fetch_plan(auth_header)
+        except Exception:
+            logger.warning("seat_fetch_failed", user_id=user_id, exc_info=True)
+            return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
+
         await self._set_cached(user_id, plan_key, seat_created_at)
         return PlanInfo(
             plan_key=plan_key,
@@ -154,24 +162,24 @@ class PlanResolver:
             logger.debug("plan_cache_write_failed", user_id=user_id)
 
     async def _fetch_plan(self, auth_header: str) -> tuple[str | None, str | None]:
-        """Call the PostHog API seats endpoint to get the user's plan."""
+        """Call the PostHog API seats endpoint to get the user's plan.
+
+        Raises on transient HTTP failures so the caller can skip caching.
+        Returns (None, None) for legitimate "no plan" states (404, no API URL).
+        """
         settings = get_settings()
         if not settings.posthog_api_url:
             return None, None
 
-        try:
-            url = f"{settings.posthog_api_url.rstrip('/')}/api/seats/me/"
-            resp = await self._http.get(
-                url,
-                params={"product_key": "posthog_code"},
-                headers={"Authorization": auth_header},
-                timeout=2.0,
-            )
-            if resp.status_code == 404:
-                return None, None
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("plan_key"), data.get("created_at")
-        except Exception:
-            logger.warning("seat_fetch_failed", exc_info=True)
+        url = f"{settings.posthog_api_url.rstrip('/')}/api/seats/me/"
+        resp = await self._http.get(
+            url,
+            params={"product_key": "posthog_code"},
+            headers={"Authorization": auth_header},
+            timeout=2.0,
+        )
+        if resp.status_code == 404:
             return None, None
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("plan_key"), data.get("created_at")
