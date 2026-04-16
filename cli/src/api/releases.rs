@@ -97,6 +97,10 @@ impl ReleaseBuilder {
         Ok(self)
     }
 
+    pub fn has_metadata(&self, key: &str) -> bool {
+        self.metadata.contains_key(key)
+    }
+
     pub fn has_name(&self) -> bool {
         self.name.is_some()
     }

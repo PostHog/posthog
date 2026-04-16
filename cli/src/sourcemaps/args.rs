@@ -92,6 +92,11 @@ pub struct ReleaseArgs {
     // deprecated alias for backwards compatibility
     pub version: Option<String>,
 
+    /// The build number (e.g., 42, CFBundleVersion on iOS, versionCode on Android).
+    /// Stored as release metadata. Optional — when omitted, no build info is recorded.
+    #[arg(long)]
+    pub build: Option<String>,
+
     /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
     /// retry the upload without associating a release instead of failing.
     #[arg(long, default_value = "true")]
@@ -105,6 +110,63 @@ impl From<ReleaseArgs> for ReleaseBuilder {
         args.version
             .as_ref()
             .map(|version| builder.with_version(version));
+        if let Some(ref build) = args.build {
+            let _ = builder.with_metadata("build", build);
+        }
         builder
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_args(
+        name: Option<&str>,
+        version: Option<&str>,
+        build: Option<&str>,
+    ) -> ReleaseArgs {
+        ReleaseArgs {
+            name: name.map(String::from),
+            version: version.map(String::from),
+            build: build.map(String::from),
+            skip_release_on_fail: true,
+        }
+    }
+
+    #[test]
+    fn version_only() {
+        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), None).into();
+        assert!(builder.has_version());
+        assert!(builder.has_name());
+        assert!(!builder.has_metadata("build"));
+    }
+
+    #[test]
+    fn version_and_build() {
+        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), Some("42")).into();
+        assert!(builder.has_version());
+        assert!(builder.has_metadata("build"));
+    }
+
+    #[test]
+    fn build_only() {
+        let builder: ReleaseBuilder = make_args(Some("com.app"), None, Some("42")).into();
+        assert!(!builder.has_version());
+        assert!(builder.has_metadata("build"));
+    }
+
+    #[test]
+    fn no_build_no_metadata() {
+        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), None).into();
+        assert!(!builder.has_metadata("build"));
+    }
+
+    #[test]
+    fn version_not_packed_with_build() {
+        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), Some("42")).into();
+        // version should stay clean, NOT "1.0+42" — build goes to metadata
+        assert!(builder.has_version());
+        assert!(builder.has_metadata("build"));
     }
 }

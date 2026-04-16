@@ -39,6 +39,7 @@ pub fn upload(args: &Args) -> Result<()> {
     let ReleaseArgs {
         name,
         version,
+        build,
         skip_release_on_fail,
     } = release;
 
@@ -58,6 +59,9 @@ pub fn upload(args: &Args) -> Result<()> {
     }
     if let Some(version) = version {
         release_builder.with_version(version);
+    }
+    if let Some(ref build) = build {
+        let _ = release_builder.with_metadata("build", build);
     }
 
     let mut file = ProguardFile::new(&path, map_id.clone())?;
