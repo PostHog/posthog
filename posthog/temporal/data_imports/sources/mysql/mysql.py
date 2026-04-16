@@ -699,7 +699,7 @@ def mysql_source(
                     with connection.cursor() as setup_cursor:
                         setup_cursor.execute("SET SESSION net_write_timeout = 600, net_read_timeout = 600")
                 except Exception as e:
-                    logger.debug(f"Failed to set session timeouts on MySQL sync connection: {e}")
+                    logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(
                         schema,
