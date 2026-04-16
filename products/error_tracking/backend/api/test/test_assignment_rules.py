@@ -1,5 +1,8 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
@@ -47,48 +50,41 @@ class TestAssignmentRuleAPI(APIBaseTest):
         assert rule.bytecode is not None
         assert len(rule.bytecode) > 0
 
-    def test_create_requires_filters(self) -> None:
-        response = self.client.post(
-            self._url(),
-            data={"assignee": {"type": "user", "id": self.user.id}},
-            format="json",
-        )
+    @parameterized.expand(
+        [
+            ("missing_filters", {"assignee": {"type": "user", "id": 1}}, "filters"),
+            ("missing_assignee", {"filters": VALID_FILTERS}, "assignee"),
+        ]
+    )
+    def test_create_requires_field(self, _name: str, payload: dict[str, Any], missing_attr: str) -> None:
+        response = self.client.post(self._url(), data=payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
             "type": "validation_error",
             "code": "required",
             "detail": "This field is required.",
-            "attr": "filters",
+            "attr": missing_attr,
         }
 
-    def test_create_requires_assignee(self) -> None:
+    @parameterized.expand(
+        [
+            ("list", []),
+            ("integer", 42),
+            ("string", "not-an-object"),
+        ]
+    )
+    def test_create_rejects_non_object_filters(self, _name: str, invalid_filters: Any) -> None:
         response = self.client.post(
             self._url(),
-            data={"filters": VALID_FILTERS},
+            data={"filters": invalid_filters, "assignee": {"type": "user", "id": self.user.id}},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "assignee",
-        }
-
-    def test_create_rejects_non_object_filters(self) -> None:
-        for invalid_filters in ([], 42, "string"):
-            response = self.client.post(
-                self._url(),
-                data={"filters": invalid_filters, "assignee": {"type": "user", "id": self.user.id}},
-                format="json",
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, invalid_filters
-            body = response.json()
-            assert body["type"] == "validation_error"
-            assert body["attr"] == "filters"
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
 
     def test_create_rejects_invalid_filters_shape_without_leaking_exception(self) -> None:
         response = self.client.post(
