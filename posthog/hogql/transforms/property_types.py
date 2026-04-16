@@ -304,7 +304,10 @@ class PropertySwapper(CloningVisitor):
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
                 wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
                 if wrapped_arg is not inner.args[0]:
-                    return ast.Call(name=inner.name, args=[wrapped_arg])
+                    new_call = ast.Call(name=inner.name, args=[wrapped_arg])
+                    if isinstance(expr, ast.Alias):
+                        return ast.Alias(alias=expr.alias, expr=new_call)
+                    return new_call
                 return expr
 
         # Bare constant — wrap with toDateTime64 carrying the timezone
