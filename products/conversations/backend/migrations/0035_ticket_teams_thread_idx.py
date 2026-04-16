@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("conversations", "0031_teams_integration"),
+        ("conversations", "0034_teams_integration"),
     ]
 
     operations = [
