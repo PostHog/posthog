@@ -6,7 +6,7 @@ This guide walks through creating, validating, and submitting a skill.
 
 ## 1. What makes a good skill
 
-A skill is a **job-to-be-done template** — it answers "how do I accomplish X with PostHog?", not "what does tool Y do?". If you find yourself listing every argument a PostHog API accepts, you're probably documenting a tool. A skill should describe an outcome, the relevant tools, and the workflow that ties them together.
+A skill is a **job-to-be-done template**. It answers "how do I accomplish X with PostHog?", not "what does tool Y do?". If you find yourself listing every argument a PostHog API accepts, you're probably documenting a tool. A skill should describe an outcome, the relevant tools, and the workflow that ties them together.
 
 Good skill candidates:
 
@@ -40,17 +40,10 @@ name: your-skill-name # lowercase-kebab-case, 3-64 chars, must match directory
 description: >- # 20-1024 chars — when to use, what it does
   Audit inactive surveys across a PostHog project and recommend ones
   safe to archive. Use when the user wants to clean up survey clutter.
-version: 0.1.0 # semver, bump on meaningful content changes
-category: surveys # one of the registry categories (see schema below)
-source: community # must be "community" for skills in this directory
-tags: [audit, cleanup] # up to 8 free-form tags for discovery
-products: [surveys] # which PostHog products this skill touches
-author: your-github-handle # optional, how you'd like to be credited
-requires_scopes: [survey:read] # MCP scopes the agent needs
 ---
 ```
 
-Valid categories: `analytics`, `flags`, `experiments`, `replay`, `errors`, `llm`, `surveys`, `workflows`, `data-warehouse`, `other`.
+`name` and `description` are the only fields we validate — the description is what agents match against when deciding whether to run your skill, so make it specific.
 
 ## 3. Allowed content
 
@@ -102,7 +95,7 @@ This renders the skill and copies it to `.agents/skills/your-skill-name/`, where
   - A versioned release: `agent-skills-v0.N.0` (bumped automatically)
   - The rolling `agent-skills-latest` release
 - Your skill appears in `skills-index.json` on the next release and is immediately available to every agent that consumes the registry.
-- Renaming a skill after release is a breaking change for consumers — bump the `version` field and open a new PR explaining the rename.
+- Renaming a skill after release is a breaking change for consumers — open a new PR explaining the rename.
 
 ## Safety checklist
 
@@ -112,6 +105,6 @@ By contributing a skill, you agree that:
 - [ ] It does not include prompt-injection payloads designed to subvert agent behavior
 - [ ] All URLs point to `posthog.com`, `github.com/PostHog`, or other well-known public sources
 - [ ] Any instructions to write or delete PostHog data clearly call out the destructive nature and require user confirmation
-- [ ] The `description` accurately reflects what the skill does — it's the primary signal agents use to decide when to run it
+- [ ] The `description` accurately reflects what the skill does, as it's the primary signal agents use to decide when to run it
 
 Reviewers will reject contributions that fail these checks. Repeat or malicious violations may result in the contributor being blocked from future submissions.

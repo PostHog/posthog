@@ -346,34 +346,7 @@ export const DebugMcpUiAppsSchema = z.object({
 })
 
 // Skills registry
-const SkillCategoryEnum = z.enum([
-    'analytics',
-    'flags',
-    'experiments',
-    'replay',
-    'errors',
-    'llm',
-    'surveys',
-    'workflows',
-    'data-warehouse',
-    'other',
-])
-
 export const SkillsListSchema = z.object({
-    category: SkillCategoryEnum.optional().describe(
-        'Filter by skill category. Skills are categorized by the PostHog surface they primarily operate on.'
-    ),
-    products: z
-        .array(z.string())
-        .optional()
-        .describe('Filter to skills that touch any of these product slugs (e.g. ["feature_flags", "experiments"]).'),
-    tags: z.array(z.string()).optional().describe('Filter to skills tagged with any of these tags.'),
-    source: z
-        .enum(['official', 'community'])
-        .optional()
-        .describe(
-            "Filter by who maintains the skill. 'official' is the PostHog team, 'community' is external contributors."
-        ),
     search: z.string().optional().describe('Case-insensitive substring match against skill name and description.'),
 })
 

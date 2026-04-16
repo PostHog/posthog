@@ -27,30 +27,13 @@ export const skillsListHandler: ToolBase<typeof schema, Result>['handler'] = asy
     const index = await fetchSkillsIndex()
 
     const needle = params.search?.toLowerCase()
-    const tagSet = params.tags?.length ? new Set(params.tags) : undefined
-    const productSet = params.products?.length ? new Set(params.products) : undefined
 
-    const filtered = index.skills.filter((skill) => {
-        if (params.category && skill.category !== params.category) {
-            return false
-        }
-        if (params.source && skill.source !== params.source) {
-            return false
-        }
-        if (tagSet && !skill.tags.some((t) => tagSet.has(t))) {
-            return false
-        }
-        if (productSet && !skill.products.some((p) => productSet.has(p))) {
-            return false
-        }
-        if (needle) {
-            const haystack = `${skill.name}\n${skill.description}`.toLowerCase()
-            if (!haystack.includes(needle)) {
-                return false
-            }
-        }
-        return true
-    })
+    const filtered = needle
+        ? index.skills.filter((skill) => {
+              const haystack = `${skill.name}\n${skill.description}`.toLowerCase()
+              return haystack.includes(needle)
+          })
+        : index.skills
 
     const listed: ListedSkill[] = filtered.map(({ source_path: _sp, sha256: _sha, archive_url: _url, ...rest }) => rest)
 

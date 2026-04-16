@@ -15,13 +15,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 export type SkillIndexEntry = {
     name: string
     description: string
-    version: string
-    category: string
-    tags: string[]
-    products: string[]
-    author: string | null
-    source: 'official' | 'community'
-    requires_scopes: string[]
     archive_url: string
     sha256: string
     source_path: string

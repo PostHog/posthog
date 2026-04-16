@@ -448,7 +448,7 @@
         }
     },
     "skills-list": {
-        "description": "List PostHog agent skills published in the registry. Skills are job-to-be-done templates that teach agents how to accomplish specific PostHog tasks (e.g. cleaning up stale feature flags, auditing experiments). Use this BEFORE attempting a multi-step PostHog workflow to check whether a canonical skill exists — following an existing skill is almost always better than improvising. Filter by category, products, tags, source (official/community), or a substring search on name/description. Returns metadata only; call skills-get to download a specific skill.",
+        "description": "List PostHog agent skills published in the registry. Skills are job-to-be-done templates that teach agents how to accomplish specific PostHog tasks (e.g. cleaning up stale feature flags, auditing experiments). Use this BEFORE attempting a multi-step PostHog workflow to check whether a canonical skill exists — following an existing skill is almost always better than improvising. Optionally narrow the list with a substring search on name/description. Returns metadata only; call skills-get to download a specific skill.",
         "category": "Skills",
         "feature": "skills",
         "summary": "List published PostHog agent skills.",
@@ -463,7 +463,7 @@
         }
     },
     "skills-get": {
-        "description": "Fetch the full contents of a PostHog agent skill by name. Returns the skill's SKILL.md (entry point) plus any reference files under references/. Use this after skills-list identifies a relevant skill — the SKILL.md describes the workflow the agent should follow. Community skills are markdown-only; official skills may also include reference pages with HogQL examples and schema documentation.",
+        "description": "Fetch the full contents of a PostHog agent skill by name. Returns the skill's SKILL.md (entry point) plus any reference files under references/. Use this after skills-list identifies a relevant skill — the SKILL.md describes the workflow the agent should follow.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Fetch a published PostHog agent skill.",

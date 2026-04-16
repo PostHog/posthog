@@ -3,13 +3,6 @@ name: example-community-skill
 description: >-
   One- to two-sentence description of what this skill helps the agent do and
   when it should be used. Must be at least 20 characters.
-version: 0.1.0
-category: other
-source: community
-tags: []
-products: []
-author: your-github-handle
-requires_scopes: []
 ---
 
 # Example community skill

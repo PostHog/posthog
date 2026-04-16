@@ -13,9 +13,7 @@ stricter rules: markdown only (no .j2, no scripts/). See
 products/community/skills/CONTRIBUTING.md.
 
 Each skill must have YAML frontmatter validated against ``SkillFrontmatter`` —
-``name`` (lowercase-kebab-case) and ``description`` (20-1024 chars) are required;
-other fields (version, tags, category, products, author, source, requires_scopes)
-are optional with sensible defaults for backwards compatibility.
+``name`` (lowercase-kebab-case) and ``description`` (20-1024 chars) are required.
 
 The build renders skills to dist/skills/{skill_name}/ (gitignored, human-readable)
 and produces three sets of artifacts, all published as release assets by CI:
@@ -45,7 +43,6 @@ import argparse
 import textwrap
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
 import yaml
 from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
@@ -112,31 +109,12 @@ def _assert_text_file(file_path: Path) -> None:
 class SkillFrontmatter(BaseModel):
     """Frontmatter schema for skill SKILL.md files.
 
-    All fields beyond `name` and `description` are optional for backwards
-    compatibility, but enforced where set. Constraints are Pydantic-validated
-    at both lint time (cheap, no Django) and build time.
+    Constraints are Pydantic-validated at both lint time (cheap, no Django)
+    and build time.
     """
 
     name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]{2,63}$")
     description: str = Field(..., min_length=20, max_length=1024)
-    version: str = Field(default="0.1.0", pattern=r"^\d+\.\d+\.\d+$")
-    tags: list[str] = Field(default_factory=list, max_length=8)
-    category: Literal[
-        "analytics",
-        "flags",
-        "experiments",
-        "replay",
-        "errors",
-        "llm",
-        "surveys",
-        "workflows",
-        "data-warehouse",
-        "other",
-    ] = "other"
-    products: list[str] = Field(default_factory=list, max_length=8)
-    author: str | None = None
-    source: Literal["official", "community"] = "official"
-    requires_scopes: list[str] = Field(default_factory=list, max_length=16)
 
 
 class DiscoveredSkill(BaseModel):
@@ -160,7 +138,6 @@ class SkillResource(BaseModel):
     description: str
     files: list[SkillFile]
     source: str
-    frontmatter: SkillFrontmatter | None = None
 
 
 class SkillIndexEntry(BaseModel):
@@ -168,13 +145,6 @@ class SkillIndexEntry(BaseModel):
 
     name: str
     description: str
-    version: str
-    category: str
-    tags: list[str]
-    products: list[str]
-    author: str | None
-    source: str  # "official" | "community"
-    requires_scopes: list[str]
     archive_url: str
     sha256: str
     source_path: str
@@ -404,9 +374,7 @@ class SkillBuilder:
     def build_skill(self, skill: DiscoveredSkill, renderer: SkillRenderer) -> SkillResource:
         """Build a single skill and return a SkillResource.
 
-        Frontmatter is validated through ``SkillFrontmatter`` so that new fields
-        (version, tags, category, etc.) flow into the registry index. Skills
-        missing the required frontmatter fail at build time rather than
+        Skills missing the required frontmatter fail at build time rather than
         producing silently-underspecified index entries.
         """
         if skill.depth == 1:
@@ -432,26 +400,11 @@ class SkillBuilder:
 
         frontmatter = validate_frontmatter(entry_content, source_label)
 
-        # Enforce that skills placed under products/community/skills/ declare themselves
-        # as community in frontmatter. This keeps the "source" field trustworthy in the
-        # registry index — official skills can't accidentally live alongside community ones.
-        if skill.is_community and frontmatter.source != "community":
-            raise ValueError(
-                f"Skill at {source_label} is under products/community/skills/ but its frontmatter "
-                f"declares source: {frontmatter.source!r}. Community skills must set source: community."
-            )
-        if not skill.is_community and frontmatter.source == "community":
-            raise ValueError(
-                f"Skill at {source_label} declares source: community in frontmatter but is not under "
-                "products/community/skills/. Move it there or change source to official."
-            )
-
         return SkillResource(
             name=frontmatter.name,
             description=frontmatter.description,
             files=skill_files,
             source=source,
-            frontmatter=frontmatter,
         )
 
     def build_manifest(self, skills: list[DiscoveredSkill], renderer: SkillRenderer) -> SkillManifest:
@@ -527,24 +480,10 @@ class SkillBuilder:
         """
         entries: list[SkillIndexEntry] = []
         for resource in resources:
-            frontmatter = resource.frontmatter
-            if frontmatter is None:
-                # Defensive: build_skill() always populates frontmatter since the
-                # validator is mandatory, but keep a typed fallback rather than
-                # silently emitting a malformed index entry.
-                raise ValueError(f"Cannot index skill {resource.name}: missing validated frontmatter")
-
             entries.append(
                 SkillIndexEntry(
                     name=resource.name,
                     description=resource.description,
-                    version=frontmatter.version,
-                    category=frontmatter.category,
-                    tags=list(frontmatter.tags),
-                    products=list(frontmatter.products),
-                    author=frontmatter.author,
-                    source=frontmatter.source,
-                    requires_scopes=list(frontmatter.requires_scopes),
                     archive_url=f"{archive_url_prefix.rstrip('/')}/{resource.name}.zip",
                     sha256=checksums[resource.name],
                     source_path=resource.source,
@@ -615,8 +554,7 @@ class SkillBuilder:
         - Duplicate skill name detection (across products)
         - Jinja2 syntax validation via parse-only (all .j2 files)
         - Frontmatter validation for static .md entry points (schema + constraints)
-        - Community-skill restrictions: no .j2 templates, no scripts/ subdirectory,
-          frontmatter source must be "community"
+        - Community-skill restrictions: no .j2 templates, no scripts/ subdirectory
 
         Returns True if all checks pass, False otherwise.
         """
@@ -660,17 +598,17 @@ class SkillBuilder:
                 raw = skill.source_file.read_text()
                 source_label = str(skill.source_file.relative_to(self.repo_root))
                 try:
-                    frontmatter = validate_frontmatter(raw, source_label)
+                    validate_frontmatter(raw, source_label)
                 except ValueError as e:
                     errors.append(str(e))
-                else:
-                    errors.extend(self._lint_community_rules(skill, frontmatter))
             elif skill.is_community:
                 # .j2 already disallowed, but surface the error with a clearer message.
                 errors.append(
                     f"Community skill {skill.name} ({skill.source_file.relative_to(self.repo_root)}) "
                     "may not use .j2 templates. Use plain SKILL.md."
                 )
+
+            errors.extend(self._lint_community_rules(skill))
 
         if errors:
             for err in errors:
@@ -680,48 +618,37 @@ class SkillBuilder:
         print(f"OK: {len(skills)} skill(s) passed lint checks.")
         return True
 
-    def _lint_community_rules(self, skill: DiscoveredSkill, frontmatter: SkillFrontmatter) -> list[str]:
+    def _lint_community_rules(self, skill: DiscoveredSkill) -> list[str]:
         """Return any community-skill violations for a discovered skill.
 
         Called from lint_all so community PRs fail fast without Django, matching
         the stricter rules enforced at build time in ``collect_skill_files`` /
-        ``build_skill``.
+        ``build_skill``. Community vs official is determined solely by location
+        (``products/community/skills/``).
         """
         errors: list[str] = []
+        if not skill.is_community or skill.depth != 1:
+            return errors
+
         source_label = str(skill.source_file.relative_to(self.repo_root))
-
-        if skill.is_community:
-            if frontmatter.source != "community":
+        skill_dir = skill.source_file.parent
+        for disallowed in _COMMUNITY_DISALLOWED_SUBDIRS:
+            if (skill_dir / disallowed).is_dir():
                 errors.append(
-                    f"{source_label}: skills under products/community/skills/ must set "
-                    f"'source: community' in frontmatter (got '{frontmatter.source}')."
+                    f"{source_label}: community skills may not contain a {disallowed}/ directory (markdown-only)."
                 )
-            if skill.depth == 1:
-                skill_dir = skill.source_file.parent
-                for disallowed in _COMMUNITY_DISALLOWED_SUBDIRS:
-                    if (skill_dir / disallowed).is_dir():
+        # Any .j2 inside references/ is disallowed too.
+        for subdir_name in sorted(_ALLOWED_SUBDIRS):
+            subdir = skill_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for root, _dirs, filenames in os.walk(subdir):
+                for filename in filenames:
+                    if filename.endswith(".j2"):
                         errors.append(
-                            f"{source_label}: community skills may not contain a {disallowed}/ "
-                            "directory (markdown-only)."
+                            f"{source_label}: community skills may not contain .j2 templates "
+                            f"(found {Path(root, filename).relative_to(self.repo_root)})."
                         )
-                # Any .j2 inside references/ is disallowed too.
-                for subdir_name in sorted(_ALLOWED_SUBDIRS):
-                    subdir = skill_dir / subdir_name
-                    if not subdir.is_dir():
-                        continue
-                    for root, _dirs, filenames in os.walk(subdir):
-                        for filename in filenames:
-                            if filename.endswith(".j2"):
-                                errors.append(
-                                    f"{source_label}: community skills may not contain .j2 templates "
-                                    f"(found {Path(root, filename).relative_to(self.repo_root)})."
-                                )
-        elif frontmatter.source == "community":
-            errors.append(
-                f"{source_label}: frontmatter declares 'source: community' but skill is not "
-                "under products/community/skills/. Move it there or change source to 'official'."
-            )
-
         return errors
 
     def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
@@ -745,17 +672,10 @@ class SkillBuilder:
 
         display_name = skill_name.replace("-", " ").capitalize()
         filename = "SKILL.md.j2" if template else "SKILL.md"
-        source = "community" if product_name == _COMMUNITY_PRODUCT else "official"
         content = textwrap.dedent(f"""\
             ---
             name: {skill_name}
             description: TODO — describe when and how agents should use this skill (20-1024 chars).
-            version: 0.1.0
-            category: other
-            source: {source}
-            tags: []
-            products: []
-            requires_scopes: []
             ---
 
             # {display_name}

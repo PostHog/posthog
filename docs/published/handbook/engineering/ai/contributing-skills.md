@@ -32,20 +32,19 @@ products/community/skills/
 
 Community skills are subject to stricter build rules than official skills:
 
-| Content                 | Official skills | Community skills           |
-| ----------------------- | --------------- | -------------------------- |
-| `SKILL.md`              | Required        | Required                   |
-| `references/*.md`       | Allowed         | Allowed                    |
-| `references/*.md.j2`    | Allowed         | **Rejected at build time** |
-| `scripts/*`             | Allowed         | **Rejected at build time** |
-| `SKILL.md.j2`           | Allowed         | **Rejected at build time** |
-| `source` in frontmatter | `official`      | Must be `community`        |
+| Content              | Official skills | Community skills           |
+| -------------------- | --------------- | -------------------------- |
+| `SKILL.md`           | Required        | Required                   |
+| `references/*.md`    | Allowed         | Allowed                    |
+| `references/*.md.j2` | Allowed         | **Rejected at build time** |
+| `scripts/*`          | Allowed         | **Rejected at build time** |
+| `SKILL.md.j2`        | Allowed         | **Rejected at build time** |
 
-Enforcement happens in `products/posthog_ai/scripts/build_skills.py`; `hogli lint:skills` catches violations without needing a Django environment, so contributors get fast feedback in CI.
+Community vs official is determined by location (`products/community/skills/` vs `products/<product>/skills/`) — not by a frontmatter field. Enforcement happens in `products/posthog_ai/scripts/build_skills.py`; `hogli lint:skills` catches violations without needing a Django environment, so contributors get fast feedback in CI.
 
 ## Frontmatter schema
 
-Every skill (official or community) has Pydantic-validated frontmatter:
+Every skill (official or community) has Pydantic-validated frontmatter with just two fields:
 
 ```yaml
 ---
@@ -53,17 +52,10 @@ name: your-skill-name # required, lowercase-kebab-case, 3-64 chars, unique acros
 description: >- # required, 20-1024 chars — agents use this to decide whether to run the skill
   Audit inactive surveys across a PostHog project and recommend ones
   safe to archive.
-version: 0.1.0 # semver, bumped on meaningful changes
-category: surveys # one of: analytics, flags, experiments, replay, errors, llm, surveys, workflows, data-warehouse, other
-source: community # "community" for community-contributed; "official" for PostHog team
-tags: [audit, cleanup] # up to 8 free-form tags, used for registry filtering
-products: [surveys] # PostHog products the skill touches
-author: your-github-handle # optional, how you want to be credited
-requires_scopes: [survey:read] # MCP scopes an agent needs to run this skill
 ---
 ```
 
-All new fields beyond `name` and `description` are optional with sensible defaults for backwards compatibility with existing skills.
+This matches the [Anthropic agent skills convention](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview): `description` is the primary trigger signal, so invest in making it specific.
 
 ## Distribution
 
@@ -90,7 +82,7 @@ Agents should hit that URL to discover the full skill catalog.
 
 The PostHog MCP server exposes the registry through two tools:
 
-- `skills-list` — returns metadata for every published skill, with optional filters (`category`, `products`, `tags`, `source`, `search`)
+- `skills-list` — returns metadata for every published skill, with an optional `search` substring filter on name/description
 - `skills-get` — returns the full markdown of a named skill, including any `references/*.md` files
 
 Max and any other MCP-aware agent can call `skills-list` at the start of a complex PostHog workflow to check whether a canonical skill exists, then `skills-get` to pull the guidance.

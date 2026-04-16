@@ -1,6 +1,6 @@
 # Community skills
 
-This directory holds community-contributed PostHog skills — job-to-be-done templates that teach AI agents how to accomplish specific tasks in PostHog.
+This directory holds community-contributed PostHog skills; job-to-be-done templates that teach AI agents how to accomplish specific tasks in PostHog.
 
 Skills placed here are distributed alongside official PostHog skills through the agent-skills release pipeline, and surfaced in the skills registry (`skills-index.json`) consumed by the PostHog MCP server, third-party agent frameworks, and IDE extensions.
 
@@ -19,4 +19,4 @@ A starter skill scaffold lives in [`.template/SKILL.md`](./.template/SKILL.md). 
 | `products/<product>/skills/` | PostHog product teams | Full access: markdown, `references/`, `scripts/`, Jinja2 templates (`.j2`) with access to Pydantic schemas |
 | `products/community/skills/` | The community         | Markdown only: `SKILL.md` plus optional `references/*.md`. No `scripts/`, no `.j2` templates               |
 
-The stricter rules for community skills keep the trust boundary clear — community contributions can't execute code, can't introspect Django models, and can't pull in arbitrary runtime context.
+The stricter rules for community skills keep the trust boundary clear. Community contributions can't execute code, can't introspect Django models, and can't pull in arbitrary runtime context.
