@@ -304,6 +304,13 @@ INSIGHT_KINDS = {
     "LifecycleQuery",
 }
 
+# Queries that should run asynchronously with an extended ClickHouse timeout.
+# Superset of INSIGHT_KINDS — includes expensive non-insight queries like TracesQuery
+# whose two-phase GROUP BY over the events table can exceed the default 60s limit.
+ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
+    "TracesQuery",
+}
+
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
     "FunnelsActorsQuery",
@@ -325,6 +332,28 @@ def is_insight_query(query: dict) -> bool:
             return True
     if kind == "DataVisualizationNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_async_query(query: dict) -> bool:
+    """Check if a query should run asynchronously with an extended timeout.
+
+    Superset of is_insight_query — also covers expensive non-insight queries.
+    """
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in ASYNC_QUERY_KINDS:
+        return True
+    if kind == "HogQLQuery":
+        return True
+    if kind == "DataTableNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in ASYNC_QUERY_KINDS:
+            return True
+    if kind == "DataVisualizationNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in ASYNC_QUERY_KINDS:
             return True
 
     return False
