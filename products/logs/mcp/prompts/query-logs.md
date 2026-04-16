@@ -7,9 +7,10 @@ Use `logs-attributes-list` and `logs-attribute-values-list` to discover availabl
 1. **Discover services first.** Call `logs-attribute-values-list` with `key: "service.name"` and `attribute_type: "resource"` to see available services.
 2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: "resource"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: "resource"` for relevant attributes to validate what data exists.
 3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.
-4. **Only then query logs.** Once you have confirmed the service name and relevant filters, call `query-logs` with `serviceNames` and any additional filters.
+4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.
+5. **Only then query logs.** Once you have confirmed the service name, volume looks right, and relevant filters are set, call `query-logs` with `serviceNames` and any additional filters.
 
-10 attribute/value queries are cheaper than 1 log query. Prefer thorough attribute exploration over speculative log searches.
+10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 

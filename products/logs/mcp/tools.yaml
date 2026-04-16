@@ -135,9 +135,20 @@ tools:
     logs-services-create:
         operation: logs_services_create
         enabled: false
-    logs-sparkline-create:
+    logs-sparkline-query:
         operation: logs_sparkline_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query logs sparkline
+        description_file: ./prompts/logs-sparkline.md
+        response:
+            include:
+                - results
     logs-alerts-destinations-create:
         operation: logs_alerts_destinations_create
         enabled: false
