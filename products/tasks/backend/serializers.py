@@ -1,7 +1,7 @@
 from django.core.cache import cache
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -22,6 +22,13 @@ from .temporal.process_task.utils import (
 )
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
+
+INITIAL_PERMISSION_MODE_CHOICES = ["default", "acceptEdits", "plan", "bypassPermissions"]
+CODEX_INITIAL_PERMISSION_MODE_CHOICES = ["auto", "read-only", "full-access"]
+ALL_INITIAL_PERMISSION_MODE_CHOICES = [
+    *INITIAL_PERMISSION_MODE_CHOICES,
+    *CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+]
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -519,20 +526,45 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
     )
     initial_permission_mode = serializers.ChoiceField(
-        choices=["default", "acceptEdits", "plan", "bypassPermissions"],
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
         required=False,
         default=None,
-        help_text="Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).",
+        help_text=(
+            "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
+            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
+            "'read-only'."
+        ),
     )
 
     def validate(self, attrs):
+        errors: dict[str, str] = {}
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        runtime_adapter = attrs.get("runtime_adapter")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
 
         if not has_runtime_selection:
+            if errors:
+                raise serializers.ValidationError(errors)
             return attrs
 
-        errors: dict[str, str] = {}
         for field in runtime_fields:
             if attrs.get(field) is None:
                 errors[field] = "This field is required when selecting a cloud runtime."
@@ -549,6 +581,112 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(errors)
 
         return attrs
+
+
+class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
+    runtime_adapter = serializers.ChoiceField(
+        choices=[RuntimeAdapter.CLAUDE.value],
+        required=True,
+        help_text="Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.",
+    )
+    model = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the Claude runtime.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for Claude runtimes.",
+    )
+
+
+class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
+    runtime_adapter = serializers.ChoiceField(
+        choices=[RuntimeAdapter.CODEX.value],
+        required=True,
+        help_text="Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.",
+    )
+    model = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the Codex runtime.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for Codex runtimes.",
+    )
+
+
+class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
+    resume_from_run_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="ID of a previous run to resume from. Must belong to the same task.",
+    )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+    )
+
+
+TaskRunCreateRequestSchemaSerializer = PolymorphicProxySerializer(
+    component_name="TaskRunCreateRequestSchema",
+    serializers=[
+        ClaudeTaskRunCreateSchemaSerializer,
+        CodexTaskRunCreateSchemaSerializer,
+        TaskRunResumeRequestSchemaSerializer,
+    ],
+    resource_type_field_name=None,
+)
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):

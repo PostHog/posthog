@@ -571,7 +571,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
 
-        # Date is before the capture range
+        # Date is before the capture range but overlaps (last event at window start)
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace3",
@@ -588,8 +588,73 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        # trace3 overlaps the window (last_timestamp=00:00 >= date_from=00:00)
+        self.assertEqual(len(response.results), 2)
+        result_ids = {t.id for t in response.results}
+        self.assertIn("trace1", result_ids)
+        self.assertIn("trace3", result_ids)
+
+    def test_overlap_semantics_trace_started_before_window(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Trace A: first event within capture range but before date_from
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_a",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 10, 55),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_a",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 30),
+        )
+
+        # Trace B: fully within window
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_b",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 15),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_b",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 40),
+        )
+
+        # Trace C: entirely before the window and capture range
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_c",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 9, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_c",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 9, 30),
+        )
+
+        # Window: 11:00 to 12:00
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(
+                    date_from="2024-12-01T11:00:00Z",
+                    date_to="2024-12-01T12:00:00Z",
+                )
+            ),
+        ).calculate()
+
+        result_ids = {t.id for t in response.results}
+        self.assertEqual(len(response.results), 2)
+        self.assertIn("trace_a", result_ids)
+        self.assertIn("trace_b", result_ids)
+        self.assertNotIn("trace_c", result_ids)
 
     def test_event_property_filters(self):
         _create_person(distinct_ids=["person1"], team=self.team)

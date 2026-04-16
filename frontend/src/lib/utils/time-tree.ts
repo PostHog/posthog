@@ -2,16 +2,42 @@ import { RBTree } from 'bintrees'
 
 import { Dayjs } from 'lib/dayjs'
 
+export type TimeTreeComparable = {
+    timestamp: Dayjs
+    id?: string | number
+    category?: string | number
+    sortPriority?: number
+}
+
+export function compareTimeTreeItems<T extends TimeTreeComparable>(a: T, b: T): number {
+    const timestampDiff = a.timestamp.diff(b.timestamp)
+    if (timestampDiff !== 0) {
+        return timestampDiff
+    }
+
+    const sortPriorityDiff = (a.sortPriority ?? 0) - (b.sortPriority ?? 0)
+    if (sortPriorityDiff !== 0) {
+        return sortPriorityDiff
+    }
+
+    const categoryDiff = String(a.category ?? '').localeCompare(String(b.category ?? ''))
+    if (categoryDiff !== 0) {
+        return categoryDiff
+    }
+
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''))
+}
+
 // Data structure for fast insert and search operations based on timestamps.
-export class TimeTree<T extends { timestamp: Dayjs }> {
+export class TimeTree<T extends TimeTreeComparable> {
     tree: RBTree<T>
 
     constructor() {
-        this.tree = new RBTree(this.compare)
+        this.tree = new RBTree(compareTimeTreeItems)
     }
 
     clear(): void {
-        this.tree = new RBTree(this.compare)
+        this.tree = new RBTree(compareTimeTreeItems)
     }
 
     getAll(): T[] {
@@ -51,9 +77,5 @@ export class TimeTree<T extends { timestamp: Dayjs }> {
         const it = this.tree.upperBound(needle) // first > x
         const v = it.data()
         return v === null ? undefined : v // bintrees returns null at end
-    }
-
-    private compare(a: T, b: T): number {
-        return a.timestamp.diff(b.timestamp)
     }
 }

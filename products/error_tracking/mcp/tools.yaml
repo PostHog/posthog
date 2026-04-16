@@ -144,7 +144,18 @@ tools:
             and the issues to merge into it as `ids`.
     error-tracking-issues-split-create:
         operation: error_tracking_issues_split_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Split error tracking issue fingerprints
+        description: >
+            Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the
+            source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a
+            required `fingerprint` and optional `name` or `description`.
     error-tracking-issues-bulk-create:
         operation: error_tracking_issues_bulk_create
         enabled: false
