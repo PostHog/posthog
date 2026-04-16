@@ -13,6 +13,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 
 
 class TestCustomerIOWebhook(APIBaseTest):
@@ -24,8 +25,14 @@ class TestCustomerIOWebhook(APIBaseTest):
             team=self.team,
             kind="customerio-webhook",
             sensitive_config={"webhook_signing_secret": self.SIGNING_SECRET},
-            config={"webhook_enabled": True},
             created_by=self.user,
+        )
+        self.config, _ = OptOutSyncConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "webhook_integration": self.integration,
+                "webhook_enabled": True,
+            },
         )
         self.url = f"/api/environments/{self.team.id}/messaging/customerio/webhook/"
 
@@ -111,8 +118,8 @@ class TestCustomerIOWebhook(APIBaseTest):
         self.assertEqual(response.status_code, 401)
 
     def test_webhook_disabled_rejected(self):
-        self.integration.config["webhook_enabled"] = False
-        self.integration.save(update_fields=["config"])
+        self.config.webhook_enabled = False
+        self.config.save(update_fields=["webhook_enabled"])
 
         body = {"metric": "unsubscribed", "data": {"email_address": "user@example.com"}}
         response = self._post_webhook(body)
@@ -128,12 +135,16 @@ class TestCustomerIOWebhook(APIBaseTest):
 
     def test_cross_team_signature_rejected(self):
         other_team = self.organization.teams.create(name="Other team")
-        Integration.objects.create(
+        other_integration = Integration.objects.create(
             team=other_team,
             kind="customerio-webhook",
             sensitive_config={"webhook_signing_secret": "other_team_secret_456"},
-            config={"webhook_enabled": True},
             created_by=self.user,
+        )
+        OptOutSyncConfig.objects.create(
+            team=other_team,
+            webhook_integration=other_integration,
+            webhook_enabled=True,
         )
         body = {"metric": "unsubscribed", "data": {"email_address": "cross@example.com"}}
         body_str = json.dumps(body)

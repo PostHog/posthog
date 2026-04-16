@@ -80,31 +80,31 @@ class MessageCategoryViewSet(
         Persists the App API key in Integration(kind="customerio-app").
         If no app_api_key is provided, reuses the stored Integration key.
         """
-        api_key = request.data.get("app_api_key")
-
-        if not api_key:
-            # Reuse stored key from Integration
-            try:
-                integration = Integration.objects.get(team_id=self.team_id, kind="customerio-app")
-                api_key = integration.sensitive_config.get("app_api_key")
-            except Integration.DoesNotExist:
-                pass
+        integration = Integration.objects.filter(team_id=self.team_id, kind="customerio-app").first()
+        api_key = request.data.get("app_api_key") or (
+            integration.sensitive_config.get("app_api_key") if integration else None
+        )
 
         if not api_key:
             return Response(
                 {"error": "No API key provided and no stored key found."}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Persist the API key in Integration before import starts
-        integration, _ = Integration.objects.update_or_create(
-            team_id=self.team_id,
-            kind="customerio-app",
-            defaults={
-                "sensitive_config": {"app_api_key": api_key},
-                "created_by": request.user,
-                "errors": "",
-            },
-        )
+        if integration and request.data.get("app_api_key"):
+            return Response(
+                {"error": "Integration already exists. Delete it first to use a different key."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if not integration:
+            integration = Integration.objects.create(
+                team_id=self.team_id,
+                kind="customerio-app",
+                sensitive_config={"app_api_key": api_key},
+                created_by=request.user,
+                errors="",
+            )
+
         config, _ = OptOutSyncConfig.objects.get_or_create(team_id=self.team_id)
         config.app_integration = integration
         config.save(update_fields=["app_integration"])
@@ -191,37 +191,34 @@ class MessageCategoryViewSet(
         Save webhook signing secret and/or toggle the Customer.io webhook sync.
 
         Accepts:
-          - webhook_signing_secret (optional): update the secret
+          - webhook_signing_secret (optional): set on first creation only
           - webhook_enabled (required): enable or disable the webhook
         """
         signing_secret = request.data.get("webhook_signing_secret")
         enabled = bool(request.data.get("webhook_enabled", False))
 
-        existing = Integration.objects.filter(team_id=self.team_id, kind="customerio-webhook").first()
+        integration = Integration.objects.filter(team_id=self.team_id, kind="customerio-webhook").first()
 
-        if not enabled and not signing_secret and not existing:
-            return Response({"webhook_enabled": False, "has_signing_secret": False}, status=status.HTTP_200_OK)
+        if integration and signing_secret:
+            return Response(
+                {"error": "Integration already exists. Delete it first to use a different secret."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        if enabled and not signing_secret:
-            if not existing or not existing.sensitive_config.get("webhook_signing_secret"):
-                return Response(
-                    {"error": "Webhook signing secret is required to enable sync."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if enabled and not integration and not signing_secret:
+            return Response(
+                {"error": "Webhook signing secret is required to enable sync."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        defaults: dict = {
-            "created_by": request.user,
-            "errors": "",
-            "config": {"webhook_enabled": enabled},
-        }
-        if signing_secret:
-            defaults["sensitive_config"] = {"webhook_signing_secret": signing_secret}
-
-        integration, _ = Integration.objects.update_or_create(
-            team_id=self.team_id,
-            kind="customerio-webhook",
-            defaults=defaults,
-        )
+        if not integration and signing_secret:
+            integration = Integration.objects.create(
+                team_id=self.team_id,
+                kind="customerio-webhook",
+                sensitive_config={"webhook_signing_secret": signing_secret},
+                created_by=request.user,
+                errors="",
+            )
 
         config, _ = OptOutSyncConfig.objects.get_or_create(team_id=self.team_id)
         config.webhook_integration = integration
@@ -231,7 +228,9 @@ class MessageCategoryViewSet(
         return Response(
             {
                 "webhook_enabled": enabled,
-                "has_signing_secret": bool(integration.sensitive_config.get("webhook_signing_secret")),
+                "has_signing_secret": bool(integration.sensitive_config.get("webhook_signing_secret"))
+                if integration
+                else False,
             },
             status=status.HTTP_200_OK,
         )

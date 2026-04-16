@@ -15,6 +15,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,12 @@ class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
         if not team_id:
             return None
         try:
-            self._integration = Integration.objects.get(team_id=team_id, kind="customerio-webhook")
-        except Integration.DoesNotExist:
+            config = OptOutSyncConfig.objects.select_related("webhook_integration").get(team_id=team_id)
+        except OptOutSyncConfig.DoesNotExist:
             return None
-        if not self._integration.config.get("webhook_enabled"):
+        if not config.webhook_enabled or not config.webhook_integration:
             return None
+        self._integration = config.webhook_integration
         return self._integration.sensitive_config.get("webhook_signing_secret")
 
     def get_auth_context(self, request: Request) -> Any:
