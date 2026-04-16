@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import type { ComponentProps } from 'react'
+import { useState, type ComponentProps } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -100,15 +100,47 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     },
 ]
 
+const PAGINATION_PAGE_SIZE = 20
+
 const paginationFor = (rows: SubscriptionApi[]): PaginationManual => ({
     controlled: true,
-    pageSize: 20,
+    pageSize: PAGINATION_PAGE_SIZE,
     currentPage: 1,
     // Match subscriptionsSceneLogic: usePagination treats 0 as missing entryCount.
     entryCount: Math.max(rows.length, 1),
     onBackward: () => undefined,
     onForward: () => undefined,
 })
+
+function buildMockSubscriptions(total: number): SubscriptionApi[] {
+    return Array.from({ length: total }, (_, i) => {
+        const n = i + 1
+        const isInsight = i % 2 === 0
+        const isSlack = i % 3 === 0
+        return {
+            id: n,
+            insight: isInsight ? 1000 + n : null,
+            dashboard: isInsight ? null : 2000 + n,
+            insight_short_id: isInsight ? `short${n}` : null,
+            resource_name: `Quarterly metrics ${n}`,
+            title: `Digest ${n}`,
+            dashboard_export_insights: [],
+            target_type: isSlack ? TargetTypeEnumApi.Slack : TargetTypeEnumApi.Email,
+            target_value: isSlack ? `C${n}|#channel-${n}` : `analyst${n}@posthog.com`,
+            frequency: FrequencyEnumApi.Weekly,
+            interval: 1,
+            start_date: '2022-01-01T00:00:00Z',
+            created_at: '2023-04-27T10:04:37.977401Z',
+            created_by: MOCK_USER,
+            summary: 'sent every week',
+            next_delivery_date: '2026-04-07T17:00:00Z',
+            deleted: false,
+            ...(isSlack ? { integration_id: 1 } : {}),
+        }
+    })
+}
+
+const MOCK_SUBSCRIPTIONS_MULTI_PAGE = buildMockSubscriptions(45)
 
 const meta: Meta<typeof SubscriptionsTable> = {
     title: 'Scenes-App/Subscriptions/SubscriptionsTable',
@@ -140,8 +172,37 @@ function StoryShell(props: Omit<ComponentProps<typeof SubscriptionsTable>, 'rend
     )
 }
 
+function MultiPageStoryShell(): JSX.Element {
+    const [page, setPage] = useState(1)
+    const total = MOCK_SUBSCRIPTIONS_MULTI_PAGE.length
+    const pageCount = Math.ceil(total / PAGINATION_PAGE_SIZE)
+    const slice = MOCK_SUBSCRIPTIONS_MULTI_PAGE.slice((page - 1) * PAGINATION_PAGE_SIZE, page * PAGINATION_PAGE_SIZE)
+
+    return (
+        <SubscriptionsTable
+            dataSource={slice}
+            loading={false}
+            pagination={{
+                controlled: true,
+                pageSize: PAGINATION_PAGE_SIZE,
+                currentPage: page,
+                entryCount: Math.max(total, 1),
+                onBackward: page > 1 ? () => setPage((p) => Math.max(1, p - 1)) : undefined,
+                onForward: page < pageCount ? () => setPage((p) => Math.min(pageCount, p + 1)) : undefined,
+            }}
+            renderRowActions={() => (
+                <LemonButton icon={<IconEllipsis />} size="small" aria-label="Subscription actions" />
+            )}
+        />
+    )
+}
+
 export const Default: Story = {
     render: () => (
         <StoryShell dataSource={MOCK_SUBSCRIPTIONS} loading={false} pagination={paginationFor(MOCK_SUBSCRIPTIONS)} />
     ),
+}
+
+export const WithPagination: Story = {
+    render: () => <MultiPageStoryShell />,
 }

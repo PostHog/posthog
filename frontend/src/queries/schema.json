@@ -21435,6 +21435,9 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
+                "requestCost": {
+                    "type": "number"
+                },
                 "tools": {
                     "items": {
                         "type": "string"
@@ -21449,6 +21452,9 @@
                 },
                 "traceName": {
                     "type": "string"
+                },
+                "webSearchCost": {
+                    "type": "number"
                 }
             },
             "required": ["id", "createdAt", "distinctId", "events"],

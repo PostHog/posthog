@@ -12,6 +12,7 @@ from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, Y
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
@@ -248,6 +249,56 @@ def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
         expiry_delta=timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
         audience=PosthogJwtAudience.UNSUBSCRIBE,
     )
+
+
+class SubscriptionDelivery(UUIDModel):
+    class Status(models.TextChoices):
+        STARTING = "starting"
+        COMPLETED = "completed"
+        FAILED = "failed"
+        SKIPPED = "skipped"
+
+    subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
+    # idempotency_key is generated via temporalio.workflow.uuid4() which is deterministic
+    # across activity retries (replay) but different across workflow retries.
+    temporal_workflow_id = models.CharField(max_length=255)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+
+    # Trigger context
+    trigger_type = models.CharField(max_length=20)
+    scheduled_at = models.DateTimeField(null=True)
+
+    # Target snapshot (frozen at delivery time)
+    target_type = models.CharField(max_length=10)
+    target_value = models.TextField()
+
+    # Content snapshot
+    exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
+    content_snapshot = models.JSONField(default=dict)
+
+    # Per-recipient delivery results
+    recipient_results = models.JSONField(default=list)
+
+    # Overall status and error (null when no error)
+    # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.STARTING)
+    error = models.JSONField(null=True, blank=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_subscription_delivery"
+        indexes = [
+            models.Index(fields=["subscription", "-created_at"], name="posthog_subdel_sub_crtd"),
+            models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
+        ]
+        ordering = ["-created_at"]
 
 
 def unsubscribe_using_token(token: str) -> Subscription:

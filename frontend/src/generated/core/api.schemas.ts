@@ -7,6 +7,76 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `starting` - Starting
+ * `completed` - Completed
+ * `failed` - Failed
+ * `skipped` - Skipped
+ */
+export type SubscriptionDeliveryStatusEnumApi =
+    (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
+
+export const SubscriptionDeliveryStatusEnumApi = {
+    Starting: 'starting',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+export interface SubscriptionDeliveryApi {
+    /** Primary key for this delivery row. */
+    readonly id: string
+    /** Parent subscription id. */
+    readonly subscription: number
+    /** Temporal workflow id for this delivery run. */
+    readonly temporal_workflow_id: string
+    /** Dedupes activity retries for the same logical run. */
+    readonly idempotency_key: string
+    /** Why the run started (e.g. scheduled, manual, target_change). */
+    readonly trigger_type: string
+    /**
+     * Planned send time when applicable.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Channel snapshot at send time (email, slack, webhook). */
+    readonly target_type: string
+    /** Destination snapshot at send time (emails, channel id, URL). */
+    readonly target_value: string
+    /** ExportedAsset ids generated for this send. */
+    readonly exported_asset_ids: readonly number[]
+    /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
+    readonly content_snapshot: unknown
+    /** Per-destination outcomes; items use status success, failed, or partial. */
+    readonly recipient_results: unknown
+    /** Overall run status: starting, completed, failed, or skipped.
+
+* `starting` - Starting
+* `completed` - Completed
+* `failed` - Failed
+* `skipped` - Skipped */
+    readonly status: SubscriptionDeliveryStatusEnumApi
+    /** Top-level failure payload when status is failed, if any. */
+    readonly error: unknown | null
+    /** When the delivery row was created. */
+    readonly created_at: string
+    /** Last ORM update to this row. */
+    readonly last_updated_at: string
+    /**
+     * When the run finished, if applicable.
+     * @nullable
+     */
+    readonly finished_at: string | null
+}
+
+export interface PaginatedSubscriptionDeliveryListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SubscriptionDeliveryApi[]
+}
+
 export interface OrganizationDomainApi {
     readonly id: string
     /** @maxLength 128 */
@@ -1120,54 +1190,92 @@ export const ByweekdayEnumApi = {
  */
 export interface SubscriptionApi {
     readonly id: number
-    /** @nullable */
+    /**
+     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+     * @nullable
+     */
     dashboard?: number | null
-    /** @nullable */
+    /**
+     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+     * @nullable
+     */
     insight?: number | null
     /** @nullable */
     readonly insight_short_id: string | null
     /** @nullable */
     readonly resource_name: string | null
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
     dashboard_export_insights?: number[]
+    /** Delivery channel: email, slack, or webhook.
+
+* `email` - Email
+* `slack` - Slack
+* `webhook` - Webhook */
     target_type: TargetTypeEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
     target_value: string
+    /** How often to deliver: daily, weekly, monthly, or yearly.
+
+* `daily` - Daily
+* `weekly` - Weekly
+* `monthly` - Monthly
+* `yearly` - Yearly */
     frequency: FrequencyEnumApi
     /**
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     interval?: number
-    /** @nullable */
+    /**
+     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * @nullable
+     */
     byweekday?: ByweekdayEnumApi[] | null
     /**
+     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     bysetpos?: number | null
     /**
+     * Total number of deliveries before the subscription stops. Null for unlimited.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     count?: number | null
+    /** When to start delivering (ISO 8601 datetime). */
     start_date: string
-    /** @nullable */
+    /**
+     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+     * @nullable
+     */
     until_date?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
     /**
+     * Human-readable name for this subscription.
      * @maxLength 100
      * @nullable
      */
     title?: string | null
+    /** Human-readable schedule summary, e.g. 'sent daily'. */
     readonly summary: string
     /** @nullable */
     readonly next_delivery_date: string | null
-    /** @nullable */
+    /**
+     * ID of a connected Slack integration. Required when target_type is slack.
+     * @nullable
+     */
     integration_id?: number | null
-    /** @nullable */
+    /**
+     * Optional message included in the invitation email when adding new recipients.
+     * @nullable
+     */
     invite_message?: string | null
 }
 
@@ -1185,54 +1293,92 @@ export interface PaginatedSubscriptionListApi {
  */
 export interface PatchedSubscriptionApi {
     readonly id?: number
-    /** @nullable */
+    /**
+     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+     * @nullable
+     */
     dashboard?: number | null
-    /** @nullable */
+    /**
+     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+     * @nullable
+     */
     insight?: number | null
     /** @nullable */
     readonly insight_short_id?: string | null
     /** @nullable */
     readonly resource_name?: string | null
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
     dashboard_export_insights?: number[]
+    /** Delivery channel: email, slack, or webhook.
+
+* `email` - Email
+* `slack` - Slack
+* `webhook` - Webhook */
     target_type?: TargetTypeEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
     target_value?: string
+    /** How often to deliver: daily, weekly, monthly, or yearly.
+
+* `daily` - Daily
+* `weekly` - Weekly
+* `monthly` - Monthly
+* `yearly` - Yearly */
     frequency?: FrequencyEnumApi
     /**
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     interval?: number
-    /** @nullable */
+    /**
+     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * @nullable
+     */
     byweekday?: ByweekdayEnumApi[] | null
     /**
+     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     bysetpos?: number | null
     /**
+     * Total number of deliveries before the subscription stops. Null for unlimited.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     count?: number | null
+    /** When to start delivering (ISO 8601 datetime). */
     start_date?: string
-    /** @nullable */
+    /**
+     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+     * @nullable
+     */
     until_date?: string | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
     /**
+     * Human-readable name for this subscription.
      * @maxLength 100
      * @nullable
      */
     title?: string | null
+    /** Human-readable schedule summary, e.g. 'sent daily'. */
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
-    /** @nullable */
+    /**
+     * ID of a connected Slack integration. Required when target_type is slack.
+     * @nullable
+     */
     integration_id?: number | null
-    /** @nullable */
+    /**
+     * Optional message included in the invitation email when adding new recipients.
+     * @nullable
+     */
     invite_message?: string | null
 }
 
@@ -1571,6 +1717,27 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
+export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus
+}
+
+export type SubscriptionsDeliveriesListStatus =
+    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
+
+export const SubscriptionsDeliveriesListStatus = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Starting: 'starting',
+} as const
+
 export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -1759,6 +1926,14 @@ export type SubscriptionsListParams = {
      * Filter by creator user UUID.
      */
     created_by?: string
+    /**
+     * Filter by dashboard ID.
+     */
+    dashboard?: number
+    /**
+     * Filter by insight ID.
+     */
+    insight?: number
     /**
      * Number of results to return per page.
      */
