@@ -111,11 +111,42 @@ describe('config', () => {
                 expect(config.ffmpegVideoFilters).toEqual([])
             })
 
-            it('always includes baseline output opts', () => {
+            it('includes MP4 baseline output opts by default', () => {
                 const config = buildCaptureConfig(baseInput())
+                expect(config.outputFormat).toBe('mp4')
                 expect(config.ffmpegOutputOpts).toContain('-crf 23')
                 expect(config.ffmpegOutputOpts).toContain('-pix_fmt yuv420p')
                 expect(config.ffmpegOutputOpts).toContain('-movflags +faststart')
+            })
+
+            it('uses VP9 output opts for WebM format', () => {
+                const config = buildCaptureConfig(baseInput({ output_format: 'webm' }))
+                expect(config.outputFormat).toBe('webm')
+                expect(config.ffmpegOutputOpts).toContain('-f webm')
+                expect(config.ffmpegOutputOpts).toContain('-c:v libvpx-vp9')
+                expect(config.ffmpegOutputOpts).toContain('-crf 30')
+                expect(config.ffmpegOutputOpts).toContain('-b:v 0')
+                expect(config.ffmpegOutputOpts).not.toContain('-movflags +faststart')
+            })
+
+            it('adds trim to WebM output opts', () => {
+                const config = buildCaptureConfig(baseInput({ output_format: 'webm', trim: 30 }))
+                expect(config.ffmpegOutputOpts).toContain('-t 30')
+                expect(config.ffmpegOutputOpts).toContain('-c:v libvpx-vp9')
+            })
+
+            it('uses GIF output opts with palette generation', () => {
+                const config = buildCaptureConfig(baseInput({ output_format: 'gif' }))
+                expect(config.outputFormat).toBe('gif')
+                expect(config.ffmpegOutputOpts).toContain('-f gif')
+                expect(config.ffmpegOutputOpts).toContain('-c:v gif')
+                expect(config.ffmpegOutputOpts).toContain('-loop')
+                expect(config.ffmpegOutputOpts).toContain('0')
+                expect(config.ffmpegOutputOpts).not.toContain('-movflags +faststart')
+                expect(config.ffmpegVideoFilters).toContain('fps=12')
+                expect(config.ffmpegVideoFilters).toContain(
+                    'split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle'
+                )
             })
 
             it.each([
@@ -169,20 +200,16 @@ describe('config', () => {
             expect(result.showMetadataFooter).toBe(true)
         })
 
-        it('passes startTimestamp and endTimestamp', () => {
-            const result = buildPlayerConfig(
-                baseInput({ start_timestamp: 1700000000000, end_timestamp: 1700000060000 }),
-                4,
-                5
-            )
-            expect(result.startTimestamp).toBe(1700000000000)
-            expect(result.endTimestamp).toBe(1700000060000)
+        it('passes startOffsetS and endOffsetS', () => {
+            const result = buildPlayerConfig(baseInput({ start_offset_s: 10, end_offset_s: 70 }), 4, 5)
+            expect(result.startOffsetS).toBe(10)
+            expect(result.endOffsetS).toBe(70)
         })
 
-        it('omits startTimestamp and endTimestamp when not provided', () => {
+        it('omits startOffsetS and endOffsetS when not provided', () => {
             const result = buildPlayerConfig(baseInput(), 4, 5)
-            expect(result.startTimestamp).toBeUndefined()
-            expect(result.endTimestamp).toBeUndefined()
+            expect(result.startOffsetS).toBeUndefined()
+            expect(result.endOffsetS).toBeUndefined()
         })
 
         it('passes skipInactivity=false when explicitly disabled', () => {
