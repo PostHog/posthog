@@ -19117,6 +19117,7 @@ export namespace Schemas {
     * `pending_resolve` - Pending resolve
     * `errored` - Errored
     * `snoozed` - Snoozed
+    * `broken` - Broken
      */
     export type LogsAlertConfigurationStateEnum = typeof LogsAlertConfigurationStateEnum[keyof typeof LogsAlertConfigurationStateEnum];
 
@@ -19127,6 +19128,7 @@ export namespace Schemas {
       PendingResolve: 'pending_resolve',
       Errored: 'errored',
       Snoozed: 'snoozed',
+      Broken: 'broken',
     } as const;
 
     export interface LogsAlertConfiguration {
