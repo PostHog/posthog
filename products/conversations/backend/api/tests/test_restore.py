@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -449,19 +450,40 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            # Restore-URL takeover regression: empty widget_domains used to default-allow,
+            # letting an attacker exfiltrate the emailed restore token via request_url.
+            ("unconfigured_widget_domains", [], "https://attacker.example/collect", "https://attacker.example"),
+            # Origin-binding: even with an allowlist that contains the attacker's domain,
+            # request_url cannot smuggle a different allowlisted host.
+            (
+                "origin_mismatch",
+                ["https://example.com", "https://attacker.example"],
+                "https://example.com/support",
+                "https://attacker.example",
+            ),
+            # Without Origin/Referer the request_url cannot be bound to a caller — reject.
+            ("missing_origin_header", ["https://example.com"], "https://example.com/support", None),
+        ]
+    )
     @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
     @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
-    def test_restore_request_rejects_unconfigured_widget_domains(
-        self, mock_send_email, mock_validate_origin, mock_throttle
+    def test_restore_request_security_rejections(
+        self,
+        _name,
+        widget_domains,
+        request_url,
+        origin,
+        mock_send_email,
+        mock_validate_origin,
+        mock_throttle,
     ):
-        """Without a configured widget_domains allowlist, request_url must be rejected.
-
-        Regression test for the restore-URL takeover: when widget_domains was empty
-        the allowlist check returned True and an attacker could inject an arbitrary
-        request_url to exfiltrate the emailed restore token.
-        """
-        self.team.conversations_settings = {"widget_public_token": self.widget_token}
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            **({"widget_domains": widget_domains} if widget_domains else {}),
+        }
         self.team.save()
         Ticket.objects.create_with_number(
             team=self.team,
@@ -472,55 +494,8 @@ class TestRestoreAPI(BaseTest):
 
         response = self.client.post(
             "/api/conversations/v1/widget/restore/request",
-            {
-                "email": self.customer_email,
-                "request_url": "https://attacker.example/collect",
-            },
-            **self._get_headers(origin="https://attacker.example"),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_send_email.delay.assert_not_called()
-
-    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
-    @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
-    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
-    def test_restore_request_rejects_origin_mismatch(self, mock_send_email, mock_validate_origin, mock_throttle):
-        """request_url host must match the browser-attested Origin.
-
-        An attacker embedding the widget on their own page cannot smuggle a
-        different (even allowlisted) domain into request_url.
-        """
-        self._enable_allowlist(["example.com", "attacker.example"])
-
-        response = self.client.post(
-            "/api/conversations/v1/widget/restore/request",
-            {
-                "email": self.customer_email,
-                "request_url": "https://example.com/support",
-            },
-            **self._get_headers(origin="https://attacker.example"),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_send_email.delay.assert_not_called()
-
-    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
-    @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
-    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
-    def test_restore_request_rejects_when_origin_header_missing(
-        self, mock_send_email, mock_validate_origin, mock_throttle
-    ):
-        """Without Origin/Referer the request_url cannot be bound and must be rejected."""
-        self._enable_allowlist()
-
-        response = self.client.post(
-            "/api/conversations/v1/widget/restore/request",
-            {
-                "email": self.customer_email,
-                "request_url": "https://example.com/support",
-            },
-            **self._get_headers(origin=None),
+            {"email": self.customer_email, "request_url": request_url},
+            **self._get_headers(origin=origin),
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
