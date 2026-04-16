@@ -5926,20 +5926,24 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
         sql, _ = prepare_and_print_ast(ast_query, context, "clickhouse", pretty=True)
+        # Print the middle portion for debugging when assertions fail.
+        # Core structural invariant: the events table is scanned exactly once.
+        # The pre-optimization form scanned it twice — once for the funnel itself
+        # and once in the UNION ALL branch of the cohort_join subquery.
+        import re
 
-        # The old INNER JOIN (cohort UNION ALL events) pattern is gone — no second events scan.
-        assert "INNER JOIN (SELECT cohort_people.person_id" not in sql, (
-            "Expected LEFT JOIN on cohort subquery; found INNER JOIN pattern. "
-            "Has the cohort+all breakdown regressed to the pre-optimization form?"
+        events_scans = len(re.findall(r"\bevents\s+AS\s+e\b", sql, re.IGNORECASE))
+        assert events_scans == 1, (
+            f"Expected exactly one `events AS e` reference in cohort+all funnel SQL; got {events_scans}.\nSQL: {sql}"
         )
-        # The LEFT JOIN must be present.
+        # The LEFT JOIN must be present for the cohort_join alias.
         assert "LEFT JOIN" in sql and "cohort_join" in sql
         # The ALL_USERS_COHORT_ID bucket is synthesized via arrayJoin rather than a
         # second events table scan in a UNION ALL branch.
         assert "arrayJoin" in sql
-        # Ensure no UNION ALL branch is scanning the events table under cohort_join.
-        # (There may be other UNION ALLs elsewhere — we just check the specific pattern.)
-        assert "UNION ALL SELECT if(not(empty(" not in sql
+        # The cohort_join.value reference is qualified (not a bare `value`) to avoid
+        # any ambiguity with other aliased `value` columns.
+        assert "cohort_join`.`value`" in sql or "cohort_join.value" in sql
 
     def test_funnel_cohort_all_breakdown_includes_cohort_and_all_buckets(self):
         # Regression test for the semantics of breakdown=["all", cohort_id]: people in
@@ -6020,3 +6024,50 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         buckets = {group[0]["breakdown_value"] for group in results}
         assert buckets == {ALL_USERS_COHORT_ID, cohort_a.pk, cohort_b.pk}
+
+    def test_funnel_cohort_breakdown_all_only(self):
+        # Edge case: breakdown=["all"] with no cohort ids. breakdown_cohorts is empty,
+        # so no cohort_join is added; prop_basic is rewritten to a constant
+        # ALL_USERS_COHORT_ID. Result should be a single "all users" bucket.
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        self._signup_event(distinct_id="p1", timestamp="2024-01-01T10:00:00Z")
+        self._add_to_cart_event(distinct_id="p1", timestamp="2024-01-01T11:00:00Z")
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            breakdownFilter=BreakdownFilter(
+                breakdown=["all"],
+                breakdown_type=BreakdownType.COHORT,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        assert len(results) == 1
+        assert results[0][0]["breakdown_value"] == ALL_USERS_COHORT_ID
+        assert results[0][0]["count"] == 1
+        assert results[0][1]["count"] == 1
+
+    def test_funnel_cohort_breakdown_all_with_missing_cohort_id(self):
+        # Edge case: breakdown=["all", <non_existent_cohort_id>]. The missing cohort
+        # is silently dropped by the `pk__in` filter on breakdown_cohorts, so we end
+        # up in the same path as breakdown=["all"] alone. Result should be a single
+        # "all users" bucket, with no exception raised.
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        self._signup_event(distinct_id="p1", timestamp="2024-01-01T10:00:00Z")
+        self._add_to_cart_event(distinct_id="p1", timestamp="2024-01-01T11:00:00Z")
+
+        non_existent_cohort_id = 99_999_999
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            breakdownFilter=BreakdownFilter(
+                breakdown=["all", non_existent_cohort_id],
+                breakdown_type=BreakdownType.COHORT,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        assert len(results) == 1
+        assert results[0][0]["breakdown_value"] == ALL_USERS_COHORT_ID
+        assert results[0][0]["count"] == 1

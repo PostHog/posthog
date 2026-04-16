@@ -292,21 +292,30 @@ class FunnelBase(ABC):
         # scan of the events table by LEFT JOIN'ing only the cohort subqueries and then
         # emitting both the cohort value and ALL_USERS_COHORT_ID via arrayJoin. Non-cohort
         # persons get NULL from the LEFT JOIN and map to a single [ALL_USERS_COHORT_ID] row.
-        # Edge case: breakdown=["all"] with no cohorts — no JOIN is added, so `value` does
-        # not exist; emit a single ALL_USERS_COHORT_ID bucket.
-        if funnel_events_query.select is None:
-            return
+        # Edge case: breakdown=["all"] with no cohorts — no JOIN is added, so
+        # `cohort_join.value` does not exist; emit a single ALL_USERS_COHORT_ID bucket.
         if has_cohort_join:
             replacement_expr = parse_expr(
-                "arrayJoin(if(isNotNull(value), [{all_users_id}, value], [{all_users_id}]))",
+                "arrayJoin(if(isNotNull(cohort_join.value), [{all_users_id}, cohort_join.value], [{all_users_id}]))",
                 {"all_users_id": ast.Constant(value=ALL_USERS_COHORT_ID)},
             )
         else:
             replacement_expr = ast.Constant(value=ALL_USERS_COHORT_ID)
+        if funnel_events_query.select is None:
+            raise ValueError(
+                "Expected a prop_basic alias on FunnelEventQuery select when rewriting cohort 'all' breakdown, "
+                "but the select list was None. The cohort 'all' optimization path assumes "
+                "FunnelEventQuery._get_breakdown_select_prop emits a `prop_basic` alias."
+            )
         for select_expr in funnel_events_query.select:
             if isinstance(select_expr, ast.Alias) and select_expr.alias == "prop_basic":
                 select_expr.expr = replacement_expr
                 return
+        raise ValueError(
+            "Expected a prop_basic alias on FunnelEventQuery select when rewriting cohort 'all' breakdown, "
+            "but none was found. The cohort 'all' optimization path assumes "
+            "FunnelEventQuery._get_breakdown_select_prop emits a `prop_basic` alias."
+        )
 
     def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         cohort_queries: list[ast.SelectQuery] = []
