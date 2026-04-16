@@ -215,8 +215,14 @@ export const productRedirects: Record<
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
-    '/error_tracking/configuration': (_params, searchParams, hashParams) =>
-        combineUrl('/error_tracking', { ...searchParams, activeTab: 'configuration' }, hashParams).url,
+    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
+        const { tab, ...restSearchParams } = searchParams
+        return combineUrl(
+            '/error_tracking',
+            { ...restSearchParams, activeTab: 'configuration' },
+            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
+        ).url
+    },
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-analytics/settings': (_params, searchParams) =>

@@ -38,8 +38,14 @@ export const manifest: ProductManifest = {
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
     redirects: {
-        '/error_tracking/configuration': (_params, searchParams, hashParams) =>
-            combineUrl('/error_tracking', { ...searchParams, activeTab: 'configuration' }, hashParams).url,
+        '/error_tracking/configuration': (_params, searchParams, hashParams) => {
+            const { tab, ...restSearchParams } = searchParams
+            return combineUrl(
+                '/error_tracking',
+                { ...restSearchParams, activeTab: 'configuration' },
+                { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
+            ).url
+        },
     },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
