@@ -38,6 +38,7 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
         context.product == POSTHOG_CODE_PRODUCT
         and settings.plan_aware_throttling_enabled
         and not is_pro_plan(context.plan_key)
+        and context.seat_created_at is not None
     )
 
 

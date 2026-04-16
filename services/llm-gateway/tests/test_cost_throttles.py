@@ -1050,7 +1050,9 @@ class TestPlanAwareThrottling:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="posthog_code", plan_key=None, in_trial_period=True)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=True, seat_created_at="2026-01-01T00:00:00+00:00"
+        )
 
         await throttle.record_cost(context, 5.0)
         result = await throttle.allow_request(context)
@@ -1061,7 +1063,9 @@ class TestPlanAwareThrottling:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="posthog_code", plan_key=None, in_trial_period=True)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=True, seat_created_at="2026-01-01T00:00:00+00:00"
+        )
 
         await throttle.record_cost(context, 50.0)
         result = await throttle.allow_request(context)
@@ -1072,7 +1076,9 @@ class TestPlanAwareThrottling:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="posthog_code", plan_key=None, in_trial_period=False)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=False, seat_created_at="2025-01-01T00:00:00+00:00"
+        )
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
@@ -1082,10 +1088,23 @@ class TestPlanAwareThrottling:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="posthog_code", plan_key=None, in_trial_period=False)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=False, seat_created_at="2025-01-01T00:00:00+00:00"
+        )
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_no_seat_gets_pro_limits(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", plan_key=None, in_trial_period=True, seat_created_at=None)
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
 
     @pytest.mark.asyncio
     async def test_pro_plan_allows_higher_usage(self) -> None:
@@ -1103,7 +1122,12 @@ class TestPlanAwareThrottling:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="posthog_code", plan_key="posthog-code-free-20260301", in_trial_period=True)
+        context = make_context(
+            product="posthog_code",
+            plan_key="posthog-code-free-20260301",
+            in_trial_period=True,
+            seat_created_at="2026-01-01T00:00:00+00:00",
+        )
 
         await throttle.record_cost(context, 4.0)
         result = await throttle.allow_request(context)

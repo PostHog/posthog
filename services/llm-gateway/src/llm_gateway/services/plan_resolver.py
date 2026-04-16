@@ -169,10 +169,10 @@ class PlanResolver:
         Returns (None, None) for legitimate "no plan" states (404, no API URL).
         """
         settings = get_settings()
-        if not settings.posthog_api_url:
+        if not settings.posthog_api_base_url:
             return None, None
 
-        url = f"{settings.posthog_api_url.rstrip('/')}/api/seats/me/"
+        url = f"{settings.posthog_api_base_url.rstrip('/')}/api/seats/me/"
         resp = await self._http.get(
             url,
             params={"product_key": POSTHOG_CODE_PRODUCT},
