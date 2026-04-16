@@ -3696,6 +3696,7 @@ class ProductKey(StrEnum):
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
     SUBSCRIPTIONS = "subscriptions"
+    STREAMLIT_APPS = "streamlit_apps"
     SURVEYS = "surveys"
     TASKS = "tasks"
     TEAMS = "teams"
