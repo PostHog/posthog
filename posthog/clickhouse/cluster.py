@@ -529,6 +529,13 @@ def get_cluster(
 # the correct host.
 _CLUSTER_REGISTRY: dict[str, tuple[str, str]] = {
     "main": ("CLICKHOUSE_HOST", "CLICKHOUSE_CLUSTER"),
+    # NOTE: get_cluster_by_name("logs") resolves the host via
+    # CLICKHOUSE_LOGS_CLUSTER_HOST but delegates auth (user, password,
+    # database, port) to get_cluster(), which reads the main
+    # CLICKHOUSE_* settings — not the CLICKHOUSE_LOGS_CLUSTER_* family.
+    # In deployments where the logs cluster has different credentials this
+    # will connect to the right host with the wrong auth. Address before
+    # using get_cluster_by_name("logs") in production code paths.
     "logs": ("CLICKHOUSE_LOGS_CLUSTER_HOST", "CLICKHOUSE_LOGS_CLUSTER"),
     "migrations": ("CLICKHOUSE_MIGRATIONS_HOST", "CLICKHOUSE_MIGRATIONS_CLUSTER"),
     "endpoints": ("CLICKHOUSE_ENDPOINTS_HOST", "CLICKHOUSE_CLUSTER"),
