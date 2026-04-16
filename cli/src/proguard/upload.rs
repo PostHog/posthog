@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     proguard::ProguardFile,
-    sourcemaps::args::ReleaseArgs,
+    sourcemaps::args::{pack_version, ReleaseArgs},
     utils::git::get_git_info,
 };
 
@@ -57,11 +57,9 @@ pub fn upload(args: &Args) -> Result<()> {
     if let Some(name) = name {
         release_builder.with_name(name);
     }
-    if let Some(version) = version {
-        release_builder.with_version(version);
-    }
-    if let Some(ref build) = build {
-        let _ = release_builder.with_metadata("build", build);
+    let full_version = pack_version(&version, &build);
+    if let Some(ref v) = full_version {
+        release_builder.with_version(v);
     }
 
     let mut file = ProguardFile::new(&path, map_id.clone())?;

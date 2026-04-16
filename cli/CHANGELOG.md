@@ -3,7 +3,7 @@
 # 0.7.8
 
 - feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs
-- feat: build number stored as release metadata (separate from version) so the UI can display it independently
+- feat: build number packed into version string (`"1.0+42"`) for release uniqueness; UI splits on `+` to display version and build separately
 
 # 0.7.7
 

@@ -6,7 +6,7 @@ use tracing::info;
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     dsym::{find_dsym_bundles, DsymFile, PlistInfo},
-    sourcemaps::args::ReleaseArgs,
+    sourcemaps::args::{pack_version, ReleaseArgs},
     utils::git::get_git_info,
 };
 
@@ -142,6 +142,9 @@ pub fn upload(args: &Args) -> Result<()> {
     if let Some(ref ver) = resolved_release_version {
         info!("Release version: {}", ver);
     }
+
+    let full_version = pack_version(&resolved_release_version, &resolved_build);
+
     if let Some(ref build) = resolved_build {
         info!("Build: {}", build);
     }
@@ -159,15 +162,10 @@ pub fn upload(args: &Args) -> Result<()> {
         let _ = release_builder.with_metadata("dsym_info", info);
     }
 
-    // Store build as release metadata (separate from version)
-    if let Some(ref build) = resolved_build {
-        let _ = release_builder.with_metadata("build", build);
-    }
-
     if let Some(ref release_name) = resolved_release_name {
         release_builder.with_name(release_name);
     }
-    if let Some(ref version) = resolved_release_version {
+    if let Some(ref version) = full_version {
         release_builder.with_version(version);
     }
 
