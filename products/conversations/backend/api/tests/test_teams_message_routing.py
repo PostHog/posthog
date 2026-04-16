@@ -127,6 +127,67 @@ class TestTeamsMessageRouting(BaseTest):
 
         mock_create.assert_not_called()
 
+    @patch("products.conversations.backend.teams.create_or_update_teams_ticket")
+    @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
+    def test_real_teams_top_level_post_classified_as_root(self, _mock_user, mock_create):
+        """Regression: real Teams channel posts include ';messageid=<activity_id>' in
+        conversation.id even for top-level messages — they must be treated as root, not replies."""
+        channel = "19:configured@thread.tacv2"
+        activity_id = "1734371262833"
+        activity = {
+            "type": "message",
+            "id": activity_id,
+            "text": "Hello",
+            "serviceUrl": "https://smba.trafficmanager.net/teams/",
+            "from": {"id": "29:user", "aadObjectId": "aad-user-1", "role": "user"},
+            # Real Teams conversation.id — always contains ';messageid=<root>'
+            "conversation": {"id": f"{channel};messageid={activity_id}"},
+            "channelData": {
+                "channel": {"id": channel},
+                "tenant": {"id": "tenant-abc"},
+            },
+        }
+
+        handle_teams_message(activity, self.team, "tenant-abc")
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["is_thread_reply"] is False
+        assert mock_create.call_args.kwargs["channel_detail"] == ChannelDetail.TEAMS_CHANNEL_MESSAGE
+
+    @patch("products.conversations.backend.teams.create_or_update_teams_ticket")
+    @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
+    def test_real_teams_thread_reply_classified_as_reply(self, _mock_user, mock_create):
+        """A reply has a different activity.id than the messageid embedded in conversation.id."""
+        channel = "19:configured@thread.tacv2"
+        root_id = "1734371262833"
+        reply_id = "1734371300000"
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.TEAMS,
+            widget_session_id="",
+            distinct_id="",
+            teams_channel_id=channel,
+            teams_conversation_id=f"{channel};messageid={root_id}",
+        )
+
+        activity = {
+            "type": "message",
+            "id": reply_id,
+            "text": "A reply",
+            "serviceUrl": "https://smba.trafficmanager.net/teams/",
+            "from": {"id": "29:user", "aadObjectId": "aad-user-1", "role": "user"},
+            "conversation": {"id": f"{channel};messageid={root_id}"},
+            "channelData": {
+                "channel": {"id": channel},
+                "tenant": {"id": "tenant-abc"},
+            },
+        }
+
+        handle_teams_message(activity, self.team, "tenant-abc")
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["is_thread_reply"] is True
+
 
 class TestTeamsMentionRouting(BaseTest):
     def setUp(self):

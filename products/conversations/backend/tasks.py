@@ -3,7 +3,7 @@
 import html as html_mod
 from email.utils import formataddr, make_msgid
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from django.core import mail
@@ -30,6 +30,12 @@ from products.conversations.backend.models import EmailMessageMapping
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
+from products.conversations.backend.support_teams import (
+    get_bot_framework_token,
+    get_bot_from_id,
+    invalidate_bot_framework_token,
+)
+from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
@@ -546,9 +552,6 @@ def post_reply_to_teams(
     teams_conversation_id: str,
 ) -> None:
     """Post a support agent's reply to the corresponding Teams conversation thread."""
-    from products.conversations.backend.support_teams import get_bot_framework_token, get_bot_from_id
-    from products.conversations.backend.teams_formatting import rich_content_to_teams_html
-
     if not Team.objects.filter(id=team_id).exists():
         logger.warning("teams_reply_team_not_found", team_id=team_id)
         return
@@ -572,7 +575,8 @@ def post_reply_to_teams(
         "summary": display_text,
     }
 
-    url = f"{teams_service_url.rstrip('/')}/v3/conversations/{teams_conversation_id}/activities"
+    encoded_conversation_id = quote(teams_conversation_id, safe="")
+    url = f"{teams_service_url.rstrip('/')}/v3/conversations/{encoded_conversation_id}/activities"
     try:
         resp = requests.post(
             url,
@@ -583,12 +587,15 @@ def post_reply_to_teams(
             },
             timeout=15,
         )
+        if resp.status_code == 401:
+            invalidate_bot_framework_token()
         if resp.status_code not in (200, 201):
             logger.warning(
                 "teams_reply_post_failed",
                 ticket_id=ticket_id,
                 status=resp.status_code,
-                body=resp.text[:200],
+                body=resp.text[:500],
+                url=url,
             )
             raise cast(Any, post_reply_to_teams).retry(
                 exc=Exception(f"Teams reply failed with status {resp.status_code}")

@@ -128,14 +128,20 @@ def validate_teams_request(request: HttpRequest) -> dict:
         raise ValueError(f"JWT validation failed: {e}")
 
 
-def get_bot_framework_token() -> str:
+def invalidate_bot_framework_token() -> None:
+    """Drop the cached bot token — call after a 401 from Bot Connector."""
+    cache.delete(BOT_TOKEN_CACHE_KEY)
+
+
+def get_bot_framework_token(force_refresh: bool = False) -> str:
     """
     Get a Bot Framework token for sending replies using the global bot credentials.
     Cached in Redis for 50 minutes (tokens live ~1 hour).
     """
-    cached = cache.get(BOT_TOKEN_CACHE_KEY)
-    if cached:
-        return cached
+    if not force_refresh:
+        cached = cache.get(BOT_TOKEN_CACHE_KEY)
+        if cached:
+            return cached
 
     settings = get_teams_instance_settings()
     app_id = str(settings.get("SUPPORT_TEAMS_APP_ID") or "")

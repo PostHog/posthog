@@ -10,6 +10,7 @@ Both converge to create_or_update_teams_ticket().
 
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db.models import F
@@ -25,7 +26,7 @@ from posthog.models.user import User
 from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .support_teams import get_bot_framework_token, get_bot_from_id, get_graph_token
+from .support_teams import get_bot_framework_token, get_bot_from_id, get_graph_token, invalidate_bot_framework_token
 from .teams_formatting import teams_html_to_content_and_rich_content
 
 logger = structlog.get_logger(__name__)
@@ -110,15 +111,23 @@ def _extract_channel_id(activity: dict) -> str:
 
 
 def _is_reply(activity: dict) -> bool:
-    """Check if this activity is a reply in a thread.
+    """Check if this activity is a reply in an existing channel thread.
 
-    Teams doesn't always populate replyToId, but thread replies have
-    a conversation.id that includes ';messageid=' after the channel ID.
+    In Teams channels, every message's conversation.id contains
+    `;messageid=<root-id>` — even brand-new top-level posts. The difference:
+      - top-level: root-id == activity.id
+      - thread reply: root-id != activity.id (and typically replyToId is set)
+
+    So we can't use `;messageid=` presence alone to detect a reply.
     """
     if activity.get("replyToId"):
         return True
     conversation_id = _extract_conversation_id(activity)
-    return ";messageid=" in conversation_id
+    activity_id = activity.get("id", "")
+    if ";messageid=" in conversation_id and activity_id:
+        root_id = conversation_id.split(";messageid=", 1)[1]
+        return root_id != activity_id
+    return False
 
 
 def _is_bot_mention(activity: dict) -> bool:
@@ -183,7 +192,8 @@ def _send_confirmation_card(
     if reply_to_id:
         payload["replyToId"] = reply_to_id
 
-    url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+    encoded_conversation_id = quote(conversation_id, safe="")
+    url = f"{service_url.rstrip('/')}/v3/conversations/{encoded_conversation_id}/activities"
     try:
         resp = requests.post(
             url,
@@ -191,11 +201,28 @@ def _send_confirmation_card(
             headers={"Authorization": f"Bearer {bot_token}", "Content-Type": "application/json"},
             timeout=15,
         )
+        # Bot Connector 401 often means a stale cached token (e.g. after a deploy
+        # or secret rotation). Drop the cache and retry once with a fresh token.
+        if resp.status_code == 401:
+            invalidate_bot_framework_token()
+            try:
+                bot_token = get_bot_framework_token(force_refresh=True)
+            except ValueError:
+                logger.warning("teams_confirmation_no_bot_token_on_retry", ticket_id=str(ticket.id))
+                return
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {bot_token}", "Content-Type": "application/json"},
+                timeout=15,
+            )
         if resp.status_code not in (200, 201):
             logger.warning(
                 "teams_confirmation_post_failed",
                 ticket_id=str(ticket.id),
                 status=resp.status_code,
+                body=resp.text[:500],
+                url=url,
             )
     except Exception:
         logger.warning("teams_confirmation_post_error", ticket_id=str(ticket.id))
