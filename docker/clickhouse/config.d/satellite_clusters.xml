@@ -3,7 +3,7 @@
     Satellite cluster definitions for the multi-node dev stack.
 
     In single-node mode (docker-compose.dev.yml) these clusters come from
-    default.xml. In multi-node mode (docker-compose.dev-coordinator.yml) the
+    default.xml. In multi-node mode (docker-compose.multinode.yml) the
     per-node overlays (data_node.xml, coordinator.xml, logs_node.xml) only
     declare the clusters that actually have multi-node semantics (posthog,
     posthog_single_shard, posthog_migrations). The satellite clusters below

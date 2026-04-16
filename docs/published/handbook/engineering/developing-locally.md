@@ -139,7 +139,7 @@ To get PostHog running in a dev environment:
    > Note on connection errors: If you see connection errors on `hogli start`, ensure the following entry exists in `/etc/hosts`:
    >
    > ```text
-   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
+   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-shard2 objectstorage seaweedfs temporal
    > ```
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.

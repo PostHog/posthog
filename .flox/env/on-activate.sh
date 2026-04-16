@@ -249,7 +249,7 @@ fi
 run_step "Node packages" pnpm install
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-shard2 objectstorage seaweedfs temporal # posthog"
 if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
@@ -259,7 +259,7 @@ else
   echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need hostnames in /etc/hosts."
   echo -e "  ${C_YELLOW}┃${C_RESET} Copy and run this to update them:"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
-  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-shard2 objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
   echo ""
   if [[ "$_interactive" == true ]]; then

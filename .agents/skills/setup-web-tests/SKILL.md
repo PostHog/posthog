@@ -75,7 +75,7 @@ See `docker-compose.dev.yml` for the full list of services and ports. Some test 
 Tests expect certain hostnames to resolve to localhost:
 
 ```bash
-echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts
+echo "127.0.0.1 kafka clickhouse clickhouse-shard2 objectstorage" | sudo tee -a /etc/hosts
 ```
 
 ## Environment Variables
