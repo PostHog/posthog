@@ -3,7 +3,7 @@ from .serializers import (
     ErrorTrackingExternalReferenceSerializer,
     ErrorTrackingFingerprintSerializer,
 )
-from .views import ErrorTrackingExternalReferenceViewSet, ErrorTrackingFingerprintViewSet
+from .views import ErrorTrackingExternalReferenceViewSet, ErrorTrackingFingerprintViewSet, GitProviderFileLinksViewSet
 
 __all__ = [
     "ErrorTrackingFingerprintSerializer",
@@ -11,4 +11,5 @@ __all__ = [
     "ErrorTrackingExternalReferenceIntegrationSerializer",
     "ErrorTrackingExternalReferenceSerializer",
     "ErrorTrackingExternalReferenceViewSet",
+    "GitProviderFileLinksViewSet",
 ]
