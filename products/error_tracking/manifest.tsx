@@ -29,24 +29,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Error tracking issue fingerprints',
         },
-        ErrorTrackingConfiguration: {
-            import: () => import('./frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
-            projectBased: true,
-            name: 'Error tracking configuration',
-        },
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
-        '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
-    redirects: {},
+    redirects: {
+        '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+            combineUrl('/error_tracking', { ...searchParams, activeTab: 'configuration' }, hashParams).url,
+    },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-        errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
+        errorTrackingConfiguration: (params = {}): string =>
+            combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
         errorTrackingIssue: (
             id: string,
             params: {

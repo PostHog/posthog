@@ -16,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CyclotronJobFiltersType } from '~/types'
 
+import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
@@ -93,12 +94,15 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'configuration',
             label: 'Configuration',
             content: (
-                <Settings
-                    logicKey={ERROR_TRACKING_LOGIC_KEY}
-                    sectionId="environment-error-tracking-configuration"
-                    settingId="error-tracking-alerting"
-                    handleLocally
-                />
+                <>
+                    <IntegrationsMovedBanner />
+                    <Settings
+                        logicKey={ERROR_TRACKING_LOGIC_KEY}
+                        sectionId="environment-error-tracking-configuration"
+                        settingId="error-tracking-alerting"
+                        handleLocally
+                    />
+                </>
             ),
         },
     ]
