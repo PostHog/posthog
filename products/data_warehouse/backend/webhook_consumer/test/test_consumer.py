@@ -79,6 +79,7 @@ class TestWebhookS3SinkConfig:
                 on_revoke=consumer._on_revoke,
             )
 
+
 class TestWebhookS3SinkMessageProcessing:
     def test_valid_message_gets_buffered(self):
         consumer = _make_consumer()
