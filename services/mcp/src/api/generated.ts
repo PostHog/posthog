@@ -34951,6 +34951,7 @@ export namespace Schemas {
 
     * `Cohort` - Cohort
     * `FeatureFlag` - FeatureFlag
+    * `GuestResourceGrant` - GuestResourceGrant
     * `Person` - Person
     * `Group` - Group
     * `Insight` - Insight
@@ -35024,6 +35025,7 @@ export namespace Schemas {
     export const ActivityLogListScope = {
       Cohort: 'Cohort',
       FeatureFlag: 'FeatureFlag',
+      GuestResourceGrant: 'GuestResourceGrant',
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',
@@ -35083,6 +35085,7 @@ export namespace Schemas {
     /**
      * * `Cohort` - Cohort
     * `FeatureFlag` - FeatureFlag
+    * `GuestResourceGrant` - GuestResourceGrant
     * `Person` - Person
     * `Group` - Group
     * `Insight` - Insight
@@ -35144,6 +35147,7 @@ export namespace Schemas {
     export const ActivityLogListScopesItem = {
       Cohort: 'Cohort',
       FeatureFlag: 'FeatureFlag',
+      GuestResourceGrant: 'GuestResourceGrant',
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',

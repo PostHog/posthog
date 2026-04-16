@@ -502,6 +502,7 @@ export type ActivityLogListParams = {
 
 * `Cohort` - Cohort
 * `FeatureFlag` - FeatureFlag
+* `GuestResourceGrant` - GuestResourceGrant
 * `Person` - Person
 * `Group` - Group
 * `Insight` - Insight
@@ -574,6 +575,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
     FeatureFlag: 'FeatureFlag',
+    GuestResourceGrant: 'GuestResourceGrant',
     Person: 'Person',
     Group: 'Group',
     Insight: 'Insight',
@@ -633,6 +635,7 @@ export const ActivityLogListScope = {
 /**
  * * `Cohort` - Cohort
  * `FeatureFlag` - FeatureFlag
+ * `GuestResourceGrant` - GuestResourceGrant
  * `Person` - Person
  * `Group` - Group
  * `Insight` - Insight
@@ -693,6 +696,7 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
     FeatureFlag: 'FeatureFlag',
+    GuestResourceGrant: 'GuestResourceGrant',
     Person: 'Person',
     Group: 'Group',
     Insight: 'Insight',
