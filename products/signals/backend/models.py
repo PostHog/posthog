@@ -72,9 +72,6 @@ class AutonomyPriority(models.TextChoices):
 
 
 class SignalTeamConfig(UUIDModel):
-    # Keep for backward compat — aliases to module-level enum
-    Priority = AutonomyPriority
-
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
