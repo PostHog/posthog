@@ -49,6 +49,7 @@ export interface UnpauseResponseApi {
  * `github` - GitHub
  * `linear` - Linear
  * `zendesk` - Zendesk
+ * `conversations` - Conversations
  * `error_tracking` - Error tracking
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
@@ -59,6 +60,7 @@ export const SourceProductEnumApi = {
     Github: 'github',
     Linear: 'linear',
     Zendesk: 'zendesk',
+    Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
 } as const
 

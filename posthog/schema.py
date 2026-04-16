@@ -1015,6 +1015,31 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class ConversationsTicketSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel_detail: str | None = None
+    channel_source: str
+    created_at: str
+    email_subject: str | None = None
+    priority: str | None = None
+    status: str
+    ticket_number: float
+
+
+class ConversationsTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ConversationsTicketSignalExtra
+    source_id: str
+    source_product: Literal["conversations"] = "conversations"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
+
+
 class CoreEventCategory(StrEnum):
     ACQUISITION = "acquisition"
     ACTIVATION = "activation"
@@ -2618,6 +2643,9 @@ class IntegrationKind(StrEnum):
     FIREBASE = "firebase"
     JIRA = "jira"
     PINTEREST_ADS = "pinterest-ads"
+    CUSTOMERIO_APP = "customerio-app"
+    CUSTOMERIO_WEBHOOK = "customerio-webhook"
+    CUSTOMERIO_TRACK = "customerio-track"
 
 
 class IntervalType(StrEnum):
@@ -2823,6 +2851,9 @@ class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
     CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
@@ -3610,6 +3641,18 @@ class ProductIntentContext(StrEnum):
     ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
 
 
+class ProductItemCategory(StrEnum):
+    ANALYTICS = "Analytics"
+    AI_ENGINEERING = "AI engineering"
+    BEHAVIOR = "Behavior"
+    FEATURES = "Features"
+    TOOLS = "Tools"
+    SCHEMA = "Schema"
+    PIPELINE = "Pipeline"
+    METADATA = "Metadata"
+    UNRELEASED = "Unreleased"
+
+
 class ProductKey(StrEnum):
     ACTIONS = "actions"
     ALERTS = "alerts"
@@ -4246,6 +4289,7 @@ class SignalSourceProduct(StrEnum):
     GITHUB = "github"
     LINEAR = "linear"
     ZENDESK = "zendesk"
+    CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
 
 
@@ -6335,51 +6379,6 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
-class EndpointRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: str | None = Field(
-        default=None,
-        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
-    )
-    debug: bool | None = Field(
-        default=False,
-        description=("Whether to include debug information (such as the executed HogQL) in the response."),
-    )
-    limit: int | None = Field(
-        default=None,
-        description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
-        ),
-    )
-    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
-    variables: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Variables to parameterize the endpoint query. The key is the variable name"
-            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
-            " match a variable `code_name` defined in the query (referenced as"
-            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
-            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
-            " and `date_to` are built-in variables that filter the date range.    "
-            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
-            " materialized insight endpoints:   - Use the breakdown property name as"
-            ' the key to filter by breakdown value.     Example: `{"$browser":'
-            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
-            " insight endpoints.\n\nUnknown variable names will return a 400 error."
-        ),
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
-    )
-
-
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6973,10 +6972,12 @@ class LLMTrace(BaseModel):
     outputState: Any | None = None
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
+    requestCost: float | None = None
     tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
+    webSearchCost: float | None = None
 
 
 class LifecycleFilter(BaseModel):
@@ -7292,7 +7293,7 @@ class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    category: str | None = None
+    category: ProductItemCategory | None = None
     iconType: str | None = None
     intents: list[ProductKey]
     path: str
@@ -8016,6 +8017,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
     ]
 ):
@@ -8025,6 +8027,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
     ) = Field(..., discriminator="source_product")
 
@@ -13151,6 +13154,52 @@ class ECODDetectorConfig(BaseModel):
         description=(
             "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
         ),
+    )
+
+
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: str | None = Field(
+        default=None,
+        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
+    )
+    debug: bool | None = Field(
+        default=False,
+        description=("Whether to include debug information (such as the executed HogQL) in the response."),
+    )
+    filters_override: DashboardFilter | None = None
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
+    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
     )
 
 
@@ -20874,6 +20923,7 @@ class ExperimentQuery(BaseModel):
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+    metric_events_precomputation: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     precomputation_mode: PrecomputationMode | None = None

@@ -49,6 +49,8 @@
     {% if obj.stats_calculated_at %}
         <table style="border-collapse: collapse; width: 100%;">
             <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Matching events</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.count|default:"0" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Min timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.min_timestamp|default:"—" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Max timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.max_timestamp|default:"—" }}</td></tr>
             <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Part count</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.part_count|default:"0" }}</td></tr>
             <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Parts size</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.parts_size|default:"0" }} bytes</td></tr>
             <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Total rows in affected parts</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.parts_row_count|default:"0" }}</td></tr>

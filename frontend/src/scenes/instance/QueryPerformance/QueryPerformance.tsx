@@ -112,6 +112,12 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
+            title: 'Organization',
+            render: function OrgCell(_, item) {
+                return <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+            },
+        },
+        {
             title: 'Team ID',
             dataIndex: 'team_id',
             width: 80,
@@ -152,7 +158,7 @@ export function QueryPerformance(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="mt-4">
+        <SceneContent className="mt-4 pb-8">
             <SceneTitleSection
                 name="Query performance"
                 description="Internal tooling for monitoring and managing query performance across all projects."
@@ -189,7 +195,7 @@ export function QueryPerformance(): JSX.Element {
                 loading={slowestQueriesLoading}
                 emptyState="No experiment queries found in this time range"
                 pagination={{ pageSize: 20 }}
-                className="overflow-visible!"
+                className="overflow-visible! flex-none!"
                 expandable={{
                     expandedRowRender: function ExpandedQuery(item) {
                         return (
@@ -221,6 +227,8 @@ export function QueryPerformance(): JSX.Element {
                 dataSource={precomputationTeams}
                 loading={precomputationTeamsLoading}
                 emptyState={search ? 'No teams found' : 'No teams have precomputation enabled'}
+                pagination={{ pageSize: 20 }}
+                className="overflow-visible! flex-none!"
             />
         </SceneContent>
     )

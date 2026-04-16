@@ -6,6 +6,7 @@ use tracing::info;
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     dsym::{find_dsym_bundles, DsymFile, PlistInfo},
+    sourcemaps::args::ReleaseArgs,
     utils::git::get_git_info,
 };
 
@@ -16,15 +17,8 @@ pub struct Args {
     #[arg(short, long)]
     pub directory: PathBuf,
 
-    /// The bundle identifier (e.g., com.example.app).
-    /// If not provided, will be extracted from dSYM Info.plist.
-    #[arg(long)]
-    pub project: Option<String>,
-
-    /// The marketing version (e.g., 1.2.3, CFBundleShortVersionString).
-    /// If not provided, will be extracted from dSYM Info.plist.
-    #[arg(long)]
-    pub version: Option<String>,
+    #[clap(flatten)]
+    pub release: ReleaseArgs,
 
     /// The build number (e.g., 42, CFBundleVersion).
     /// If not provided, will be extracted from dSYM Info.plist.
@@ -59,13 +53,13 @@ pub struct Args {
 pub fn upload(args: &Args) -> Result<()> {
     let Args {
         directory,
-        project,
-        version,
+        release,
         build,
         main_dsym,
         include_source,
         force,
     } = args;
+    let release_args = release;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -133,13 +127,14 @@ pub fn upload(args: &Args) -> Result<()> {
         }
     });
 
-    // Determine project, version, build - CLI args take precedence over plist
-    let resolved_project = project.clone().or_else(|| {
+    // Determine release name, version, and build - CLI args take precedence over plist
+    let resolved_release_name = release_args.name.clone().or_else(|| {
         plist_info
             .as_ref()
             .and_then(|p| p.bundle_identifier.clone())
     });
-    let resolved_version = version
+    let resolved_release_version = release_args
+        .version
         .clone()
         .or_else(|| plist_info.as_ref().and_then(|p| p.short_version.clone()));
     let resolved_build = build
@@ -147,18 +142,18 @@ pub fn upload(args: &Args) -> Result<()> {
         .or_else(|| plist_info.as_ref().and_then(|p| p.bundle_version.clone()));
 
     // Build full version string: "version+build" or just "version" or just "build"
-    let full_version = match (&resolved_version, &resolved_build) {
+    let full_version = match (&resolved_release_version, &resolved_build) {
         (Some(v), Some(b)) => Some(format!("{v}+{b}")),
         (Some(v), None) => Some(v.clone()),
         (None, Some(b)) => Some(b.clone()),
         (None, None) => None,
     };
 
-    if let Some(ref proj) = resolved_project {
-        info!("Project: {}", proj);
+    if let Some(ref name) = resolved_release_name {
+        info!("Release name: {}", name);
     }
     if let Some(ref ver) = full_version {
-        info!("Version: {}", ver);
+        info!("Release version: {}", ver);
     }
 
     // Set up release info
@@ -174,19 +169,19 @@ pub fn upload(args: &Args) -> Result<()> {
         let _ = release_builder.with_metadata("dsym_info", info);
     }
 
-    if let Some(ref project) = resolved_project {
-        release_builder.with_name(project);
+    if let Some(ref release_name) = resolved_release_name {
+        release_builder.with_name(release_name);
     }
     if let Some(ref version) = full_version {
         release_builder.with_version(version);
     }
 
-    let release = release_builder
+    let created_release = release_builder
         .can_create()
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
 
-    let release_id = release.map(|r| r.id.to_string());
+    let release_id = created_release.map(|r| r.id.to_string());
 
     // Process each dSYM
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
@@ -221,7 +216,12 @@ pub fn upload(args: &Args) -> Result<()> {
     // --include-source implies force: uploading with source replaces an existing
     // source-less upload, so we always want the new content to win.
     let effective_force = *force || *include_source;
-    api::symbol_sets::upload_with_retry(uploads, 10, true, effective_force)?;
+    api::symbol_sets::upload_with_retry(
+        uploads,
+        10,
+        release_args.skip_release_on_fail,
+        effective_force,
+    )?;
     info!("dSYM upload complete");
 
     Ok(())

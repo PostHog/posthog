@@ -17,7 +17,7 @@ export const HealthIssueSummaryCards = (): JSX.Element => {
 
     if (healthIssuesLoading && !healthIssues) {
         return (
-            <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
+            <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4">
                 {Array.from({ length: 3 }, (_, i) => (
                     <LemonSkeleton key={i} className="h-28 rounded" />
                 ))}
@@ -30,7 +30,7 @@ export const HealthIssueSummaryCards = (): JSX.Element => {
     }
 
     return (
-        <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
+        <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4">
             {categorySummaries.map((summary: CategoryHealthSummary) => (
                 <CategoryCard key={summary.category} summary={summary} />
             ))}

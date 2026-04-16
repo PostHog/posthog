@@ -220,6 +220,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.domain.refresh_from_db()
+        assert self.domain.verified_at is not None
         self.assertEqual(response_data["domain"], "myposthog.com")
         self.assertEqual(
             response_data["verified_at"],
