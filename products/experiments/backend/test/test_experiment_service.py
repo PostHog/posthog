@@ -2542,6 +2542,27 @@ class TestExperimentService(APIBaseTest):
         elif field_name == "deleted":
             assert updated.deleted is True
 
+    def test_update_experiment_with_legacy_metrics_restore_with_deleted_flag_raises(self):
+        service = self._service()
+        flag = self._create_flag(key="legacy-restore-flag")
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+            deleted=True,
+        )
+        flag.deleted = True
+        flag.save()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"deleted": False})
+
+        assert "linked feature flag has been deleted" in str(ctx.exception)
+
     @parameterized.expand(
         [
             ("metrics", {"metrics": []}, "metrics"),
