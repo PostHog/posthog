@@ -145,6 +145,23 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         assert "toDate(events.timestamp)" in sql
         assert sql.count("toDate(events.timestamp)") >= 2
 
+    def test_bounce_with_unmaterialized_property_filter(self):
+        sql = self._run_prefiltered_query(
+            includeBounceRate=True,
+            properties=[
+                EventPropertyFilter(
+                    key="customProperty",
+                    operator=PropertyOperator.EXACT,
+                    value=["1"],
+                )
+            ],
+        )
+
+        assert "toDate(events.timestamp)" in sql
+        # properties blob must be in the subquery for JSONExtractRaw
+        assert "events.properties" in sql
+        assert "JSONExtractRaw(events.properties," in sql
+
     def test_initial_page_breakdown_with_bounce(self):
         sql = self._run_prefiltered_query(
             includeBounceRate=True,
