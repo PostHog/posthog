@@ -1,4 +1,8 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
+
+from django.utils.timezone import now
 
 from parameterized import parameterized
 
@@ -12,6 +16,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingSymbolSet,
 )
 
 
@@ -87,3 +92,34 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         values = api.get_issue_values(team_id=self.team.id, key=key, value=value)
 
         assert sorted(values) == sorted(expected)
+
+    def test_count_issues_created_since(self):
+        self._create_issue(team=self.team, name="New issue")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        self._create_issue(team=other_team, name="Other team issue")
+
+        issue_count = api.count_issues_created_since(team_id=self.team.id, since=now() - timedelta(minutes=1))
+
+        assert issue_count == 1
+
+    def test_get_issue_and_symbol_set_counts_by_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        self._create_issue(team=self.team, name="Issue one")
+        self._create_issue(team=self.team, name="Issue two")
+        self._create_issue(team=other_team, name="Issue three")
+
+        ErrorTrackingSymbolSet.objects.create(team=self.team, ref="symbolset-1", storage_ptr="s3://symbolset-1")
+        ErrorTrackingSymbolSet.objects.create(team=self.team, ref="symbolset-2")
+        ErrorTrackingSymbolSet.objects.create(team=other_team, ref="symbolset-3", storage_ptr="s3://symbolset-3")
+
+        issue_counts = dict(api.get_issue_counts_by_team())
+        symbol_set_counts = dict(api.get_symbol_set_counts_by_team())
+        resolved_symbol_set_counts = dict(api.get_symbol_set_counts_by_team(resolved_only=True))
+
+        assert issue_counts[self.team.id] == 2
+        assert issue_counts[other_team.id] == 1
+        assert symbol_set_counts[self.team.id] == 2
+        assert symbol_set_counts[other_team.id] == 1
+        assert resolved_symbol_set_counts[self.team.id] == 1
+        assert resolved_symbol_set_counts[other_team.id] == 1

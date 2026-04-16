@@ -3,6 +3,7 @@
 This is the ONLY module other apps are allowed to import.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from .. import logic
@@ -86,3 +87,15 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
     return logic.get_issue_values(team_id=team_id, key=key, value=value)
+
+
+def count_issues_created_since(team_id: int, since: datetime) -> int:
+    return logic.count_issues_created_since(team_id=team_id, since=since)
+
+
+def get_issue_counts_by_team() -> list[tuple[int, int]]:
+    return logic.get_issue_counts_by_team()
+
+
+def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
+    return logic.get_symbol_set_counts_by_team(resolved_only=resolved_only)

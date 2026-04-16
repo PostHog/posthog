@@ -325,7 +325,14 @@ export interface ActivityLogApi {
     created_at?: string
 }
 
-export type PaginatedActivityLogListApi = ActivityLogApi[]
+export interface PaginatedActivityLogListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ActivityLogApi[]
+}
 
 /**
  * Discovered detail fields and their value distributions.
@@ -752,6 +759,17 @@ export type AdvancedActivityLogsListParams = {
      */
     is_system?: boolean | null
     item_ids?: string[]
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number
     scopes?: string[]
     search_text?: string
     start_date?: string
