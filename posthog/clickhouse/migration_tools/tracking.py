@@ -7,6 +7,7 @@ acquiring the advisory lock.
 """
 
 import time
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -99,24 +100,29 @@ def acquire_apply_lock(
 
     if not force:
         # Check for an existing active lock before attempting to insert.
-        # A lock is "active" when there is an 'up' row with no subsequent 'down' row.
+        # A lock is "active" when a host's 'up' row is newer than that host's
+        # own latest 'down' row (per-host scope). The JOIN is host-scoped so
+        # that a loser releasing its own lock does not make the winner's lock
+        # invisible via an unscoped max(applied_at) on the 'down' table.
         check_sql = f"""
-            SELECT host, applied_at
-            FROM {table_ref}
-            WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-              AND step_index = {LOCK_STEP_INDEX}
-              AND direction = 'up'
-              AND success = 1
-              AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
-              AND host != %(hostname)s
-              AND applied_at > (
-                  SELECT coalesce(max(applied_at), toDateTime64('1970-01-01', 3))
-                  FROM {table_ref}
-                  WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-                    AND step_index = {LOCK_STEP_INDEX}
-                    AND direction = 'down'
-              )
-            ORDER BY applied_at DESC
+            SELECT t.host, t.applied_at
+            FROM {table_ref} AS t
+            LEFT JOIN (
+                SELECT host, max(applied_at) AS last_released
+                FROM {table_ref}
+                WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+                  AND step_index = {LOCK_STEP_INDEX}
+                  AND direction = 'down'
+                GROUP BY host
+            ) AS d ON t.host = d.host
+            WHERE t.migration_number = {LOCK_MIGRATION_NUMBER}
+              AND t.step_index = {LOCK_STEP_INDEX}
+              AND t.direction = 'up'
+              AND t.success = 1
+              AND t.applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
+              AND t.host != %(hostname)s
+              AND t.applied_at > coalesce(d.last_released, toDateTime64('1970-01-01', 3))
+            ORDER BY t.applied_at DESC
             LIMIT 1
         """
         existing = client.execute(check_sql, {"hostname": hostname})
@@ -169,30 +175,44 @@ def acquire_apply_lock(
     # which one landed in the driver result first, so they agree on the
     # winner. Prior `ORDER BY applied_at DESC` let the winner flip when two
     # inserts landed in the same millisecond.
+    # The 'down' subquery is host-scoped (LEFT JOIN GROUP BY host) so that a
+    # race loser releasing its own lock cannot make the winner's 'up' row
+    # invisible via an unscoped max(applied_at) across all hosts.
     verify_sql = f"""
-        SELECT host, applied_at
-        FROM {table_ref}
-        WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-          AND step_index = {LOCK_STEP_INDEX}
-          AND direction = 'up'
-          AND success = 1
-          AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
-          AND applied_at > (
-              SELECT coalesce(max(applied_at), toDateTime64('1970-01-01', 3))
-              FROM {table_ref}
-              WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-                AND step_index = {LOCK_STEP_INDEX}
-                AND direction = 'down'
-          )
-        ORDER BY applied_at ASC, host ASC
+        SELECT t.host, t.applied_at
+        FROM {table_ref} AS t
+        LEFT JOIN (
+            SELECT host, max(applied_at) AS last_released
+            FROM {table_ref}
+            WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+              AND step_index = {LOCK_STEP_INDEX}
+              AND direction = 'down'
+            GROUP BY host
+        ) AS d ON t.host = d.host
+        WHERE t.migration_number = {LOCK_MIGRATION_NUMBER}
+          AND t.step_index = {LOCK_STEP_INDEX}
+          AND t.direction = 'up'
+          AND t.success = 1
+          AND t.applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
+          AND t.applied_at > coalesce(d.last_released, toDateTime64('1970-01-01', 3))
+        ORDER BY t.applied_at ASC, t.host ASC
     """
     active = client.execute(verify_sql)
+    if not active:
+        # Unexpected: our own INSERT should be visible after SYNC REPLICA.
+        # Most likely cause is extreme clock skew pushing the row outside the
+        # LOCK_TIMEOUT_MINUTES window. Log and proceed cautiously — the caller
+        # holds the lock as far as it can tell; a subsequent acquire on another
+        # host will see no competition and also proceed (correctness degraded).
+        logging.getLogger(__name__).warning(
+            "ch_migrate: verify returned no active lock rows after INSERT — possible clock skew on %s",
+            hostname,
+        )
+        return (True, "")
     if len(active) > 1 and active[0][0] != hostname:
         if force:
             # --force skips the pre-check but still runs SYNC+verify so we can
             # detect competing apply runs. Log the override; don't back off.
-            import logging
-
             logging.getLogger(__name__).warning("ch_migrate --force: overriding lock held by %s", active[0][0])
             return (True, "")
         # Race: another host won. Release and back off.
@@ -210,7 +230,14 @@ VERSION_STEP_INDEX = -2
 
 
 def record_schema_version(client: Any, database: str, commit_hash: str, hostname: str) -> None:
-    """Record the git commit hash of the schema YAML that was just applied."""
+    """Record the git commit hash of the schema YAML that was just applied.
+
+    Precondition: the tracking table must already exist. In the normal
+    acquire → apply → record_schema_version → release flow this is
+    guaranteed because acquire_apply_lock calls _ensure_tracking_table.
+    If called in isolation (e.g. a future CLI subcommand), call
+    _ensure_tracking_table first.
+    """
     _record_step(
         client=client,
         record=StepRecord(
@@ -228,7 +255,10 @@ def record_schema_version(client: Any, database: str, commit_hash: str, hostname
 
 
 def get_latest_schema_version(client: Any, database: str) -> tuple[str, str, str] | None:
-    """Return (commit_hash, host, applied_at) of the last applied schema version, or None."""
+    """Return (commit_hash, host, applied_at) of the last applied schema version, or None.
+
+    Precondition: the tracking table must already exist (see record_schema_version).
+    """
     table_ref = f"{database}.{TRACKING_TABLE_NAME}"
     sql = f"""
         SELECT migration_name, host, applied_at

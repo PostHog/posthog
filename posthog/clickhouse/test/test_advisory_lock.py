@@ -60,7 +60,8 @@ class TestAdvisoryLock(unittest.TestCase):
         self.assertIn("SYSTEM SYNC REPLICA", sync_sql)
         self.assertIn("STRICT", sync_sql)
         verify_sql = client.execute.call_args_list[4].args[0]
-        self.assertIn("ORDER BY applied_at ASC, host ASC", verify_sql)
+        self.assertIn("ORDER BY t.applied_at ASC, t.host ASC", verify_sql)
+        self.assertIn("LEFT JOIN", verify_sql)
 
     @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
     def test_advisory_lock_same_host_allows_reacquire(self, mock_sleep: MagicMock) -> None:
@@ -154,6 +155,24 @@ class TestAdvisoryLock(unittest.TestCase):
         self.assertEqual(params[5], "down")
         # success is at index 8
         self.assertTrue(params[8])
+
+    @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
+    def test_verify_empty_logs_warning_and_returns_acquired(self, mock_sleep: MagicMock) -> None:
+        """Empty verify (extreme clock skew) logs a warning and returns acquired=True."""
+        client = MagicMock()
+        client.execute.side_effect = [
+            None,  # CREATE TABLE
+            [],  # Pre-check — no existing lock
+            None,  # INSERT
+            None,  # SYNC REPLICA
+            [],  # Verify — empty (clock skew / extreme lag)
+        ]
+
+        with self.assertLogs("posthog.clickhouse.migration_tools.tracking", level="WARNING") as cm:
+            acquired, _ = acquire_apply_lock(client, "default", "my-pod")
+
+        self.assertTrue(acquired)
+        self.assertTrue(any("clock skew" in line for line in cm.output))
 
     def test_tracking_table_ddl_uses_replicated_engine(self) -> None:
         """The tracking table DDL must use ReplicatedMergeTree and ON CLUSTER."""
