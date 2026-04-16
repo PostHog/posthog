@@ -209,10 +209,10 @@ export const messagingCategoriesRemoveWebhookConfigDestroy = async (
  * Save Customer.io Track API credentials and/or toggle outbound sync.
 
 Accepts:
-  - site_id: Customer.io site ID
-  - api_key: Customer.io Track API key
-  - region: "us" or "eu"
-  - track_enabled: enable or disable outbound sync
+  - site_id (optional): set on first creation only
+  - api_key (optional): set on first creation only
+  - region (optional): "us" or "eu", set on first creation only
+  - track_enabled (required): enable or disable outbound sync
  */
 export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/save_track_config/`
