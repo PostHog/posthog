@@ -1383,7 +1383,9 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
-                with connection.cursor() as check_cursor:
+                # Use psycopg.Cursor directly to bypass cursor_factory (which may be ServerCursor
+                # and requires a `name` arg).
+                with psycopg.Cursor(connection) as check_cursor:
                     check_cursor.execute("SHOW statement_timeout")
                     row = check_cursor.fetchone()
                     timeout_val = str(row[0]) if row else "unknown"  # type: ignore[index]
