@@ -49,7 +49,8 @@ def covering_run_text() -> str:
 
 def main() -> None:
     text = covering_run_text()
-    missing = [name for name in services_subdirs() if f"services/{name}/" not in text]
+    all_services = services_subdirs()
+    missing = [name for name in all_services if f"services/{name}/" not in text]
 
     if missing:
         print(
@@ -61,7 +62,7 @@ def main() -> None:
         print("\nAdd each to the matching job's target list in ci-security.yaml.")
         sys.exit(1)
 
-    print(f"All {len(services_subdirs())} service(s) covered by Semgrep scans.")
+    print(f"All {len(all_services)} service(s) covered by Semgrep scans.")
 
 
 if __name__ == "__main__":
