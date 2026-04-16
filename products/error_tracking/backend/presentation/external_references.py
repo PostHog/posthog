@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from rest_framework import serializers, status, viewsets
@@ -15,6 +16,8 @@ from products.error_tracking.backend.facade.api import (
     is_supported_external_issue_provider,
     list_external_references,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.Serializer):
@@ -85,7 +88,8 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
                 config=serializer.validated_data["config"],
             )
         except ExternalReferenceValidationError as error:
-            raise ValidationError(str(error)) from error
+            logger.warning("Failed to create external reference", exc_info=error)
+            raise ValidationError("Invalid external reference configuration") from error
 
         response_serializer = self.get_serializer(reference)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
