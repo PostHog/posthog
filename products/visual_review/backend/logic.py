@@ -1205,41 +1205,46 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
-def auto_approve_run(run_id: UUID, user_id: int, commit_to_github: bool = True) -> tuple[Run, str]:
-    """Auto-approve a completed run and return signed baseline YAML.
+def approve_all(
+    run_id: UUID,
+    user_id: int,
+    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
+    commit_to_github: bool = True,
+) -> tuple[Run, str]:
+    """Approve all actionable snapshots and return signed baseline YAML.
 
-    Commits the baseline to GitHub by default. Set commit_to_github=False
-    for CLI auto-approve where the CLI writes the baseline locally.
+    Collects all CHANGED + NEW snapshots, approves them via approve_run,
+    and builds a signed baseline YAML. REMOVED snapshots are handled by
+    approve_run (marked as approved + pruned from baseline).
 
-    Approves all CHANGED + NEW snapshots via the
-    normal approve_run path, then builds a fresh signed YAML.
+    The caller controls review_decision:
+    - HUMAN_APPROVED: UI "Approve all changes" button
+    - AUTO_APPROVED: CLI --auto-approve during CI
 
-    Idempotent: if the run is already approved, rebuilds the YAML from
-    the current state. If there are no changes to approve, returns the
-    run as-is with a signed YAML of all current hashes.
+    Set commit_to_github=False for CLI (writes baseline locally).
     """
     run = get_run_with_snapshots(run_id)
     repo = run.repo
 
     if run.status != RunStatus.COMPLETED:
-        raise ValueError(f"Run must be completed before auto-approve (current status: {run.status})")
+        raise ValueError(f"Run must be completed before approval (current status: {run.status})")
 
     if is_run_stale(run):
         raise StaleRunError("This run has been superseded by a newer run.")
 
-    # Collect snapshots that need approval (changed + new)
+    # Collect all actionable snapshots (changed + new have hashes to approve)
     needs_approval = [
         {"identifier": s.identifier, "new_hash": s.current_hash}
         for s in run.snapshots.all()
         if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
     ]
 
-    if needs_approval and not run.approved:
+    if not run.approved:
         approve_run(
             run_id=run_id,
             user_id=user_id,
             approved_snapshots=needs_approval,
-            review_decision=ReviewDecision.AUTO_APPROVED,
+            review_decision=review_decision,
             commit_to_github=commit_to_github,
         )
         run = get_run_with_snapshots(run_id)

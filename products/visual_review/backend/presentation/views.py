@@ -32,6 +32,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ReviewDecision
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -287,7 +288,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             if body.approve_all:
-                result = api.auto_approve_run(run_id=run_id, user_id=user_id, team_id=self.team_id)
+                result = api.approve_all(run_id=run_id, user_id=user_id, team_id=self.team_id)
                 return Response(AutoApproveResultSerializer(instance=result).data)
 
             input_dto = ApproveRunInput(
@@ -326,10 +327,11 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
         """CLI auto-approve: approve all and return baseline YAML for local write."""
         try:
-            result = api.auto_approve_run(
+            result = api.approve_all(
                 run_id=UUID(pk),
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                review_decision=ReviewDecision.AUTO_APPROVED,
                 commit_to_github=False,
             )
         except api.RunNotFoundError:
