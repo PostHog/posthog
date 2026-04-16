@@ -297,7 +297,8 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
         <LemonButton
             type="tertiary"
             size="xxsmall"
-            icon={<IconPlusSmall className="text-[var(--warning)]" />}
+            noPadding
+            icon={<IconPlusSmall className="text-[var(--warning)] text-lg" />}
             tooltip="Summarize this recording"
             aria-label="Summarize this recording"
             data-attr="summarize-recording-from-list"
