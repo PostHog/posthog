@@ -508,13 +508,25 @@ const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun
     return status
 }
 
+function parseError(error: string): { name: string; message: string } | null {
+    const match = error.match(/^(\w+):(.+)/)
+    if (match) {
+        return { name: match[1], message: match[2].trim() }
+    }
+    return null
+}
+
 function LatestErrorCell({ error }: { error?: string | null }): JSX.Element | null {
     if (!error) {
         return null
     }
+    const parsed = parseError(error)
     return (
         <Tooltip title={error} interactive>
-            <span className="truncate max-w-[20vw] inline-block align-bottom">{error}</span>
+            <div className="max-w-[30vw]">
+                <div className="font-medium">{parsed ? parsed.name : 'Error'}</div>
+                <div className="text-muted truncate text-xs">{parsed ? parsed.message : error}</div>
+            </div>
         </Tooltip>
     )
 }
