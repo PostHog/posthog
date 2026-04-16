@@ -37,19 +37,8 @@ type EventPropertyTabKey =
     | 'exception_properties'
     | 'error_display'
     | 'debug_properties'
-    | 'session_properties'
     | 'metadata'
     | 'survey_response'
-
-const SESSION_PROPERTY_PREFIXES = ['$session', '$recording', '$replay', '$sdk_debug_replay', '$sdk_debug_session']
-const SESSION_PROPERTY_EXACT = new Set(['$has_recording', '$window_id', '$configured_session_timeout_ms'])
-
-const isSessionProperty = (key: string): boolean => {
-    if (SESSION_PROPERTY_EXACT.has(key)) {
-        return true
-    }
-    return SESSION_PROPERTY_PREFIXES.some((prefix) => key.startsWith(prefix))
-}
 
 export const EventPropertyTabs = ({
     event,
@@ -91,15 +80,12 @@ export const EventPropertyTabs = ({
     const featureFlagProperties: Record<string, any> = {}
     const errorProperties: Record<string, any> = {}
     const debugProperties: Record<string, any> = {}
-    const sessionProperties: Record<string, any> = {}
     let setProperties: Record<string, any> = {}
     let setOnceProperties: Record<string, any> = {}
 
     for (const key of Object.keys(event.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            if (isSessionProperty(key)) {
-                sessionProperties[key] = event.properties[key]
-            } else if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.used_for_debug) {
+            if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.used_for_debug) {
                 debugProperties[key] = event.properties[key]
             } else if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = event.properties[key]
@@ -221,18 +207,6 @@ export const EventPropertyTabs = ({
                       event,
                       promotedKeys,
                       tabKey: 'exception_properties',
-                  }),
-              }
-            : null,
-        Object.keys(sessionProperties).length > 0
-            ? {
-                  key: 'session_properties',
-                  label: 'Session',
-                  content: tabContentComponentFn({
-                      properties: sessionProperties,
-                      event,
-                      promotedKeys,
-                      tabKey: 'session_properties',
                   }),
               }
             : null,

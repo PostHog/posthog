@@ -11,20 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsPanel'
 import { urls } from 'scenes/urls'
-
-const REPLAY_DIAGNOSTIC_KEYS = [
-    '$recording_status',
-    '$session_recording_start_reason',
-    '$sdk_debug_replay_url_trigger_status',
-    '$sdk_debug_replay_event_trigger_status',
-    '$sdk_debug_replay_linked_flag_trigger_status',
-    '$sdk_debug_recording_script_not_loaded',
-]
-
-const hasReplayDiagnostics = (properties: Record<string, any>): boolean =>
-    REPLAY_DIAGNOSTIC_KEYS.some((key) => properties[key] !== undefined)
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType } from '~/types'
@@ -181,11 +168,6 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     default:
                         return (
                             <div className="mx-3">
-                                {tabKey === 'session_properties' && hasReplayDiagnostics(event.properties) && (
-                                    <div className="my-3">
-                                        <ReplayCaptureDiagnosticsPanel eventProperties={event.properties} />
-                                    </div>
-                                )}
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
