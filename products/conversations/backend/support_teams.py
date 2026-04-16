@@ -43,9 +43,28 @@ BOT_TOKEN_CACHE_TTL_SECONDS = 50 * 60  # 50 min (tokens live ~1h)
 
 JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
 
+# Must match products.conversations.backend.api.teams_oauth.TEAMS_OAUTH_SCOPES.
+# Refresh requests should request the same scopes as the original authorization
+# to avoid Azure AD scope-mismatch errors.
+GRAPH_REFRESH_SCOPES = "Team.ReadBasic.All Channel.ReadBasic.All User.Read offline_access openid profile"
+
 
 def get_teams_instance_settings() -> dict:
     return get_instance_settings(["SUPPORT_TEAMS_APP_ID", "SUPPORT_TEAMS_APP_SECRET"])
+
+
+def get_bot_from_id() -> str:
+    """
+    Return the bot's Bot Framework channel account id (form `28:<app_id>`).
+
+    Required by the Bot Connector REST API on outbound activities — Bot Connector
+    does infer bot identity from the bearer token, but including `from.id` explicitly
+    avoids undocumented fallback behavior and matches the Activity schema.
+    """
+    app_id = str(get_teams_instance_settings().get("SUPPORT_TEAMS_APP_ID") or "")
+    if not app_id:
+        raise ValueError("SUPPORT_TEAMS_APP_ID not configured")
+    return f"28:{app_id}"
 
 
 def _get_jwks_client() -> jwt.PyJWKClient:
@@ -176,7 +195,7 @@ def refresh_graph_token(config: TeamConversationsTeamsConfig) -> str:
             "client_secret": app_secret,
             "refresh_token": config.teams_graph_refresh_token,
             "grant_type": "refresh_token",
-            "scope": "Team.ReadBasic.All Channel.ReadBasic.All User.Read offline_access",
+            "scope": GRAPH_REFRESH_SCOPES,
         },
         timeout=15,
     )

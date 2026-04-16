@@ -25,7 +25,7 @@ from posthog.models.user import User
 from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .support_teams import get_bot_framework_token, get_graph_token
+from .support_teams import get_bot_framework_token, get_bot_from_id, get_graph_token
 from .teams_formatting import teams_html_to_content_and_rich_content
 
 logger = structlog.get_logger(__name__)
@@ -146,13 +146,14 @@ def _send_confirmation_card(
 
     try:
         bot_token = get_bot_framework_token()
+        bot_from_id = get_bot_from_id()
     except ValueError:
         logger.warning("teams_confirmation_no_bot_token", ticket_id=str(ticket.id))
         return
 
     payload: dict[str, Any] = {
         "type": "message",
-        "from": {"id": ""},  # Bot identity filled by Bot Connector
+        "from": {"id": bot_from_id},
         "conversation": {"id": conversation_id},
         "attachments": [
             {
@@ -295,6 +296,25 @@ def create_or_update_teams_ticket(
         if activity_id and ";messageid=" not in conversation_id
         else conversation_id
     )
+
+    # Defense against replays after idempotency cache expiry: if a ticket
+    # already exists for this normalized thread id, treat this as a thread
+    # reply rather than creating a duplicate.
+    existing_ticket = Ticket.objects.filter(
+        team=team,
+        teams_channel_id=channel_id,
+        teams_conversation_id=thread_conversation_id,
+    ).first()
+    if existing_ticket:
+        logger.info(
+            "teams_ticket_ingest_duplicate_root_skipped",
+            team_id=team_id,
+            channel_id=channel_id,
+            conversation_id=thread_conversation_id,
+            ticket_id=str(existing_ticket.id),
+        )
+        return existing_ticket
+
     ticket = Ticket.objects.create_with_number(
         team=team,
         channel_source=Channel.TEAMS,
@@ -408,12 +428,20 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
         return
 
     conversation_id = _extract_conversation_id(activity)
+    activity_id = activity.get("id", "")
 
-    # Check if ticket already exists for this conversation
+    # Top-level mentions get stored as "<conv>;messageid=<activity_id>" so that
+    # subsequent thread replies (which arrive with that full form) match.
+    # Check both forms here so a reprocessed/replayed activity won't create a
+    # duplicate ticket after the idempotency cache expires.
+    candidate_conversation_ids = [conversation_id]
+    if activity_id and ";messageid=" not in conversation_id:
+        candidate_conversation_ids.append(f"{conversation_id};messageid={activity_id}")
+
     existing = Ticket.objects.filter(
         team=team,
         teams_channel_id=channel_id,
-        teams_conversation_id=conversation_id,
+        teams_conversation_id__in=candidate_conversation_ids,
     ).exists()
 
     create_or_update_teams_ticket(

@@ -546,7 +546,7 @@ def post_reply_to_teams(
     teams_conversation_id: str,
 ) -> None:
     """Post a support agent's reply to the corresponding Teams conversation thread."""
-    from products.conversations.backend.support_teams import get_bot_framework_token
+    from products.conversations.backend.support_teams import get_bot_framework_token, get_bot_from_id
     from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
     if not Team.objects.filter(id=team_id).exists():
@@ -555,6 +555,7 @@ def post_reply_to_teams(
 
     try:
         bot_token = get_bot_framework_token()
+        bot_from_id = get_bot_from_id()
     except ValueError:
         logger.warning("teams_reply_no_bot_token", team_id=team_id)
         return
@@ -564,7 +565,7 @@ def post_reply_to_teams(
 
     payload: dict[str, Any] = {
         "type": "message",
-        "from": {"id": ""},
+        "from": {"id": bot_from_id},
         "conversation": {"id": teams_conversation_id},
         "text": reply_html,
         "textFormat": "html",
@@ -597,6 +598,8 @@ def post_reply_to_teams(
     except requests.RequestException as e:
         logger.exception("teams_reply_post_error", ticket_id=ticket_id, error=str(e))
         raise cast(Any, post_reply_to_teams).retry(exc=e)
+
+
 WAKE_SNOOZE_BATCH_SIZE = 100
 
 

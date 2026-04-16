@@ -142,9 +142,10 @@ class TestProcessTeamsEvent(BaseTest):
 
 
 class TestPostReplyToTeams(BaseTest):
+    @patch("products.conversations.backend.support_teams.get_bot_from_id", return_value="28:app-id")
     @patch("products.conversations.backend.support_teams.get_bot_framework_token", return_value="bot-tok")
     @patch("products.conversations.backend.tasks.requests.post")
-    def test_successful_reply(self, mock_post, _mock_token):
+    def test_successful_reply(self, mock_post, _mock_token, _mock_from_id):
         from products.conversations.backend.tasks import post_reply_to_teams
 
         mock_resp = MagicMock()
@@ -166,11 +167,13 @@ class TestPostReplyToTeams(BaseTest):
         assert "Bearer bot-tok" in call_kwargs.kwargs["headers"]["Authorization"]
         payload = call_kwargs.kwargs["json"]
         assert payload["conversation"]["id"] == "19:conv@thread.tacv2"
+        assert payload["from"]["id"] == "28:app-id"
         assert "Reply text" in payload["text"]
 
+    @patch("products.conversations.backend.support_teams.get_bot_from_id", return_value="28:app-id")
     @patch("products.conversations.backend.support_teams.get_bot_framework_token", return_value="bot-tok")
     @patch("products.conversations.backend.tasks.requests.post")
-    def test_failed_reply_retries(self, mock_post, _mock_token):
+    def test_failed_reply_retries(self, mock_post, _mock_token, _mock_from_id):
         from products.conversations.backend.tasks import post_reply_to_teams
 
         mock_resp = MagicMock()
@@ -206,9 +209,10 @@ class TestPostReplyToTeams(BaseTest):
             teams_conversation_id="19:conv@thread.tacv2",
         )
 
+    @patch("products.conversations.backend.support_teams.get_bot_from_id", return_value="28:app-id")
     @patch("products.conversations.backend.support_teams.get_bot_framework_token", return_value="bot-tok")
     @patch("products.conversations.backend.tasks.requests.post")
-    def test_nonexistent_team_returns_early(self, mock_post, _mock_token):
+    def test_nonexistent_team_returns_early(self, mock_post, _mock_token, _mock_from_id):
         from products.conversations.backend.tasks import post_reply_to_teams
 
         post_reply_to_teams(
