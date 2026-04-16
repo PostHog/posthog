@@ -18,6 +18,7 @@ import type {
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
+    FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -397,8 +398,8 @@ export const featureFlagsVersionsRetrieve = async (
     id: number,
     versionNumber: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
+): Promise<FeatureFlagVersionResponseApi> => {
+    return apiMutator<FeatureFlagVersionResponseApi>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
         ...options,
         method: 'GET',
     })

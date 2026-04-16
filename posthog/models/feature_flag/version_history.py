@@ -21,6 +21,11 @@ def _get_reconstructable_fields() -> frozenset[str]:
 
 RECONSTRUCTABLE_FIELDS = _get_reconstructable_fields()
 
+# Safety cap on the number of activity log entries scanned when walking backwards.
+# In normal use we stop early once we reach the target version; this bound protects
+# against unbounded scans if the activity log is malformed or much larger than expected.
+MAX_HISTORY_ENTRIES = 10_000
+
 # Fields that need special accessor logic instead of plain getattr.
 _FIELD_ACCESSORS: dict[str, Any] = {
     "filters": lambda flag: flag.get_filters(),
@@ -105,7 +110,7 @@ def reconstruct_flag_at_version(
             activity__in=["updated", "deleted", "restored"],
         )
         .order_by("-created_at", "-id")
-        .values_list("detail", "created_at", "user_id")
+        .values_list("detail", "created_at", "user_id")[:MAX_HISTORY_ENTRIES]
         .iterator()
     )
 
@@ -147,7 +152,9 @@ def reconstruct_flag_at_version(
         else:
             raise VersionHistoryIncomplete(f"Activity log is incomplete. Cannot reconstruct version {target_version}.")
 
-    # Normalize filters to always include "groups", matching get_filters() behavior.
+    # Historical activity log entries may store filters in legacy shapes
+    # (None, {}, or missing "groups"). Normalize so the response shape is
+    # predictable for API consumers.
     raw_filters = fields.get("filters")
     if not raw_filters:
         fields["filters"] = {"groups": []}

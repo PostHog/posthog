@@ -1915,6 +1915,49 @@ class DependentFlagSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Feature flag name")
 
 
+class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
+    """Feature flag state at a given version plus reconstruction metadata."""
+
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    filters = serializers.DictField(read_only=True)
+    is_historical = serializers.BooleanField(
+        read_only=True,
+        help_text="False for the current version; true for reconstructed historical versions.",
+    )
+    version_timestamp = serializers.DateTimeField(read_only=True, allow_null=True)
+    modified_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User from the activity log entry that produced this version.",
+    )
+
+    class Meta:
+        model = FeatureFlag
+        fields = [
+            "id",
+            "key",
+            "name",
+            "filters",
+            "active",
+            "deleted",
+            "version",
+            "rollback_conditions",
+            "performed_rollback",
+            "ensure_experience_continuity",
+            "has_enriched_analytics",
+            "is_remote_configuration",
+            "has_encrypted_payloads",
+            "evaluation_runtime",
+            "bucketing_identifier",
+            "last_called_at",
+            "created_at",
+            "created_by",
+            "is_historical",
+            "version_timestamp",
+            "modified_by",
+        ]
+
+
 class UserBlastRadiusRequestSerializer(serializers.Serializer):
     condition = serializers.DictField(required=True, help_text="The release condition to evaluate")
     group_type_index = serializers.IntegerField(
@@ -2313,7 +2356,7 @@ class FeatureFlagViewSet(
             ),
         ],
         responses={
-            200: OpenApiResponse(description="Reconstructed feature flag state at the given version."),
+            200: FeatureFlagVersionResponseSerializer,
             400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
             404: OpenApiResponse(description="Version not found."),
             422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
@@ -2353,7 +2396,7 @@ class FeatureFlagViewSet(
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        return Response(result)
+        return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
 
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
