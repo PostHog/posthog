@@ -170,6 +170,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> boo
         user_distinct_id_to_log=inputs.user_distinct_id_to_log,
         summary_data=summary_data,
         model_to_use=inputs.model_to_use,
+        trigger_session_id=inputs.trigger_session_id,
     )
     # Store the input in Redis
     input_data_str = json.dumps(dataclasses.asdict(input_data))

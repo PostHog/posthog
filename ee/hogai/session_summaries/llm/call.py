@@ -26,6 +26,13 @@ from ee.hogai.session_summaries.constants import (
 logger = structlog.get_logger(__name__)
 
 
+def _build_posthog_props(trigger_session_id: str | None) -> dict[str, str]:
+    props: dict[str, str] = {"ai_product": "signals"}
+    if trigger_session_id:
+        props["$session_id"] = trigger_session_id
+    return props
+
+
 def _get_default_posthog_client() -> Client:
     """Return the default analytics client after validating the environment."""
     if not settings.DEBUG and not is_cloud():
@@ -109,9 +116,7 @@ async def stream_llm(
         )
         logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise ValueError(msg)
-    posthog_props: dict[str, str] = {"ai_product": "signals"}
-    if trigger_session_id:
-        posthog_props["$session_id"] = trigger_session_id
+    posthog_props = _build_posthog_props(trigger_session_id)
     stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
         messages=messages,
         model=model,
@@ -143,9 +148,7 @@ async def call_llm(
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
-    posthog_props: dict[str, str] = {"ai_product": "signals"}
-    if trigger_session_id:
-        posthog_props["$session_id"] = trigger_session_id
+    posthog_props = _build_posthog_props(trigger_session_id)
     if model in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
