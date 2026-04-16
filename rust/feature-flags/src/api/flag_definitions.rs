@@ -193,11 +193,9 @@ pub async fn flags_definitions(
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
     // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
-    // Use the explicit token param if provided, otherwise fall back to the team's api_token.
-    let billing_token = params.token.as_deref().unwrap_or(&team.api_token);
     if state
         .feature_flags_billing_limiter
-        .is_limited(billing_token)
+        .is_limited(&team.api_token)
         .await
     {
         return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
@@ -427,12 +425,11 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
         };
     }
 
-    // Personal API keys are multi-team — can't derive which team to use
+    // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
     if auth::extract_personal_api_key(headers)?.is_some() {
         return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
-            "The 'token' query parameter is required when authenticating with a personal API key. \
-             It can be omitted only when using a phs_-prefixed token (team secret API token or \
-             project secret API key)."
+            "The 'token' query parameter is required unless authenticating with a \
+             phs_-prefixed token."
                 .to_string(),
         )));
     }
