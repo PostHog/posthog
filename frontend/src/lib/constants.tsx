@@ -230,7 +230,10 @@ export const FEATURE_FLAGS = {
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
-    ALERTS_QUIET_HOURS: 'alerts-quiet-hours', // owner: @mattp, #team-analytics-platform, Insight alert quiet hours (schedule restriction UI; backend field is always honored when set).
+    /** Insight alert quiet hours (schedule restriction UI; backend field is always honored when set). */
+    ALERTS_QUIET_HOURS: 'alerts-quiet-hours', // owner: @mattp, #team-analytics-platform
+    /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
+    ALERTS_HISTORY_CHART: 'alerts-history-chart', // owner: #team-analytics-platform
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AUTOCAPTURE_SAVE_AS_ACTION: 'autocapture-save-as-action', // owner: #team-product-analytics

@@ -4,7 +4,9 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import {
@@ -73,9 +75,10 @@ export interface AlertFormLogicProps {
     insightInterval?: IntervalType
 }
 
-/** Apply create/update/snooze API response to alertLogic so UI (e.g. next planned evaluation) updates immediately. */
+/** Refetch alert detail (checks + totals respect current pagination params). PATCH/POST bodies omit full check history. */
 function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
-    alertLogic({ alertId: updatedAlert.id }).actions.loadAlertSuccess(updatedAlert)
+    const historyChartEnabled = !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.ALERTS_HISTORY_CHART]
+    void alertLogic({ alertId: updatedAlert.id, historyChartEnabled }).asyncActions.loadAlert()
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {

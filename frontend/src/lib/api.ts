@@ -5736,8 +5736,17 @@ const api = {
     },
 
     alerts: {
-        async get(alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).get()
+        /** Retrieve includes check history; use checks_limit + checks_offset for pagination (newest first). */
+        async get(
+            alertId: AlertType['id'],
+            options?: { checksLimit?: number; checksOffset?: number }
+        ): Promise<AlertType> {
+            const checksLimit = options?.checksLimit ?? 20
+            const checksOffset = options?.checksOffset ?? 0
+            return await new ApiRequest()
+                .alert(alertId)
+                .withQueryString({ checks_limit: checksLimit, checks_offset: checksOffset })
+                .get()
         },
         async create(data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alerts().create({ data })
