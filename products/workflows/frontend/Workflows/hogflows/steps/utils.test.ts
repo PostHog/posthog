@@ -168,9 +168,9 @@ describe('utils', () => {
     describe('removeBranchEdge', () => {
         it('should remove the edge with the matching index and reindex', () => {
             const edges = [
-                { from: 'a', to: 'b', type: 'branch', index: 0 },
-                { from: 'a', to: 'c', type: 'branch', index: 1 },
-                { from: 'a', to: 'd', type: 'branch', index: 2 },
+                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
+                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
+                { from: 'a', to: 'd', type: 'branch' as const, index: 2 },
             ]
             const result = removeBranchEdge(edges, 1)
 
@@ -182,8 +182,8 @@ describe('utils', () => {
 
         it('should return all edges reindexed when removing index 0', () => {
             const edges = [
-                { from: 'a', to: 'b', type: 'branch', index: 0 },
-                { from: 'a', to: 'c', type: 'branch', index: 1 },
+                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
+                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
             ]
             const result = removeBranchEdge(edges, 0)
 
@@ -191,7 +191,7 @@ describe('utils', () => {
         })
 
         it('should return empty array when removing the only edge', () => {
-            const edges = [{ from: 'a', to: 'b', type: 'branch', index: 0 }]
+            const edges = [{ from: 'a', to: 'b', type: 'branch' as const, index: 0 }]
             const result = removeBranchEdge(edges, 0)
 
             expect(result).toEqual([])
@@ -199,8 +199,8 @@ describe('utils', () => {
 
         it('should return all edges unchanged when index does not match', () => {
             const edges = [
-                { from: 'a', to: 'b', type: 'branch', index: 0 },
-                { from: 'a', to: 'c', type: 'branch', index: 1 },
+                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
+                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
             ]
             const result = removeBranchEdge(edges, 5)
 
@@ -212,8 +212,8 @@ describe('utils', () => {
 
         it('should return new array (immutability)', () => {
             const edges = [
-                { from: 'a', to: 'b', type: 'branch', index: 0 },
-                { from: 'a', to: 'c', type: 'branch', index: 1 },
+                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
+                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
             ]
             const result = removeBranchEdge(edges, 1)
 
