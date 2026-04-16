@@ -55,6 +55,7 @@ from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 
 from .utils import opt_slash_path, render_template
@@ -258,6 +259,11 @@ urlpatterns = [
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
+    path(
+        "api/streamlit_bridge/query/",
+        csrf_exempt(StreamlitBridgeView.as_view()),
+        name="streamlit_bridge_query",
+    ),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),

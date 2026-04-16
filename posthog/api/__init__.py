@@ -111,6 +111,7 @@ from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
+from products.streamlit_apps.backend.presentation import StreamlitAppViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
@@ -942,6 +943,13 @@ project_notebooks_router.register(
     sharing.SharingConfigurationViewSet,
     "project_notebook_sharing",
     ["project_id", "notebook_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"streamlit_apps",
+    StreamlitAppViewSet,
+    "environment_streamlit_apps",
+    ["team_id"],
 )
 
 projects_router.register(

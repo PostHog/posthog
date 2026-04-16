@@ -323,7 +323,32 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_activate_version_returns_requires_restart(self):
+    @patch("posthog.storage.object_storage.write")
+    def test_upload_version_stops_live_sandbox(self, _mock_storage_write):
+        """Uploading a new version implicitly activates it, so any running
+        sandbox is now serving stale code and must be stopped."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        app = self._create_app()
+        v1 = self._create_version(app, 1)
+        app.active_version = v1
+        app.save()
+        StreamlitAppSandbox.objects.create(
+            app=app, version=v1, sandbox_id="sb_old", status=StreamlitAppSandbox.Status.RUNNING
+        )
+
+        zip_file = SimpleUploadedFile("app.zip", VALID_ZIP, content_type="application/zip")
+        with patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService") as runtime_cls:
+            response = self.client.post(
+                self._url(app.short_id, "upload_version/"),
+                data={"file": zip_file},
+                format="multipart",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        runtime_cls.return_value.stop_app.assert_called_once_with(app)
+
+    def test_activate_version_returns_new_active_version(self):
         app = self._create_app()
         v1 = self._create_version(app, 1)
         v2 = self._create_version(app, 2)
@@ -336,8 +361,61 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["requires_restart"] is True
         assert data["active_version"]["version_number"] == 1
+        # The server now stops the sandbox itself, so callers no longer need a
+        # `requires_restart` hint.
+        assert "requires_restart" not in data
+        app.refresh_from_db()
+        assert app.active_version_id == v1.id
+
+    @parameterized.expand(
+        [
+            (StreamlitAppSandbox.Status.RUNNING, True),
+            (StreamlitAppSandbox.Status.STARTING, True),
+            (StreamlitAppSandbox.Status.STOPPED, False),
+            (StreamlitAppSandbox.Status.STOPPING, False),
+            (StreamlitAppSandbox.Status.ERROR, False),
+        ]
+    )
+    def test_activate_version_stops_live_sandbox(self, sandbox_status, should_stop):
+        app = self._create_app()
+        self._create_version(app, 1)
+        v2 = self._create_version(app, 2)
+        app.active_version = v2
+        app.save()
+        StreamlitAppSandbox.objects.create(app=app, version=v2, sandbox_id="sb_old", status=sandbox_status)
+
+        with patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService") as runtime_cls:
+            response = self.client.post(
+                self._url(app.short_id, "activate_version/"),
+                data={"version_number": 1},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        if should_stop:
+            runtime_cls.return_value.stop_app.assert_called_once_with(app)
+        else:
+            runtime_cls.return_value.stop_app.assert_not_called()
+
+    def test_activate_version_swallows_stop_failure(self):
+        """Stop is best-effort: a Modal/runtime hiccup must not break activation."""
+        app = self._create_app()
+        v1 = self._create_version(app, 1)
+        v2 = self._create_version(app, 2)
+        app.active_version = v2
+        app.save()
+        StreamlitAppSandbox.objects.create(
+            app=app, version=v2, sandbox_id="sb_old", status=StreamlitAppSandbox.Status.RUNNING
+        )
+
+        with patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService") as runtime_cls:
+            runtime_cls.return_value.stop_app.side_effect = RuntimeError("Modal down")
+            response = self.client.post(
+                self._url(app.short_id, "activate_version/"),
+                data={"version_number": 1},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
         app.refresh_from_db()
         assert app.active_version_id == v1.id
 
