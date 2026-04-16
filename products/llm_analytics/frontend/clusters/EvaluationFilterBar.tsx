@@ -52,14 +52,14 @@ export function EvaluationFilterBar(): JSX.Element | null {
     return (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
             <div className="flex items-center gap-2 flex-1 min-w-[280px]">
-                <span className="text-sm text-muted shrink-0">Evaluator</span>
+                <span className="text-sm text-muted shrink-0">Evaluations</span>
                 <div className="flex-1 min-w-[200px]">
                     <LemonInputSelect
                         mode="multiple"
                         value={evalFilterEvaluatorNames}
                         onChange={(values) => setEvalEvaluatorNamesFilter(values)}
                         options={evaluatorOptions}
-                        placeholder="All evaluators"
+                        placeholder="All evaluations"
                         size="small"
                         allowCustomValues={false}
                         data-attr="clusters-eval-evaluator-filter"
