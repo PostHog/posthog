@@ -2761,9 +2761,6 @@ interface EventSchemas {
     'organization deleted': Record<string, any>
     'organization domain created': Record<string, any>
     'organization domain deleted': Record<string, any>
-    'organization domain jit provisioning enabled': Record<string, any>
-    'organization domain saml configured': Record<string, any>
-    'organization domain sso enforcement updated': Record<string, any>
     'organization environments rollback completed': Record<string, any>
     'organization environments rollback project id conflict': Record<string, any>
     'organization environments rollback started': Record<string, any>
