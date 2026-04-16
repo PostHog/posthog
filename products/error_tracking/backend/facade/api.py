@@ -4,9 +4,10 @@ This is the ONLY module other apps are allowed to import.
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from .. import logic
+from .. import logic, weekly_digest
 from . import types as contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
@@ -67,6 +68,28 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
     )
 
 
+def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
+    role_member_user_ids: list[int] = []
+    if assignment.role_id:
+        role_member_user_ids = list(assignment.role.members.values_list("id", flat=True))
+
+    issue = assignment.issue
+    return contracts.ErrorTrackingIssueAssignmentNotification(
+        id=assignment.id,
+        created_at=assignment.created_at,
+        issue=contracts.ErrorTrackingIssueForAssignmentNotification(
+            id=issue.id,
+            team_id=issue.team_id,
+            status=issue.status,
+            name=issue.name,
+            description=issue.description,
+        ),
+        assigned_user_id=assignment.user_id,
+        role_id=assignment.role_id,
+        role_member_user_ids=role_member_user_ids,
+    )
+
+
 def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
     issues = logic.list_issues(team_id)
     return [_to_issue_preview(issue) for issue in issues]
@@ -99,3 +122,50 @@ def get_issue_counts_by_team() -> list[tuple[int, int]]:
 
 def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
     return logic.get_symbol_set_counts_by_team(resolved_only=resolved_only)
+
+
+def get_issue_assignment_for_notification(
+    assignment_id: UUID | str,
+) -> contracts.ErrorTrackingIssueAssignmentNotification:
+    assignment = logic.get_issue_assignment(assignment_id=assignment_id)
+    return _to_issue_assignment_notification(assignment)
+
+
+def get_org_ids_with_exceptions() -> list[str]:
+    return weekly_digest.get_org_ids_with_exceptions()
+
+
+def get_exception_counts(team_ids: list[int] | None = None) -> list[Any]:
+    return weekly_digest.get_exception_counts(team_ids=team_ids)
+
+
+def get_exception_summary_for_team(team: Any) -> dict[str, Any]:
+    return weekly_digest.get_exception_summary_for_team(team)
+
+
+def get_top_issues_for_team(team: Any) -> list[dict[str, Any]]:
+    return weekly_digest.get_top_issues_for_team(team)
+
+
+def get_new_issues_for_team(team: Any) -> list[dict[str, Any]]:
+    return weekly_digest.get_new_issues_for_team(team)
+
+
+def get_daily_exception_counts(team: Any) -> list[dict[str, Any]]:
+    return weekly_digest.get_daily_exception_counts(team)
+
+
+def get_crash_free_sessions(team: Any) -> dict[str, Any]:
+    return weekly_digest.get_crash_free_sessions(team)
+
+
+def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, dict[str, Any]]) -> bool:
+    return weekly_digest.auto_select_project_for_user(
+        user=user,
+        org_id=org_id,
+        team_exception_counts=team_exception_counts,
+    )
+
+
+def build_ingestion_failures_url(team_id: int) -> str:
+    return weekly_digest.build_ingestion_failures_url(team_id)

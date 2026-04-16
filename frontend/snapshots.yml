@@ -40,6 +40,18 @@ snapshots:
         hash: v1.k794b7964.b1d9dcf611e6103856c1e579471fcc8d15e5ede8d778f58119af30defd021088.yuhFcITo9oT9yqz-ilwd1uzRK-Q9jRg3C9olYPw_hu4
     components-alerts-quiet-hours-fields--default--light:
         hash: v1.k794b7964.a2293bde4bb0b7ca27dfd7ee41226407780d9848000a22b9ccd5903674163749.AY5DM6ohNxpR3I4WEpxtTkkrtEij5AAL_VJOYjJXkko
+    components-bulkupdatetagspopover--add-mode--dark:
+        hash: v1.k794b7964.c5a3ec413ef4ad2ee955fd467ab59482f7c20aca2e7cc9856472c9245119f6fb.9oSSrwMTUQDjDNYoTidpTv1r8_5TdKnP0j5_Wbc24lc
+    components-bulkupdatetagspopover--add-mode--light:
+        hash: v1.k794b7964.1f8c2007bc78ae1258bc950f9e120a51972545ccd2f74e92a5008a41e25e77f3.APyQYtd6ozQYv9TNxr-ux25ikKYl8D2oqxUL5tv2X04
+    components-bulkupdatetagspopover--remove-mode--dark:
+        hash: v1.k794b7964.08255603facd8f9690777650572946568a8a67cf1f60ae9107a5e57c4ae2448f.6ZaA7NYuOFxWr4unq-LXQvKiLdSRg7RiYEIX-8q57_E
+    components-bulkupdatetagspopover--remove-mode--light:
+        hash: v1.k794b7964.7735bb23d9df03eb1b96d60eb641d9630988d2d95f5eb7f3801555b03be4fcd4.qS5NlT8yovIICCy02HdKal4hScC6b1yn-7LtjwiC7U8
+    components-bulkupdatetagspopover--replace-mode--dark:
+        hash: v1.k794b7964.3f3babb0eaa296f54fc0decb47682d561e9c49dd57adf2b60149e8b4cb4aec2f.WIzr4OnalGzurLAw9cBJcGMrK9pHzvhLhTjs5W4nQQo
+    components-bulkupdatetagspopover--replace-mode--light:
+        hash: v1.k794b7964.91e36b28d1e3844c5fb498aa4cc30bec73f3c85ed7c5be07221505657d80ef40.T9utABklZMumF-GSALbzQdypSq0ababXP3T7Lv68sdQ
     components-cards-button-tile-card--template--dark:
         hash: v1.k794b7964.ea8f8f9e593a467027450a8ba4241c3b3160387a41dcbd2a7fa6fc3e3299fffa.AE40xjOLMiJfje4e2EC8Mpc00oXcDCL9gVW8xqGnblQ
     components-cards-button-tile-card--template--light:
