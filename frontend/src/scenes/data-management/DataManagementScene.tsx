@@ -278,10 +278,11 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 } else if (tab === DataManagementTab.MarketingAnalytics) {
                     return [
                         {
-                            key: Scene.WebAnalyticsMarketing,
-                            name: sceneConfigurations[Scene.WebAnalyticsMarketing].name,
+                            key: Scene.MarketingAnalyticsSettings,
+                            name: sceneConfigurations[Scene.MarketingAnalyticsSettings].name,
                             path: urls.marketingAnalytics(),
-                            iconType: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
+                            iconType:
+                                sceneConfigurations[Scene.MarketingAnalyticsSettings].iconType || 'default_icon_type',
                         },
                     ]
                 }

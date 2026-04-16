@@ -127,7 +127,7 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
             Scene.WebAnalytics,
             Scene.WebAnalyticsWebVitals,
             Scene.WebAnalyticsPageReports,
-            Scene.WebAnalyticsMarketing,
+            Scene.MarketingAnalytics,
             Scene.WebAnalyticsHealth,
             Scene.WebAnalyticsLive,
         ].includes(activeScene as Scene) &&
