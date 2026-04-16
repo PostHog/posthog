@@ -213,8 +213,8 @@ export function CodeSeatsSection(): JSX.Element {
                     },
                 ]}
             />
-            {isAdmin && !billing?.has_active_subscription && (
-                <p className="text-muted text-sm mt-2">Subscribe to a paid plan to manage Pro seats.</p>
+            {!billing?.has_active_subscription && (
+                <p className="text-muted text-sm mt-2">Subscribe to a paid plan to add Pro seats.</p>
             )}
         </div>
     )
