@@ -348,8 +348,8 @@ class RecyclingTCPConnector(aiohttp.TCPConnector):
     ):
         super().__init__(*args, **kwargs)
         self._acquired = TrackingAddSet()
-        self._recycle_requests = recycle_requests or -1
-        self._recycle_timeout = recycle_timeout or -1
+        self._recycle_requests = recycle_requests
+        self._recycle_timeout = recycle_timeout
 
     def _release(
         self,
@@ -377,7 +377,9 @@ class RecyclingTCPConnector(aiohttp.TCPConnector):
 
         now = time.monotonic()
 
-        should_recycle = tracking.count > self._recycle_requests or now - tracking.first_added > self._recycle_timeout
+        should_recycle = (self._recycle_requests is not None and tracking.count > self._recycle_requests) or (
+            self._recycle_timeout is not None and now - tracking.first_added > self._recycle_timeout
+        )
         if should_recycle:
             protocol.force_close()
         super()._release(key, protocol, should_close=should_close)
@@ -444,6 +446,8 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             connector=RecyclingTCPConnector(
                 limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
                 keepalive_timeout=5,
+                recycle_requests=50_000,
+                recycle_timeout=60,
             ),
             headers={
                 "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
