@@ -30,6 +30,8 @@ export type ScrollableShadowsProps = {
     hideShadows?: boolean
     /** Whether to hide the scrollbars. */
     hideScrollbars?: boolean
+    /** Style overrides for the ScrollArea.Content wrapper. Useful for overriding Base UI's default `min-width: fit-content`. */
+    contentStyle?: CSSProperties
 }
 
 export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
@@ -44,6 +46,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         disableScroll = false,
         hideShadows = false,
         hideScrollbars = false,
+        contentStyle,
         style,
         ...props
     },
@@ -84,7 +87,9 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                           : undefined
                 }
             >
-                <ScrollArea.Content className={clsx('min-w-0', contentClassName)}>{children}</ScrollArea.Content>
+                <ScrollArea.Content className={contentClassName} style={contentStyle}>
+                    {children}
+                </ScrollArea.Content>
             </ScrollArea.Viewport>
         </ScrollArea.Root>
     )

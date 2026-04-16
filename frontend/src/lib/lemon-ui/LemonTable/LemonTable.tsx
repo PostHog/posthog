@@ -283,6 +283,7 @@ export function LemonTable<T extends Record<string, any>>({
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction={allowContentScroll ? undefined : 'horizontal'}
                 scrollRef={scrollRef}
+                contentStyle={!allowContentScroll ? { minWidth: 0 } : undefined}
             >
                 <div className="LemonTable__content">
                     <table ref={tableRef}>
