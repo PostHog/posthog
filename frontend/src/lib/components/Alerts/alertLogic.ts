@@ -225,10 +225,7 @@ export const alertLogic = kea<alertLogicType>([
         },
         alertHistoryTablePageForward: () => {
             const tablePage = values.checksHistoryTablePage
-            const checksTotal = values.alert?.checks_total
-            const resolvedTotal = checksTotal ?? 0
-            const pageCount = Math.max(1, Math.ceil(resolvedTotal / TABLE_CHECKS_PAGE_SIZE) || 1)
-            if (tablePage >= pageCount) {
+            if (tablePage >= values.alertHistoryTablePageCount) {
                 return
             }
             const next = tablePage + 1
