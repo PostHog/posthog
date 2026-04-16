@@ -1,8 +1,18 @@
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import {
+    KafkaProducerEnvConfig,
+    KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaWarpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
+import { DEFAULT_PRODUCER, ProducerName } from '../ingestion/common/outputs'
+import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerWrapper } from '../kafka/producer'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
+import { SessionReplayOutputsConfig, getDefaultSessionReplayOutputsConfig } from '../session-recording/config'
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
+import { createOutputsRegistry } from '../session-recording/outputs/registry'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -25,6 +35,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     KafkaBrokerConfig &
+    KafkaProducerEnvConfig &
+    KafkaWarpstreamProducerEnvConfig &
+    SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
     Pick<
@@ -37,13 +50,18 @@ export class IngestionSessionReplayServer implements NodeServer {
     private config: IngestionSessionReplayServerConfig
 
     private postgres?: PostgresRouter
-    private kafkaProducer?: KafkaProducerWrapper
-    private kafkaWarpStreamProducer?: KafkaProducerWrapper
+    private producerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private restrictionRedisPool?: RedisPool
 
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -63,13 +81,10 @@ export class IngestionSessionReplayServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        const metadataProducer = this.producerRegistry.getProducer(DEFAULT_PRODUCER)
         logger.info('👍', 'Kafka ready')
-
-        this.kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
-            this.config.KAFKA_CLIENT_RACK,
-            'WARPSTREAM_PRODUCER'
-        )
 
         // Session recording uses its own Redis instance with fallback to default
         this.redisPool = createRedisPoolFromConfig({
@@ -106,8 +121,8 @@ export class IngestionSessionReplayServer implements NodeServer {
         const ingester = new SessionRecordingIngester(
             this.config,
             this.postgres!,
-            this.kafkaProducer!,
-            this.kafkaWarpStreamProducer,
+            outputs,
+            metadataProducer,
             this.redisPool,
             this.restrictionRedisPool
         )
@@ -117,11 +132,12 @@ export class IngestionSessionReplayServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaWarpStreamProducer].filter(
-                Boolean
-            ) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
+            additionalCleanup: async () => {
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

@@ -350,8 +350,8 @@ class TestUserProductList(BaseTest):
         unreleased_products = products_by_category.get(ProductItemCategory.UNRELEASED, [])
 
         # Add a product from the Tools category
-        assert "Data pipelines" in products_by_category.get(ProductItemCategory.TOOLS, [])
-        UserProductList.objects.create(user=user, team=self.team, product_path="Data pipelines", enabled=True)
+        assert "Web scripts" in products_by_category.get(ProductItemCategory.TOOLS, [])
+        UserProductList.objects.create(user=user, team=self.team, product_path="Web scripts", enabled=True)
 
         # Add a product from the Unreleased category
         assert "Links" in products_by_category.get(ProductItemCategory.UNRELEASED, [])

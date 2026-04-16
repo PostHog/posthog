@@ -232,6 +232,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     ), 10
                 ) AS output_cost,
                 round(
+                    sumIf(toFloat(properties.$ai_request_cost_usd),
+                          event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
+                ) AS request_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_web_search_cost_usd),
+                          event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
+                ) AS web_search_cost,
+                round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
@@ -368,6 +378,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "output_tokens": "outputTokens",
             "input_cost": "inputCost",
             "output_cost": "outputCost",
+            "request_cost": "requestCost",
+            "web_search_cost": "webSearchCost",
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",

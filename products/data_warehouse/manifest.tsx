@@ -2,7 +2,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
+
+import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
 export const manifest: ProductManifest = {
     name: 'Data ops',
@@ -39,16 +41,89 @@ export const manifest: ProductManifest = {
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
         },
+        Sources: {
+            import: () => import('./frontend/scenes/SourcesScene/SourcesScene'),
+            projectBased: true,
+            name: 'Sources',
+            description:
+                'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
+            activityScope: ActivityScope.HOG_FUNCTION,
+            defaultDocsPath: '/docs/data-warehouse',
+            iconType: 'data_pipeline',
+        },
+        DataWarehouseSource: {
+            import: () => import('./frontend/scenes/SourceScene/SourceScene'),
+            projectBased: true,
+            name: 'Data warehouse source',
+            defaultDocsPath: '/docs/cdp/sources',
+        },
+        DataWarehouseSourceNew: {
+            import: () => import('./frontend/scenes/NewSourceScene/NewSourceScene'),
+            projectBased: true,
+            name: 'New data warehouse source',
+            defaultDocsPath: async () => {
+                try {
+                    const { sourceWizardLogic } =
+                        await import('products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic')
+                    const logic = sourceWizardLogic.findMounted()
+
+                    if (logic) {
+                        const { selectedConnector } = logic.values
+
+                        if (selectedConnector?.docsUrl) {
+                            const parsedUrl = new URL(selectedConnector.docsUrl)
+                            return parsedUrl.pathname
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to get default docs path for new data warehouse source', error)
+                }
+
+                return '/docs/cdp/sources'
+            },
+        },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
+        '/data-management/sources': ['Sources', 'sources'],
+        '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
+        '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    },
+    redirects: {
+        '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+        '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
         dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
         models: (): string => '/models',
         nodeDetail: (id: string): string => `/models/${id}`,
+        sources: (): string => '/data-management/sources',
+        dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
+            `/data-management/sources/${id}/${tab ?? 'schemas'}`,
+        dataWarehouseSourceNew: (
+            kind?: string,
+            returnUrl?: string,
+            returnLabel?: string,
+            accessMethod?: 'warehouse' | 'direct'
+        ): string => {
+            const params = new URLSearchParams()
+            if (kind) {
+                params.set('kind', kind)
+            }
+            if (returnUrl) {
+                params.set('returnUrl', returnUrl)
+            }
+            if (returnLabel) {
+                params.set('returnLabel', returnLabel)
+            }
+            if (accessMethod) {
+                params.set('access_method', accessMethod)
+            }
+            const queryString = params.toString()
+            return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
+        },
     },
     treeItemsProducts: [
         {

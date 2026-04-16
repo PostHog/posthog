@@ -1,0 +1,159 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "bysetpos": {
+            "anyOf": [
+                {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
+        },
+        "byweekday": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday",
+                        "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+        },
+        "count": {
+            "anyOf": [
+                {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Total number of deliveries before the subscription stops. Null for unlimited."
+        },
+        "dashboard": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."
+        },
+        "dashboard_export_insights": {
+            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "deleted": {
+            "description": "Set to true to soft-delete. Subscriptions cannot be hard-deleted.",
+            "type": "boolean"
+        },
+        "frequency": {
+            "description": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "enum": ["daily", "weekly", "monthly", "yearly"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A unique integer value identifying this subscription.",
+            "type": "number"
+        },
+        "insight": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."
+        },
+        "integration_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of a connected Slack integration. Required when target_type is slack."
+        },
+        "interval": {
+            "description": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "invite_message": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional message included in the invitation email when adding new recipients."
+        },
+        "start_date": {
+            "description": "When to start delivering (ISO 8601 datetime).",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "target_type": {
+            "description": "Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook",
+            "enum": ["email", "slack", "webhook"],
+            "type": "string"
+        },
+        "target_value": {
+            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.",
+            "type": "string"
+        },
+        "title": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable name for this subscription."
+        },
+        "until_date": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When to stop delivering (ISO 8601 datetime). Null for indefinite."
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

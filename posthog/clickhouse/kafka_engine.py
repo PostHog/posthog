@@ -29,6 +29,12 @@ CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
 CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS = "clickhouse_precalculated_person_properties_ws"
+CONSUMER_GROUP_EVENTS_JSON_WS = "clickhouse_events_json_ws"
+CONSUMER_GROUP_GROUPS_WS = "clickhouse_groups_ws"
+CONSUMER_GROUP_PERSON_WS = "clickhouse_person_ws"
+CONSUMER_GROUP_PERSON_DISTINCT_ID2_WS = "clickhouse_person_distinct_id2_ws"
+CONSUMER_GROUP_AI_EVENTS_WS = "clickhouse_ai_events_ws"
+CONSUMER_GROUP_HEATMAPS_WS = "clickhouse_heatmaps_ws"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
