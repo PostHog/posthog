@@ -63,7 +63,11 @@ services:
             file: docker-compose.base.yml
             service: keeper
         logging: *default-logging
+        # Hobby clones posthog into ./posthog/ subdir, so the base's
+        # ./docker/clickhouse/keeper_config.xml path doesn't resolve.
+        # Override volumes to use the hobby-relative path + add persistent storage.
         volumes:
+            - ./posthog/docker/clickhouse/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
             - keeper-data:/var/lib/clickhouse-keeper
             - keeper-logs:/var/log/clickhouse-keeper
 

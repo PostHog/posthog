@@ -1,0 +1,19 @@
+<clickhouse>
+    <!-- Minimal single-node ClickHouse Keeper config for the dev/CI stack.
+         Keeper runs as a standalone node (server_id=1, single-member Raft).
+         ClickHouse server connects to it via keeper_main.xml (host=keeper, port=9181).
+    -->
+    <keeper_server>
+        <tcp_port>9181</tcp_port>
+        <server_id>1</server_id>
+        <log_storage_path>/var/lib/clickhouse-keeper/logs</log_storage_path>
+        <snapshot_storage_path>/var/lib/clickhouse-keeper/snapshots</snapshot_storage_path>
+        <raft_configuration>
+            <server>
+                <id>1</id>
+                <hostname>localhost</hostname>
+                <port>9234</port>
+            </server>
+        </raft_configuration>
+    </keeper_server>
+</clickhouse>

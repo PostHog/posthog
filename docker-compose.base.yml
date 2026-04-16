@@ -168,6 +168,8 @@ services:
         image: clickhouse/clickhouse-keeper:26.3.9.8
         hostname: keeper
         restart: on-failure
+        volumes:
+            - ./docker/clickhouse/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
         healthcheck:
             # `ruok` is the standard ZK/Keeper liveness probe — returns "imok" when ready.
             # Use `printf` (no trailing newline) with BusyBox nc so nc waits for the
