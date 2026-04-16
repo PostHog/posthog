@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import json
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.types import SignalData
+
+
+class ActionabilityChoice(str, Enum):
+    IMMEDIATELY_ACTIONABLE = "immediately_actionable"
+    REQUIRES_HUMAN_INPUT = "requires_human_input"
+    NOT_ACTIONABLE = "not_actionable"
+
+
+class Priority(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
@@ -21,9 +36,20 @@ class SignalFinding(BaseModel):
     signal_id: str = Field(description="The signal_id from the input signal list")
     relevant_code_paths: list[str] = Field(
         description=(
-            "File paths in the codebase relevant to this signal. "
-            "Include paths to the feature/component the signal is about, "
-            "related posthog.capture() calls, and feature flag checks."
+            "File paths in the codebase relevant to this signal, ordered from most critical first. "
+            "The first path should be the highest-impact file (e.g. the buggy module or core feature file). "
+            "Then include supporting paths."
+        ),
+    )
+    relevant_commit_hashes: dict[str, str] = Field(
+        default_factory=dict,
+        json_schema_extra={"minProperties": 1},
+        description=(
+            "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
+            "Values are short explanations of WHY each commit is relevant. "
+            "Use `git blame` on the most critical code paths to identify commits that caused, or are most closely related to, "
+            "the issue described by this report. Prioritize causative commits "
+            "(e.g. the commit that introduced a bug) over general authorship commits. Include 1-5 commits."
         ),
     )
     data_queried: str = Field(
@@ -47,11 +73,13 @@ class ActionabilityAssessment(BaseModel):
             "Reference specific code paths and data points from your research."
         ),
     )
-    actionability: ActionabilityChoice = Field(description="Overall actionability assessment")
+    actionability: ActionabilityChoice = Field(
+        description="Overall actionability assessment. Must be one of the allowed enum values — do not invent new ones.",
+    )
     already_addressed: bool = Field(
         description=(
             "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes."
+            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
         ),
     )
 
@@ -82,18 +110,31 @@ class PriorityAssessment(BaseModel):
 
 class ReportPresentationOutput(BaseModel):
     title: str = Field(
-        description=(
-            "A PR-style title (max 70 chars) scoped to one concrete concern. "
-            "It should read like a pull request title that one engineer could ship."
-        ),
-        max_length=70,
+        description="""
+A PR-style title (max 70 chars) scoped to one concrete concern.
+It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
+Follow the Conventional Commits style (sentence-cased).
+If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
+- Good: fix(date-picker): Handle timezone conversion in insights
+- Good: feat(funnel): Add percentile options to Time to Convert
+- Bad: fix(funnel): various funnel improvements and bug fixes
+- Bad: multiple analytics issues
+        """,
+        max_length=96,  # Generous enough for descriptive PR-style titles
     )
     summary: str = Field(
-        description=(
-            "A very short factual summary of the report in 1-3 sentences. "
-            "Focus on what the signals collectively indicate and what product area is affected. "
-            "Do not restate actionability or priority."
-        ),
+        description="""
+An Axios-style summary in four brief paragraphs:
+- A one-sentence "why it matters" tl;dr of the report.
+- '**What's happening:** …' - a brief description of the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
+- '**Root cause:** …' - explain the root cause as if explaining to engineer owning this part of the product (or hypotheses, if not fully confident in the root cause).
+- '**How to resolve:** …' - a plan for the actionable code-level fix. If you can see two or more viable paths, propose up to two as subpoints "Option A" and "Option B".
+
+Principles:
+- Be direct and specific. Every sentence must carry information.
+- No filler phrases ("various issues detected", "it's worth noting").
+- Bold the section labels exactly as shown above.
+"""
     )
 
     @field_validator("title", "summary")
@@ -106,7 +147,7 @@ class ReportPresentationOutput(BaseModel):
 
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
-    summary: str = Field(description="Generated short factual report summary.")
+    summary: str = Field(description="Generated factual report summary.")
     findings: list[SignalFinding] = Field(
         description="One finding per signal in the report, in the same order as the input signals.",
     )
@@ -229,6 +270,14 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
 _RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
 Your findings will be passed downstream to a coding agent that will act on this report — thorough, evidence-based research here directly improves the quality of the coding agent's work.
 
+<writing_guide>
+We use American English.
+We use the Oxford comma.
+We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
+When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
+We never use the em-dash, only the en-dash (–).
+</writing_guide>
+
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc."""
@@ -238,11 +287,12 @@ _RESEARCH_PROTOCOL = """## Research protocol
 For each signal, find **code evidence** and **data evidence**:
 
 - **Code:** Trace the code path behind the signal's claim — find the relevant files, read the implementation, and understand how the logic actually works. Even if the signal doesn't mention specific files, search for the feature/component and dig in. Also look for `posthog.capture` calls or feature flag checks nearby — these show what the team tracks and gates, which helps gauge importance.
+- **Git blame:** Once you've identified the most critical code paths, run `git blame` on the key files/regions to find the commits most relevant to this signal. Prioritize causative commits (e.g. the commit that introduced a bug or changed behavior) over general authorship. If no causative commit is clear, include the commits that authored the bulk of the relevant code.
 - **Data:** Use PostHog MCP tools (`execute-sql`, `query-run`, `read-data-schema`, etc.) to check real impact — error rates, user counts, conversion metrics. If the signal references a specific insight, experiment, or feature flag, look it up directly.
 
 Cross-reference code and data — does the data corroborate what the code suggests?
 
-**Budget:** Spend no more than ~8 tool calls per signal. If you can't verify a signal's claim after that, mark it unverified and move on."""
+**Budget:** Spend no more than ~10 tool calls per signal. If you can't verify a signal's claim after that, mark it unverified and move on."""
 
 _ACTIONABILITY_CRITERIA = """## Actionability criteria
 
@@ -410,20 +460,7 @@ def build_report_presentation_prompt(
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
-## Output goals
-
-- **Title**: a PR-style title (max 70 chars) scoped to one concrete concern.
-- If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
-- It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
-  - Good: "Fix date picker timezone handling in insights"
-  - Good: "Add percentile options to funnel Time to Convert"
-  - Bad: "Various funnel improvements and bug fixes"
-  - Bad: "Multiple analytics issues"
-
-- **Summary**: 1-3 short factual sentences explaining what the signals collectively indicate and what area of the product or codebase is involved.
-- Do **not** restate actionability, priority, urgency, or next steps unless they are part of the factual issue itself.
-- Keep the summary compact and information-dense.
-
+Style rules:
 {previous_presentation_context}
 
 Respond with a JSON object matching this schema:
@@ -456,6 +493,7 @@ async def run_multi_turn_research(
     branch: str = "master",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -493,7 +531,21 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
+        origin_product="signal_report",
+        signal_report_id=signal_report_id,
     )
+
+    # Record the research task relationship immediately after task creation
+    if signal_report_id:
+        from products.signals.backend.models import SignalReportTask
+
+        await SignalReportTask.objects.acreate(
+            team_id=context.team_id,
+            report_id=signal_report_id,
+            task_id=str(session.task.id),
+            relationship=SignalReportTask.Relationship.RESEARCH,
+        )
+
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
     if output_fn:

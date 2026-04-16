@@ -286,6 +286,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_table_alias_type(self, node: ast.TableAliasType):
         self.visit(node.table_type)
 
+    def visit_column_aliased_table_type(self, node: ast.ColumnAliasedTableType):
+        self.visit(node.table_type)
+
     def visit_select_query_alias_type(self, node: ast.SelectQueryAliasType):
         self.visit(node.select_query_type)
 

@@ -13,22 +13,25 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     AutoApproveResultApi,
-    CompleteRunInputApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    MarkToleratedInputApi,
     PaginatedRepoListApi,
     PaginatedRunListApi,
     PaginatedSnapshotHistoryEntryListApi,
     PaginatedSnapshotListApi,
+    PaginatedToleratedHashEntryListApi,
     PatchedUpdateRepoRequestInputApi,
     RepoApi,
     ReviewStateCountsApi,
     RunApi,
+    SnapshotApi,
     VisualReviewReposListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
+    VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
 
 /**
@@ -234,10 +237,7 @@ export const visualReviewRunsApproveCreate = async (
 }
 
 /**
- * Signal that all artifacts have been uploaded. Triggers diff processing.
-
-Accepts an optional body for shard flow reconciliation (removed_identifiers,
-unchanged_count, baseline_hashes). Empty body is backward compatible.
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
  */
 export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/complete/`
@@ -246,14 +246,11 @@ export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: stri
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
-    completeRunInputApi: CompleteRunInputApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(completeRunInputApi),
     })
 }
 
@@ -328,6 +325,65 @@ export const visualReviewRunsSnapshotsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Mark a changed snapshot as a known tolerated alternate.
+ */
+export const getVisualReviewRunsTolerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/tolerate/`
+}
+
+export const visualReviewRunsTolerateCreate = async (
+    projectId: string,
+    id: string,
+    markToleratedInputApi: MarkToleratedInputApi,
+    options?: RequestInit
+): Promise<SnapshotApi> => {
+    return apiMutator<SnapshotApi>(getVisualReviewRunsTolerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(markToleratedInputApi),
+    })
+}
+
+/**
+ * List known tolerated hashes for a snapshot identifier.
+ */
+export const getVisualReviewRunsToleratedHashesListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsToleratedHashesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/`
+}
+
+export const visualReviewRunsToleratedHashesList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsToleratedHashesListParams,
+    options?: RequestInit
+): Promise<PaginatedToleratedHashEntryListApi> => {
+    return apiMutator<PaginatedToleratedHashEntryListApi>(
+        getVisualReviewRunsToleratedHashesListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**

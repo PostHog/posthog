@@ -152,9 +152,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -293,9 +291,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -603,9 +599,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -712,9 +706,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -860,9 +852,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1009,9 +999,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1166,9 +1154,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1303,9 +1289,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1471,7 +1455,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = runner.calculate()
 
         assert isinstance(result, ExperimentQueryResponse)
@@ -1633,7 +1617,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=use_precomputation)
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = runner.calculate()
 
         assert isinstance(result, ExperimentQueryResponse)
@@ -1691,7 +1675,6 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             start_handling=StartHandling.FIRST_SEEN,
             conversion_window=3,
             conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
-            only_count_matured_users=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1700,6 +1683,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             metric=metric,
         )
 
+        experiment.only_count_matured_users = True
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
@@ -1791,9 +1775,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Only mature users should be counted (1 control, 1 test)

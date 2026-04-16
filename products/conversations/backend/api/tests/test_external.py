@@ -93,6 +93,13 @@ class TestExternalTicketAPI(BaseTest):
         self.assertIsNone(data["sla"])
         self.assertIsNone(data["assignee"])
         self.assertIsNone(data["url"])
+        self.assertIsNone(data["slack_channel_id"])
+        self.assertIsNone(data["slack_thread_ts"])
+        self.assertIsNone(data["slack_team_id"])
+        self.assertIsNone(data["email_subject"])
+        self.assertIsNone(data["email_from"])
+        self.assertIsNone(data["email_to"])
+        self.assertEqual(data["cc_participants"], [])
         self.assertEqual(data["tags"], [])
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
@@ -277,6 +284,37 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["url"], "https://example.com/page")
+
+    def test_get_ticket_returns_slack_fields(self):
+        self.ticket.slack_channel_id = "C1234567890"
+        self.ticket.slack_thread_ts = "1234567890.123456"
+        self.ticket.slack_team_id = "T0987654321"
+        self.ticket.save(update_fields=["slack_channel_id", "slack_thread_ts", "slack_team_id"])
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["slack_channel_id"], "C1234567890")
+        self.assertEqual(data["slack_thread_ts"], "1234567890.123456")
+        self.assertEqual(data["slack_team_id"], "T0987654321")
+
+    def test_get_ticket_returns_email_fields(self):
+        from products.conversations.backend.models.team_conversations_email_config import EmailChannel
+
+        channel = EmailChannel.objects.create(
+            team=self.team, inbound_token="abc123", from_email="support@example.com", from_name="Support"
+        )
+        self.ticket.email_config = channel
+        self.ticket.email_subject = "Need help with billing"
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
+        self.ticket.save(update_fields=["email_config", "email_subject", "email_from", "cc_participants"])
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["email_subject"], "Need help with billing")
+        self.assertEqual(data["email_from"], "customer@example.com")
+        self.assertEqual(data["email_to"], "support@example.com")
+        self.assertEqual(data["cc_participants"], ["cc1@example.com", "cc2@example.com"])
 
     def test_get_ticket_returns_tags(self):
         from posthog.models import Tag

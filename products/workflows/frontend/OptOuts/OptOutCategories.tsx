@@ -10,7 +10,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { customerIOImportLogic } from './customerIOImportLogic'
-import { CustomerIOImportModal } from './CustomerIOImportModal'
 import { NewCategoryModal } from './NewCategoryModal'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
@@ -28,7 +27,6 @@ export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
     const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
         useActions(optOutCategoriesLogic)
-    const { isImportModalOpen } = useValues(customerIOImportLogic)
     const { openImportModal } = useActions(customerIOImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
@@ -168,8 +166,6 @@ export function OptOutCategories(): JSX.Element {
                 }}
                 category={editingCategory}
             />
-
-            {isImportModalOpen && <CustomerIOImportModal />}
         </>
     )
 }

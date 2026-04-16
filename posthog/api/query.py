@@ -7,6 +7,7 @@ from django.http import JsonResponse, StreamingHttpResponse
 import orjson
 import structlog
 from drf_spectacular.utils import OpenApiResponse
+from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
@@ -35,7 +36,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
-from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
+from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
@@ -63,6 +64,25 @@ from posthog.schema_migrations.upgrade import upgrade
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+
+QUERY_VALIDATION_ERROR_TOTAL = Counter(
+    "posthog_query_validation_error_total",
+    "Query validation failures returned from the query API.",
+    labelnames=["query_type", "validation_code"],
+)
+
+
+def _extract_validation_code(error: ValidationError) -> str:
+    validation_codes = error.get_codes()
+    if isinstance(validation_codes, list):
+        return validation_codes[0] if validation_codes and isinstance(validation_codes[0], str) else "unknown"
+    if isinstance(validation_codes, dict):
+        first_code = next(iter(validation_codes.values()), None)
+        if isinstance(first_code, str):
+            return first_code
+        if isinstance(first_code, list) and first_code and isinstance(first_code[0], str):
+            return first_code[0]
+    return "unknown"
 
 
 def _process_query_request(
@@ -140,10 +160,12 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
 
+        query = None
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -156,7 +178,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
             elif (
-                is_insight_query(query_dict)
+                is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
                 or is_insight_actors_options_query(query_dict)
             ) and get_query_tag_value("access_method") != "personal_api_key":
@@ -221,6 +243,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise ValidationError(str(e))
         except ResolutionError as e:
             raise ValidationError(str(e))
+        except ValidationError as e:
+            query_type = getattr(query, "kind", "unknown")
+            QUERY_VALIDATION_ERROR_TOTAL.labels(
+                query_type=query_type,
+                validation_code=_extract_validation_code(e),
+            ).inc()
+            raise
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
@@ -341,6 +370,24 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return
 
         tag_queries(client_query_id=query_id)
+
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
+    def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
+        return self.create(request, *args, **kwargs)
+
+    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
+        if not query_kind:
+            return
+        if not isinstance(request.data, dict):
+            raise ValidationError("Query body must be a JSON object.")
+        query_payload = request.data.get("query")
+        if query_payload is not None and not isinstance(query_payload, dict):
+            raise ValidationError("Query must be a JSON object.")
+        body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
+        if query_kind != body_kind:
+            raise ValidationError(
+                f'Query kind mismatch: path kind "{query_kind}" does not match body kind "{body_kind}".'
+            )
 
     def _try_format_for_llm(self, query: BaseModel, result: dict) -> str | None:
         """Try to format query results as LLM-friendly text. Returns None on failure."""

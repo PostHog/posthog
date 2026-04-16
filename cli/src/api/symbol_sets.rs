@@ -45,6 +45,10 @@ pub struct PresignedUrl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadStartRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
+    /// When true, allow overwriting symbol sets whose content has changed.
+    /// When false (default), changed-content re-uploads are skipped server-side.
+    #[serde(default)]
+    force: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,12 +64,14 @@ struct BulkUploadFinishRequest {
 /// Upload symbol sets with optional retry on release_id_mismatch error.
 /// If `skip_release_on_fail` is true and the server returns a release_id_mismatch error,
 /// the upload will be retried without release IDs.
+/// If `force` is true, symbol sets whose content has changed are overwritten rather than skipped.
 pub fn upload_with_retry(
     input_sets: Vec<SymbolSetUpload>,
     batch_size: usize,
     skip_release_on_fail: bool,
+    force: bool,
 ) -> Result<()> {
-    let res = upload_inner(&input_sets, batch_size);
+    let res = upload_inner(&input_sets, batch_size, force);
     match res {
         Ok(()) => Ok(()),
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
@@ -78,13 +84,17 @@ pub fn upload_with_retry(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(&sets_without_release, batch_size).map_err(|e| e.into())
+            upload_inner(&sets_without_release, batch_size, force).map_err(|e| e.into())
         }
         Err(e) => Err(e.into()),
     }
 }
 
-fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<(), UploadError> {
+fn upload_inner(
+    input_sets: &[SymbolSetUpload],
+    batch_size: usize,
+    force: bool,
+) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
         .filter(|s| {
@@ -100,7 +110,7 @@ fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<(),
 
     for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch)?;
+        let start_response = start_upload(batch, force)?;
 
         let id_map: HashMap<_, _> = batch.iter().map(|u| (u.chunk_id.as_str(), u)).collect();
 
@@ -133,7 +143,10 @@ fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<(),
     Ok(())
 }
 
-fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse, UploadError> {
+fn start_upload(
+    symbol_sets: &[&SymbolSetUpload],
+    force: bool,
+) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
 
     let request = BulkUploadStartRequest {
@@ -141,6 +154,7 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
             .iter()
             .map(|s| CreateSymbolSetRequest::new(s))
             .collect(),
+        force,
     };
 
     let res = retry(retry_policy(500, 2, 3), |_| {

@@ -192,7 +192,7 @@ function Content({
 
     return (
         <div className="border rounded-sm bg-primary text-xs *:flex *:gap-2 *:px-2 *:py-1">
-            <div className="flex justify-between mt-1">
+            <div className="flex justify-between">
                 <div className="flex items-center gap-2">
                     <strong>
                         <span role="img" aria-label={emojiLabel}>

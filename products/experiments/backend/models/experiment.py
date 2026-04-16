@@ -24,7 +24,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         STOPPED = "stopped", "Stopped"
 
     name = models.CharField(max_length=400)
-    description = models.CharField(max_length=400, null=True, blank=True)
+    description = models.CharField(max_length=3000, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     # Filters define the target metric of an Experiment
@@ -70,7 +70,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     stats_config = models.JSONField(default=dict, null=True, blank=True)
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
 
-    exposure_preaggregation_enabled = models.BooleanField(default=False)
+    only_count_matured_users = models.BooleanField(default=False)
 
     status = models.CharField(
         max_length=20,
@@ -184,6 +184,28 @@ def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> di
     return {
         "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
     }
+
+
+LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
+
+
+def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:
+    """Check if experiment uses legacy metric formats."""
+    # Check inline metrics
+    all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+    if any(m.get("kind") in LEGACY_METRIC_KINDS for m in all_metrics):
+        return True
+
+    # Check saved metrics
+    if experiment.experimenttosavedmetric_set.filter(saved_metric__query__kind__in=LEGACY_METRIC_KINDS).exists():
+        return True
+
+    return False
+
+
+def saved_metric_has_legacy_query(saved_metric: "ExperimentSavedMetric") -> bool:
+    """Check if saved metric uses legacy query format."""
+    return saved_metric.query.get("kind") in LEGACY_METRIC_KINDS if saved_metric.query else False
 
 
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):

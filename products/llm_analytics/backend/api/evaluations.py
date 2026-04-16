@@ -22,6 +22,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_hog_eval
 
+from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -64,6 +65,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "status",
+            "status_reason",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -75,7 +78,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
+        # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
+        read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:
@@ -88,7 +93,67 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     )
                 except ValueError as e:
                     raise serializers.ValidationError({"config": str(e)})
+
+        # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
+        # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
+        # Without this check, a caller (UI, API, MCP, agent) can flip enabled=True, see a 200, and
+        # then watch the next Temporal run silently re-disable the eval for the same reason.
+        if data.get("enabled") and self.instance and not self.instance.enabled:
+            self._validate_re_enable(data)
+
         return data
+
+    def _validate_re_enable(self, data: dict) -> None:
+        has_byok = self._has_byok_key(data)
+        status_reason = getattr(self.instance, "status_reason", None)
+
+        # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
+        if status_reason == "trial_limit_reached" or not status_reason:
+            team = self.context["get_team"]()
+            config = EvaluationConfig.objects.filter(team=team).first()
+            if config and config.trial_limit_reached and not has_byok:
+                raise serializers.ValidationError(
+                    {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
+                )
+
+        # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
+        # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
+        if status_reason == "model_not_allowed" and not has_byok:
+            from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS
+
+            model_config_data = data.get("model_configuration")
+            if model_config_data is not None:
+                model = model_config_data.get("model")
+            elif self.instance and self.instance.model_configuration:
+                model = self.instance.model_configuration.model
+            else:
+                model = None
+            if model and model not in TRIAL_MODEL_IDS:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": (
+                            f"Model '{model}' is not available on the trial plan. "
+                            "Either choose a supported trial model or add a provider API key."
+                        )
+                    }
+                )
+
+        # Provider key deleted: the eval must now point at a real provider key.
+        if status_reason == "provider_key_deleted" and not has_byok:
+            raise serializers.ValidationError(
+                {
+                    "enabled": "The provider API key for this evaluation was deleted. Attach a provider API key before re-enabling."
+                }
+            )
+
+    def _has_byok_key(self, data: dict) -> bool:
+        """Check if the evaluation will have a BYOK key after this update."""
+        model_config_data = data.get("model_configuration")
+        if model_config_data is not None:
+            return bool(model_config_data.get("provider_key_id"))
+        if self.instance and self.instance.model_configuration:
+            return self.instance.model_configuration.provider_key_id is not None
+        return False
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int
@@ -348,7 +413,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @action(detail=False, methods=["post"], url_path="test_hog")
+    @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
         serializer = TestHogRequestSerializer(data=request.data)

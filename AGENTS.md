@@ -13,11 +13,10 @@
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
-  - All tests: `pytest`
-  - Single test: `pytest path/to/test.py::TestClass::test_method`
-  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
-  - Frontend: `pnpm --filter=@posthog/frontend test`
-  - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+  - Universal: `hogli test <file_or_directory>` — auto-detects test type (Python, Jest, Playwright, Rust, Go)
+  - Single test: `hogli test path/to/test.py::TestClass::test_method`
+  - Watch mode: `hogli test path/to/test.py --watch`
+  - Changed files only: `hogli test --changed`
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
@@ -57,7 +56,10 @@ Examples:
 
 ### PR descriptions
 
-Follow the PR description template in `.github/pull_request_template.md` when creating or updating PR descriptions. Keep the descriptions of changes higher-level, focusing on key details for the human reviewer to evaluate the rationale for the approach, and the overall architecture.
+**Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
+Do not invent a different format.
+Always uncomment and fill the `## LLM context` section for agent-authored PRs.
+Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 
 ### Rules
 
@@ -65,8 +67,28 @@ Follow the PR description template in `.github/pull_request_template.md` when cr
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
+### Public open source repo guidance
+
+This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
+
+- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
+- If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
+- Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
+
+Examples:
+
+- ✅ Good: `fix(insights): handle missing series color in trend export`
+- ✅ Good: `chore(ci): reduce flaky backend test retries`
+- ❌ Avoid: `fix: patch issue found in acme-co prod workspace after sales escalation`
+- ❌ Avoid: `chore: workaround for internal k8s outage in us-east-2`
+- ❌ Avoid: `feat: add migration for private enterprise customer contract requirement`
+- ❌ Avoid: `fix: will run fine on our 12 million rows there now`
+- ❌ Avoid: `fix: we were failing there for 300 teams`
+
 ## CI / GitHub Actions
 
+- `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
 - Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
 
 ## Security
@@ -83,6 +105,20 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation)
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
+- **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` directly in Celery tasks — events will be silently lost because the global client's background flush may never run before the worker exits. Instead, use `ph_scoped_capture` from `posthog.ph_client`, which creates a dedicated client and flushes on context-manager exit:
+
+  ```python
+  from posthog.ph_client import ph_scoped_capture
+
+  @shared_task
+  def my_celery_task():
+      with ph_scoped_capture() as capture_ph_event:
+          capture_ph_event(
+              distinct_id="...",
+              event="my_event",
+              properties={...},
+          )
+  ```
 
 ## Code Style
 
@@ -106,12 +142,11 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 
 ## Agent automation
 
-Prefer these approaches in order:
+When automating a convention, try these in order — only fall back to the next if the previous isn't suitable:
 
-1. **AGENTS.md / CLAUDE.md instructions** — try this first
-2. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
-3. **lint-staged / husky** — file-level validation at commit time
-4. **CI checks** — PR-level enforcement
-5. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement
+1. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement, always paired with CI
+2. **lint-staged / husky** — file-level validation or warnings at commit time
+3. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
+4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.

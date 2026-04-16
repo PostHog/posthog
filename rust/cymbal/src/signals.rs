@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tiktoken_rs::cl100k_base;
 use tracing::warn;
 
 use crate::config::Config;
 use crate::issue_resolution::Issue;
+use crate::metric_consts::{SIGNAL_EMITTED, SIGNAL_EMIT_FAILED, SIGNAL_EMIT_RESPONSE};
+use crate::tokenizer::CL100K_BPE;
 use crate::types::OutputErrProps;
 
 /// Signal payload matching the Django internal API contract.
@@ -38,9 +39,7 @@ impl<'a> From<IssueSignalContext<'a>> for EmitSignalRequest {
             ctx.issue.name.as_deref().unwrap_or("Unknown"),
             ctx.issue.description.as_deref().unwrap_or(""),
         );
-        let header_tokens = cl100k_base()
-            .map(|bpe| bpe.encode_with_special_tokens(&header).len())
-            .unwrap_or(0);
+        let header_tokens = CL100K_BPE.encode_with_special_tokens(&header).len();
         let stacktrace = ctx.props.print_stacktrace(Some(8000 - header_tokens));
         let description = format!("{header}\n```\n{stacktrace}\n```");
 
@@ -68,7 +67,10 @@ pub struct SignalClient {
 impl SignalClient {
     pub fn new(config: &Config) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("Failed to build SignalClient HTTP client"),
             base_url: config.signals_api_base_url.clone(),
             secret: config.internal_api_secret.clone(),
         }
@@ -128,10 +130,14 @@ impl SignalClient {
     }
 
     async fn send(&self, team_id: i32, body: EmitSignalRequest) {
+        let source_type = body.source_type;
         let url = format!(
             "{}/api/projects/{}/internal/signals/emit",
             self.base_url, team_id
         );
+
+        metrics::counter!(SIGNAL_EMITTED, "source_type" => source_type).increment(1);
+
         match self
             .http
             .post(&url)
@@ -140,13 +146,17 @@ impl SignalClient {
             .send()
             .await
         {
-            Ok(resp) if !resp.status().is_success() => {
-                warn!("Signal emit returned status {}", resp.status());
+            Ok(resp) => {
+                let status = resp.status().as_u16().to_string();
+                metrics::counter!(SIGNAL_EMIT_RESPONSE, "source_type" => source_type, "status" => status).increment(1);
+                if !resp.status().is_success() {
+                    warn!("Signal emit returned status {}", resp.status());
+                }
             }
             Err(e) => {
+                metrics::counter!(SIGNAL_EMIT_FAILED, "source_type" => source_type).increment(1);
                 warn!("Failed to emit signal: {e}");
             }
-            _ => {}
         }
     }
 }

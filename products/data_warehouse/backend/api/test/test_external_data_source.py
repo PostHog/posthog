@@ -14,12 +14,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
-    Option,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
@@ -56,8 +56,10 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -71,7 +73,7 @@ class TestExternalDataSource(APIBaseTest):
             created_by=self.user,
             prefix="test",
             job_inputs={
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
             },
         )
 
@@ -90,7 +92,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -141,7 +143,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": False,
                 },
             },
@@ -160,7 +162,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
                     ],
@@ -183,7 +185,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -214,7 +216,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -246,7 +248,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -278,7 +280,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -315,7 +317,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -382,7 +384,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -443,7 +445,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -614,8 +616,153 @@ class TestExternalDataSource(APIBaseTest):
         assert len(results) == 1
 
         result = results[0]
-        # we should scrape out `stripe_secret_key` from job_inputs
-        assert result.get("job_inputs") == {}
+        # sensitive fields like stripe_secret_key should be stripped, but auth_method selection is kept
+        assert result.get("job_inputs") == {"auth_method": {"selection": "api_key"}}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_stripe_secret_key(self, _mock_validate):
+        source = self._create_external_data_source()
+
+        # GET strips stripe_secret_key from auth_method
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert "stripe_secret_key" not in get_data["job_inputs"]["auth_method"]
+
+        # PATCH with the sanitized data from GET (simulating user saving without changes)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        # stripe_secret_key must still be in the DB
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_switching_auth_method_drops_old_secret_key(self, _mock_validate):
+        source = self._create_external_data_source()
+
+        # Switch from api_key to oauth — old stripe_secret_key should NOT carry over
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_method": {"selection": "oauth", "stripe_integration_id": "42"}}},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["selection"] == "oauth"
+        assert source.job_inputs["auth_method"]["stripe_integration_id"] == "42"
+        # Old secret key must not carry over — config round-trip may include it as None (default)
+        assert source.job_inputs["auth_method"].get("stripe_secret_key") is None
+
+    def test_get_github_oauth_preserves_integration_id_strips_token(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "oauth", "github_integration_id": "99"},
+                "repository": "org/repo",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "oauth", "github_integration_id": "99"}
+
+    def test_get_github_pat_strips_token(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "pat"}
+        assert "personal_access_token" not in auth_method
+
+    def test_get_stripe_oauth_preserves_integration_id(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="st",
+            job_inputs={
+                "auth_method": {"selection": "oauth", "stripe_integration_id": "42"},
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "oauth", "stripe_integration_id": "42"}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_github_pat(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        assert "personal_access_token" not in get_response.json()["job_inputs"]["auth_method"]
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_response.json()["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["personal_access_token"] == "ghp_secret"
+
+    def test_update_with_malformed_auth_method_returns_400(self):
+        source = self._create_external_data_source()
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_method": "invalid"}},
+        )
+        assert patch_response.status_code == 400
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -666,6 +813,8 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "description": schema.description,
+                    "primary_key_columns": None,
+                    "cdc_table_mode": "consolidated",
                 }
             ],
         )
@@ -1589,7 +1738,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "blah",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
                     "stripe_account_id": "blah",
                 },
             )
@@ -1606,7 +1755,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "invalid_key",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
                 },
             )
 
@@ -1626,12 +1775,12 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "invalid_key",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
                 },
             )
 
             assert response.status_code == 400
-            assert "Stripe API key lacks permissions for Account, Invoice" in response.json()["message"]
+            assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
@@ -1678,7 +1827,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "stripe_account_id": "blah",
                 },
             )
@@ -1740,9 +1889,14 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "incremental_available": True,
                     "append_available": True,
+                    "cdc_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "available_columns": [
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                    ],
+                    "detected_primary_keys": ["id"],
                 }
             ]
 
@@ -1792,9 +1946,14 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "incremental_available": True,
                     "append_available": True,
+                    "cdc_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "available_columns": [
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                    ],
+                    "detected_primary_keys": ["id"],
                 }
             ]
 
@@ -2028,7 +2187,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "  sk_test_123   ",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "  sk_test_123   "},
                     "stripe_account_id": "  blah   ",
                     "schemas": [
                         {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
@@ -2043,7 +2202,7 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=payload["id"])
         assert source.job_inputs is not None
 
-        assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "  sk_test_123   "
         assert source.job_inputs["stripe_account_id"] == "blah"
 
     def test_update_then_get_external_data_source_with_ssh_tunnel(self):
@@ -3214,6 +3373,44 @@ class TestExternalDataSource(APIBaseTest):
                 # This should not trigger additional queries due to select_related
                 _ = source.revenue_analytics_config.enabled
 
+    def test_enabling_revenue_analytics_creates_person_join(self):
+        source = self._create_external_data_source()
+        source.revenue_analytics_config_safe.enabled = False
+        source.revenue_analytics_config_safe.save()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(
+            team=self.team,
+            source_table_name=view_name,
+            joining_table_name="persons",
+            field_name="persons",
+            deleted=False,
+        ).exists()
+
+    def test_disabling_revenue_analytics_removes_person_join(self):
+        source = self._create_external_data_source()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": False},
+        )
+
+        assert not DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=True).exists()
+
     def test_create_external_data_source_rejects_invalid_prefix(self):
         """Test that invalid characters in prefix are rejected."""
         invalid_prefixes = [
@@ -3234,7 +3431,7 @@ class TestExternalDataSource(APIBaseTest):
                         "source_type": "Stripe",
                         "prefix": prefix,
                         "payload": {
-                            "stripe_secret_key": "sk_test_123",
+                            "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                             "schemas": [
                                 {
                                     "name": STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -3280,7 +3477,7 @@ class TestExternalDataSource(APIBaseTest):
                         "source_type": "Stripe",
                         "prefix": prefix,
                         "payload": {
-                            "stripe_secret_key": "sk_test_123",
+                            "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                             "schemas": [
                                 {
                                     "name": STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -3323,6 +3520,15 @@ class TestCreateWebhook(APIBaseTest):
             team_id=self.team.pk,
             source=source,
             sync_type="incremental",
+            should_sync=True,
+        )
+
+    def _create_webhook_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="webhook",
             should_sync=True,
         )
 
@@ -3382,7 +3588,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        schema = self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3431,7 +3637,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3452,7 +3658,7 @@ class TestCreateWebhook(APIBaseTest):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3468,7 +3674,7 @@ class TestCreateWebhook(APIBaseTest):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3486,7 +3692,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
 
         # First call: creates HogFunction with Charge schema
         response = self.client.post(
@@ -3495,7 +3701,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         # Now add a Customer schema and call again
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
         )
@@ -3517,7 +3723,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_create_webhook_template_not_in_db(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3535,7 +3741,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3558,7 +3764,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         # First create the webhook to set up the HogFunction
         self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
@@ -3580,7 +3786,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_rejects_invalid_keys(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -3594,7 +3800,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_no_hog_function(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -3604,6 +3810,40 @@ class TestCreateWebhook(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No webhook function found" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
+        """Regression: creating a source with multiple webhook tables then hitting the
+        create_webhook endpoint must populate schema_mapping for every webhook schema.
+        Webhook schemas have sync_type='webhook' (not 'incremental')."""
+        mock_create_webhook.return_value = self._webhook_result()
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        customer_schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        charge_schema = self._create_webhook_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        invoice_schema = self._create_webhook_schema(source, STRIPE_INVOICE_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.inputs is not None
+
+        schema_mapping = hog_function.inputs["schema_mapping"]["value"]
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CUSTOMER_RESOURCE_NAME]] == str(customer_schema.id)
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CHARGE_RESOURCE_NAME]] == str(charge_schema.id)
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_INVOICE_RESOURCE_NAME]] == str(invoice_schema.id)
+        assert len(schema_mapping) == 3
+
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
 class TestSensitiveFieldClassification(APIBaseTest):
@@ -3647,7 +3887,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 required=True,
                 defaultValue="password",
                 options=[
-                    Option(
+                    SourceFieldSelectConfigOption(
                         label="Password",
                         value="password",
                         fields=[
@@ -4041,6 +4281,15 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
+    def _create_webhook_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="webhook",
+            should_sync=True,
+        )
+
     def _create_full_refresh_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name=name,
@@ -4076,9 +4325,9 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.enabled is False
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_blocked_by_incremental_schemas(self, _mock_flag):
+    def test_delete_webhook_blocked_by_webhook_schemas(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, "Customers")
+        self._create_webhook_schema(source, "Customers")
         self._create_hog_function(source)
 
         response = self.client.post(
@@ -4086,7 +4335,8 @@ class TestDeleteWebhook(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "incremental sync" in response.json()["message"]
+        assert "webhook sync" in response.json()["message"]
+        assert "Customers" in response.json()["message"]
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
@@ -4241,3 +4491,77 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         assert response.status_code == 204
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert mock_capture_exception.called
+
+
+class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
+    def test_destroy_source_deletes_companion_cdc_tables(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+
+        main_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/main",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=main_table,
+        )
+
+        # Companion _cdc table — linked to source but NOT to schema.table
+        companion_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders_cdc",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/cdc",
+        )
+
+        # Unrelated table from another source — should NOT be deleted
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_456"},
+        )
+        unrelated_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="other_table",
+            external_data_source_id=other_source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/other",
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+
+        # Main table soft-deleted via schema.table
+        main_table.refresh_from_db()
+        assert main_table.deleted is True
+
+        # Schema soft-deleted
+        schema.refresh_from_db()
+        assert schema.deleted is True
+
+        # Companion _cdc table soft-deleted by the companion cleanup query
+        companion_table.refresh_from_db()
+        assert companion_table.deleted is True
+
+        # Unrelated table NOT deleted
+        unrelated_table.refresh_from_db()
+        assert unrelated_table.deleted is False

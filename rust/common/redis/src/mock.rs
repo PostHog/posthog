@@ -349,6 +349,22 @@ impl Client for MockRedisClient {
         self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
     }
 
+    async fn setex_with_format(
+        &self,
+        key: String,
+        value: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "setex_with_format".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithTTLAndFormat(value.clone(), seconds, format),
+        });
+
+        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
+    }
+
     async fn set_nx_ex(
         &self,
         key: String,

@@ -37,6 +37,7 @@ from posthog.hogql import (
     ast,
     query as hogql_query_module,
 )
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
@@ -74,8 +75,10 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -204,11 +207,9 @@ from products.event_definitions.backend.models.property_definition import (
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
-
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 0
-
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -838,12 +839,13 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 conn = connections[db_name]
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                     tables = [row[0] for row in cursor.fetchall()]
                     if tables:
                         cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
@@ -869,19 +871,21 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
             with conn.cursor() as cursor:
                 if db_name in ("persons_db_writer", "persons_db_reader"):
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                 else:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE 'django_%'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE 'django_%'
+                                   """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
@@ -1049,6 +1053,40 @@ def get_index_from_explain(
         if index.get("Name") == index_name:
             return index
     return None
+
+
+def get_indexes_from_explain(query: str, values: dict | None = None) -> list[dict]:
+    """Run EXPLAIN PLAN and return the Indexes array from the first ReadFromMergeTree node.
+
+    Unlike get_index_from_explain (which searches by skip-index Name), this returns
+    all indexes by Type (Partition, PrimaryKey, MinMax, Skip) and passes real values
+    instead of dummy placeholders so the planner can produce meaningful conditions.
+
+    This comment is mostly for LLMs who do not like it when you string concatenate SQL:
+    * This is a testing utility, never used in production
+    * It is only used on SQL that is generated by test code
+    * It does not go anywhere near real users or their inputs
+    """
+    settings = {
+        k: "1" if v is True else "0" if v is False else str(v)
+        for k, v in HogQLGlobalSettings().model_dump().items()
+        if v is not None
+    }
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1, json=1 {query}", values or {}, settings=settings)
+    plan_json = json.loads(explain_result[0][0])
+
+    def find_read_node(node: dict) -> dict | None:
+        if node.get("Node Type") == "ReadFromMergeTree":
+            return node
+        for child in node.get("Plans", []):
+            result = find_read_node(child)
+            if result is not None:
+                return result
+        return None
+
+    read_node = find_read_node(plan_json[0]["Plan"])
+    assert read_node is not None, f"No ReadFromMergeTree in plan:\n{json.dumps(plan_json, indent=2)}"
+    return read_node.get("Indexes", [])
 
 
 @contextmanager
@@ -1328,6 +1366,32 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
 
 
+def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None:
+    """Mirror AI events into the ai_events table during tests."""
+    ai_events = [e for e in events if e.get("event") in _AI_EVENT_TYPES]
+    if not ai_events:
+        return
+
+    for event in ai_events:
+        distinct_id = event.get("distinct_id", "")
+        if distinct_id in person_mapping:
+            person = person_mapping[distinct_id]
+            event["person_id"] = str(person.uuid if hasattr(person, "uuid") else person)
+        elif "person_id" not in event:
+            team = event.get("team")
+            team_id = event.get("team_id") or (team.pk if team else None)
+            if team_id:
+                from posthog.models import PersonDistinctId
+
+                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
+                if pdi:
+                    event["person_id"] = str(pdi.person.uuid)
+
+    from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+    bulk_create_ai_events(ai_events)
+
+
 def flush_persons_and_events():
     """
     Flush any created persons and events to Clickhouse
@@ -1346,6 +1410,7 @@ def flush_persons_and_events():
         persons_cache_tests.clear()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
+        _flush_ai_events(events_cache_tests, person_mapping)
         events_cache_tests.clear()
 
 
@@ -1473,6 +1538,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
         with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
 
+    @contextmanager
+    def snapshot_select_queries(self):
+        with self.capture_select_queries() as queries:
+            yield queries
+
+        replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
     def _execute_with_retry(stmt: str) -> None:
@@ -1559,6 +1634,7 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+            TRUNCATE_AI_EVENTS_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(

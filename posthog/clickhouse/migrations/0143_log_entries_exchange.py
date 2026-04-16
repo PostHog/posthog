@@ -12,5 +12,5 @@ DROP VIEW {LOG_ENTRIES_TABLE}_mv
 
 operations = [
     run_sql_with_exceptions(DROP_LOG_ENTRIES_MV_SQL, node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(EXCHANGE_LOG_ENTRIES_SQL, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(EXCHANGE_LOG_ENTRIES_SQL, node_roles=[NodeRole.DATA]),
 ]

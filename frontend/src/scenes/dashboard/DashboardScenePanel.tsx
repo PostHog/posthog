@@ -1,20 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import {
-    IconCode2,
-    IconCopy,
-    IconGraph,
-    IconGridMasonry,
-    IconNotebook,
-    IconPalette,
-    IconScreen,
-    IconTrash,
-} from '@posthog/icons'
+import { IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -32,11 +21,9 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -50,7 +37,8 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterF
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
-import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
+import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
+import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -60,7 +48,6 @@ export function DashboardScenePanel(): JSX.Element | null {
         dashboardMode,
         canEditDashboard,
         isSavingTags,
-        currentLayoutSize,
         isPinned,
         asDashboardTemplate,
         effectiveEditBarFilters,
@@ -70,11 +57,9 @@ export function DashboardScenePanel(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
-    const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
@@ -146,38 +131,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                                 Customize colors
                             </ButtonPrimitive>
                         )}
-                        <AppShortcut
-                            name="ToggleEditMode"
-                            scope={Scene.Dashboard}
-                            keybind={[keyBinds.edit]}
-                            intent="Toggle edit mode"
-                            interaction="click"
-                            disabled={tiles.length === 0 && dashboardMode !== DashboardMode.Edit}
-                        >
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    if (dashboardMode === DashboardMode.Edit) {
-                                        setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
-                                    } else {
-                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                                        closeSidePanel()
-                                    }
-                                }}
-                                menuItem
-                                active={dashboardMode === DashboardMode.Edit}
-                                data-attr={`${RESOURCE_TYPE}-edit-layout`}
-                                tooltip="Toggle edit mode"
-                                tooltipPlacement="left"
-                                disabled={tiles.length === 0 && dashboardMode !== DashboardMode.Edit}
-                                disabledReasons={{
-                                    'Add at least one tile to edit layout':
-                                        tiles.length === 0 && dashboardMode !== DashboardMode.Edit,
-                                }}
-                            >
-                                <IconGridMasonry />
-                                {currentLayoutSize === 'xs' ? 'Edit dashboard' : 'Edit layout'}
-                            </ButtonPrimitive>
-                        </AppShortcut>
                         <ButtonPrimitive
                             onClick={() => createNotebookFromDashboard(dashboard)}
                             menuItem
@@ -192,7 +145,10 @@ export function DashboardScenePanel(): JSX.Element | null {
                                 {
                                     format: ExporterFormat.PNG,
                                     dashboard: dashboard.id,
-                                    context: { path: apiUrl() },
+                                    context: {
+                                        path: apiUrl(),
+                                        variables_override: effectiveDashboardVariableOverrides,
+                                    },
                                     dataAttr: `${RESOURCE_TYPE}-export-png`,
                                 },
                                 ...(user?.is_staff
@@ -224,20 +180,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </ButtonPrimitive>
                 )}
 
-                {user?.is_staff && (
-                    <ButtonPrimitive
-                        onClick={() => {
-                            if (asDashboardTemplate) {
-                                setDashboardTemplate(asDashboardTemplate)
-                                openDashboardTemplateEditor()
-                            }
-                        }}
-                        menuItem
-                    >
-                        <IconScreen />
-                        Save as template
-                    </ButtonPrimitive>
-                )}
+                <DashboardSaveAsTemplateSceneActions />
 
                 {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
                 {dashboard && (
@@ -295,6 +238,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </ScenePanelActionsSection>
                 </>
             )}
+            <DashboardTemplateModal />
         </ScenePanel>
     )
 }

@@ -4,7 +4,12 @@ import json
 import uuid
 import string
 import secrets
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -16,7 +21,9 @@ from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
+from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -26,10 +33,17 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+
+
+def resolve_schema(schema: type[BaseModel] | dict) -> dict:
+    if isinstance(schema, dict):
+        return schema
+    return schema.model_json_schema()
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -40,6 +54,9 @@ class Task(DeletedMetaFields, models.Model):
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+        # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
+        # signal report tasks originate indirectly via signals from other products.
+        SIGNAL_REPORT = "signal_report", "Signal Report"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -64,11 +81,26 @@ class Task(DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    # DEPRECATED - do not use
+    signal_report = models.ForeignKey(
+        "signals.SignalReport",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="task",
+        db_index=False,
+    )
+
     json_schema = models.JSONField(
         default=None,
         null=True,
         blank=True,
         help_text="JSON schema for the task. This is used to validate the output of the task.",
+    )
+
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
     created_at = models.DateTimeField(default=timezone.now)
@@ -77,11 +109,16 @@ class Task(DeletedMetaFields, models.Model):
     class Meta:
         db_table = "posthog_task"
         managed = True
+        indexes = [
+            models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+        ]
 
     def __str__(self):
         return self.title
 
     def save(self, *args, **kwargs):
+        is_new = self._state.adding
+
         if self.repository:
             parts = self.repository.split("/")
             if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -93,6 +130,39 @@ class Task(DeletedMetaFields, models.Model):
             self._assign_task_number()
 
         super().save(*args, **kwargs)
+
+        if is_new:
+            self._track_task_created()
+
+    def capture_event(self, event: str, properties: dict | None = None) -> None:
+        try:
+            distinct_id = (
+                str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
+            )
+            all_properties = {
+                "task_id": str(self.id),
+                "team_id": self.team_id,
+                "title": self.title,
+                "description": self.description[:500] if self.description else "",
+                "origin_product": self.origin_product,
+                "repository": self.repository,
+            }
+            if properties:
+                all_properties.update(properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties=all_properties,
+                groups=groups(team=self.team),
+            )
+        except Exception as e:
+            logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
+
+    def _track_task_created(self) -> None:
+        self.capture_event(
+            "task_created",
+            {"has_json_schema": self.json_schema is not None},
+        )
 
     @staticmethod
     def generate_team_prefix(team_name: str) -> str:
@@ -132,19 +202,37 @@ class Task(DeletedMetaFields, models.Model):
         state: dict = {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
-        return TaskRun.objects.create(
+        is_resume = bool((extra_state or {}).get("resume_from_run_id"))
+        has_pending = bool((extra_state or {}).get("pending_message"))
+        task_run = TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            environment=environment or TaskRun.Environment.CLOUD,
+            **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
         )
+        task_run.publish_stream_state_event()
+        self.capture_event(
+            "task_run_created",
+            {
+                "run_id": str(task_run.id),
+                "mode": mode,
+                "environment": task_run.environment,
+                "is_resume": is_resume,
+                "has_pending_message": has_pending,
+            },
+        )
+        return task_run
 
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
+        self.capture_event(
+            "task_deleted",
+            {"duration_seconds": round((timezone.now() - self.created_at).total_seconds(), 1)},
+        )
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
@@ -165,16 +253,28 @@ class Task(DeletedMetaFields, models.Model):
         start_workflow: bool = True,
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
+        signal_report_id: str | None = None,
+        sandbox_environment_id: str | None = None,
+        internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
+        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+
         github_integration = None
         if repository:
             github_integration = Integration.objects.filter(team=team, kind="github").first()
-            if not github_integration:
+            if not github_integration and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
+
+        sandbox_env = None
+        if sandbox_environment_id is not None:
+            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
+            if not sandbox_env:
+                raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
             team=team,
@@ -184,17 +284,21 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration=github_integration,
             repository=repository,
+            internal=internal,
+            json_schema=resolve_schema(output_schema) if output_schema else None,
+            **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] | None = None
-        if slack_thread_url or slack_thread_context:
-            extra_state = {}
-            if slack_thread_url:
-                extra_state["slack_thread_url"] = slack_thread_url
-            if slack_thread_context:
-                extra_state["interaction_origin"] = "slack"
+        extra_state: dict[str, str] = {}
+        if slack_thread_url:
+            extra_state["slack_thread_url"] = slack_thread_url
+        if slack_thread_context:
+            extra_state["interaction_origin"] = "slack"
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+        if sandbox_env is not None:
+            extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -388,11 +492,64 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def capture_event(self, event: str, properties: dict | None = None) -> None:
+        try:
+            distinct_id = (
+                str(self.task.created_by.distinct_id)
+                if self.task.created_by_id and self.task.created_by
+                else str(self.team.uuid)
+            )
+            all_properties: dict = {
+                "task_id": str(self.task_id),
+                "run_id": str(self.id),
+                "team_id": self.team_id,
+                "repository": self.task.repository,
+                "origin_product": self.task.origin_product,
+                "title": self.task.title,
+                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+                "environment": self.environment,
+                "mode": self.mode,
+            }
+            if properties:
+                all_properties.update(properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties=all_properties,
+                groups=groups(team=self.team),
+            )
+        except Exception as e:
+            logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
+
+    def _duration_seconds(self) -> float:
+        if self.completed_at and self.created_at:
+            return round((self.completed_at - self.created_at).total_seconds(), 1)
+        return 0.0
+
     def mark_completed(self):
         """Mark the progress as completed."""
         self.status = self.Status.COMPLETED
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "completed_at"])
+        self.publish_stream_state_event()
+        self.capture_event(
+            "task_run_completed",
+            {"duration_seconds": self._duration_seconds()},
+        )
+
+    def track_structured_result(self):
+        """Track a structured result event with properties from the run output."""
+        if not self.output:
+            return
+
+        try:
+            self.capture_event("task_run_structured_result", {"result": self.output})
+        except Exception as e:
+            logger.warning(
+                "task_run.track_structured_result_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def mark_failed(self, error: str):
         """Mark the progress as failed with an error message."""
@@ -400,6 +557,34 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+        self.publish_stream_state_event()
+        self.capture_event(
+            "task_run_failed",
+            {
+                "error_message": error[:500],
+                "duration_seconds": self._duration_seconds(),
+            },
+        )
+
+    def build_stream_state_event(self) -> dict[str, Any]:
+        return {
+            "type": "task_run_state",
+            "run_id": str(self.id),
+            "task_id": str(self.task_id),
+            "status": self.status,
+            "stage": self.stage,
+            "output": self.output,
+            "branch": self.branch,
+            "error_message": self.error_message,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def publish_stream_event(self, event: dict[str, Any]) -> None:
+        publish_task_run_stream_event(str(self.id), event)
+
+    def publish_stream_state_event(self) -> None:
+        self.publish_stream_event(self.build_stream_state_event())
 
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
@@ -417,6 +602,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
@@ -435,6 +621,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     @property
     def is_terminal(self) -> bool:
@@ -599,6 +786,11 @@ class SandboxEnvironment(UUIDModel):
         help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
     )
 
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -695,3 +887,21 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+@receiver(post_save, sender=TaskRun)
+def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs):
+    try:
+        if (
+            not created
+            and instance.status == TaskRun.Status.COMPLETED
+            and instance.output
+            and instance.task.json_schema
+        ):
+            instance.track_structured_result()
+    except Exception as e:
+        logger.warning(
+            "task_run.track_task_run_completion_failed",
+            task_run_id=str(instance.id),
+            error=str(e),
+        )

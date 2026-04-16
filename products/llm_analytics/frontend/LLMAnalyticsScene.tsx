@@ -163,7 +163,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
                     <div className="text-center p-8">
-                        <Spinner />
+                        <Spinner captureTime />
                     </div>
                 ) : (
                     <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
@@ -194,7 +194,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
         const columns =
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
-                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
@@ -229,7 +228,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 ...generationsQuery,
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),
@@ -289,6 +287,22 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 </strong>
                             )
                         },
+                    },
+                    'properties.$ai_input[-1]': {
+                        ...llmAnalyticsColumnRenderers['properties.$ai_input[-1]'],
+                        renderTitle: () => (
+                            <Tooltip title="The last message in the input array sent to the LLM for this generation.">
+                                <span>Input</span>
+                            </Tooltip>
+                        ),
+                    },
+                    'properties.$ai_output_choices': {
+                        ...llmAnalyticsColumnRenderers['properties.$ai_output_choices'],
+                        renderTitle: () => (
+                            <Tooltip title="The LLM's response for this generation.">
+                                <span>Output</span>
+                            </Tooltip>
+                        ),
                     },
                     person: llmAnalyticsColumnRenderers.person,
                     "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
@@ -383,7 +397,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
     traces: 'https://posthog.com/docs/llm-analytics/traces',
-    reviews: 'https://posthog.com/docs/llm-analytics',
+    reviews: 'https://posthog.com/docs/llm-analytics/trace-reviews',
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
@@ -394,7 +408,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
-    reviews: 'Organize pending traces into queues and manage the scoring setup for human reviews.',
+    reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
@@ -464,7 +478,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     useAppShortcut({
         name: 'LLMAnalyticsTab3',
         keybind: [keyBinds.tab3],
-        intent: isTraceReviewEnabled ? 'Go to Human reviews' : 'Go to Generations',
+        intent: isTraceReviewEnabled ? 'Go to Reviews' : 'Go to Generations',
         interaction: 'function',
         callback: () =>
             push(
@@ -522,14 +536,14 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ? [
                   {
                       key: 'reviews',
-                      label: 'Human reviews',
+                      label: 'Reviews',
                       content: (
                           <LLMAnalyticsSetupPrompt thing="trace">
                               <LLMAnalyticsHumanReviews />
                           </LLMAnalyticsSetupPrompt>
                       ),
                       link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
-                      'data-attr': 'reviews-tab',
+                      'data-attr': 'llma-reviews-tab',
                   } as LemonTab<string>,
               ]
             : []),

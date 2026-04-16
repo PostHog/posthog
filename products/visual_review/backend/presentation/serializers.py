@@ -14,7 +14,6 @@ from ..facade.contracts import (
     ApproveSnapshotInput,
     Artifact,
     AutoApproveResult,
-    CompleteRunInput,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
@@ -24,6 +23,7 @@ from ..facade.contracts import (
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
+    ToleratedHashEntry,
     UpdateRepoRequestInput,
     UploadTarget,
 )
@@ -106,11 +106,6 @@ class AddSnapshotsResultSerializer(DataclassSerializer):
         dataclass = AddSnapshotsResult
 
 
-class CompleteRunInputSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = CompleteRunInput
-
-
 class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = UpdateRepoRequestInput
@@ -129,6 +124,15 @@ class ApproveRunInputSerializer(DataclassSerializer):
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     class Meta:
         dataclass = SnapshotHistoryEntry
+
+
+class ToleratedHashEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ToleratedHashEntry
+
+
+class MarkToleratedInputSerializer(serializers.Serializer):
+    snapshot_id = serializers.UUIDField()
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

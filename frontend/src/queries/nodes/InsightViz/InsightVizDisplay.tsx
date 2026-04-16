@@ -11,6 +11,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     BoxPlotMissingPropertyState,
+    FunnelDataWarehouseStepIncompleteState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
@@ -25,6 +26,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
@@ -38,7 +40,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -130,14 +132,12 @@ export function InsightVizDisplay({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
         hasDetailedResultsTable,
         showLegend,
         hasFormula,
-        funnelsFilter,
         supportsDisplay,
         samplingFactor,
         insightDataLoading,
@@ -149,10 +149,16 @@ export function InsightVizDisplay({
         display,
         series,
         insightData,
+        validationError,
+        theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+        useValues(funnelDataLogic(insightProps))
+
+    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -168,8 +174,21 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+        if (
+            display === ChartDisplayType.BoxPlot &&
+            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)
+        ) {
             return <BoxPlotMissingPropertyState />
+        }
+
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (isFunnelWithIncompleteDataWarehouseStep) {
+                return <FunnelDataWarehouseStepIncompleteState />
+            }
+
+            if (!isFunnelWithEnoughSteps) {
+                return <FunnelSingleStepState actionable={actionable} />
+            }
         }
 
         if (validationError) {
@@ -228,12 +247,8 @@ export function InsightVizDisplay({
             return <InsightRefreshDataHint onRetry={onRetry} />
         }
 
-        if (activeView === InsightType.FUNNELS) {
-            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
-            if (!isFunnelWithEnoughSteps && !isFlowViz) {
-                return <FunnelSingleStepState actionable={!embedded && editMode} />
-            }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
@@ -351,6 +366,7 @@ export function InsightVizDisplay({
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
                         isLegend={display !== ChartDisplayType.WorldMap}
+                        embedded={embedded}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}
@@ -440,7 +456,7 @@ export function InsightVizDisplay({
                             ) : supportsDisplay && showLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right">
+                                    <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>

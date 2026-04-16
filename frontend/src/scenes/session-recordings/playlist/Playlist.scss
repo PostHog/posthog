@@ -24,6 +24,7 @@
     flex: 1;
     height: calc(100vh - 12rem);
     min-height: 25rem;
+    max-height: calc(100vh - 12rem); // Prevent growth beyond initial height
 }
 
 .SessionRecordingPreview {

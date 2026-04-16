@@ -167,7 +167,7 @@ class TestRunOperations:
         assert len(uploads) == 1
         assert uploads[0]["content_hash"] == "new"
 
-    def test_create_run_with_baselines(self, repo):
+    def test_create_run_with_baselines(self, repo, mocker):
         baseline_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="baseline_hash", storage_path="p/baseline"
         )
@@ -183,12 +183,20 @@ class TestRunOperations:
             baseline_hashes={"Button": "baseline_hash"},
         )
 
+        # Classification happens at complete_run time, not create_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "baseline_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
         snapshot = run.snapshots.first()
         assert snapshot is not None
         assert snapshot.baseline_artifact_id == baseline_artifact.id
         assert snapshot.result == SnapshotResult.CHANGED
 
-    def test_create_run_snapshot_results(self, repo):
+    def test_create_run_snapshot_results(self, repo, mocker):
         baseline_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="same_hash", storage_path="p/same"
         )
@@ -211,38 +219,20 @@ class TestRunOperations:
             },
         )
 
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"unchanged": "same_hash", "changed": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
         snapshots = {s.identifier: s for s in run.snapshots.all()}
         assert snapshots["unchanged"].result == SnapshotResult.UNCHANGED
         assert snapshots["new"].result == SnapshotResult.NEW
         assert snapshots["changed"].result == SnapshotResult.CHANGED
 
-    def test_create_run_delta_mode(self, repo):
-        run, uploads = logic.create_run(
-            repo_id=repo.id,
-            team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "changed", "content_hash": "new_hash"},
-                {"identifier": "added", "content_hash": "brand_new"},
-            ],
-            baseline_hashes={"changed": "old_hash"},
-            unchanged_count=100,
-            removed_identifiers=["deleted_snapshot"],
-        )
-
-        assert run.total_snapshots == 102  # 2 sent + 100 unchanged (removed not counted in total)
-        assert run.changed_count == 1
-        assert run.new_count == 1
-        assert run.removed_count == 1
-        # Only 3 RunSnapshot rows: changed, added, removed (not 100 unchanged)
-        assert run.snapshots.count() == 3
-        removed = run.snapshots.get(identifier="deleted_snapshot")
-        assert removed.result == SnapshotResult.REMOVED
-
-    def test_create_run_delta_clean(self, repo):
+    def test_create_run_empty(self, repo):
         run, uploads = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -251,11 +241,9 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
-            unchanged_count=3083,
         )
 
-        assert run.total_snapshots == 3083
+        assert run.total_snapshots == 0
         assert run.changed_count == 0
         assert run.new_count == 0
         assert run.removed_count == 0
@@ -263,7 +251,7 @@ class TestRunOperations:
         assert len(uploads) == 0
 
     def test_add_snapshots_to_run(self, repo):
-        run, uploads = logic.create_run(
+        run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
@@ -271,7 +259,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
         )
         assert run.total_snapshots == 0
 
@@ -280,12 +267,10 @@ class TestRunOperations:
             run_id=run.id,
             team_id=repo.team_id,
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-            baseline_hashes={},
-            unchanged_count=50,
         )
         assert added == 1
         run.refresh_from_db()
-        assert run.total_snapshots == 51
+        assert run.total_snapshots == 1
         assert run.new_count == 1
 
         # Shard 2
@@ -293,12 +278,10 @@ class TestRunOperations:
             run_id=run.id,
             team_id=repo.team_id,
             snapshots=[{"identifier": "card", "content_hash": "h2"}],
-            baseline_hashes={},
-            unchanged_count=49,
         )
         assert added == 1
         run.refresh_from_db()
-        assert run.total_snapshots == 101
+        assert run.total_snapshots == 2
         assert run.new_count == 2
         assert run.snapshots.count() == 2
 
@@ -311,7 +294,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
         )
 
         for _ in range(2):
@@ -319,7 +301,6 @@ class TestRunOperations:
                 run_id=run.id,
                 team_id=repo.team_id,
                 snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-                baseline_hashes={},
             )
 
         assert run.snapshots.count() == 1
@@ -333,7 +314,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
         )
         logic.mark_run_completed(run.id)
 
@@ -342,8 +322,30 @@ class TestRunOperations:
                 run_id=run.id,
                 team_id=repo.team_id,
                 snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-                baseline_hashes={},
             )
+
+    def test_complete_run_detects_removals(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+        )
+
+        # Mock baseline to include an identifier not in the run
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"kept": "h1", "deleted": "h2"},
+        )
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 1
+        removed = run.snapshots.get(identifier="deleted")
+        assert removed.result == SnapshotResult.REMOVED
 
     def test_create_run_with_purpose(self, repo):
         run, _ = logic.create_run(
@@ -354,7 +356,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
             purpose="observe",
         )
         assert run.purpose == "observe"
@@ -368,7 +369,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-            baseline_hashes={},
             purpose="observe",
         )
         logic.mark_run_completed(run.id)
@@ -418,7 +418,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_mark_run_completed_success(self, repo):
+    def test_mark_run_completed_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -433,6 +433,16 @@ class TestRunOperations:
             baseline_hashes={"changed1": "old"},
         )
 
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"changed1": "old"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
+        # complete_run leaves the run in PROCESSING when there are changes;
+        # mark_run_completed finalizes it
         updated = logic.mark_run_completed(run.id)
 
         assert updated.status == RunStatus.COMPLETED
@@ -458,6 +468,40 @@ class TestRunOperations:
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
 
+    def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
+
+        snapshot_queryset = mocker.Mock()
+        snapshot_queryset.values.return_value.annotate.return_value = [
+            {"result": SnapshotResult.CHANGED, "n": 2},
+            {"result": SnapshotResult.NEW, "n": 1},
+        ]
+        snapshot_manager = mocker.Mock()
+        snapshot_manager.filter.return_value = snapshot_queryset
+
+        run_snapshot_using = mocker.patch.object(logic.RunSnapshot.objects, "using", return_value=snapshot_manager)
+        run_save = mocker.patch.object(run, "save")
+
+        logic._update_run_counts(run, using=logic.WRITER_DB)
+
+        run_snapshot_using.assert_called_once_with(logic.WRITER_DB)
+        snapshot_manager.filter.assert_called_once_with(run_id=run.id)
+        run_save.assert_called_once_with(
+            using=logic.WRITER_DB, update_fields=["changed_count", "new_count", "removed_count"]
+        )
+        assert run.changed_count == 2
+        assert run.new_count == 1
+        assert run.removed_count == 0
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRun:
@@ -465,7 +509,7 @@ class TestApproveRun:
     def repo(self, team):
         return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
-    def test_approve_run(self, repo, user):
+    def test_approve_run(self, repo, user, mocker):
         current_artifact, _ = logic.get_or_create_artifact(
             repo_id=repo.id, content_hash="new_hash", storage_path="p/new"
         )
@@ -479,6 +523,15 @@ class TestApproveRun:
             snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
             baseline_hashes={"Button": "old_hash"},
         )
+
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"Button": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.mark_run_completed(run.id)
 
         updated = logic.approve_run(
             run_id=run.id,
@@ -498,6 +551,185 @@ class TestApproveRun:
         assert snapshot.approved_hash == "new_hash"  # Approval recorded
         assert snapshot.reviewed_at is not None
         assert snapshot.reviewed_by_id == user.id
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestApproveSnapshots:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=99998, repo_full_name="org/test-snap")
+
+    def test_approve_single_snapshot_db_only(self, repo, user, mocker):
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="new_hash", storage_path="p/new")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
+            baseline_hashes={"Button": "old_hash"},
+        )
+        mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "old_hash"})
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.mark_run_completed(run.id)
+
+        updated = logic.approve_snapshots(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "Button", "new_hash": "new_hash"}],
+        )
+
+        snapshot = updated.snapshots.first()
+        assert snapshot is not None
+        assert snapshot.review_state == "approved"
+        assert snapshot.approved_hash == "new_hash"
+
+        # Run-level state should NOT change
+        assert updated.approved is False
+        assert updated.review_decision == "pending"
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestToleratedHashes:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=99997, repo_full_name="org/test-tol")
+
+    def _create_completed_run(
+        self, repo, mocker, identifier="Button", current_hash="new_hash", baseline_hash="old_hash"
+    ):
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash=current_hash, storage_path=f"p/{current_hash}")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": identifier, "content_hash": current_hash}],
+            baseline_hashes={identifier: baseline_hash},
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines", return_value={identifier: baseline_hash}
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.mark_run_completed(run.id)
+        return run
+
+    def test_mark_snapshot_as_tolerated(self, repo, user, mocker):
+        run = self._create_completed_run(repo, mocker)
+        snapshot = run.snapshots.first()
+        assert snapshot.result == SnapshotResult.CHANGED
+
+        updated = logic.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
+
+        assert updated.result == SnapshotResult.CHANGED  # result stays technical truth
+        assert updated.review_state == "tolerated"
+        assert updated.reviewed_by_id == user.id
+        assert updated.tolerated_hash_match is not None
+        assert updated.tolerated_hash_match.alternate_hash == "new_hash"
+        assert updated.tolerated_hash_match.baseline_hash == "old_hash"
+        assert updated.tolerated_hash_match.reason == "human"
+
+    def test_mark_unchanged_snapshot_rejected(self, repo, user, mocker):
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="same", storage_path="p/same")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "Button", "content_hash": "same"}],
+            baseline_hashes={"Button": "same"},
+        )
+        mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "same"})
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.mark_run_completed(run.id)
+
+        snapshot = run.snapshots.first()
+        assert snapshot is not None
+        with pytest.raises(ValueError, match="Can only mark CHANGED"):
+            logic.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
+
+    def test_tolerated_hash_shortcircuits_classification(self, repo, user, mocker):
+        from products.visual_review.backend.models import ToleratedHash
+
+        # Create a tolerated hash entry
+        ToleratedHash.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            identifier="Button",
+            baseline_hash="old_hash",
+            alternate_hash="new_hash",
+            reason="auto_threshold",
+        )
+
+        # Run with the same hashes — should be classified UNCHANGED via cache
+        run = self._create_completed_run(repo, mocker)
+        snapshot = run.snapshots.first()
+
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == "tolerated_hash"
+        assert snapshot.tolerated_hash_match is not None
+
+    def test_tolerated_hash_expires_on_baseline_change(self, repo, user, mocker):
+        from products.visual_review.backend.models import ToleratedHash
+
+        # Tolerated hash tied to OLD baseline
+        ToleratedHash.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            identifier="Button",
+            baseline_hash="old_hash",
+            alternate_hash="new_hash",
+            reason="auto_threshold",
+        )
+
+        # Run with a DIFFERENT baseline — tolerated hash should not match
+        run = self._create_completed_run(repo, mocker, baseline_hash="updated_baseline")
+        snapshot = run.snapshots.first()
+
+        assert snapshot.result == SnapshotResult.CHANGED
+        assert snapshot.classification_reason == ""
+        assert snapshot.tolerated_hash_match is None
+
+    def test_get_tolerated_hashes_for_identifier(self, repo):
+        from products.visual_review.backend.models import ToleratedHash
+
+        ToleratedHash.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            identifier="Button",
+            baseline_hash="b1",
+            alternate_hash="c1",
+            reason="auto_threshold",
+        )
+        ToleratedHash.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            identifier="Button",
+            baseline_hash="b1",
+            alternate_hash="c2",
+            reason="human",
+        )
+        ToleratedHash.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            identifier="Other",
+            baseline_hash="b1",
+            alternate_hash="c3",
+            reason="auto_threshold",
+        )
+
+        results = logic.get_tolerated_hashes_for_identifier(repo.id, "Button")
+        assert len(results) == 2
+        assert {r.alternate_hash for r in results} == {"c1", "c2"}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -560,7 +792,7 @@ class TestCommitStatusChecks:
         assert check["context"] == "PostHog Visual Review / storybook"
         assert f"/visual_review/runs/{run.id}" in check["target_url"]
 
-    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api):
+    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
             team_id=github_repo.team_id,
@@ -572,13 +804,17 @@ class TestCommitStatusChecks:
             baseline_hashes={"snap": "same"},
         )
 
-        logic.mark_run_completed(run.id)
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"snap": "same"},
+        )
+        logic.complete_run(run.id)
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert "No visual changes" in statuses[-1]["description"]
 
-    def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api):
+    def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api, mocker):
         github_repo.enable_pr_comments = True
         github_repo.save(update_fields=["enable_pr_comments"])
 
@@ -596,6 +832,12 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"changed": "old_h"},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
         logic.mark_run_completed(run.id)
 
         statuses = mock_github_api.status_checks
@@ -677,11 +919,17 @@ class TestCommitStatusChecks:
         ids=["toggle_off", "no_pr", "no_changes", "observe_purpose"],
     )
     def test_complete_run_does_not_comment(
-        self, enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose, github_repo, mock_github_api
+        self, enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose, github_repo, mock_github_api, mocker
     ):
         if enable_pr_comments:
             github_repo.enable_pr_comments = True
             github_repo.save(update_fields=["enable_pr_comments"])
+
+        # Mock baseline for classification at complete time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value=dict(baseline_hashes),
+        )
 
         run, _ = logic.create_run(
             repo_id=github_repo.id,
@@ -695,7 +943,7 @@ class TestCommitStatusChecks:
             purpose=purpose,
         )
 
-        logic.mark_run_completed(run.id)
+        logic.complete_run(run.id)
 
         assert len(mock_github_api.issue_comments) == 0
 
@@ -735,7 +983,6 @@ class TestCommitStatusChecks:
             run_id=run.id,
             user_id=user.id,
             approved_snapshots=[{"identifier": "snap", "new_hash": "new_h"}],
-            commit_to_github=False,
         )
 
         statuses = mock_github_api.status_checks
@@ -915,7 +1162,7 @@ class TestRunSupersession:
         clean = list(logic.list_runs_for_team(team.id, review_state="clean"))
         assert any(r.id == first.id for r in clean)
 
-    def test_clean_run_superseded_but_stays_clean(self, repo, team):
+    def test_clean_run_superseded_but_stays_clean(self, repo, team, mocker):
         clean_run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -926,7 +1173,13 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": "same"}],
             baseline_hashes={"snap": "same"},
         )
-        logic.mark_run_completed(clean_run.id)
+
+        # Classification happens at complete_run time
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"snap": "same"},
+        )
+        logic.complete_run(clean_run.id)
 
         self._create_run(repo, commit_sha="next")
 

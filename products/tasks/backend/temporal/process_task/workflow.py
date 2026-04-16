@@ -14,23 +14,30 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
 from .activities.forward_pending_message import forward_pending_user_message
-from .activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryInput,
-    GetSandboxForRepositoryOutput,
-    get_sandbox_for_repository,
-)
+from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     get_task_processing_context,
 )
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
+from .activities.provision_sandbox import (
+    CheckoutBranchInSandboxInput,
+    CloneRepositoryInSandboxInput,
+    CreateSandboxForRepositoryInput,
+    PrepareSandboxForRepositoryInput,
+    checkout_branch_in_sandbox,
+    clone_repository_in_sandbox,
+    create_sandbox_for_repository,
+    prepare_sandbox_for_repository,
+)
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
@@ -55,7 +62,7 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
-INACTIVITY_TIMEOUT_MINUTES = 5
+INACTIVITY_TIMEOUT_MINUTES = 30
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
 
@@ -65,6 +72,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._context: Optional[TaskProcessingContext] = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
         self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
+        self._sandbox_id_for_cleanup: Optional[str] = None
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
@@ -93,6 +101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         sandbox_cleaned = False
         timed_out = False
         run_id = input.run_id
+        self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
 
         try:
@@ -101,7 +110,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
-                "process_task_workflow_started",
+                "task_run_started",
                 {
                     "run_id": run_id,
                     "task_id": self.context.task_id,
@@ -125,24 +134,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_server_output = await self._start_agent_server(sandbox_output)
 
             await self._track_workflow_event(
-                "process_task_agent_server_started",
+                "sandbox_started",
                 {
+                    "run_id": run_id,
                     "task_id": self.context.task_id,
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
+                    "repository": self.context.repository,
                 },
             )
 
-            if self._context and self._context.mode == "interactive":
-                relay_task = asyncio.ensure_future(
-                    self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
-                )
-            else:
-                relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
+            relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
 
-            is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
-            if not is_resume:
+            if self._should_forward_pending_user_message():
                 try:
                     await self._forward_pending_user_message()
                 except Exception as e:
@@ -193,23 +198,36 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         except asyncio.CancelledError:
+            current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
+            if self._context:
+                await self._track_workflow_event(
+                    "task_run_cancelled",
+                    {
+                        "run_id": run_id,
+                        "task_id": self.context.task_id,
+                        "repository": self.context.repository,
+                        "team_id": self.context.team_id,
+                    },
+                )
             await self._update_task_run_status("cancelled")
-            if sandbox_id:
-                await self._cleanup_sandbox(sandbox_id)
+            if current_sandbox_id:
+                await self._cleanup_sandbox(current_sandbox_id)
                 sandbox_id = None
+                self._sandbox_id_for_cleanup = None
             raise
 
         except Exception as e:
+            current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             error_message = str(e)[:500]
             if self._context:
                 await self._track_workflow_event(
-                    "process_task_workflow_failed",
+                    "task_run_failed",
                     {
                         "run_id": run_id,
                         "task_id": self.context.task_id,
                         "error_type": type(e).__name__,
                         "error_message": error_message,
-                        "sandbox_id": sandbox_id,
+                        "sandbox_id": current_sandbox_id,
                     },
                 )
                 await self._update_task_run_status("failed", error_message=error_message)
@@ -219,18 +237,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 success=False,
                 task_result=None,
                 error=str(e),
-                sandbox_id=sandbox_id,
+                sandbox_id=current_sandbox_id,
             )
 
         finally:
-            if sandbox_id:
+            cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
+            if cleanup_sandbox_id:
                 # Create a resume snapshot for interactive sandboxes before cleanup
                 if self._context and self._context.mode == "interactive":
-                    await self._create_resume_snapshot(sandbox_id)
+                    await self._create_resume_snapshot(cleanup_sandbox_id)
 
-                await self._read_sandbox_logs(sandbox_id)
-                await self._cleanup_sandbox(sandbox_id)
+                await self._read_sandbox_logs(cleanup_sandbox_id)
+                await self._cleanup_sandbox(cleanup_sandbox_id)
                 sandbox_cleaned = True
+                self._sandbox_id_for_cleanup = None
 
             if sandbox_cleaned and self._slack_thread_context and self._context:
                 await self._post_slack_update(sandbox_cleaned=True)
@@ -244,11 +264,60 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _get_sandbox_for_repository(self) -> GetSandboxForRepositoryOutput:
-        return await workflow.execute_activity(
-            get_sandbox_for_repository,
-            GetSandboxForRepositoryInput(context=self.context),
+        prepared = await workflow.execute_activity(
+            prepare_sandbox_for_repository,
+            PrepareSandboxForRepositoryInput(context=self.context),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        created = await workflow.execute_activity(
+            create_sandbox_for_repository,
+            CreateSandboxForRepositoryInput(context=self.context, prepared=prepared),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        self._sandbox_id_for_cleanup = created.sandbox_id
+
+        can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
+        has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
+
+        if prepared.repository and not prepared.used_snapshot and has_clone_credentials:
+            await workflow.execute_activity(
+                clone_repository_in_sandbox,
+                CloneRepositoryInSandboxInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    repository=prepared.repository,
+                    github_token=prepared.github_token,
+                    shallow_clone=prepared.shallow_clone,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+        if prepared.repository and prepared.branch and has_clone_credentials:
+            await workflow.execute_activity(
+                checkout_branch_in_sandbox,
+                CheckoutBranchInSandboxInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    repository=prepared.repository,
+                    branch=prepared.branch,
+                    github_token=prepared.github_token,
+                    shallow_clone=prepared.shallow_clone,
+                    used_snapshot=prepared.used_snapshot,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+        return GetSandboxForRepositoryOutput(
+            sandbox_id=created.sandbox_id,
+            sandbox_url=created.sandbox_url,
+            connect_token=created.connect_token,
+            used_snapshot=prepared.used_snapshot,
+            should_create_snapshot=prepared.should_create_snapshot,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -295,11 +364,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
+    def _should_forward_pending_user_message(self) -> bool:
+        if not self._context:
+            return False
+
+        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        return self.context.mode != "interactive" and not is_resume
+
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
         track_input = TrackWorkflowEventInput(
             event_name=event_name,
             distinct_id=self.context.distinct_id,
             properties=properties,
+            groups={
+                "organization": self.context.organization_id,
+                "project": self.context.team_uuid,
+            },
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -426,9 +506,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def send_followup_message(self, message: str) -> None:
+        # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
+        # log below — gaps between the two point at workflow-loop backpressure.
+        workflow.logger.info(
+            "send_followup_signal_received",
+            run_id=self.context.run_id,
+            message_length=len(message),
+        )
         self._pending_followup = message
 
     async def _send_followup_to_sandbox(self, message: str) -> None:
+        workflow.logger.info(
+            "send_followup_dispatch_begin",
+            run_id=self.context.run_id,
+            message_length=len(message),
+        )
         try:
             await workflow.execute_activity(
                 send_followup_to_sandbox,

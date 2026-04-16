@@ -8,6 +8,7 @@ export enum SignalSourceProduct {
     GITHUB = 'github',
     LINEAR = 'linear',
     ZENDESK = 'zendesk',
+    CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
 }
 
@@ -141,6 +142,27 @@ export interface LinearIssueSignalInput {
     extra: LinearIssueSignalExtra
 }
 
+// Conversations ticket
+
+export interface ConversationsTicketSignalExtra {
+    ticket_number: number
+    channel_source: string
+    channel_detail: string | null
+    status: string
+    priority: string | null
+    created_at: string
+    email_subject: string | null
+}
+
+export interface ConversationsTicketSignalInput {
+    source_type: 'ticket'
+    source_product: 'conversations'
+    source_id: string
+    description: string
+    weight: number
+    extra: ConversationsTicketSignalExtra
+}
+
 // Error tracking
 
 export interface ErrorTrackingSignalExtra {
@@ -156,7 +178,30 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
-// Discriminated union over all signal variants
+// ── Report reviewer types ────────────────────────────────────────────────────────
+
+export interface RelevantCommit {
+    sha: string
+    url: string
+    reason: string
+}
+
+export interface SignalReviewerUserInfo {
+    id: number
+    uuid: string
+    first_name: string
+    last_name: string
+    email: string
+}
+
+export interface EnrichedReviewer {
+    github_login: string
+    github_name: string | null
+    relevant_commits: RelevantCommit[]
+    user: SignalReviewerUserInfo | null
+}
+
+// ── Discriminated union over all signal variants ─────────────────────────────────
 
 /** @discriminator source_product */
 export type SignalInput =
@@ -165,4 +210,5 @@ export type SignalInput =
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput

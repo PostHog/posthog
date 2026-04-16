@@ -23,10 +23,14 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams
+const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
+    search: FeatureFlagsListQueryParams.shape['search'].describe(
+        'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+    ),
+})
 
 const featureFlagGetAll = (): ToolBase<
     typeof FeatureFlagGetAllSchema,
@@ -38,7 +42,7 @@ const featureFlagGetAll = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedFeatureFlagList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             query: {
                 active: params.active,
                 created_by_id: params.created_by_id,
@@ -52,12 +56,18 @@ const featureFlagGetAll = (): ToolBase<
                 type: params.type,
             },
         })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+            ),
+        } as typeof result
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...filtered,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
                 ),
             },
             '/feature_flags'
@@ -77,7 +87,7 @@ const featureFlagGetDefinition = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
     },
@@ -111,7 +121,7 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
-            path: `/api/projects/${projectId}/feature_flags/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             body,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
@@ -148,7 +158,7 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
@@ -164,7 +174,7 @@ const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.F
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
@@ -185,7 +195,7 @@ const featureFlagsActivityRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/activity/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/activity/`,
             query: {
                 limit: params.limit,
                 page: params.page,
@@ -207,7 +217,7 @@ const featureFlagsDependentFlagsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DependentFlag[]>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/dependent_flags/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/dependent_flags/`,
         })
         return result
     },
@@ -225,7 +235,7 @@ const featureFlagsStatusRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlagStatusResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/status/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/status/`,
         })
         return result
     },
@@ -243,7 +253,7 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/evaluation_reasons/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/evaluation_reasons/`,
             query: {
                 distinct_id: params.distinct_id,
                 groups: params.groups,
@@ -272,7 +282,7 @@ const featureFlagsUserBlastRadiusCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.UserBlastRadiusResponse>({
             method: 'POST',
-            path: `/api/projects/${projectId}/feature_flags/user_blast_radius/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/user_blast_radius/`,
             body,
         })
         return result
@@ -304,14 +314,21 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
-            path: `/api/organizations/${orgId}/feature_flags/copy_flags/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,
             body,
         })
         return result
     },
 })
 
-const ScheduledChangesListSchema = ScheduledChangesListQueryParams
+const ScheduledChangesListSchema = ScheduledChangesListQueryParams.extend({
+    model_name: ScheduledChangesListQueryParams.shape['model_name'].describe(
+        'Filter by model type. Use "FeatureFlag" to see feature flag schedules.'
+    ),
+    record_id: ScheduledChangesListQueryParams.shape['record_id'].describe(
+        'Filter by the ID of a specific feature flag.'
+    ),
+})
 
 const scheduledChangesList = (): ToolBase<
     typeof ScheduledChangesListSchema,
@@ -323,7 +340,7 @@ const scheduledChangesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedScheduledChangeList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/scheduled_changes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/`,
             query: {
                 limit: params.limit,
                 model_name: params.model_name,
@@ -344,7 +361,7 @@ const scheduledChangesGet = (): ToolBase<typeof ScheduledChangesGetSchema, Schem
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScheduledChange>({
             method: 'GET',
-            path: `/api/projects/${projectId}/scheduled_changes/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -384,7 +401,7 @@ const scheduledChangesCreate = (): ToolBase<typeof ScheduledChangesCreateSchema,
         }
         const result = await context.api.request<Schemas.ScheduledChange>({
             method: 'POST',
-            path: `/api/projects/${projectId}/scheduled_changes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/`,
             body,
         })
         return result
@@ -427,7 +444,7 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
         }
         const result = await context.api.request<Schemas.ScheduledChange>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/scheduled_changes/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -443,7 +460,7 @@ const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/scheduled_changes/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },

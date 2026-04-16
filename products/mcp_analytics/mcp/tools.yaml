@@ -1,0 +1,42 @@
+category: MCP analytics
+feature: mcp_analytics
+url_prefix: /mcp-analytics
+tools:
+    mcp-feedback-submit:
+        operation: mcp_analytics_feedback_create
+        enabled: false
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        include_params:
+            - goal
+            - feedback
+            - category
+            - attempted_tool
+        title: Submit MCP feedback
+        description: >
+            Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this
+            when the available tools worked but the experience was confusing, incomplete, or could be improved.
+    mcp-feedback-list:
+        operation: mcp_analytics_feedback_list
+        enabled: false
+    mcp-missing-capability-report:
+        operation: mcp_analytics_missing_capabilities_create
+        enabled: false
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        include_params:
+            - goal
+            - missing_capability
+            - blocked
+            - attempted_tool
+        title: Report missing capability
+        description: >
+            Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool,
+            missing workflow support, or missing explanation blocks progress.
+    mcp-missing-capability-list:
+        operation: mcp_analytics_missing_capabilities_list
+        enabled: false

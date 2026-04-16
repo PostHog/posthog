@@ -47,6 +47,11 @@ export type ProductIntroductionProps = {
      * viewport for breakpoints so layout responds when the side panel narrows the main column.
      */
     useMainContentContainerQueries?: boolean
+    /**
+     * Optional classes for the copy + actions column (hog + this column are siblings). Default `max-w-140`; override
+     * for wide empty states (e.g. template grids). Passed through `cn` with tailwind-merge so `max-w-*` replaces default.
+     */
+    contentClassName?: string
 }
 
 export const ProductIntroduction = ({
@@ -64,6 +69,7 @@ export const ProductIntroduction = ({
     className,
     hogLayout = 'default',
     useMainContentContainerQueries = false,
+    contentClassName,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -144,7 +150,8 @@ export const ProductIntroduction = ({
                         isResponsiveHogLayout &&
                             (useMainContentContainerQueries
                                 ? 'w-full text-center @min-[48rem]/main-content:text-left'
-                                : 'w-full text-center md:text-left')
+                                : 'w-full text-center md:text-left'),
+                        contentClassName
                     )}
                 >
                     <h2>

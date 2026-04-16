@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
@@ -92,8 +93,15 @@ func (m Model) renderSidebar() string {
 		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
-		cpuPct := p.CPUPercent()
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.servicesCursor,
+			unread:    p.Unread(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	if canScrollDown {
@@ -105,11 +113,7 @@ func (m Model) renderSidebar() string {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	style := borderStyle
-	if m.focusedPane == focusServices {
-		style = borderFocusedStyle
-	}
-	return style.Height(h).Render(strings.Join(rows, "\n"))
+	return borderFor(m.isDark, m.focusedPane == focusServices).Height(h).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) sidebarHeight() int {
@@ -167,12 +171,11 @@ func (m *Model) ensureSidebarCursorVisible() {
 }
 
 func (m Model) renderOutput() string {
-	var style = borderStyle
-	if m.focusedPane == focusOutput {
-		style = borderFocusedStyle
-	}
 	content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
-	return style.Render(content)
+	if m.isFullScreen() {
+		return content
+	}
+	return borderFor(m.isDark, m.focusedPane == focusOutput).Render(content)
 }
 
 // Overlays a -line counter in the top-right corner of the viewport
@@ -230,17 +233,44 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
+	} else if m.filterMode {
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if count := m.viewport.TotalLineCount(); count == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d lines]", count)
+			}
+		}
+		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("| %s▌%s", m.searchQuery, matchInfo))
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.FilterModeHelp()))
 	} else if m.searchMode {
-		var matchInfo string
-		if m.searchQuery == "" {
-			matchInfo = ""
-		} else if len(m.searchMatches) == 0 {
-			matchInfo = "  [no matches]"
-		} else {
-			matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if len(m.searchMatches) == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+			}
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
-		return footerStyle.Width(m.width - 2).Render(prompt)
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.SearchModeHelp()))
+	} else if m.setupMode {
+		var hint string
+		if m.setupError != "" {
+			escAction := "cancel"
+			if m.setupStep == 2 {
+				escAction = "back"
+			}
+			hint = "-- SETUP --  " + m.setupError + "  esc: " + escAction
+		} else if m.setupStep == 1 {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
+		} else {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & apply  esc: back"
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
+		)
 	}
 
 	if m.searchQuery != "" {
@@ -266,6 +296,15 @@ func (m Model) renderFooter() string {
 	return footerStyle.Width(m.width - 2).Render(content)
 }
 
+// Joins a prompt line with a help bar, or returns the prompt alone when help
+// is hidden — keeps search/filter footer height consistent with footerHeight().
+func (m Model) joinPromptWithHelp(prompt string, helpBindings []key.Binding) string {
+	if m.hideHelp {
+		return prompt
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, prompt, m.help.ShortHelpView(helpBindings))
+}
+
 // Rebuilds the info content and sets it on the viewport.
 func (m *Model) refreshInfoContent() {
 	info := m.renderInfo()
@@ -281,8 +320,8 @@ func (m Model) renderInfo() string {
 	snap := p.Snapshot()
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorYellow)
-	labelStyle := lipgloss.NewStyle().Foreground(colorGrey).Width(20)
-	valueStyle := lipgloss.NewStyle().Foreground(colorWhite)
+	labelStyle := lipgloss.NewStyle().Foreground(colorBrightBlack).Width(20)
+	valueStyle := lipgloss.NewStyle()
 
 	row := func(label, value string) string {
 		return labelStyle.Render(label) + valueStyle.Render(value)

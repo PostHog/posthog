@@ -1215,7 +1215,7 @@ export const MultiVisualizationInThread: Story = {
         // Mock the queries endpoint to return dummy data
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/query/': () => [
+                '/api/environments/:team_id/query/:kind/': () => [
                     200,
                     {
                         results: [[100, 120, 130, 140, 150]],
@@ -2558,6 +2558,14 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
                     { value: 'Increasing conversion' },
                     { value: 'Boosting engagement' },
                 ],
+                allow_custom_answer: false,
+            },
+            {
+                id: 'focus_areas',
+                question: 'Which areas should I cover?',
+                title: 'Focus',
+                type: 'multi_select',
+                options: [{ value: 'Acquisition' }, { value: 'Engagement' }, { value: 'Retention' }],
                 allow_custom_answer: false,
             },
             {

@@ -1,12 +1,16 @@
 import json
+from uuid import UUID
 
-from posthog.schema import DateRange, ErrorTrackingQuery, OrderBy1
+from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade import (
+    api as error_tracking_api,
+    types as error_tracking_types,
+)
 
 from .prompts import ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE
 
@@ -30,12 +34,20 @@ class ErrorTrackingIssueContext:
         self._issue_id = issue_id
         self._issue_name = issue_name
 
-    async def aget_issue(self) -> ErrorTrackingIssue | None:
-        """Fetch the issue from the database using async."""
+    def _get_issue_sync(self) -> error_tracking_types.ErrorTrackingIssue | None:
         try:
-            return await ErrorTrackingIssue.objects.aget(id=self._issue_id, team=self._team)
-        except ErrorTrackingIssue.DoesNotExist:
+            issue_id = UUID(self._issue_id)
+        except ValueError:
             return None
+
+        try:
+            return error_tracking_api.get_issue(issue_id=issue_id, team_id=self._team.id)
+        except error_tracking_api.IssueNotFoundError:
+            return None
+
+    async def aget_issue(self) -> error_tracking_types.ErrorTrackingIssue | None:
+        """Fetch the issue from the error tracking facade using async."""
+        return await database_sync_to_async(self._get_issue_sync)()
 
     async def aget_first_event(self) -> dict | None:
         """Fetch the first event for the issue to get stack trace data."""
@@ -47,7 +59,7 @@ class ErrorTrackingIssueContext:
             kind="ErrorTrackingQuery",
             issueId=self._issue_id,
             dateRange=DateRange(date_from="all"),
-            orderBy=OrderBy1.FIRST_SEEN,
+            orderBy=ErrorTrackingOrderBy.FIRST_SEEN,
             limit=1,
             volumeResolution=1,
             withAggregations=False,

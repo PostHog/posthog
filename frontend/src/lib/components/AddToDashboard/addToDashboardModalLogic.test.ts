@@ -7,7 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -15,7 +15,6 @@ import {
     DashboardBasicType,
     DashboardType,
     InsightShortId,
-    InsightType,
     QueryBasedInsightModel,
     UserBasicType,
 } from '~/types'
@@ -28,7 +27,13 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     id: 1,
     short_id: Insight1,
     name: 'Test Insight',
-    query: queryFromFilters({ insight: InsightType.TRENDS, events: [{ id: '$pageview' }] }),
+    query: {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
+        },
+    },
     dashboards: [1, 2],
     dashboard_tiles: [{ dashboard_id: 1 }, { dashboard_id: 2 }] as any,
     result: ['result'],

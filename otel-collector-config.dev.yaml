@@ -8,7 +8,7 @@ receivers:
         watch_observers: [docker_observer]
         receivers:
             filelog:
-                rule: type == "container" and not (name matches "otel-collector-local")
+                rule: type == "container" and labels["com.docker.compose.project"] == "${env:COMPOSE_PROJECT}" and not (name matches "otel-collector")
                 config:
                     include:
                         - '`"/var/lib/docker/containers/" + container_id + "/*.log"`'
@@ -57,7 +57,7 @@ receivers:
 
 exporters:
     otlp: # Using the standard OTLP exporter
-        endpoint: 'jaeger-local:4317' # Sending OTLP gRPC to Jaeger
+        endpoint: '${env:JAEGER_HOST:-jaeger}:4317' # Sending OTLP gRPC to Jaeger
         tls:
             insecure: true # For local communication to Jaeger
     otlphttp: # Using the standard OTLP exporter

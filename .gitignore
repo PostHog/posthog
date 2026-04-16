@@ -107,6 +107,7 @@ playwright/.auth/
 playwright/playwright-report/
 playwright/test-results/
 test-results/
+.playwright-mcp/
 
 # Dagster
 .dagster_home/*
@@ -145,6 +146,7 @@ posthog/management/commands/clear_demo_data.py
 # Ignore Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -192,6 +194,8 @@ services/mcp/public/ui-apps
 
 # Test output
 junit.xml
+.test_dependency_map
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
+.pnpm-store

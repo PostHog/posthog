@@ -155,6 +155,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'compareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
+                'selectedHost',
                 'authorizedDomains',
             ],
         ],
@@ -601,25 +602,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.validatedDomainFilter, s.deviceTypeFilter],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.selectedHost, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
-                domainFilter: string | null,
+                selectedHost: string | null,
                 deviceTypeFilter: DeviceType | null
             ) => {
                 let filters = rawWebAnalyticsFilters
 
-                // Add domain filter if set
-                if (domainFilter && domainFilter !== 'all') {
-                    // Remove the leading protocol if it exists
-                    const value = domainFilter.replace(/^https?:\/\//, '')
-
+                if (selectedHost) {
                     filters = [
                         ...filters,
                         {
                             key: '$host',
-                            value: value,
+                            value: selectedHost,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
@@ -2252,7 +2249,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
             // These tabs don't support any filters, so we can just return the base path to keep the url clean
             if (productTab === ProductTab.HEALTH) {
-                return '/web/health'
+                return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
                 return '/web/live'
             }

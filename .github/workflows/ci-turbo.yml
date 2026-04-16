@@ -2,6 +2,10 @@ name: Turbo CI
 on:
     pull_request:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     turbo-affected-4:
         timeout-minutes: 30
@@ -64,7 +68,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 18
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Run Python and Node setup in parallel

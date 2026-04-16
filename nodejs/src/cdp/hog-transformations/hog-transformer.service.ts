@@ -8,7 +8,8 @@ import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunction
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { InternalCaptureService } from '../../common/services/internal-capture'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { AppMetricsOutput, LogEntriesOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
@@ -138,7 +139,7 @@ export class HogTransformerService {
                 event: event.event,
                 distinct_id: event.distinct_id,
                 properties: event.properties || {},
-                elements_chain: event.properties?.elements_chain || '',
+                elements_chain: event.properties?.$elements_chain || '',
                 timestamp: event.timestamp || '',
                 url: event.properties?.$current_url || '',
             },
@@ -410,7 +411,7 @@ export interface HogTransformerServiceDeps {
     pubSub: PubSub
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
-    kafkaProducer: KafkaProducerWrapper
+    monitoringOutputs: IngestionOutputs<AppMetricsOutput | LogEntriesOutput>
     teamManager: TeamManager
     internalCaptureService: InternalCaptureService
 }
@@ -459,11 +460,9 @@ export function createHogTransformerService(
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        deps.kafkaProducer,
+        deps.monitoringOutputs,
         deps.internalCaptureService,
-        deps.teamManager,
-        config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-        config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        deps.teamManager
     )
     const hogWatcher = new HogWatcherService(
         deps.teamManager,

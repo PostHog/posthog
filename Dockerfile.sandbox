@@ -1,0 +1,100 @@
+# Dev sandbox image for isolated branch environments.
+#
+# Layers are ordered by change frequency — things that rarely change (system
+# packages, toolchains) go first so they stay cached. COPY statements that
+# reference repo files go last since they invalidate on every change.
+
+FROM python:3.12.12-slim-bookworm
+
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+ENV NODE_VERSION=24.13.0 \
+    NODE_ENV=development \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH="/cache/python/bin:/usr/local/cargo/bin:$PATH" \
+    SHELL=/bin/bash \
+    UV_PROJECT_ENVIRONMENT=/cache/python
+
+# --- Rarely changes: system packages ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    brotli \
+    build-essential \
+    cmake \
+    curl \
+    git \
+    jq \
+    libclang-dev \
+    libffi-dev \
+    libpq-dev \
+    libssl-dev \
+    libxml2-dev \
+    libxmlsec1-dev \
+    libxslt1-dev \
+    gosu \
+    openssh-server \
+    pkg-config \
+    postgresql-client \
+    protobuf-compiler \
+    tmux \
+    unzip \
+    vim \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Rarely changes: Rust toolchain + sqlx-cli ---
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+    && chmod -R a+rwx /usr/local/cargo /usr/local/rustup
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/tmp/cargo-build \
+    CARGO_TARGET_DIR=/tmp/cargo-build cargo install sqlx-cli --no-default-features --features postgres
+
+# --- Rarely changes: Node.js ---
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "${ARCH}" in \
+        amd64) NODE_ARCH='x64';; \
+        arm64) NODE_ARCH='arm64';; \
+        *) echo "unsupported: ${ARCH}"; exit 1;; \
+    esac && \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+    | tar xJ -C /usr/local --strip-components=1 --no-same-owner
+RUN corepack enable
+
+# --- Rarely changes: prebuilt binaries ---
+COPY --from=ghcr.io/astral-sh/uv:0.10.2 /uv /uvx /usr/local/bin/
+COPY --from=clickhouse/clickhouse-server:26.3.9.8 /usr/bin/clickhouse /usr/local/bin/clickhouse
+RUN ln -s clickhouse /usr/local/bin/clickhouse-client
+
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/PostHog/posthog/releases/download/phrocs-1.0.2/phrocs-linux-${ARCH}" \
+    -o /usr/local/bin/phrocs && chmod +x /usr/local/bin/phrocs
+
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/redpanda-data/redpanda/releases/download/v25.1.9/rpk-linux-${ARCH}.zip" \
+    -o /tmp/rpk.zip && unzip -o /tmp/rpk.zip -d /usr/local/bin/ rpk && rm /tmp/rpk.zip
+
+# --- Changes occasionally: npm global packages ---
+RUN npm install -g @anthropic-ai/claude-code
+
+# --- Rarely changes: GeoIP database (pre-decompressed, read directly at runtime) ---
+# brotli --output writes with mode 600 by default; chmod so non-root users can
+# read the symlink target from /workspace/share.
+RUN mkdir -p /share && \
+    curl -L "https://mmdbcdn.posthog.net/" --http1.1 --fail --retry 3 --retry-max-time 60 | \
+    brotli --decompress --output=/share/GeoLite2-City.mmdb && \
+    chmod 644 /share/GeoLite2-City.mmdb
+
+# --- Static config ---
+RUN echo 'export PATH="/cache/python/bin:/usr/local/cargo/bin:$PATH"' > /etc/profile.d/sandbox.sh
+RUN printf 'set -g default-terminal "xterm-256color"\nset -g extended-keys on\nset -as terminal-features "xterm*:extkeys"\nset -g allow-passthrough on\n' > /etc/tmux.conf
+RUN mkdir -p /cache/uv /cache/pnpm /cache/python /run/sshd \
+    && chmod 777 /cache/uv /cache/pnpm /cache/python \
+    && ssh-keygen -A
+
+WORKDIR /workspace
+
+# --- Changes often: entrypoint + sandbox tmux shim ---
+COPY bin/sandbox-shims/tmux.sandbox.conf /etc/tmux.sandbox.conf
+COPY --chmod=755 bin/sandbox-entrypoint.py /usr/local/bin/sandbox-entrypoint.py
+
+ENTRYPOINT ["python3", "/usr/local/bin/sandbox-entrypoint.py"]

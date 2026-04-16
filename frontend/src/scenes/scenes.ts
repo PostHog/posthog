@@ -15,7 +15,6 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
-import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -74,6 +73,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp/apps',
         iconType: 'data_pipeline',
+    },
+    [Scene.BatchExport]: {
+        projectBased: true,
+        name: 'Batch export',
+        activityScope: ActivityScope.BATCH_EXPORT,
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
+    [Scene.BatchExportNew]: {
+        projectBased: true,
+        name: 'New batch export',
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
     },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
@@ -141,37 +155,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp',
     },
-    [Scene.DataWarehouseSource]: {
-        projectBased: true,
-        name: 'Data warehouse source',
-        defaultDocsPath: '/docs/cdp/sources',
-    },
-    [Scene.DataWarehouseSourceNew]: {
-        projectBased: true,
-        name: 'New data warehouse source',
-        defaultDocsPath: async () => {
-            try {
-                // Importing here to avoid problems with importing logics from such a global file like this one
-                const { sourceWizardLogic } = await import('./data-warehouse/new/sourceWizardLogic')
-                const logic = sourceWizardLogic.findMounted()
-
-                if (logic) {
-                    const { selectedConnector } = logic.values
-
-                    // `docsUrl` includes the full URL, we only need the pathname when opening docs in the sidepanel
-                    if (selectedConnector?.docsUrl) {
-                        const parsedUrl = new URL(selectedConnector.docsUrl)
-                        return parsedUrl.pathname
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to get default docs path for new data warehouse source', error)
-            }
-
-            return '/docs/cdp/sources'
-        },
-    },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
+    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -310,9 +295,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics/insights',
     },
-    [Scene.InsightOptions]: {
+    [Scene.InsightQuickStart]: {
         projectBased: true,
-        name: 'New insight',
+        name: 'Quick start',
         description: 'Choose the type of insight you want to create',
         defaultDocsPath: '/docs/product-analytics/insights',
     },
@@ -408,6 +393,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
         iconType: 'persons',
+    },
+    [Scene.AccountSocialConnected]: {
+        name: 'Account connected',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
@@ -520,6 +511,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Monitor the health of your PostHog integrations.',
         iconType: 'health',
     },
+    [Scene.HealthCategoryDetail]: {
+        projectBased: true,
+        name: 'Health detail',
+        iconType: 'health',
+    },
     [Scene.PipelineStatus]: {
         projectBased: true,
         name: 'Pipeline status',
@@ -541,6 +537,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
+    [Scene.Subscriptions]: {
+        projectBased: true,
+        name: 'Subscriptions',
+        iconType: 'inbox',
+        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
+    },
+    [Scene.Subscription]: {
+        projectBased: true,
+        name: 'Subscription',
+        iconType: 'inbox',
+        description: 'View subscription details and delivery history for this project.',
+    },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -550,6 +558,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
+        layout: 'app-raw-no-header',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
     [Scene.SurveyFormBuilder]: {
@@ -584,15 +593,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
-    [Scene.Sources]: {
-        projectBased: true,
-        name: 'Sources',
-        description:
-            'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
-        activityScope: ActivityScope.HOG_FUNCTION,
-        defaultDocsPath: '/docs/data-warehouse',
-        iconType: 'data_pipeline',
-    },
     [Scene.Transformations]: {
         projectBased: true,
         name: 'Transformations',
@@ -651,6 +651,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Organization Deactivated',
         layout: 'plain',
     },
+    [Scene.OrganizationPendingDeletion]: {
+        projectBased: false,
+        organizationBased: true,
+        name: 'Organization Pending Deletion',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -695,9 +701,6 @@ export const redirects: Record<
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
     '/data-pipelines': urls.sources(),
-    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
-    '/data-warehouse/sources/:id/:tab': ({ id, tab }) =>
-        urls.dataWarehouseSource(id, tab as DataWarehouseSourceSceneTab),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
@@ -790,7 +793,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
-    [urls.insightOptions()]: [Scene.InsightOptions, 'insightOptions'],
+    [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
@@ -896,15 +899,16 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
-    [urls.sources()]: [Scene.Sources, 'sources'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
@@ -948,7 +952,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    // Parameterized route must come after static /health/* routes
+    [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
+    [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
+    [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
@@ -957,13 +965,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
-    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
-    [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
+    [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
     ...productRoutes,
 }

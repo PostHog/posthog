@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
-BUFFER_FLUSH_TIMEOUT_SECONDS = 60
+BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
@@ -109,9 +109,7 @@ async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> 
 @temporalio.workflow.defn(name="buffer-signals")
 class BufferSignalsWorkflow:
     """
-    Buffers incoming signals in memory and flushes them to S3 when the buffer
-    is full (BUFFER_MAX_SIZE) or after BUFFER_FLUSH_TIMEOUT_SECONDS since the
-    first buffered signal. Sends the S3 object key to the grouping v2 workflow.
+    Buffers signals and flushes batch object keys to grouping v2.
 
     One instance per team (workflow ID: buffer-signals-{team_id}).
     Uses continue_as_new after each flush to keep history bounded.
@@ -193,7 +191,7 @@ class BufferSignalsWorkflow:
                     )
                 continue
 
-            # Flush to S3
+            # Flush to object storage
             flush_result: FlushBufferOutput = await workflow.execute_activity(
                 flush_signals_to_s3_activity,
                 FlushBufferInput(team_id=input.team_id, signals=batch),

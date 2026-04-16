@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, Q, Subquery, TextField
+from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
 
 import structlog
@@ -28,6 +28,7 @@ from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -56,6 +57,7 @@ from products.data_warehouse.backend.models import (
     DataWarehouseJoin,
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryFolder,
     clean_type,
 )
 from products.data_warehouse.backend.models.external_data_schema import (
@@ -64,6 +66,32 @@ from products.data_warehouse.backend.models.external_data_schema import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
+    from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError, delete_node_from_dag
+
+    if saved_query.managed_viewset is not None:
+        raise serializers.ValidationError(
+            "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
+        )
+
+    try:
+        delete_node_from_dag(saved_query)
+    except HasDependentsError:
+        raise
+    except Exception as e:
+        capture_exception(e)
+        logger.exception("Failed to delete node for saved query", saved_query_name=saved_query.name)
+
+    for join in DataWarehouseJoin.objects.filter(
+        Q(team_id=saved_query.team_id)
+        & (Q(source_table_name=saved_query.name) | Q(joining_table_name=saved_query.name))
+    ).exclude(deleted=True):
+        join.soft_delete()
+
+    saved_query.revert_materialization()
+    saved_query.soft_delete()
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -93,6 +121,10 @@ class DataWarehouseSavedQuerySerializerMixin:
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
+        query = view.query or {}
+        if not isinstance(query, dict) or "query" not in query:
+            return []
+
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
@@ -123,6 +155,8 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
     sync_frequency = serializers.SerializerMethodField()
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
+    folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -137,6 +171,8 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "folder_id",
+            "folder_name",
             "latest_error",
             "is_materialized",
             "origin",
@@ -153,6 +189,19 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    folder_id = TeamScopedPrimaryKeyRelatedField(
+        source="folder",
+        queryset=DataWarehouseSavedQueryFolder.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Optional folder ID used to organize this view in the SQL editor sidebar.",
+    )
+    folder_name = serializers.CharField(
+        source="folder.name",
+        read_only=True,
+        allow_null=True,
+        help_text="Folder name used to organize this view in the SQL editor sidebar.",
+    )
     edited_history_id = serializers.CharField(
         write_only=True,
         required=False,
@@ -164,6 +213,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         required=False,
         allow_null=True,
         help_text="If true, skip column inference and validation. For saving drafts.",
+    )
+    dag_id = serializers.UUIDField(
+        write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
     )
 
     class Meta:
@@ -180,10 +232,13 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "folder_id",
+            "folder_name",
             "latest_error",
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "dag_id",
             "is_materialized",
             "origin",
             "is_test",
@@ -197,6 +252,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "folder_name",
             "latest_error",
             "latest_history_id",
             "is_materialized",
@@ -234,6 +290,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
+        dag_id = validated_data.pop("dag_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -296,15 +353,24 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 self.context["activity_log"] = activity_log
         # best effort sync to new data modeling DAG representation
         try:
+            from products.data_modeling.backend.models.dag import DAG
             from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-            sync_saved_query_to_dag(view)
+            dag_obj = None
+            if dag_id:
+                try:
+                    dag_obj = DAG.objects.get(id=dag_id, team_id=view.team_id)
+                except DAG.DoesNotExist:
+                    raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
+            sync_saved_query_to_dag(view, dag=dag_obj)
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        dag_id = validated_data.pop("dag_id", None)
+
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
 
@@ -314,6 +380,17 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             before_update = None
 
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
+
+        if sync_frequency and posthoganalytics.feature_enabled(
+            "data-modeling-backend-v2",
+            str(instance.team.uuid),
+            groups={
+                "organization": str(instance.team.organization_id),
+                "project": str(instance.team.id),
+            },
+        ):
+            raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+
         soft_update = validated_data.pop("soft_update", False)
 
         with transaction.atomic():
@@ -382,6 +459,16 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             team = Team.objects.get(id=view.team_id)
 
             changes = changes_between("DataWarehouseSavedQuery", previous=before_update, current=view)
+            changes = [
+                Change(
+                    type=change.type,
+                    action=change.action,
+                    field=change.field,
+                    before=getattr(change.before, "name", change.before) if change.field == "folder" else change.before,
+                    after=getattr(change.after, "name", change.after) if change.field == "folder" else change.after,
+                )
+                for change in changes
+            ]
             activity_log = log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
@@ -422,9 +509,13 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
+                from products.data_modeling.backend.models.dag import DAG
                 from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-                sync_saved_query_to_dag(view)
+                dag_obj = None
+                if dag_id:
+                    dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
+                sync_saved_query_to_dag(view, dag=dag_obj)
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
@@ -471,6 +562,11 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             raise serializers.ValidationError("Only staff users can create test views.")
         return is_test
 
+    def validate_folder(self, folder):
+        if folder is not None and folder.team_id != self.context["team_id"]:
+            raise serializers.ValidationError("Folder not found.")
+        return folder
+
     def validate_name(self, name):
         # if it's an upsert, we don't want to validate the name
         if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
@@ -486,6 +582,88 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
 
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
+
+
+class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    view_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = DataWarehouseSavedQueryFolder
+        fields = ["id", "name", "created_at", "created_by", "view_count"]
+        read_only_fields = ["id", "created_at", "created_by", "view_count"]
+        extra_kwargs = {
+            "name": {
+                "help_text": "Display name for the folder used to organize saved queries in the SQL editor sidebar."
+            }
+        }
+
+    def validate_name(self, name: str) -> str:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise serializers.ValidationError("Folder name cannot be empty.")
+
+        team_id = self.context["team_id"]
+        queryset = DataWarehouseSavedQueryFolder.objects.filter(team_id=team_id, name=normalized_name)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError("A folder with this name already exists.")
+
+        return normalized_name
+
+
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
+class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "warehouse_view"
+    queryset = DataWarehouseSavedQueryFolder.objects.all()
+    serializer_class = DataWarehouseSavedQueryFolderSerializer
+    pagination_class = None
+    http_method_names = ["get", "post", "patch", "delete"]
+    ordering = "name"
+
+    def safely_get_queryset(self, queryset):
+        return (
+            queryset.filter(team_id=self.team_id)
+            .select_related("created_by")
+            .annotate(view_count=Count("saved_queries", filter=Q(saved_queries__deleted=False)))
+            .order_by(self.ordering)
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(team_id=self.team_id, created_by=self.request.user)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
+
+        folder: DataWarehouseSavedQueryFolder = self.get_object()
+        remaining_queries = {
+            saved_query.id: saved_query
+            for saved_query in folder.saved_queries.filter(deleted=False).select_related("managed_viewset", "folder")
+        }
+
+        while remaining_queries:
+            deleted_ids: list[uuid.UUID] = []
+
+            for saved_query_id, saved_query in remaining_queries.items():
+                try:
+                    delete_saved_query(saved_query)
+                    deleted_ids.append(saved_query_id)
+                except HasDependentsError:
+                    continue
+
+            if not deleted_ids:
+                blocked_names = ", ".join(sorted(saved_query.name for saved_query in remaining_queries.values()))
+                raise serializers.ValidationError(
+                    f"Cannot delete this folder because these views still have dependencies outside the folder: {blocked_names}"
+                )
+
+            for saved_query_id in deleted_ids:
+                remaining_queries.pop(saved_query_id, None)
+
+        folder.delete()
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
@@ -504,7 +682,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        request_data = getattr(self.request, "data", {})
+        should_include_database = self.action in {"create", "list", "retrieve"} or (
+            self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
+        )
+
+        if should_include_database:
+            context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
     def get_serializer_class(self):
@@ -590,33 +774,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.services.saved_query_dag_sync import (
-            HasDependentsError,
-            delete_node_from_dag,
-        )
+        from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
-        if instance.managed_viewset is not None:
-            raise serializers.ValidationError(
-                "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
-            )
         try:
-            delete_node_from_dag(instance)
+            delete_saved_query(instance)
         except HasDependentsError:
             raise serializers.ValidationError(
                 "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to delete node for saved query", saved_query_name=instance.name)
-
-        for join in DataWarehouseJoin.objects.filter(
-            Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
-        ).exclude(deleted=True):
-            join.soft_delete()
-
-        instance.revert_materialization()
-        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

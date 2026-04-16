@@ -1,14 +1,17 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -18,7 +21,7 @@ import {
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, LiveEvent } from '~/types'
+import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
@@ -34,6 +37,11 @@ import {
     ReferrerItem,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
+import {
+    FILTERED_LIVE_USER_WINDOW_SECONDS,
+    pruneRecentUsersByLastSeen,
+    upsertRecentUsersByLastSeenFromEvents,
+} from './recentUsersByLastSeen'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
@@ -41,34 +49,49 @@ const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
+const COUNTRY_BREAKDOWN_LIMIT = 6
 
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            webAnalyticsFilterLogic,
+            ['selectedHost as rawSelectedHost'],
+        ],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
         addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
-        setInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
+        setInitialData: (
+            buckets: { timestamp: number; bucket: SlidingWindowBucket }[],
+            recentUsersByLastSeen: [string, number][]
+        ) => ({ buckets, recentUsersByLastSeen }),
         setIsLoading: (loading: boolean) => ({ loading }),
         loadInitialData: true,
         updateConnection: true,
         updateGeoConnection: true,
         tickCurrentMinute: true,
+        tickLiveUserCount: true,
         pauseStream: true,
         resumeStream: true,
+        clearRecentEvents: true,
+        clearFilteredLiveUsers: true,
     })),
     reducers({
         slidingWindow: [
             new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES),
             {
-                setInitialData: (existingWindow, { buckets }) => {
+                setInitialData: (_, { buckets }) => {
+                    const freshWindow = new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES)
                     for (const { timestamp, bucket } of buckets) {
-                        existingWindow.extendBucketData(timestamp / 1000, bucket)
+                        freshWindow.extendBucketData(timestamp / 1000, bucket)
                     }
-                    existingWindow.prune()
-                    return existingWindow
+                    freshWindow.prune()
+                    return freshWindow
                 },
                 addEvents: (window, { events, newerThan }) => {
                     for (const event of events) {
@@ -136,6 +159,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 tickCurrentMinute: (v) => v + 1,
             },
         ],
+        recentUsersByLastSeen: [
+            new Map<string, number>(),
+            {
+                setInitialData: (_, { recentUsersByLastSeen }) => new Map(recentUsersByLastSeen),
+                addEvents: (state, { events, newerThan }) =>
+                    upsertRecentUsersByLastSeenFromEvents(state, events, newerThan),
+                tickLiveUserCount: (state) => pruneRecentUsersByLastSeen(state, Date.now() / 1000),
+                clearFilteredLiveUsers: () => new Map<string, number>(),
+            },
+        ],
         geoVersion: [
             0,
             {
@@ -147,6 +180,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             true,
             {
                 setIsLoading: (_, { loading }) => loading,
+            },
+        ],
+        recentEvents: [
+            [] as LiveEvent[],
+            {
+                addEvents: (state, { events }) => deduplicateEvents(state, events, 50),
+                clearRecentEvents: () => [],
             },
         ],
     }),
@@ -191,6 +231,30 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (slidingWindow: LiveMetricsSlidingWindow): CountryBreakdownItem[] => slidingWindow.getCountryBreakdown(),
             { resultEqualityCheck: equal },
         ],
+        topCountryBreakdown: [
+            (s) => [s.countryBreakdown],
+            (countryBreakdown: CountryBreakdownItem[]): CountryBreakdownItem[] => {
+                if (countryBreakdown.length <= COUNTRY_BREAKDOWN_LIMIT) {
+                    return countryBreakdown
+                }
+                const top = countryBreakdown.slice(0, COUNTRY_BREAKDOWN_LIMIT)
+                const rest = countryBreakdown.slice(COUNTRY_BREAKDOWN_LIMIT)
+                const othersCount = rest.reduce((sum, item) => sum + item.count, 0)
+                if (othersCount === 0) {
+                    return top
+                }
+                const othersPercentage = rest.reduce((sum, item) => sum + item.percentage, 0)
+                return [
+                    ...top,
+                    {
+                        country: 'Other',
+                        count: othersCount,
+                        percentage: othersPercentage,
+                    },
+                ]
+            },
+            { resultEqualityCheck: equal },
+        ],
         topPaths: [
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
@@ -213,6 +277,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBrowsers(),
         ],
+        liveUserCount: [
+            (s) => [s.recentUsersByLastSeen],
+            (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
+        ],
+        selectedHost: [
+            (s) => [s.rawSelectedHost, s.featureFlags],
+            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet): string | null =>
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null,
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
@@ -221,6 +294,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.batch = []
             cache.geoBatch = []
             stopFlushInterval(cache as FlushCache)
+            if (cache.liveUserCountInterval) {
+                clearInterval(cache.liveUserCountInterval)
+                cache.liveUserCountInterval = null
+            }
         },
         resumeStream: () => {
             if (cache.hasInitialized) {
@@ -229,13 +306,17 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     autoClose: 2000,
                 })
             }
-            startFlushInterval(cache as FlushCache, actions as FlushActions, values as FlushValues)
+            startFlushInterval(cache as FlushCache, actions as FlushActions)
+            if (!cache.liveUserCountInterval) {
+                // Drives the "Users online" count so users drop off within ~5s of leaving the 60s window
+                cache.liveUserCountInterval = setInterval(() => {
+                    actions.tickLiveUserCount()
+                }, 5000)
+            }
             actions.loadInitialData()
         },
         loadInitialData: async () => {
             actions.setIsLoading(true)
-
-            const geoEnabled = !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP]
 
             try {
                 const now = Date.now()
@@ -247,13 +328,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.newerThan = handoff
 
                 actions.updateConnection()
-                if (geoEnabled) {
-                    actions.updateGeoConnection()
-                } else {
-                    cache.geoConnection?.abort()
-                    cache.geoConnection = null
-                    cache.geoBatch = []
-                }
+                actions.updateGeoConnection()
                 const [
                     usersPageviewsResponse,
                     deviceResponse,
@@ -261,7 +336,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     pathsResponse,
                     referrerResponse,
                     geoResponse,
-                ] = await loadQueryData(dateFrom, handoff, geoEnabled)
+                    recentUsersResponse,
+                ] = await loadQueryData(dateFrom, handoff, values.selectedHost)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -270,11 +346,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
                 addPathDataToBuckets(pathsResponse, bucketMap)
                 addReferrerDataToBuckets(referrerResponse, bucketMap)
-                if (geoResponse) {
-                    addGeoDataToBuckets(geoResponse, bucketMap)
-                }
+                addGeoDataToBuckets(geoResponse, bucketMap)
 
-                actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
+                actions.setInitialData(
+                    [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
+                    recentUsersResponse ? getRecentUsersByLastSeenEntries(recentUsersResponse) : []
+                )
             } catch (error) {
                 console.error('Failed to load initial live pageview data:', error)
                 lemonToast.error('Failed to load initial data')
@@ -299,8 +376,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
             url.searchParams.append(
                 'columns',
-                '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+                '$pathname,$current_url,$host,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
             )
+            if (values.selectedHost) {
+                url.searchParams.append('property', `$host=${values.selectedHost}`)
+            }
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -367,13 +447,25 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             })
         },
     })),
-    events(({ actions, values, cache }) => ({
+    subscriptions(({ actions, cache }) => ({
+        selectedHost: () => {
+            if (!cache.hasInitialized) {
+                return
+            }
+            cache.batch = []
+            cache.geoBatch = []
+            actions.clearRecentEvents()
+            actions.clearFilteredLiveUsers()
+            actions.loadInitialData()
+        },
+    })),
+    events(({ actions, cache }) => ({
         afterMount: () => {
             cache.batch = [] as LiveEvent[]
             cache.geoBatch = [] as LiveGeoEvent[]
 
             actions.loadInitialData()
-            startFlushInterval(cache as FlushCache, actions as FlushActions, values as FlushValues)
+            startFlushInterval(cache as FlushCache, actions as FlushActions)
 
             // Ensures that our graph continues to update and old data "falls off"
             // even if new events aren't coming in
@@ -386,6 +478,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 }, msUntilNextMinute)
             }
             scheduleNextTick()
+            cache.liveUserCountInterval = setInterval(() => {
+                actions.tickLiveUserCount()
+            }, 5000)
         },
         beforeUnmount: () => {
             cache.eventsConnection?.abort()
@@ -393,6 +488,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             stopFlushInterval(cache as FlushCache)
             if (cache.minuteTickTimeout) {
                 clearTimeout(cache.minuteTickTimeout)
+            }
+            if (cache.liveUserCountInterval) {
+                clearInterval(cache.liveUserCountInterval)
+                cache.liveUserCountInterval = null
             }
         },
     })),
@@ -410,10 +509,6 @@ interface FlushActions {
     addGeoEvents: (events: LiveGeoEvent[]) => void
 }
 
-interface FlushValues {
-    featureFlags: Record<string, string | boolean | undefined>
-}
-
 const stopFlushInterval = (cache: FlushCache): void => {
     if (cache.flushInterval) {
         clearInterval(cache.flushInterval)
@@ -423,7 +518,7 @@ const stopFlushInterval = (cache: FlushCache): void => {
 
 // Flush both event and geo batches on a fixed interval
 // to cap kea dispatches at a predictable rate regardless of event volume
-const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: FlushValues): void => {
+const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     if (cache.flushInterval) {
         return
     }
@@ -432,7 +527,7 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: Fl
             actions.addEvents(cache.batch, cache.newerThan)
             cache.batch = []
         }
-        if (cache.geoBatch.length > 0 && values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP]) {
+        if (cache.geoBatch.length > 0) {
             actions.addGeoEvents(cache.geoBatch)
             cache.geoBatch = []
         }
@@ -442,7 +537,7 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: Fl
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date,
-    includeGeo: boolean
+    host: string | null
 ): Promise<
     [
         HogQLQueryResponse,
@@ -450,9 +545,13 @@ const loadQueryData = async (
         HogQLQueryResponse,
         TrendsQueryResponse,
         HogQLQueryResponse,
+        HogQLQueryResponse,
         HogQLQueryResponse | null,
     ]
 > => {
+    const hostFilterClause = host ? `AND properties.$host = {host}` : ''
+    const hostValues = host ? { host } : {}
+
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
@@ -463,6 +562,7 @@ const loadQueryData = async (
                 WHERE
                     timestamp >= toDateTime({dateFrom})
                     AND timestamp <= toDateTime({dateTo})
+                    ${hostFilterClause}
                 GROUP BY
                     minute_bucket
                 ORDER BY
@@ -470,6 +570,7 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     }
 
@@ -502,6 +603,7 @@ const loadQueryData = async (
                     WHERE
                         timestamp >= toDateTime({dateFrom})
                         AND timestamp <= toDateTime({dateTo})
+                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         ${alias}
@@ -513,6 +615,7 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     })
 
@@ -533,6 +636,18 @@ const loadQueryData = async (
             date_from: dateFrom.toISOString(),
             date_to: dateTo.toISOString(),
         },
+        ...(host
+            ? {
+                  properties: [
+                      {
+                          key: '$host',
+                          value: host,
+                          operator: PropertyOperator.Exact,
+                          type: PropertyFilterType.Event,
+                      },
+                  ],
+              }
+            : {}),
     }
 
     const referrerQuery: HogQLQuery = {
@@ -546,11 +661,13 @@ const loadQueryData = async (
                     timestamp >= toDateTime({dateFrom})
                     AND timestamp <= toDateTime({dateTo})
                     AND event = '$pageview'
+                    ${hostFilterClause}
                 GROUP BY minute_bucket, referring_domain
                 ORDER BY minute_bucket ASC`,
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     }
 
@@ -574,6 +691,7 @@ const loadQueryData = async (
                         AND timestamp <= toDateTime({dateTo})
                         AND properties.$geoip_country_code IS NOT NULL
                         AND properties.$geoip_country_code != ''
+                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         country_code
@@ -583,8 +701,28 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     }
+
+    const recentUsersQuery: HogQLQuery | null = host
+        ? {
+              kind: NodeKind.HogQLQuery,
+              query: `SELECT
+                          distinct_id,
+                          toUnixTimestamp(max(timestamp)) AS last_seen
+                      FROM events
+                      WHERE
+                          timestamp > toDateTime({dateTo}) - INTERVAL ${FILTERED_LIVE_USER_WINDOW_SECONDS} SECOND
+                          AND timestamp <= toDateTime({dateTo})
+                          ${hostFilterClause}
+                      GROUP BY distinct_id`,
+              values: {
+                  dateTo: dateTo.toISOString(),
+                  ...hostValues,
+              },
+          }
+        : null
 
     return await Promise.all([
         performQuery(usersPageviewsQuery),
@@ -592,8 +730,17 @@ const loadQueryData = async (
         performQuery(browserQuery),
         performQuery(pathsQuery),
         performQuery(referrerQuery),
-        includeGeo ? performQuery(geoQuery) : Promise.resolve(null),
+        performQuery(geoQuery),
+        recentUsersQuery ? performQuery(recentUsersQuery) : Promise.resolve(null),
     ])
+}
+
+const getRecentUsersByLastSeenEntries = (response: HogQLQueryResponse): [string, number][] => {
+    const results = response.results as [string, number | string][]
+
+    return results
+        .map(([distinctId, lastSeenTs]) => [distinctId, Number(lastSeenTs)] as [string, number])
+        .filter(([distinctId, lastSeenTs]) => distinctId !== '' && Number.isFinite(lastSeenTs))
 }
 
 const addUserDataToBuckets = (

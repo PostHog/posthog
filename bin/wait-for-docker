@@ -8,6 +8,13 @@ set -euo pipefail
 # Always checks core services (db, redis7, kafka, clickhouse).
 # Pass extra service names as arguments, e.g.: bin/wait-for-docker temporal
 
+# In a sandbox container, infra is managed by docker compose externally
+# and is guaranteed healthy via depends_on health checks.
+if [[ "${POSTHOG_SANDBOX:-}" == "1" ]]; then
+    echo "Sandbox: infrastructure already running"
+    exit 0
+fi
+
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"

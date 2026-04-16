@@ -803,4 +803,4 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
-    rate = "1/minute"
+    rate = "6/minute"

@@ -37,6 +37,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         PENDING_RESOLVE = "pending_resolve", "Pending resolve"
         ERRORED = "errored", "Errored"
         SNOOZED = "snoozed", "Snoozed"
+        BROKEN = "broken", "Broken"
 
     class ThresholdOperator(models.TextChoices):
         ABOVE = "above", "Above"
@@ -100,6 +101,26 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
+
+    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
+        """Returns field names modified (for use with update_fields)."""
+        updated: list[str] = []
+        if reset_state:
+            self.state = self.State.NOT_FIRING
+            self.consecutive_failures = 0
+            updated.append("state")
+            updated.append("consecutive_failures")
+        self.next_check_at = None
+        updated.append("next_check_at")
+        return updated
+
+    def get_recent_breaches(self) -> tuple[bool, ...]:
+        """Last M non-errored checks' threshold_breached values, newest first."""
+        return tuple(
+            LogsAlertCheck.objects.filter(alert=self, error_message__isnull=True)
+            .order_by("-created_at")
+            .values_list("threshold_breached", flat=True)[: self.evaluation_periods]
+        )
 
     def clean(self) -> None:
         super().clean()

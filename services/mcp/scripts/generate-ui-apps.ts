@@ -395,13 +395,23 @@ function main(): void {
 }
 
 function formatOutput(generatedFiles: string[]): void {
-    const formatResult = spawnSync(path.join(ROOT_DIR, 'bin/hogli'), ['format:js', ...generatedFiles], {
+    // Run oxlint + oxfmt directly instead of going through `bin/hogli format:js`,
+    // which requires `uv` (Python) and fails in environments like Cloudflare Pages
+    // where the uv version doesn't match pyproject.toml's required-version.
+    const oxlintResult = spawnSync('pnpm', ['oxlint', '--fix', '--fix-suggestions', '--quiet', ...generatedFiles], {
         stdio: 'inherit',
         cwd: ROOT_DIR,
     })
+    if (oxlintResult.status && oxlintResult.status !== 0) {
+        process.exit(oxlintResult.status)
+    }
 
-    if (formatResult.status && formatResult.status !== 0) {
-        process.exit(formatResult.status)
+    const oxfmtResult = spawnSync('pnpm', ['exec', 'oxfmt', '--no-error-on-unmatched-pattern', ...generatedFiles], {
+        stdio: 'inherit',
+        cwd: ROOT_DIR,
+    })
+    if (oxfmtResult.status && oxfmtResult.status !== 0) {
+        process.exit(oxfmtResult.status)
     }
 }
 

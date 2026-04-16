@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -20,7 +21,10 @@ export function InsightsNav(): JSX.Element {
             {insight.short_id && <AlertDeletionWarning />}
             <LemonTabs
                 activeKey={activeView}
-                onChange={(newKey) => setActiveView(newKey)}
+                onChange={(newKey) => {
+                    posthog.capture('insight type tab clicked', { insight_type: newKey, previous_type: activeView })
+                    setActiveView(newKey)
+                }}
                 tabs={tabs.map(({ label, type, dataAttr }) => ({
                     key: type,
                     label: (

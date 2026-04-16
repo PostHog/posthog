@@ -209,6 +209,76 @@ class TestResolver(BaseTest):
         assert "b" not in selected_names
         assert "c" not in selected_names
 
+    def test_column_aliases_create_column_aliased_table_type(self):
+        expr = self._select("SELECT e.a FROM events AS e (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert resolved.select_from is not None
+        assert isinstance(resolved.select_from.type, ast.ColumnAliasedTableType)
+        assert resolved.select_from.type.alias == "e"
+        assert resolved.select_from.type.alias_to_original["a"] == "uuid"
+        assert resolved.select_from.type.alias_to_original["b"] == "event"
+        assert resolved.select_from.type.alias_to_original["c"] == "properties"
+
+    def test_column_aliases_remaining_columns_keep_original_names(self):
+        expr = self._select("SELECT e.timestamp FROM events AS e (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert resolved.select_from is not None
+        assert isinstance(resolved.select_from.type, ast.ColumnAliasedTableType)
+        # timestamp was not aliased, so it maps to itself
+        assert resolved.select_from.type.alias_to_original["timestamp"] == "timestamp"
+
+    def test_column_aliases_original_name_not_resolvable(self):
+        expr = self._select("SELECT e.uuid FROM events AS e (a, b, c)")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Field not found: uuid" in str(ctx.exception)
+
+    def test_column_aliases_star_expands_to_aliased_names(self):
+        expr = self._select("SELECT * FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        selected_names = []
+        for item in resolved.select:
+            if isinstance(item, ast.Field):
+                selected_names.append(str(item.chain[-1]))
+            elif isinstance(item, ast.Alias):
+                selected_names.append(item.alias)
+        assert "a" in selected_names
+        assert "b" in selected_names
+        assert "c" in selected_names
+
+    def test_column_aliases_unqualified_field_resolves(self):
+        expr = self._select("SELECT a FROM events AS e (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert len(resolved.select) > 0
+        node = resolved.select[0]
+        # Fields get wrapped in a hidden Alias during resolution
+        assert isinstance(node, ast.Alias)
+        assert isinstance(node.type, ast.FieldAliasType)
+        assert node.type.alias == "a"
+        field_type = node.type.type
+        assert isinstance(field_type, ast.FieldType)
+        assert field_type.name == "a"
+        assert isinstance(field_type.table_type, ast.ColumnAliasedTableType)
+
+    def test_column_aliases_too_many_aliases_error(self):
+        expr = ast.SelectQuery(
+            select=[ast.Field(chain=["a"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="e",
+                column_aliases=["c" + str(i) for i in range(100)],
+            ),
+        )
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "alias(es) were provided" in str(ctx.exception)
+
+    def test_column_aliases_duplicate_alias_error(self):
+        expr = self._select("SELECT e.a FROM events AS e (a, a, c)")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Duplicate column alias 'a'" in str(ctx.exception)
+
     def test_resolve_replace_columns(self):
         expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
 

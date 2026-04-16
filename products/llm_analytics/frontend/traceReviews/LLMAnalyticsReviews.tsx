@@ -46,7 +46,7 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
 
                 return (
                     <Tooltip title={value}>
-                        <Link to={urls.llmAnalyticsTrace(value)} data-attr="trace-review-trace-link">
+                        <Link to={urls.llmAnalyticsTrace(value)} data-attr="llma-trace-review-trace-link">
                             {formatTraceId(value)}
                         </Link>
                     </Tooltip>
@@ -107,7 +107,7 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                         value={filters.search}
                         onChange={(value) => setFilters({ search: value })}
                         className="max-w-md"
-                        data-attr="trace-reviews-search-input"
+                        data-attr="llma-trace-reviews-search-input"
                     />
                     <LemonSelect
                         value={filters.definition_id || undefined}
@@ -122,7 +122,7 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                         placeholder="Filter by scorer"
                         loading={scoreDefinitionOptionsLoading}
                         className="min-w-60"
-                        data-attr="trace-reviews-definition-filter"
+                        data-attr="llma-trace-reviews-definition-filter"
                     />
                 </div>
                 <div className="text-muted-alt">{reviewCountLabel}</div>
