@@ -278,6 +278,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
                 "csv_import_result": None,
                 "webhook_enabled": False,
                 "has_webhook_secret": False,
+                "track_enabled": False,
+                "has_track_credentials": False,
             },
         )
 
@@ -586,10 +588,27 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(integration.sensitive_config["site_id"], "site_abc")
         self.assertEqual(integration.sensitive_config["api_key"], "key_123")
         self.assertEqual(integration.config["region"], "us")
+        self.assertNotIn("track_enabled", integration.config)
 
         config = OptOutSyncConfig.objects.get(team=self.team)
         self.assertEqual(config.track_integration, integration)
         self.assertTrue(config.track_enabled)
+
+    def test_save_track_config_rejects_new_creds_when_integration_exists(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="customerio-track",
+            sensitive_config={"site_id": "site_abc", "api_key": "key_123"},
+            config={"region": "us"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self._url("save_track_config"),
+            {"site_id": "site_xyz", "api_key": "key_999", "track_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     def test_save_track_config_requires_credentials_to_enable(self):
         response = self.client.post(
@@ -600,11 +619,11 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_save_track_config_toggles_with_stored_credentials(self):
-        Integration.objects.create(
+        integration = Integration.objects.create(
             team=self.team,
             kind="customerio-track",
             sensitive_config={"site_id": "site_abc", "api_key": "key_123"},
-            config={"region": "us", "track_enabled": True},
+            config={"region": "us"},
             created_by=self.user,
         )
 
@@ -617,6 +636,9 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
 
         config = OptOutSyncConfig.objects.get(team=self.team)
         self.assertFalse(config.track_enabled)
+        self.assertEqual(config.track_integration, integration)
+        integration.refresh_from_db()
+        self.assertEqual(integration.config, {"region": "us"})
 
     def test_remove_track_config(self):
         integration = Integration.objects.create(

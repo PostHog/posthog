@@ -16,7 +16,7 @@ class TestCustomerIOSyncService(BaseTest):
             team=self.team,
             kind="customerio-track",
             sensitive_config={"site_id": "site_abc", "api_key": "key_123"},
-            config={"region": "us", "track_enabled": True},
+            config={"region": "us"},
             created_by=self.user,
         )
         self.config = OptOutSyncConfig.objects.create(

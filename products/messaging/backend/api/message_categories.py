@@ -234,12 +234,11 @@ class MessageCategoryViewSet(
         config.webhook_enabled = enabled
         config.save(update_fields=["webhook_integration", "webhook_enabled"])
 
+        has_webhook_secret = bool(integration and integration.sensitive_config.get("webhook_signing_secret"))
         return Response(
             {
                 "webhook_enabled": enabled,
-                "has_webhook_secret": bool(integration.sensitive_config.get("webhook_signing_secret"))
-                if integration
-                else False,
+                "has_webhook_secret": has_webhook_secret,
             },
             status=status.HTTP_200_OK,
         )
@@ -263,10 +262,10 @@ class MessageCategoryViewSet(
         Save Customer.io Track API credentials and/or toggle outbound sync.
 
         Accepts:
-          - site_id: Customer.io site ID
-          - api_key: Customer.io Track API key
-          - region: "us" or "eu"
-          - track_enabled: enable or disable outbound sync
+          - site_id (optional): set on first creation only
+          - api_key (optional): set on first creation only
+          - region (optional): "us" or "eu", set on first creation only
+          - track_enabled (required): enable or disable outbound sync
         """
         site_id = request.data.get("site_id")
         api_key = request.data.get("api_key")
@@ -274,50 +273,42 @@ class MessageCategoryViewSet(
         enabled = bool(request.data.get("track_enabled", False))
         has_new_creds = bool(site_id and api_key)
 
-        existing = Integration.objects.filter(team_id=self.team_id, kind="customerio-track").first()
+        integration = Integration.objects.filter(team_id=self.team_id, kind="customerio-track").first()
 
-        if not enabled and not has_new_creds and not existing:
-            return Response({"track_enabled": False, "has_track_credentials": False}, status=status.HTTP_200_OK)
+        if integration and has_new_creds:
+            return Response(
+                {"error": "Integration already exists. Delete it first to use different credentials."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        if enabled and not has_new_creds:
-            if (
-                not existing
-                or not existing.sensitive_config.get("site_id")
-                or not existing.sensitive_config.get("api_key")
-            ):
-                return Response(
-                    {"error": "Site ID and API key are required to enable outbound sync."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if enabled and not integration and not has_new_creds:
+            return Response(
+                {"error": "Site ID and API key are required to enable outbound sync."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        defaults: dict = {
-            "created_by": request.user,
-            "errors": "",
-        }
-        if has_new_creds:
-            defaults["sensitive_config"] = {"site_id": site_id, "api_key": api_key}
-            defaults["config"] = {"region": region, "track_enabled": enabled}
-        else:
-            existing_config = existing.config if existing else {}
-            defaults["config"] = {**existing_config, "track_enabled": enabled}
-
-        integration, _ = Integration.objects.update_or_create(
-            team_id=self.team_id,
-            kind="customerio-track",
-            defaults=defaults,
-        )
+        if not integration and has_new_creds:
+            integration = Integration.objects.create(
+                team_id=self.team_id,
+                kind="customerio-track",
+                sensitive_config={"site_id": site_id, "api_key": api_key},
+                config={"region": region},
+                created_by=request.user,
+                errors="",
+            )
 
         config, _ = OptOutSyncConfig.objects.get_or_create(team_id=self.team_id)
         config.track_integration = integration
         config.track_enabled = enabled
         config.save(update_fields=["track_integration", "track_enabled"])
 
+        has_track_credentials = bool(
+            integration and integration.sensitive_config.get("site_id") and integration.sensitive_config.get("api_key")
+        )
         return Response(
             {
                 "track_enabled": enabled,
-                "has_track_credentials": bool(
-                    integration.sensitive_config.get("site_id") and integration.sensitive_config.get("api_key")
-                ),
+                "has_track_credentials": has_track_credentials,
             },
             status=status.HTTP_200_OK,
         )
