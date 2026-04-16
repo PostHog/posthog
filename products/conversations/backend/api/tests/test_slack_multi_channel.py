@@ -39,47 +39,38 @@ class TestSlackMultiChannel(BaseTest):
             event["thread_ts"] = thread_ts
         return event
 
+    @parameterized.expand(
+        [
+            ("first_configured_creates", "C_ALPHA", True),
+            ("second_configured_creates", "C_BETA", True),
+            ("unknown_channel_ignored", "C_UNKNOWN", False),
+        ],
+    )
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
-    def test_top_level_in_first_configured_channel_creates_ticket(self, mock_create):
+    def test_top_level_message_routing(self, _name, channel, expect_create, mock_create):
         self.team.conversations_settings = {
             "slack_enabled": True,
             "slack_channel_ids": ["C_ALPHA", "C_BETA"],
         }
         self.team.save()
 
-        handle_support_message(self._make_event("C_ALPHA"), self.team, "T1")
+        handle_support_message(self._make_event(channel), self.team, "T1")
 
-        mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["slack_channel_id"] == "C_ALPHA"
-        assert mock_create.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
+        if expect_create:
+            mock_create.assert_called_once()
+            assert mock_create.call_args.kwargs["slack_channel_id"] == channel
+            assert mock_create.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
+        else:
+            mock_create.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("configured_channel_accepted", "C_BETA", True),
+            ("non_configured_channel_ignored", "C_OTHER", False),
+        ],
+    )
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
-    def test_top_level_in_second_configured_channel_creates_ticket(self, mock_create):
-        self.team.conversations_settings = {
-            "slack_enabled": True,
-            "slack_channel_ids": ["C_ALPHA", "C_BETA"],
-        }
-        self.team.save()
-
-        handle_support_message(self._make_event("C_BETA"), self.team, "T1")
-
-        mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["slack_channel_id"] == "C_BETA"
-
-    @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
-    def test_top_level_in_non_configured_channel_ignored(self, mock_create):
-        self.team.conversations_settings = {
-            "slack_enabled": True,
-            "slack_channel_ids": ["C_ALPHA", "C_BETA"],
-        }
-        self.team.save()
-
-        handle_support_message(self._make_event("C_UNKNOWN"), self.team, "T1")
-
-        mock_create.assert_not_called()
-
-    @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
-    def test_thread_reply_without_ticket_in_configured_channel_accepted(self, mock_create):
+    def test_thread_reply_without_ticket_routing(self, _name, channel, expect_create, mock_create):
         self.team.conversations_settings = {
             "slack_enabled": True,
             "slack_channel_ids": ["C_ALPHA", "C_BETA"],
@@ -87,29 +78,16 @@ class TestSlackMultiChannel(BaseTest):
         self.team.save()
 
         handle_support_message(
-            self._make_event("C_BETA", thread_ts="1700000000.000001", ts="1700000000.000200"),
+            self._make_event(channel, thread_ts="1700000000.000001", ts="1700000000.000200"),
             self.team,
             "T1",
         )
 
-        mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["is_thread_reply"] is True
-
-    @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
-    def test_thread_reply_without_ticket_in_non_configured_channel_ignored(self, mock_create):
-        self.team.conversations_settings = {
-            "slack_enabled": True,
-            "slack_channel_ids": ["C_ALPHA"],
-        }
-        self.team.save()
-
-        handle_support_message(
-            self._make_event("C_OTHER", thread_ts="1700000000.000001", ts="1700000000.000200"),
-            self.team,
-            "T1",
-        )
-
-        mock_create.assert_not_called()
+        if expect_create:
+            mock_create.assert_called_once()
+            assert mock_create.call_args.kwargs["is_thread_reply"] is True
+        else:
+            mock_create.assert_not_called()
 
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
     def test_thread_reply_with_existing_ticket_syncs_regardless_of_config(self, mock_create):
