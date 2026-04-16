@@ -2,7 +2,11 @@
     <!-- Minimal single-node ClickHouse Keeper config for the dev/CI stack.
          Keeper runs as a standalone node (server_id=1, single-member Raft).
          ClickHouse server connects to it via keeper_main.xml (host=keeper, port=9181).
+         listen_host=0.0.0.0 is required — without it keeper binds only to loopback,
+         so the healthcheck (127.0.0.1) passes but ClickHouse (172.x.x.x) is refused.
     -->
+    <!-- Bind keeper's TCP port to all interfaces so other containers can reach it. -->
+    <listen_host>0.0.0.0</listen_host>
     <keeper_server>
         <tcp_port>9181</tcp_port>
         <server_id>1</server_id>
