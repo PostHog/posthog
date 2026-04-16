@@ -29,8 +29,8 @@ const SENSITIVE_KEY_SUBSTRINGS = [
 const BEARER_HEADER_RE = /Bearer\s+[\w\-._~+/]+=*/gi
 const STRIPE_SECRET_KEY_RE = /\bsk_(?:live|test)_[a-zA-Z0-9]{20,}\b/g
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
-/** 13–19 digits allowing spaces or hyphens between digit groups. */
-const CARD_LIKE_RE = /\b\d(?:[ \d-]*\d){12,18}\b/g
+/** 13–19 digits; optional single space or hyphen between digit groups (no nested quantifier over digit class). */
+const CARD_LIKE_RE = /\b\d(?:[- ]?\d){12,18}\b/g
 
 /** True when the attribute key contains a known sensitive substring (case-insensitive). */
 export function isSensitiveAttributeKey(key: string): boolean {
