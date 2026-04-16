@@ -10,6 +10,14 @@ from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConf
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
+def incremental_param(cursor_path: str) -> dict[str, Any]:
+    return {
+        "type": "incremental",
+        "cursor_path": cursor_path,
+        "initial_value": 0,
+    }
+
+
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "Customers": {
@@ -27,13 +35,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/customers",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": {
-                        "type": "incremental",
-                        "cursor_path": "updated_at",
-                        "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -58,13 +60,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/events",
                 "params": {
                     # the parameters below can optionally be configured
-                    "occurred_at[after]": {
-                        "type": "incremental",
-                        "cursor_path": "occurred_at",
-                        "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    "occurred_at[after]": incremental_param("occurred_at") if should_use_incremental_field else None,
                     "limit": 100,
                 },
             },
@@ -85,13 +81,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/invoices",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": {
-                        "type": "incremental",
-                        "cursor_path": "updated_at",
-                        "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -114,13 +104,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/orders",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": {
-                        "type": "incremental",
-                        "cursor_path": "updated_at",
-                        "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -143,13 +127,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/subscriptions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": {
-                        "type": "incremental",
-                        "cursor_path": "updated_at",
-                        "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -172,13 +150,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/transactions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": {
-                        "type": "incremental",
-                        "cursor_path": "updated_at",
-                        "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",

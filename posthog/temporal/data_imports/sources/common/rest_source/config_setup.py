@@ -3,7 +3,7 @@ import graphlib  # type: ignore[import,unused-ignore]
 import warnings
 from collections.abc import Callable
 from copy import copy
-from typing import Any, NamedTuple, Optional, Union
+from typing import Any, NamedTuple, Optional, cast
 
 import dlt
 from dlt.common import jsonpath, logger
@@ -40,7 +40,7 @@ from .typing import (
 )
 from .utils import exclude_keys
 
-PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator]] = {
+PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator] | None] = {
     "json_response": JSONResponsePaginator,
     "header_link": HeaderLinkPaginator,
     "auto": None,
@@ -62,7 +62,7 @@ class IncrementalParam(NamedTuple):
     end: Optional[str]
 
 
-def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator]:
+def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator] | None:
     try:
         return PAGINATOR_MAP[paginator_type]
     except KeyError:
@@ -103,7 +103,7 @@ def get_auth_class(auth_type: AuthType) -> type[AuthConfigBase]:
 
 
 def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
-    auth: AuthConfigBase = None
+    auth: AuthConfigBase | None = None
     if isinstance(auth_config, AuthConfigBase):
         auth = auth_config
 
@@ -113,6 +113,8 @@ def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
 
     if isinstance(auth_config, dict):
         auth_type = auth_config.get("type", "bearer")
+        if auth_type is None:
+            auth_type = "bearer"
         auth_class = get_auth_class(auth_type)
         auth = auth_class(**exclude_keys(auth_config, {"type"}))
 
@@ -175,9 +177,7 @@ def setup_incremental_object(
     return None, None, None
 
 
-def parse_convert_or_deprecated_transform(
-    config: Union[IncrementalConfig, dict[str, Any]],
-) -> Optional[Callable[..., Any]]:
+def parse_convert_or_deprecated_transform(config: IncrementalConfig | dict[str, Any]) -> Optional[Callable[..., Any]]:
     convert = config.get("convert", None)
     deprecated_transform = config.get("transform", None)
     if deprecated_transform:
@@ -199,9 +199,9 @@ def build_resource_dependency_graph(
     resource_defaults: EndpointResourceBase,
     resource_list: list[str | EndpointResource],
 ) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
-    dependency_graph = graphlib.TopologicalSorter()
+    dependency_graph: graphlib.TopologicalSorter[str] = graphlib.TopologicalSorter()
     endpoint_resource_map: dict[str, EndpointResource] = {}
-    resolved_param_map: dict[str, ResolvedParam] = {}
+    resolved_param_map: dict[str, ResolvedParam | None] = {}
 
     # expand all resources and index them
     for resource_kwargs in resource_list:
@@ -269,8 +269,11 @@ def _make_endpoint_resource(resource: str | EndpointResource, default_config: En
         # endpoint is optional
         resource["endpoint"] = {}
 
-    if "path" not in resource["endpoint"]:
-        resource["endpoint"]["path"] = resource["name"]  # type: ignore
+    endpoint = resource["endpoint"]
+    if not isinstance(endpoint, dict):
+        raise ValueError(f"Resource endpoint must be a dict, got {type(endpoint)}")
+    if "path" not in endpoint:
+        endpoint["path"] = cast(str, resource["name"])
 
     return _merge_resource_endpoints(default_config, resource)
 
@@ -284,10 +287,12 @@ def _bind_path_params(resource: EndpointResource) -> None:
     assert isinstance(resource["endpoint"], dict)  # type guard
     resolve_params = [r.param_name for r in _find_resolved_params(resource["endpoint"])]
     path = resource["endpoint"]["path"]
+    if path is None:
+        raise ValueError(f"Resource {resource['name']} is missing an endpoint path")
     for format_ in string.Formatter().parse(path):
         name = format_[1]
         if name:
-            params = resource["endpoint"].get("params", {})
+            params = resource["endpoint"].get("params") or {}
             if name not in params and name not in path_params:
                 raise ValueError(
                     f"The path {path} defined in resource {resource['name']} requires param with name {name} but it is not found in {params}"
@@ -323,7 +328,10 @@ def _setup_single_entity_endpoint(endpoint: Endpoint) -> Endpoint:
     Endpoint is modified in place and returned
     """
     # try to guess if list of entities or just single entity is returned
-    if single_entity_path(endpoint["path"]):
+    path = endpoint["path"]
+    if path is None:
+        raise ValueError("Endpoint path is required")
+    if single_entity_path(path):
         if endpoint.get("data_selector") is None:
             endpoint["data_selector"] = "$"
         if endpoint.get("paginator") is None:
@@ -338,9 +346,10 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
 
     Resolved params are of type ResolveParamConfig (bound param with a key "type" set to "resolve".)
     """
+    params = endpoint_config.get("params") or {}
     return [
-        ResolvedParam(key, value)  # type: ignore[arg-type]
-        for key, value in endpoint_config.get("params", {}).items()
+        ResolvedParam(key, cast(Any, value))
+        for key, value in params.items()
         if (isinstance(value, dict) and value.get("type") == "resolve")
     ]
 
@@ -351,8 +360,10 @@ def _handle_response_actions(response: Response, actions: list[ResponseAction]) 
 
     for action in actions:
         status_code = action.get("status_code")
-        content_substr: str = action.get("content")
-        action_type: str = action.get("action")
+        content_substr = action.get("content")
+        action_type = action.get("action")
+        if action_type is None:
+            continue
 
         if status_code is not None and content_substr is not None:
             if response.status_code == status_code and content_substr in content:
@@ -453,14 +464,18 @@ def _merge_resource_endpoints(default_config: EndpointResourceBase, config: Endp
     }
     # merge endpoint, only params and json are allowed to deep merge
     if "json" in config_endpoint:
+        existing_json = merged_endpoint.get("json") or {}
+        config_json = config_endpoint.get("json") or {}
         merged_endpoint["json"] = {
-            **(merged_endpoint.get("json", {})),
-            **config_endpoint["json"],
+            **existing_json,
+            **config_json,
         }
     if "params" in config_endpoint:
+        existing_params = merged_endpoint.get("params") or {}
+        config_params = config_endpoint.get("params") or {}
         merged_endpoint["params"] = {
-            **(merged_endpoint.get("json", {})),
-            **config_endpoint["params"],
+            **existing_params,
+            **config_params,
         }
     # merge columns
     if (default_columns := default_config.get("columns")) and (columns := config.get("columns")):
