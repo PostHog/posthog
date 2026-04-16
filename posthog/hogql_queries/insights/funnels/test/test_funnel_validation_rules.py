@@ -34,6 +34,7 @@ class TestFunnelValidationRules(BaseTest):
             RequireAtLeastTwoFunnelSteps().validate(self._context(query))
 
         self.assertIn("Funnels require at least two steps.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnels_require_at_least_two_steps"])
 
     @parameterized.expand(
         [
@@ -64,6 +65,7 @@ class TestFunnelValidationRules(BaseTest):
             ValidateFunnelStepRange().validate(self._context(query))
 
         self.assertIn(expected_error, str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_step_range_invalid"])
 
     @parameterized.expand(
         [
@@ -94,6 +96,7 @@ class TestFunnelValidationRules(BaseTest):
             ValidateFunnelExclusions().validate(self._context(query))
 
         self.assertIn(expected_error, str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
 
     def test_disallows_exclusion_that_matches_funnel_step(self):
         query = FunnelsQuery(
@@ -107,6 +110,7 @@ class TestFunnelValidationRules(BaseTest):
             ValidateFunnelExclusions().validate(self._context(query))
 
         self.assertIn("Exclusion steps cannot contain an event that's part of funnel steps.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
 
     def test_optional_steps_require_supported_feature_combination(self):
         query = FunnelsQuery(
@@ -124,6 +128,7 @@ class TestFunnelValidationRules(BaseTest):
             'Optional funnel steps are only supported in funnels with step order Sequential or Strict and the graph type "Conversion Steps".',
             str(context.exception),
         )
+        self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
 
     def test_first_funnel_step_cannot_be_optional(self):
         query = FunnelsQuery(
@@ -134,6 +139,7 @@ class TestFunnelValidationRules(BaseTest):
             ValidateOptionalFunnelSteps().validate(self._context(query))
 
         self.assertIn("The first step of a funnel cannot be optional.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
 
     def test_optional_step_cannot_match_following_required_step(self):
         query = FunnelsQuery(
@@ -148,3 +154,4 @@ class TestFunnelValidationRules(BaseTest):
             ValidateOptionalFunnelSteps().validate(self._context(query))
 
         self.assertIn("An optional step cannot be the same as the following required step.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
