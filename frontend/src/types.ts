@@ -5469,6 +5469,7 @@ export type APIScopeObject =
     | 'session_recording_playlist'
     | 'sharing_configuration'
     | 'signal_scout'
+    | 'streamlit_app'
     | 'subscription'
     | 'survey'
     | 'task'
