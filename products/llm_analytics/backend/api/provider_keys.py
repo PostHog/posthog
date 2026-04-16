@@ -111,8 +111,12 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
         return data
 
-    def _build_azure_kwargs(self, validated_data: dict) -> dict:
-        """Extract Azure-specific kwargs for key validation."""
+    def _pop_azure_kwargs(self, validated_data: dict) -> dict:
+        """Pop Azure-specific write-only fields out of ``validated_data`` and return them as kwargs.
+
+        Mutates the input dict by removing ``azure_endpoint`` and ``api_version`` so that
+        ``super().create()`` / ``super().update()`` don't try to set them on the model.
+        """
         kwargs: dict = {}
         azure_endpoint = validated_data.pop("azure_endpoint", None)
         api_version = validated_data.pop("api_version", None)
@@ -125,7 +129,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         api_key = validated_data.pop("api_key", None)
         set_as_active = validated_data.pop("set_as_active", False)
-        azure_kwargs = self._build_azure_kwargs(validated_data)
+        azure_kwargs = self._pop_azure_kwargs(validated_data)
         team = self.context["get_team"]()
         validated_data["team"] = team
         validated_data["created_by"] = self.context["request"].user
@@ -156,16 +160,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         api_key = validated_data.pop("api_key", None)
-        azure_kwargs = self._build_azure_kwargs(validated_data)
+        azure_kwargs = self._pop_azure_kwargs(validated_data)
 
         if api_key:
-            extra_kwargs = azure_kwargs.copy()
-            # Fall back to existing config for Azure fields not provided in the update
-            if instance.provider == LLMProvider.AZURE_OPENAI:
-                if "azure_endpoint" not in extra_kwargs:
-                    extra_kwargs["azure_endpoint"] = instance.encrypted_config.get("azure_endpoint", "")
-                if "api_version" not in extra_kwargs:
-                    extra_kwargs["api_version"] = instance.encrypted_config.get("api_version", "")
+            # Fall back to existing config for Azure fields not provided in the update.
+            extra_kwargs = {**instance.provider_extra_kwargs(), **azure_kwargs}
 
             state, error_message = validate_provider_key(instance.provider, api_key, **extra_kwargs)
             if state != LLMProviderKey.State.OK:
@@ -178,13 +177,17 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             instance.state = state
             instance.error_message = None
         elif azure_kwargs and instance.provider == LLMProvider.AZURE_OPENAI:
-            # Update Azure config fields without changing the API key
+            # Update Azure config fields without changing the API key. Endpoint or version
+            # changes can invalidate the existing key (different Azure resource, different
+            # SKU), so reset state to UNKNOWN — user must re-validate explicitly.
             config = dict(instance.encrypted_config)
             if "azure_endpoint" in azure_kwargs:
                 config["azure_endpoint"] = azure_kwargs["azure_endpoint"]
             if "api_version" in azure_kwargs:
                 config["api_version"] = azure_kwargs["api_version"]
             instance.encrypted_config = config
+            instance.state = LLMProviderKey.State.UNKNOWN
+            instance.error_message = None
 
         return super().update(instance, validated_data)
 
@@ -259,12 +262,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        extra_kwargs = {}
-        if instance.provider == LLMProvider.AZURE_OPENAI:
-            extra_kwargs["azure_endpoint"] = instance.encrypted_config.get("azure_endpoint", "")
-            extra_kwargs["api_version"] = instance.encrypted_config.get("api_version", "")
-
-        state, error_message = validate_provider_key(instance.provider, api_key, **extra_kwargs)
+        state, error_message = validate_provider_key(instance.provider, api_key, **instance.provider_extra_kwargs())
         instance.state = state
         instance.error_message = error_message
         instance.save(update_fields=["state", "error_message"])

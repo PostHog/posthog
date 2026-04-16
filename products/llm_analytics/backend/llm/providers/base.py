@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from typing import Protocol
+from typing import Any, Protocol
 
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
@@ -38,13 +38,20 @@ class Provider(Protocol):
         ...
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
-        """Validate an API key. Returns (state, error_message)."""
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
+        """Validate an API key. Returns (state, error_message).
+
+        `**kwargs` is provider-specific extra config — e.g. Azure OpenAI accepts
+        ``azure_endpoint`` and ``api_version``. Most providers ignore kwargs.
+        """
         ...
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
-        """List available models for this provider"""
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
+        """List available models for this provider.
+
+        `**kwargs` is provider-specific extra config (see ``validate_key``).
+        """
         ...
 
     @staticmethod

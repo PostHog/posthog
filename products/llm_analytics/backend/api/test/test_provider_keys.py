@@ -377,6 +377,129 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_azure_openai_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "azure_openai",
+                "name": "Azure Key",
+                "api_key": "azure-hex-123",
+                "azure_endpoint": "https://contoso.openai.azure.com/",
+                "api_version": "2024-10-21",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "azure_openai")
+        self.assertEqual(key.encrypted_config["api_key"], "azure-hex-123")
+        self.assertEqual(key.encrypted_config["azure_endpoint"], "https://contoso.openai.azure.com/")
+        self.assertEqual(key.encrypted_config["api_version"], "2024-10-21")
+        mock_validate.assert_called_once_with(
+            "azure_openai",
+            "azure-hex-123",
+            azure_endpoint="https://contoso.openai.azure.com/",
+            api_version="2024-10-21",
+        )
+
+    def test_create_azure_openai_without_endpoint_fails(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "azure_openai",
+                "name": "Azure Key",
+                "api_key": "azure-hex-123",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "azure_endpoint")
+
+    def test_update_azure_config_without_api_key_resets_state(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="azure_openai",
+            name="Azure Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={
+                "api_key": "azure-hex-123",
+                "azure_endpoint": "https://old.openai.azure.com/",
+                "api_version": "2024-10-21",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"azure_endpoint": "https://new.openai.azure.com/"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        key.refresh_from_db()
+        self.assertEqual(key.state, LLMProviderKey.State.UNKNOWN)
+        self.assertIsNone(key.error_message)
+        self.assertEqual(key.encrypted_config["azure_endpoint"], "https://new.openai.azure.com/")
+        self.assertEqual(key.encrypted_config["api_key"], "azure-hex-123")
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_validate_azure_key_reuses_encrypted_config(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="azure_openai",
+            name="Azure Key",
+            state=LLMProviderKey.State.UNKNOWN,
+            encrypted_config={
+                "api_key": "azure-hex-123",
+                "azure_endpoint": "https://contoso.openai.azure.com/",
+                "api_version": "2024-10-21",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_validate.assert_called_once_with(
+            "azure_openai",
+            "azure-hex-123",
+            azure_endpoint="https://contoso.openai.azure.com/",
+            api_version="2024-10-21",
+        )
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_update_azure_api_key_with_new_config_persists_both(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="azure_openai",
+            name="Azure Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={
+                "api_key": "old-key",
+                "azure_endpoint": "https://old.openai.azure.com/",
+                "api_version": "2024-10-21",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {
+                "api_key": "new-key",
+                "azure_endpoint": "https://new.openai.azure.com/",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["api_key"], "new-key")
+        self.assertEqual(key.encrypted_config["azure_endpoint"], "https://new.openai.azure.com/")
+        # api_version was not supplied in the update — it should fall back to existing config
+        self.assertEqual(key.encrypted_config["api_version"], "2024-10-21")
+
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(
             team=self.team,

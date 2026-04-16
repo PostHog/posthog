@@ -10,6 +10,9 @@ import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
 export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai'
 
+/** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
+export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
+
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
@@ -139,6 +142,8 @@ export interface CreateLLMProviderKeyPayload {
 export interface UpdateLLMProviderKeyPayload {
     name?: string
     api_key?: string
+    azure_endpoint?: string
+    api_version?: string
 }
 
 export interface KeyValidationResult {

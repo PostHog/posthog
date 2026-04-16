@@ -12,6 +12,7 @@ from collections.abc import Callable, Generator
 from time import perf_counter
 from typing import Any
 
+from django.core.cache import cache
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -51,6 +52,8 @@ from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLM
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
+
+MODELS_CACHE_TIMEOUT_SECONDS = 60
 
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openai": "OpenAI",
@@ -397,11 +400,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
-                extra_kwargs: dict = {}
-                if provider_key.provider == "azure_openai":
-                    extra_kwargs["azure_endpoint"] = provider_key.encrypted_config.get("azure_endpoint", "")
-                    extra_kwargs["api_version"] = provider_key.encrypted_config.get("api_version", "")
-                models = Client.list_models(provider_key.provider, api_key, **extra_kwargs)
+                # Cache per provider key — list_models hits the provider's API, and the model picker
+                # can open many times per session. TTL is short enough that newly-added deployments
+                # surface within a minute.
+                cache_key = f"llma:proxy:models:{provider_key.id}"
+                models = cache.get(cache_key)
+                if models is None:
+                    models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
+                    cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 return Response(

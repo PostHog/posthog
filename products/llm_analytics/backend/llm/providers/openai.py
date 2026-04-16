@@ -12,7 +12,10 @@ import openai
 import posthoganalytics
 from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.openai import (
+    AzureOpenAI as WrappedAzureOpenAI,
+    OpenAI,
+)
 from pydantic import BaseModel
 
 from products.llm_analytics.backend.llm.errors import (
@@ -330,7 +333,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             yield StreamChunk(type="error", data={"error": str(e)})
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an OpenAI API key."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -355,7 +358,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         return set(OpenAIConfig.SUPPORTED_MODELS)
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available OpenAI models.
 
         Without a key, returns the curated SUPPORTED_MODELS list.
@@ -403,7 +406,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
-        if analytics.capture and isinstance(client, OpenAI):
+        if analytics.capture and isinstance(client, OpenAI | WrappedAzureOpenAI):
             return {
                 "posthog_distinct_id": analytics.distinct_id,
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),

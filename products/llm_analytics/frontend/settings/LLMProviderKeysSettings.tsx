@@ -23,6 +23,7 @@ import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon
 import {
     AlternativeKey,
     CreateLLMProviderKeyPayload,
+    DEFAULT_AZURE_API_VERSION,
     DependentConfigsResponse,
     KeyValidationResult,
     LLMProvider,
@@ -30,6 +31,7 @@ import {
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     TrialEvaluation,
+    UpdateLLMProviderKeyPayload,
     llmProviderKeysLogic,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
@@ -146,7 +148,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     const [name, setName] = useState('')
     const [apiKey, setApiKey] = useState('')
     const [azureEndpoint, setAzureEndpoint] = useState('')
-    const [apiVersion, setApiVersion] = useState('2024-10-21')
+    const [apiVersion, setApiVersion] = useState(DEFAULT_AZURE_API_VERSION)
     const [pendingSubmit, setPendingSubmit] = useState(false)
 
     const isAzure = provider === 'azure_openai'
@@ -160,7 +162,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
             setName('')
             setApiKey('')
             setAzureEndpoint('')
-            setApiVersion('2024-10-21')
+            setApiVersion(DEFAULT_AZURE_API_VERSION)
             setPendingSubmit(false)
         }
     }, [newKeyModalOpen])
@@ -353,8 +355,12 @@ function EditKeyModal({
 }): JSX.Element {
     const { providerKeysLoading, preValidationResult, preValidationResultLoading } = useValues(llmProviderKeysLogic)
     const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation } = useActions(llmProviderKeysLogic)
+    const isAzureEdit = keyToEdit.provider === 'azure_openai'
+
     const [name, setName] = useState(keyToEdit.name)
     const [apiKey, setApiKey] = useState('')
+    const [azureEndpoint, setAzureEndpoint] = useState(keyToEdit.azure_endpoint_display ?? '')
+    const [apiVersion, setApiVersion] = useState(keyToEdit.api_version_display ?? DEFAULT_AZURE_API_VERSION)
 
     const handleClose = (): void => {
         setEditingKey(null)
@@ -362,29 +368,30 @@ function EditKeyModal({
     }
 
     const handleSubmit = (): void => {
-        const payload: { name?: string; api_key?: string } = {}
+        const payload: UpdateLLMProviderKeyPayload = {}
         if (name !== keyToEdit.name) {
             payload.name = name
         }
         if (apiKey.length > 0) {
             payload.api_key = apiKey
         }
+        if (isAzureEdit) {
+            if (azureEndpoint !== (keyToEdit.azure_endpoint_display ?? '')) {
+                payload.azure_endpoint = azureEndpoint
+            }
+            if (apiVersion !== (keyToEdit.api_version_display ?? DEFAULT_AZURE_API_VERSION)) {
+                payload.api_version = apiVersion
+            }
+        }
         updateProviderKey({ id: keyToEdit.id, payload })
     }
-
-    const isAzureEdit = keyToEdit.provider === 'azure_openai'
 
     const handleApiKeyBlur = (): void => {
         if (apiKey.length > 0) {
             preValidateKey({
                 apiKey,
                 provider: keyToEdit.provider,
-                ...(isAzureEdit
-                    ? {
-                          azure_endpoint: keyToEdit.azure_endpoint_display || undefined,
-                          api_version: keyToEdit.api_version_display || undefined,
-                      }
-                    : {}),
+                ...(isAzureEdit ? { azure_endpoint: azureEndpoint, api_version: apiVersion } : {}),
             })
         }
     }
@@ -429,17 +436,29 @@ function EditKeyModal({
                         <span>{LLM_PROVIDER_LABELS[keyToEdit.provider]}</span>
                     </div>
                 </div>
-                {isAzureEdit && keyToEdit.azure_endpoint_display && (
-                    <div>
-                        <label className="text-sm font-medium">Azure endpoint</label>
-                        <p className="text-sm text-muted mt-1">{keyToEdit.azure_endpoint_display}</p>
-                    </div>
-                )}
-                {isAzureEdit && keyToEdit.api_version_display && (
-                    <div>
-                        <label className="text-sm font-medium">API version</label>
-                        <p className="text-sm text-muted mt-1">{keyToEdit.api_version_display}</p>
-                    </div>
+                {isAzureEdit && (
+                    <>
+                        <div>
+                            <label className="text-sm font-medium">Azure endpoint</label>
+                            <LemonInput
+                                value={azureEndpoint}
+                                onChange={setAzureEndpoint}
+                                placeholder="https://my-resource.openai.azure.com/"
+                                className="mt-1"
+                                fullWidth
+                            />
+                        </div>
+                        <div>
+                            <label className="text-sm font-medium">API version</label>
+                            <LemonInput
+                                value={apiVersion}
+                                onChange={setApiVersion}
+                                placeholder={DEFAULT_AZURE_API_VERSION}
+                                className="mt-1"
+                                fullWidth
+                            />
+                        </div>
+                    </>
                 )}
                 <div>
                     <label className="text-sm font-medium">Name</label>
