@@ -438,3 +438,117 @@ class DebugCHQueries(viewsets.ViewSet):
         sample_count = sum(row[1] for row in trace_results)
 
         return Response({"status": "complete", "folded_stacks": folded_stacks, "sample_count": sample_count})
+
+    @staticmethod
+    def _serialize_cell(value: object) -> object:
+        if value is None or isinstance(value, (str, float, bool)):
+            return value
+        if isinstance(value, int):
+            if -(2**63) <= value <= 2**63 - 1:
+                return value
+            return str(value)
+        return str(value)
+
+    @action(detail=False, methods=["POST"], url_path="raw_sql")
+    def raw_sql(self, request):
+        if not (request.user.is_staff or DEBUG):
+            raise exceptions.PermissionDenied("Only staff users can run raw SQL.")
+
+        query = request.data.get("query", "").strip()
+        if not query:
+            raise exceptions.ValidationError("No query provided.")
+
+        query_id = request.data.get("query_id", "").strip()
+        if not query_id or not query_id.startswith("rawsql_"):
+            query_id = f"rawsql_{generate_short_id()}"
+
+        start_time = time.monotonic()
+        try:
+            with get_client_from_pool(workload=Workload.OFFLINE, readonly=False) as client:
+                result = client.execute(
+                    query,
+                    with_column_types=True,
+                    settings={
+                        "readonly": 2,
+                        "max_execution_time": 30,
+                    },
+                    query_id=query_id,
+                )
+        except Exception as e:
+            logger.exception("Raw SQL execution failed for query_id %s", query_id)
+            raise exceptions.ValidationError(f"Query execution failed: {e}")
+        execution_time_ms = round((time.monotonic() - start_time) * 1000)
+
+        rows, column_types = result
+        columns = [{"name": name, "type": type_str} for name, type_str in column_types]
+        capped_rows = [[self._serialize_cell(cell) for cell in row] for row in rows[:1000]]
+
+        return Response(
+            {
+                "columns": columns,
+                "rows": capped_rows,
+                "query_id": query_id,
+                "execution_time_ms": execution_time_ms,
+                "truncated": len(rows) > 1000,
+            }
+        )
+
+    @action(detail=False, methods=["POST"], url_path="cancel_query")
+    def cancel_query(self, request):
+        if not (request.user.is_staff or DEBUG):
+            raise exceptions.PermissionDenied("Only staff users can cancel queries.")
+
+        query_id = request.data.get("query_id", "").strip()
+        if not query_id:
+            raise exceptions.ValidationError("No query_id provided.")
+
+        try:
+            sync_execute(
+                "KILL QUERY WHERE query_id = %(query_id)s",
+                {"query_id": query_id},
+            )
+        except Exception:
+            logger.exception("Failed to cancel query %s", query_id)
+
+        return Response({"status": "ok"})
+
+    @action(detail=False, methods=["GET"], url_path="query_log_entry")
+    def query_log_entry(self, request):
+        if not (request.user.is_staff or DEBUG):
+            raise exceptions.PermissionDenied("Only staff users can view query log entries.")
+
+        query_id = request.query_params.get("query_id", "").strip()
+        if not query_id:
+            raise exceptions.ValidationError("No query_id provided.")
+
+        try:
+            with get_client_from_pool(workload=Workload.OFFLINE, readonly=False) as client:
+                result = client.execute(
+                    """
+                    SELECT *
+                    FROM system.query_log
+                    WHERE query_id = %(query_id)s
+                        AND type != 'QueryStart'
+                        AND is_initial_query
+                    ORDER BY event_time DESC
+                    LIMIT 1
+                    """,
+                    with_column_types=True,
+                    settings={"readonly": 2, "max_execution_time": 5},
+                    params={"query_id": query_id},
+                )
+        except Exception:
+            logger.exception("Failed to fetch query log for %s", query_id)
+            return Response({"status": "error"}, status=500)
+
+        rows, column_types = result
+
+        if not rows:
+            return Response({"status": "pending"}, status=202)
+
+        row = rows[0]
+        entry = {}
+        for i, (name, _) in enumerate(column_types):
+            entry[name] = self._serialize_cell(row[i])
+
+        return Response({"status": "complete", "entry": entry})

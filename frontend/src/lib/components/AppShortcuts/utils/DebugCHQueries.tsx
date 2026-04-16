@@ -14,6 +14,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
@@ -26,10 +27,11 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, Realm, Reg
 import { CodeSnippet, Language } from '../../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 import { FlamegraphViewer } from './FlamegraphViewer'
+import { RawSqlDebug } from './RawSqlDebug'
 
 export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
-        title: 'ClickHouse queries recently executed for this user',
+        title: 'ClickHouse query debugger',
         content: <DebugCHQueries />,
         primaryButton: null,
         width: 1600,
@@ -285,6 +287,7 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
         profilingResultLoading,
     } = useValues(logic)
     const { setPathFilter, loadDebugResponse, runProfile } = useActions(logic)
+    const [tab, setTab] = useState<string>('recent')
 
     const errorTrackingLink = (key: string, value: string | number): string => {
         return urls.errorTracking({
@@ -307,6 +310,70 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
         })
     }
 
+    return (
+        <LemonTabs
+            activeKey={tab}
+            onChange={setTab}
+            tabs={[
+                {
+                    key: 'recent',
+                    label: 'Recent queries',
+                    content: (
+                        <RecentQueries
+                            debugResponseLoading={debugResponseLoading}
+                            debugResponse={debugResponse}
+                            filteredQueries={filteredQueries}
+                            pathFilter={pathFilter}
+                            paths={paths}
+                            profilingQuerySql={profilingQuerySql}
+                            profilingResult={profilingResult}
+                            profilingResultLoading={profilingResultLoading}
+                            setPathFilter={setPathFilter}
+                            loadDebugResponse={loadDebugResponse}
+                            runProfile={runProfile}
+                            errorTrackingLink={errorTrackingLink}
+                        />
+                    ),
+                },
+                {
+                    key: 'run_query',
+                    label: 'Run query',
+                    content: <RawSqlDebug />,
+                },
+            ]}
+        />
+    )
+}
+
+interface RecentQueriesProps {
+    debugResponseLoading: boolean
+    debugResponse: DebugResponse
+    filteredQueries: Query[] | undefined
+    pathFilter: string | null
+    paths: [string, number][] | null
+    profilingQuerySql: string | null
+    profilingResult: ProfilingResult | null
+    profilingResultLoading: boolean
+    setPathFilter: (path: string | null) => void
+    loadDebugResponse: () => void
+    runProfile: (query: string) => void
+    errorTrackingLink: (key: string, value: string | number) => string
+}
+
+function RecentQueries({
+    debugResponseLoading,
+    debugResponse,
+    filteredQueries,
+    pathFilter,
+    paths,
+    profilingQuerySql,
+    profilingResult,
+    profilingResultLoading,
+    setPathFilter,
+    loadDebugResponse,
+    runProfile,
+    errorTrackingLink,
+}: RecentQueriesProps): JSX.Element {
     return (
         <>
             {!debugResponseLoading && !!debugResponse.hourly_stats ? (
@@ -569,7 +636,7 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
                         },
                     },
                 ]}
-                dataSource={filteredQueries}
+                dataSource={filteredQueries ?? []}
                 loading={debugResponseLoading}
                 loadingSkeletonRows={5}
                 pagination={undefined}
