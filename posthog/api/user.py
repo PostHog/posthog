@@ -121,6 +121,8 @@ class UserSerializer(serializers.ModelSerializer):
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    welcome_screen_seen_at = serializers.SerializerMethodField()
+    is_organization_first_user = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -163,6 +165,8 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "welcome_screen_seen_at",
+            "is_organization_first_user",
         ]
 
         read_only_fields = [
@@ -182,6 +186,8 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "welcome_screen_seen_at",
+            "is_organization_first_user",
         ]
 
         extra_kwargs = {
@@ -244,6 +250,39 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    def get_welcome_screen_seen_at(self, instance: User) -> Optional[str]:
+        organization = instance.current_organization
+        if organization is None:
+            return None
+        from posthog.models.organization import OrganizationMembership
+
+        membership = (
+            OrganizationMembership.objects.filter(organization=organization, user=instance)
+            .only("welcome_screen_seen_at")
+            .first()
+        )
+        if membership is None or membership.welcome_screen_seen_at is None:
+            return None
+        return membership.welcome_screen_seen_at.replace(tzinfo=UTC).isoformat()
+
+    def get_is_organization_first_user(self, instance: User) -> bool:
+        """True if the current user was the first member of their current organization.
+
+        This is inferred from the time between organization creation and membership creation
+        rather than persisted separately — a small delta means the user bootstrapped the org.
+        """
+        organization = instance.current_organization
+        if organization is None:
+            return False
+        from posthog.models.organization import OrganizationMembership
+
+        membership = (
+            OrganizationMembership.objects.filter(organization=organization, user=instance).only("joined_at").first()
+        )
+        if membership is None:
+            return False
+        return abs((membership.joined_at - organization.created_at).total_seconds()) < 5
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -651,6 +690,35 @@ class UserViewSet(
         instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: {"type": "object", "properties": {"welcome_screen_seen_at": {"type": "string"}}}},
+    )
+    @action(methods=["POST"], detail=True, url_path="welcome_screen/dismiss")
+    def dismiss_welcome_screen(self, request, **kwargs):
+        """Mark the current user's membership to their current organization as having dismissed the welcome screen.
+
+        Idempotent — repeat calls are no-ops once the timestamp is set.
+        """
+        from django.utils import timezone
+
+        from posthog.models.organization import OrganizationMembership
+
+        instance = self.get_object()
+        organization = instance.current_organization
+        if organization is None:
+            raise exceptions.NotFound("No current organization set.")
+
+        membership = OrganizationMembership.objects.filter(organization=organization, user=instance).first()
+        if membership is None:
+            raise exceptions.NotFound("Current user is not a member of the current organization.")
+
+        if membership.welcome_screen_seen_at is None:
+            membership.welcome_screen_seen_at = timezone.now()
+            membership.save(update_fields=["welcome_screen_seen_at", "updated_at"])
+
+        return Response({"welcome_screen_seen_at": membership.welcome_screen_seen_at.replace(tzinfo=UTC).isoformat()})
 
     @action(
         methods=["GET", "PATCH"],

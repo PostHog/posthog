@@ -281,6 +281,16 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/coupons',
 ]
 
+const pathPrefixesWelcomeNotRequiredFor = [
+    urls.welcome(),
+    '/settings',
+    '/logout',
+    urls.organizationBilling(),
+    urls.billingAuthorizationStatus(),
+    '/instance',
+    urls.oauthAuthorize(),
+]
+
 const DelayedLoadingSpinner = (): JSX.Element => {
     const [show, setShow] = useState(false)
     useEffect(() => {
@@ -1199,6 +1209,19 @@ export const sceneLogic = kea<sceneLogicType>([
                                 return
                             }
                         }
+                    } else if (
+                        // Redirect invited users who haven't seen the welcome screen yet.
+                        // Must AND-check is_organization_first_user=false so org creators still get the
+                        // setup onboarding, and must check the path allow-list to avoid a redirect loop.
+                        user.organization &&
+                        user.is_organization_first_user === false &&
+                        !user.welcome_screen_seen_at &&
+                        !pathPrefixesWelcomeNotRequiredFor.some((path) =>
+                            removeProjectIdIfPresent(location.pathname).startsWith(path)
+                        )
+                    ) {
+                        router.actions.replace(urls.welcome())
+                        return
                     } else if (
                         // Or redirect to onboarding in case we detect people have to do onboarding for their first project
                         user.organization?.teams.length === 1 &&
