@@ -950,7 +950,7 @@ class TestGetTable:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        "inserts,expected_precision,expected_scale",
+        "inserts,expected_precision,expected_scale,expected_arrow_type",
         [
             pytest.param(
                 [
@@ -959,12 +959,14 @@ class TestGetTable:
                 ],
                 38,
                 20,
+                pa.decimal128(38, 20),
                 id="fractional_fits_in_decimal128",
             ),
             pytest.param(
                 [],
                 38,
                 DEFAULT_NUMERIC_SCALE,
+                pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
                 id="empty_table_falls_back_to_default",
             ),
             pytest.param(
@@ -973,6 +975,7 @@ class TestGetTable:
                 ],
                 38,
                 MAX_NUMERIC_SCALE,
+                pa.decimal128(38, MAX_NUMERIC_SCALE),
                 id="scale_past_max_clamped_with_small_int_still_fits",
             ),
             # Pins the intentional conservative behavior: all-integer data means MAX(scale(val))
@@ -987,6 +990,7 @@ class TestGetTable:
                 ],
                 38,
                 DEFAULT_NUMERIC_SCALE,
+                pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
                 id="integer_only_data_falls_back_to_default",
             ),
             # 8 integer digits + 30 fractional digits = 38 total, which is the `decimal128`
@@ -997,6 +1001,7 @@ class TestGetTable:
                 ],
                 38,
                 30,
+                pa.decimal128(38, 30),
                 id="total_exactly_at_decimal128_budget_fits",
             ),
             # 9 integer digits + 30 fractional digits = 39 total, one digit past the `decimal128`
@@ -1009,6 +1014,7 @@ class TestGetTable:
                 ],
                 39,
                 30,
+                pa.decimal256(39, 30),
                 id="integer_overflow_escalates_precision_past_38",
             ),
             # 10 integer digits + 32 fractional digits = 42 total. Scale is at MAX_NUMERIC_SCALE,
@@ -1019,6 +1025,7 @@ class TestGetTable:
                 ],
                 42,
                 MAX_NUMERIC_SCALE,
+                pa.decimal256(42, MAX_NUMERIC_SCALE),
                 id="both_dimensions_exceed_budget_escalates_precision",
             ),
         ],
@@ -1028,6 +1035,7 @@ class TestGetTable:
         inserts: list[str],
         expected_precision: int,
         expected_scale: int,
+        expected_arrow_type: pa.DataType,
     ):
         """Unconstrained `numeric` columns probe both fractional scale and integer digits so the
         resulting decimal type has enough precision to hold the observed data. When total digits
@@ -1053,6 +1061,12 @@ class TestGetTable:
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_precision == expected_precision
             assert val_col.numeric_scale == expected_scale
+            # Guard the full schema conversion too — catches regressions where precision/scale
+            # look right on the PostgreSQLColumn but the arrow type flips (e.g. decimal128 vs
+            # decimal256). The expected type is explicit per case rather than derived from
+            # `build_pyarrow_decimal_type(precision, scale)` so each case locks in its intended
+            # arrow width at the parameter level.
+            assert val_col.to_arrow_field().type == expected_arrow_type
 
     @pytest.mark.django_db
     def test_constrained_numeric_skips_probe(self):
