@@ -526,6 +526,40 @@ export interface _LogsQueryRequestApi {
 }
 
 /**
+ * * `severity` - severity
+ * `service` - service
+ */
+export type SparklineBreakdownByEnumApi = (typeof SparklineBreakdownByEnumApi)[keyof typeof SparklineBreakdownByEnumApi]
+
+export const SparklineBreakdownByEnumApi = {
+    Severity: 'severity',
+    Service: 'service',
+} as const
+
+export interface _LogsSparklineBodyApi {
+    /** Date range for the sparkline. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Break down sparkline by "severity" (default) or "service".
+
+* `severity` - severity
+* `service` - service */
+    sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+}
+
+export interface _LogsSparklineRequestApi {
+    /** The sparkline query to execute. */
+    query: _LogsSparklineBodyApi
+}
+
+/**
  * * `SYSTEM` - SYSTEM
  * `PLUGIN` - PLUGIN
  * `CONSOLE` - CONSOLE

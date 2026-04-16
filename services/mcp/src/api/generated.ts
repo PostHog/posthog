@@ -30915,6 +30915,18 @@ export namespace Schemas {
       Mapped: 'mapped',
     } as const;
 
+    /**
+     * * `severity` - severity
+    * `service` - service
+     */
+    export type SparklineBreakdownByEnum = typeof SparklineBreakdownByEnum[keyof typeof SparklineBreakdownByEnum];
+
+
+    export const SparklineBreakdownByEnum = {
+      Severity: 'severity',
+      Service: 'service',
+    } as const;
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -32160,6 +32172,29 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
+    }
+
+    export interface _LogsSparklineBody {
+      /** Date range for the sparkline. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Break down sparkline by "severity" (default) or "service".
+
+    * `severity` - severity
+    * `service` - service */
+      sparklineBreakdownBy?: SparklineBreakdownByEnum;
+    }
+
+    export interface _LogsSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _LogsSparklineBody;
     }
 
     export type EnvironmentsAlertsListParams = {
