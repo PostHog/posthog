@@ -263,7 +263,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         self._last_active_time = workflow.now()  # Reset inactivity timer on CI follow-up
                         await self._send_followup_to_sandbox(ci_message)
                     case TaskEvent.SIGNAL_RECEIVED:
-
                         if self._pending_followup is not None:
                             workflow.logger.info(
                                 "Pending follow-up message received, sending to sandbox", run_id=self.context.run_id
@@ -273,7 +272,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             self._last_active_time = workflow.now()
                             await self._send_followup_to_sandbox(message)
                             continue
-
 
                         if self._heartbeat_received and not self._task_completed:
                             workflow.logger.info(
