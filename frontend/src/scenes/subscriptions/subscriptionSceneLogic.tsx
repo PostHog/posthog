@@ -174,6 +174,16 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 actions.deliverSubscriptionFailure()
             }
         },
+        loadDeliveriesPageFailure: ({ errorObject }) => {
+            const status = errorObject?.status
+            if (status === 404) {
+                return
+            }
+            const detail = errorObject?.detail
+            lemonToast.error(
+                typeof detail === 'string' ? detail : 'Could not load delivery history. Please try refreshing the page.'
+            )
+        },
         // Test delivery returns 202 before Temporal persists the delivery row. Refetch now (fast path) and
         // again after a short delay so the list usually shows the new row without manual refresh.
         deliverSubscriptionSuccess: async (_, breakpoint) => {
@@ -183,17 +193,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             void actions.loadDeliveriesPage(null)
             await breakpoint(2000)
             void actions.loadDeliveriesPage(null)
-        },
-        loadDeliveriesPageFailure: ({ errorObject }) => {
-            const status = errorObject?.status
-            const detail = errorObject?.detail
-            const message =
-                status === 404
-                    ? 'Delivery history is not available.'
-                    : typeof detail === 'string'
-                      ? detail
-                      : 'Could not load delivery history.'
-            lemonToast.error(message)
         },
     })),
     afterMount(({ actions }) => {

@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { FrequencyEnumApi, SubscriptionsDeliveriesListStatus, TargetTypeEnumApi } from '~/generated/core/api.schemas'
@@ -11,6 +12,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
+
+jest.mock('lib/lemon-ui/LemonToast')
+const mockedLemonToast = jest.mocked(lemonToast)
 
 const MOCK_USER = {
     id: 1,
@@ -157,4 +161,44 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
         featureFlagLogic.unmount()
     })
+
+    it.each([
+        { status: 404, detail: 'Not found.', expectToast: false, expectedMessage: undefined },
+        { status: 502, detail: 'Bad gateway', expectToast: true, expectedMessage: 'Bad gateway' },
+        {
+            status: 500,
+            detail: undefined,
+            expectToast: true,
+            expectedMessage: 'Could not load delivery history. Please try refreshing the page.',
+        },
+    ])(
+        'deliveries API returning $status: expectToast=$expectToast',
+        async ({ status, detail, expectToast, expectedMessage }) => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
+                    [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => [status, { detail }],
+                },
+            })
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
+                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
+            })
+
+            const logic = subscriptionSceneLogic({ id: '1', tabId: `tab-${status}` })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.deliveriesPage).toBeNull()
+            if (expectToast) {
+                expect(mockedLemonToast.error).toHaveBeenCalledWith(expectedMessage)
+            } else {
+                expect(mockedLemonToast.error).not.toHaveBeenCalled()
+            }
+
+            logic.unmount()
+            featureFlagLogic.unmount()
+        }
+    )
 })

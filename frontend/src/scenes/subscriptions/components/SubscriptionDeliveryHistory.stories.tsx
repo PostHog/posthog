@@ -62,3 +62,13 @@ export const Empty: Story = {
         testDeliveryLoading: false,
     },
 }
+
+export const NeverDelivered: Story = {
+    args: {
+        deliveriesPage: null,
+        deliveriesPageLoading: false,
+        loadDeliveriesPage: noopLoadPage,
+        onTestDelivery: noopTestDelivery,
+        testDeliveryLoading: false,
+    },
+}

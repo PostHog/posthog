@@ -31,6 +31,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
+    'loadDeliveriesPage', // 404 handled gracefully as empty state in subscriptionSceneLogic
 ]
 
 interface InitKeaProps {
