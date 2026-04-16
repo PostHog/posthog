@@ -66,6 +66,8 @@ from ee.hogai.context.insight.format import (
     SQLResultsFormatter,
     StickinessResultsFormatter,
     TrendsResultsFormatter,
+    get_boxplot_results,
+    is_boxplot_query,
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -461,12 +463,9 @@ class AssistantQueryExecutor:
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-                if (
-                    getattr(query, "trendsFilter", None)
-                    and getattr(query.trendsFilter, "display", None) == ChartDisplayType.BOX_PLOT
-                ):
+                if is_boxplot_query(query):
                     formatter_name = "BoxPlotResultsFormatter"
-                    result = BoxPlotResultsFormatter(response["results"]).format()
+                    result = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
                 else:
                     formatter_name = "TrendsResultsFormatter"
                     result = TrendsResultsFormatter(query, response["results"]).format()

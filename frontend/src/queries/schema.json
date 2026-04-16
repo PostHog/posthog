@@ -8723,7 +8723,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -30273,7 +30273,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "boxplot_data": {
-                            "description": "Box plot data when display type is BoxPlot",
+                            "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
                                 "$ref": "#/definitions/BoxPlotDatum"
                             },
@@ -37083,7 +37083,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },

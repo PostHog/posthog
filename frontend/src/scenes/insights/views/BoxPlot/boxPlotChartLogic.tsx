@@ -41,6 +41,7 @@ export const boxPlotChartLogic = kea<boxPlotChartLogicType>([
             (s) => [s.insightData],
             (insightData): BoxPlotDatum[] => {
                 const result = insightData?.result ?? insightData?.results
+                // TODO: remove boxplot_data fallback once cached responses have rotated (added 2026-04-16)
                 const data = Array.isArray(result) && result.length > 0 ? result : insightData?.boxplot_data
                 if (!Array.isArray(data) || data.length === 0) {
                     return []

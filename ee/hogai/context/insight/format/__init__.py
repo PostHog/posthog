@@ -47,6 +47,19 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+def is_boxplot_query(query: BaseModel) -> bool:
+    return (
+        getattr(query, "trendsFilter", None) is not None
+        and getattr(query.trendsFilter, "display", None) == ChartDisplayType.BOX_PLOT
+    )
+
+
+def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
+    # TODO: remove boxplot_data fallback once cached responses have rotated (added 2026-04-17)
+    results = response.get("results", [])
+    return results if results else response.get("boxplot_data", [])
+
+
 def format_query_results_for_llm(
     query: BaseModel,
     response: dict[str, Any],
@@ -69,11 +82,8 @@ def format_query_results_for_llm(
         query = query.source
 
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-        if (
-            getattr(query, "trendsFilter", None)
-            and getattr(query.trendsFilter, "display", None) == ChartDisplayType.BOX_PLOT
-        ):
-            return BoxPlotResultsFormatter(response["results"]).format()
+        if is_boxplot_query(query):
+            return BoxPlotResultsFormatter(get_boxplot_results(response)).format()
         return TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
