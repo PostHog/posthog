@@ -1297,6 +1297,58 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 hasFilters: false,
                 expected: undefined,
             },
+            {
+                scenario: 'personUUID set, no filters, no recordings',
+                props: { logicKey: 'summarize-test', personUUID: 'abc-123' },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'personUUID set, no filters, has recordings',
+                props: { logicKey: 'summarize-test', personUUID: 'abc-123' },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
+            {
+                scenario: 'pinnedFilters set, no filters, no recordings',
+                props: {
+                    logicKey: 'summarize-test',
+                    pinnedFilters: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'events',
+                                name: 'All events',
+                                properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                            } as ActionFilter,
+                        ],
+                    },
+                },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'pinnedFilters set, no filters, has recordings',
+                props: {
+                    logicKey: 'summarize-test',
+                    pinnedFilters: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'events',
+                                name: 'All events',
+                                properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                            } as ActionFilter,
+                        ],
+                    },
+                },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
         ])('after loading: $scenario -> $expected', async ({ props, mockResults, hasFilters, expected }) => {
             if (mockResults !== undefined) {
                 useMocks({
