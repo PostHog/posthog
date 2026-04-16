@@ -9,7 +9,7 @@ acquiring the advisory lock.
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 TRACKING_TABLE_NAME = "clickhouse_schema_migrations"
 
@@ -41,7 +41,7 @@ class StepRecord:
     step_index: int
     host: str
     node_role: str
-    direction: str
+    direction: Literal["up", "down"]
     checksum: str
     success: bool
 
@@ -97,52 +97,36 @@ def acquire_apply_lock(
     _ensure_tracking_table(client, database, cluster)
     table_ref = f"{database}.{TRACKING_TABLE_NAME}"
 
-    if force:
-        _record_step(
-            client=client,
-            record=StepRecord(
-                migration_number=LOCK_MIGRATION_NUMBER,
-                migration_name="__lock__",
-                step_index=LOCK_STEP_INDEX,
-                host=hostname,
-                node_role="*",
-                direction="up",
-                checksum="lock",
-                success=True,
-            ),
-            database=database,
-        )
-        return (True, "")
+    if not force:
+        # Check for an existing active lock before attempting to insert.
+        # A lock is "active" when there is an 'up' row with no subsequent 'down' row.
+        check_sql = f"""
+            SELECT host, applied_at
+            FROM {table_ref}
+            WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+              AND step_index = {LOCK_STEP_INDEX}
+              AND direction = 'up'
+              AND success = 1
+              AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
+              AND host != %(hostname)s
+              AND applied_at > (
+                  SELECT coalesce(max(applied_at), toDateTime64('1970-01-01', 3))
+                  FROM {table_ref}
+                  WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+                    AND step_index = {LOCK_STEP_INDEX}
+                    AND direction = 'down'
+              )
+            ORDER BY applied_at DESC
+            LIMIT 1
+        """
+        existing = client.execute(check_sql, {"hostname": hostname})
+        if existing:
+            return (
+                False,
+                f"Another ch_migrate apply is running on {existing[0][0]} (started {existing[0][1]}). Use --force to override.",
+            )
 
-    # Check for an existing active lock before attempting to insert.
-    # A lock is "active" when there is an 'up' row with no subsequent 'down' row.
-    check_sql = f"""
-        SELECT host, applied_at
-        FROM {table_ref}
-        WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-          AND step_index = {LOCK_STEP_INDEX}
-          AND direction = 'up'
-          AND success = 1
-          AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
-          AND host != %(hostname)s
-          AND applied_at > (
-              SELECT coalesce(max(applied_at), toDateTime64('1970-01-01', 3))
-              FROM {table_ref}
-              WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-                AND step_index = {LOCK_STEP_INDEX}
-                AND direction = 'down'
-          )
-        ORDER BY applied_at DESC
-        LIMIT 1
-    """
-    existing = client.execute(check_sql, {"hostname": hostname})
-    if existing:
-        return (
-            False,
-            f"Another ch_migrate apply is running on {existing[0][0]} (started {existing[0][1]}). Use --force to override.",
-        )
-
-    # Insert the acquire record
+    # Insert the acquire record (always, whether forced or not)
     _record_step(
         client=client,
         record=StepRecord(
@@ -168,12 +152,18 @@ def acquire_apply_lock(
     # sorted set and agree on the winner.
     try:
         client.execute(f"SYSTEM SYNC REPLICA {table_ref} STRICT")
-    except Exception:
-        # SYNC REPLICA is only valid on Replicated engines; fall back to a
-        # short sleep for local-only dev stacks where the tracking table is
-        # plain MergeTree. This path is not safe under real concurrency but
-        # matches the single-host dev environment.
+    except Exception as e:
+        # ClickHouse raises "Table ... is not replicated" (or similar) when
+        # SYSTEM SYNC REPLICA runs against a plain MergeTree table (dev stack).
+        # Silently fall through only for that case; re-raise everything else
+        # (ZooKeeper unreachable, timeout, network partition) so the caller
+        # aborts the acquire instead of proceeding without a replication barrier.
+        if "is not replicated" not in str(e) and "NOT_IMPLEMENTED" not in str(e):
+            raise
+        # Non-replicated engine (dev only) — best-effort sleep. Safe because the
+        # dev stack is single-host and cannot have competing apply processes.
         time.sleep(1)
+
     # Deterministic tie-break: earliest-applied wins, then lexicographic
     # hostname. Both callers sort the same rows identically regardless of
     # which one landed in the driver result first, so they agree on the
@@ -198,6 +188,13 @@ def acquire_apply_lock(
     """
     active = client.execute(verify_sql)
     if len(active) > 1 and active[0][0] != hostname:
+        if force:
+            # --force skips the pre-check but still runs SYNC+verify so we can
+            # detect competing apply runs. Log the override; don't back off.
+            import logging
+
+            logging.getLogger(__name__).warning("ch_migrate --force: overriding lock held by %s", active[0][0])
+            return (True, "")
         # Race: another host won. Release and back off.
         release_apply_lock(client, database, hostname)
         return (
