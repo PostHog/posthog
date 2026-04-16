@@ -2,7 +2,7 @@
 name: example-community-skill
 description: >-
   One- to two-sentence description of what this skill helps the agent do and
-  when it should be used. Must be at least 20 characters.
+  when it should be used.
 ---
 
 # Example community skill

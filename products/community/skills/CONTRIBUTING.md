@@ -36,14 +36,14 @@ The generated frontmatter looks like:
 
 ```yaml
 ---
-name: your-skill-name # lowercase-kebab-case, 3-64 chars, must match directory
-description: >- # 20-1024 chars — when to use, what it does
+name: your-skill-name # lowercase-kebab-case, must match directory
+description: >- # when to use, what it does
   Audit inactive surveys across a PostHog project and recommend ones
   safe to archive. Use when the user wants to clean up survey clutter.
 ---
 ```
 
-`name` and `description` are the only fields we validate — the description is what agents match against when deciding whether to run your skill, so make it specific.
+`name` and `description` are the only fields. The description is what agents match against when deciding whether to run your skill, so make it specific.
 
 ## 3. Allowed content
 

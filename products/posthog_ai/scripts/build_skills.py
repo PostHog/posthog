@@ -12,8 +12,8 @@ Skills under products/community/skills/ are community-contributed and subject to
 stricter rules: markdown only (no .j2, no scripts/). See
 products/community/skills/CONTRIBUTING.md.
 
-Each skill must have YAML frontmatter validated against ``SkillFrontmatter`` —
-``name`` (lowercase-kebab-case) and ``description`` (20-1024 chars) are required.
+Each skill must have YAML frontmatter with ``name`` and ``description``, validated
+against ``SkillFrontmatter``.
 
 The build renders skills to dist/skills/{skill_name}/ (gitignored, human-readable)
 and produces three sets of artifacts, all published as release assets by CI:
@@ -51,7 +51,7 @@ from pydantic import BaseModel, Field, ValidationError
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-MANIFEST_VERSION = "2.0.0"
+MANIFEST_VERSION = "1.0.0"
 INDEX_SCHEMA_VERSION = "2.0.0"
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
@@ -107,14 +107,8 @@ def _assert_text_file(file_path: Path) -> None:
 
 
 class SkillFrontmatter(BaseModel):
-    """Frontmatter schema for skill SKILL.md files.
-
-    Constraints are Pydantic-validated at both lint time (cheap, no Django)
-    and build time.
-    """
-
-    name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]{2,63}$")
-    description: str = Field(..., min_length=20, max_length=1024)
+    name: str
+    description: str
 
 
 class DiscoveredSkill(BaseModel):
@@ -675,7 +669,7 @@ class SkillBuilder:
         content = textwrap.dedent(f"""\
             ---
             name: {skill_name}
-            description: TODO — describe when and how agents should use this skill (20-1024 chars).
+            description: TODO
             ---
 
             # {display_name}

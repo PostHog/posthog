@@ -44,12 +44,12 @@ Community vs official is determined by location (`products/community/skills/` vs
 
 ## Frontmatter schema
 
-Every skill (official or community) has Pydantic-validated frontmatter with just two fields:
+Every skill (official or community) has frontmatter with just two fields:
 
 ```yaml
 ---
-name: your-skill-name # required, lowercase-kebab-case, 3-64 chars, unique across the repo
-description: >- # required, 20-1024 chars — agents use this to decide whether to run the skill
+name: your-skill-name # required, lowercase-kebab-case, unique across the repo
+description: >- # required — agents use this to decide whether to run the skill
   Audit inactive surveys across a PostHog project and recommend ones
   safe to archive.
 ---
