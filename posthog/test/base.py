@@ -242,6 +242,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(
             r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
         )
+        # Cohort breakdowns embed the cohort PK as a bare integer literal in the
+        # generated SQL (e.g. `<pk> AS value`). Normalize so snapshots stay stable.
+        query = re.sub(r"\b\d+ (as|AS) value\b", r"99999 \1 value", query)
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
         query = re.sub(

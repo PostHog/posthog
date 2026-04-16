@@ -5893,72 +5893,42 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
 
-    def test_funnel_cohort_with_all_breakdown_uses_left_join_and_arrayjoin(self):
-        # Regression: funnel queries with breakdown=["all", cohort_id] used to emit
-        # INNER JOIN (cohort_people UNION ALL events) AS cohort_join, requiring a second
-        # scan of the events table. The optimized form uses a LEFT JOIN on the cohort
-        # subquery only and synthesizes the "all users" bucket via arrayJoin.
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.printer import prepare_and_print_ast
+    @snapshot_clickhouse_queries
+    def test_funnel_cohort_all_breakdown_single_cohort_counts(self):
+        # Auto-increment cohort PKs show up in the captured SQL — normalize numeric
+        # literals so snapshots are stable across runs.
+        self.snapshot_replace_all_numbers = True
+        # Regression for the "all" + cohort breakdown optimization: the generated
+        # SQL is snapshotted (so a revert to the UNION-ALL-events pattern shows up
+        # as a snapshot diff), and the result counts are chosen to be discriminating:
+        #
+        # - 3 in-cohort users, all complete both steps
+        # - 1 out-of-cohort user that completes both steps
+        # - 1 out-of-cohort user that completes only step 1
+        #
+        # Expected per bucket:
+        #   all users    -> step_1 = 5, step_2 = 4
+        #   cohort       -> step_1 = 3, step_2 = 3
+        #
+        # Wrong behaviors these assertions catch:
+        #   - LEFT JOIN that drops non-cohort rows -> all bucket collapses to 3/3
+        #   - Missing arrayJoin expansion          -> cohort bucket disappears
+        #   - Row duplication not absorbed by dedup -> counts inflate beyond person count
+        for i in range(3):
+            _create_person(distinct_ids=[f"in_{i}"], team_id=self.team.pk, properties={"key": "value"})
+            self._signup_event(distinct_id=f"in_{i}", timestamp="2024-01-01T10:00:00Z")
+            self._add_to_cart_event(distinct_id=f"in_{i}", timestamp="2024-01-01T11:00:00Z")
 
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"key": "value"})
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="test_cohort_all_breakdown",
-            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
-        )
-        cohort.calculate_people_ch(pending_version=0)
+        _create_person(distinct_ids=["out_converts"], team_id=self.team.pk, properties={"key": "other"})
+        self._signup_event(distinct_id="out_converts", timestamp="2024-01-01T10:00:00Z")
+        self._add_to_cart_event(distinct_id="out_converts", timestamp="2024-01-01T11:00:00Z")
 
-        query = FunnelsQuery(
-            series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
-            breakdownFilter=BreakdownFilter(
-                breakdown=["all", cohort.pk],
-                breakdown_type=BreakdownType.COHORT,
-            ),
-        )
-
-        runner = FunnelsQueryRunner(query=query, team=self.team)
-        ast_query = runner.to_query()
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            modifiers=create_default_modifiers_for_team(self.team),
-        )
-        sql, _ = prepare_and_print_ast(ast_query, context, "clickhouse", pretty=True)
-        # Print the middle portion for debugging when assertions fail.
-        # Core structural invariant: the events table is scanned exactly once.
-        # The pre-optimization form scanned it twice — once for the funnel itself
-        # and once in the UNION ALL branch of the cohort_join subquery.
-        import re
-
-        events_scans = len(re.findall(r"\bevents\s+AS\s+e\b", sql, re.IGNORECASE))
-        assert events_scans == 1, (
-            f"Expected exactly one `events AS e` reference in cohort+all funnel SQL; got {events_scans}.\nSQL: {sql}"
-        )
-        # The LEFT JOIN must be present for the cohort_join alias.
-        assert "LEFT JOIN" in sql and "cohort_join" in sql
-        # The ALL_USERS_COHORT_ID bucket is synthesized via arrayJoin rather than a
-        # second events table scan in a UNION ALL branch.
-        assert "arrayJoin" in sql
-        # The cohort_join.value reference is qualified (not a bare `value`) to avoid
-        # any ambiguity with other aliased `value` columns.
-        assert "cohort_join`.`value`" in sql or "cohort_join.value" in sql
-
-    def test_funnel_cohort_all_breakdown_includes_cohort_and_all_buckets(self):
-        # Regression test for the semantics of breakdown=["all", cohort_id]: people in
-        # the cohort must appear in both the cohort bucket and the "all users" bucket;
-        # people outside the cohort must appear only in the "all users" bucket.
-        _create_person(distinct_ids=["in_cohort"], team_id=self.team.pk, properties={"key": "value"})
-        _create_person(distinct_ids=["out_of_cohort"], team_id=self.team.pk, properties={"key": "other"})
-        # Both users complete the 2-step funnel.
-        for distinct_id in ("in_cohort", "out_of_cohort"):
-            self._signup_event(distinct_id=distinct_id, timestamp="2024-01-01T10:00:00Z")
-            self._add_to_cart_event(distinct_id=distinct_id, timestamp="2024-01-01T11:00:00Z")
+        _create_person(distinct_ids=["out_partial"], team_id=self.team.pk, properties={"key": "other"})
+        self._signup_event(distinct_id="out_partial", timestamp="2024-01-01T10:00:00Z")
 
         cohort = Cohort.objects.create(
             team=self.team,
-            name="cohort_all_semantics",
+            name="cohort_all_counts",
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
         cohort.calculate_people_ch(pending_version=0)
@@ -5973,42 +5943,61 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        # Two breakdown groups: "all users" and the cohort
-        assert len(results) == 2
         buckets = {group[0]["breakdown_value"]: group for group in results}
+        assert set(buckets) == {ALL_USERS_COHORT_ID, cohort.pk}
 
-        # "all users" bucket (ALL_USERS_COHORT_ID == 0): both users converted both steps
         all_bucket = buckets[ALL_USERS_COHORT_ID]
-        assert all_bucket[0]["count"] == 2
-        assert all_bucket[1]["count"] == 2
+        assert all_bucket[0]["count"] == 5
+        assert all_bucket[1]["count"] == 4
 
-        # Cohort bucket: only the in-cohort user
         cohort_bucket = buckets[cohort.pk]
-        assert cohort_bucket[0]["count"] == 1
-        assert cohort_bucket[1]["count"] == 1
+        assert cohort_bucket[0]["count"] == 3
+        assert cohort_bucket[1]["count"] == 3
 
-    def test_funnel_cohort_all_breakdown_multi_cohort_dedup(self):
-        # breakdown=["all", cohort_a, cohort_b] with a user in BOTH cohorts should
-        # appear in exactly three buckets (all, cohort_a, cohort_b), not more.
-        # This exercises the arrayJoin + LEFT JOIN dedupe path via groupUniqArray.
-        _create_person(
-            distinct_ids=["multi"],
-            team_id=self.team.pk,
-            properties={"key_a": "value", "key_b": "value"},
-        )
-        self._signup_event(distinct_id="multi", timestamp="2024-01-01T10:00:00Z")
-        self._add_to_cart_event(distinct_id="multi", timestamp="2024-01-01T11:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_cohort_all_breakdown_multi_cohort_counts(self):
+        self.snapshot_replace_all_numbers = True
+
+        # breakdown=["all", cohort_a, cohort_b] with memberships chosen so that the
+        # per-bucket counts are all distinct, catching any bucket-crossover bug:
+        #
+        # - 2 users in cohort_a only, both convert both steps
+        # - 3 users in cohort_b only, all convert both steps
+        # - 1 user in BOTH cohorts, converts both steps
+        # - 1 user in neither cohort, converts both steps
+        # - 1 user in neither cohort, converts only step 1
+        #
+        # Expected per bucket:
+        #   all users    -> step_1 = 8, step_2 = 7
+        #   cohort_a     -> step_1 = 3, step_2 = 3   (2 a-only + 1 both)
+        #   cohort_b     -> step_1 = 4, step_2 = 4   (3 b-only + 1 both)
+        def _both_steps(distinct_id: str) -> None:
+            self._signup_event(distinct_id=distinct_id, timestamp="2024-01-01T10:00:00Z")
+            self._add_to_cart_event(distinct_id=distinct_id, timestamp="2024-01-01T11:00:00Z")
+
+        for i in range(2):
+            _create_person(distinct_ids=[f"a_only_{i}"], team_id=self.team.pk, properties={"a": "v"})
+            _both_steps(f"a_only_{i}")
+        for i in range(3):
+            _create_person(distinct_ids=[f"b_only_{i}"], team_id=self.team.pk, properties={"b": "v"})
+            _both_steps(f"b_only_{i}")
+        _create_person(distinct_ids=["both"], team_id=self.team.pk, properties={"a": "v", "b": "v"})
+        _both_steps("both")
+        _create_person(distinct_ids=["neither_converts"], team_id=self.team.pk, properties={})
+        _both_steps("neither_converts")
+        _create_person(distinct_ids=["neither_partial"], team_id=self.team.pk, properties={})
+        self._signup_event(distinct_id="neither_partial", timestamp="2024-01-01T10:00:00Z")
 
         cohort_a = Cohort.objects.create(
             team=self.team,
-            name="cohort_a",
-            groups=[{"properties": [{"key": "key_a", "value": "value", "type": "person"}]}],
+            name="cohort_a_counts",
+            groups=[{"properties": [{"key": "a", "value": "v", "type": "person"}]}],
         )
         cohort_a.calculate_people_ch(pending_version=0)
         cohort_b = Cohort.objects.create(
             team=self.team,
-            name="cohort_b",
-            groups=[{"properties": [{"key": "key_b", "value": "value", "type": "person"}]}],
+            name="cohort_b_counts",
+            groups=[{"properties": [{"key": "b", "value": "v", "type": "person"}]}],
         )
         cohort_b.calculate_people_ch(pending_version=0)
 
@@ -6022,16 +6011,31 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        buckets = {group[0]["breakdown_value"] for group in results}
-        assert buckets == {ALL_USERS_COHORT_ID, cohort_a.pk, cohort_b.pk}
+        buckets = {group[0]["breakdown_value"]: group for group in results}
+        assert set(buckets) == {ALL_USERS_COHORT_ID, cohort_a.pk, cohort_b.pk}
 
+        assert buckets[ALL_USERS_COHORT_ID][0]["count"] == 8
+        assert buckets[ALL_USERS_COHORT_ID][1]["count"] == 7
+
+        assert buckets[cohort_a.pk][0]["count"] == 3
+        assert buckets[cohort_a.pk][1]["count"] == 3
+
+        assert buckets[cohort_b.pk][0]["count"] == 4
+        assert buckets[cohort_b.pk][1]["count"] == 4
+
+    @snapshot_clickhouse_queries
     def test_funnel_cohort_breakdown_all_only(self):
+        self.snapshot_replace_all_numbers = True
         # Edge case: breakdown=["all"] with no cohort ids. breakdown_cohorts is empty,
         # so no cohort_join is added; prop_basic is rewritten to a constant
-        # ALL_USERS_COHORT_ID. Result should be a single "all users" bucket.
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk)
-        self._signup_event(distinct_id="p1", timestamp="2024-01-01T10:00:00Z")
-        self._add_to_cart_event(distinct_id="p1", timestamp="2024-01-01T11:00:00Z")
+        # ALL_USERS_COHORT_ID. Test data includes partial and full converters to
+        # distinguish step_1 from step_2 counts.
+        _create_person(distinct_ids=["full"], team_id=self.team.pk)
+        self._signup_event(distinct_id="full", timestamp="2024-01-01T10:00:00Z")
+        self._add_to_cart_event(distinct_id="full", timestamp="2024-01-01T11:00:00Z")
+
+        _create_person(distinct_ids=["partial"], team_id=self.team.pk)
+        self._signup_event(distinct_id="partial", timestamp="2024-01-01T10:00:00Z")
 
         query = FunnelsQuery(
             series=[EventsNode(event="user signed up"), EventsNode(event="added to cart")],
@@ -6045,17 +6049,21 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
         assert results[0][0]["breakdown_value"] == ALL_USERS_COHORT_ID
-        assert results[0][0]["count"] == 1
+        assert results[0][0]["count"] == 2
         assert results[0][1]["count"] == 1
 
+    @snapshot_clickhouse_queries
     def test_funnel_cohort_breakdown_all_with_missing_cohort_id(self):
+        self.snapshot_replace_all_numbers = True
         # Edge case: breakdown=["all", <non_existent_cohort_id>]. The missing cohort
         # is silently dropped by the `pk__in` filter on breakdown_cohorts, so we end
-        # up in the same path as breakdown=["all"] alone. Result should be a single
-        # "all users" bucket, with no exception raised.
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk)
-        self._signup_event(distinct_id="p1", timestamp="2024-01-01T10:00:00Z")
-        self._add_to_cart_event(distinct_id="p1", timestamp="2024-01-01T11:00:00Z")
+        # up in the same path as breakdown=["all"] alone.
+        _create_person(distinct_ids=["full"], team_id=self.team.pk)
+        self._signup_event(distinct_id="full", timestamp="2024-01-01T10:00:00Z")
+        self._add_to_cart_event(distinct_id="full", timestamp="2024-01-01T11:00:00Z")
+
+        _create_person(distinct_ids=["partial"], team_id=self.team.pk)
+        self._signup_event(distinct_id="partial", timestamp="2024-01-01T10:00:00Z")
 
         non_existent_cohort_id = 99_999_999
         query = FunnelsQuery(
@@ -6070,4 +6078,5 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
         assert results[0][0]["breakdown_value"] == ALL_USERS_COHORT_ID
-        assert results[0][0]["count"] == 1
+        assert results[0][0]["count"] == 2
+        assert results[0][1]["count"] == 1
