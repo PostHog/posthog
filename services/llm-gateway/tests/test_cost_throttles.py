@@ -304,7 +304,9 @@ class TestUserCostSustainedThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_cache_key_includes_product_and_scope(self) -> None:
+    async def test_cache_key_includes_product_and_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_PLAN_AWARE_THROTTLING_ENABLED", "false")
+        get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
@@ -312,6 +314,7 @@ class TestUserCostSustainedThrottle:
 
         key = throttle._get_cache_key(context)
         assert key == "cost:user:user_cost_sustained:posthog_code:42"
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_cache_key_includes_period_for_free_plan(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -358,7 +361,7 @@ class TestUserCostSustainedThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_cache_key_no_period_for_pro_plan(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_cache_key_includes_period_for_pro_plan(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from datetime import UTC, datetime, timedelta
 
         monkeypatch.setenv("LLM_GATEWAY_PLAN_AWARE_THROTTLING_ENABLED", "true")
@@ -375,7 +378,7 @@ class TestUserCostSustainedThrottle:
         )
 
         key = throttle._get_cache_key(context)
-        assert key == "cost:user:user_cost_sustained:posthog_code:42"
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:0"
         get_settings.cache_clear()
 
 

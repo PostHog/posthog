@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PLAN_CACHE_PREFIX = "plan:posthog_code"
+POSTHOG_CODE_PRODUCT = "posthog_code"
+PLAN_CACHE_PREFIX = f"plan:{POSTHOG_CODE_PRODUCT}"
 PRO_PLAN_PREFIX = "posthog-code-200"
 
 
@@ -79,7 +80,7 @@ async def resolve_plan_info(
 ) -> PlanInfo:
     """Resolve plan info, returning safe defaults if disabled or on failure."""
     settings = get_settings()
-    if product != "posthog_code" or not settings.plan_aware_throttling_enabled:
+    if product != POSTHOG_CODE_PRODUCT or not settings.plan_aware_throttling_enabled:
         return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
 
     plan_resolver: PlanResolver = request.app.state.plan_resolver
@@ -174,7 +175,7 @@ class PlanResolver:
         url = f"{settings.posthog_api_url.rstrip('/')}/api/seats/me/"
         resp = await self._http.get(
             url,
-            params={"product_key": "posthog_code"},
+            params={"product_key": POSTHOG_CODE_PRODUCT},
             headers={"Authorization": auth_header},
             timeout=2.0,
         )

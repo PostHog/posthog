@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
 from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_team_multiplier
-from llm_gateway.services.plan_resolver import get_billing_period_number, is_pro_plan
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +35,7 @@ class CostStatus:
 def _is_free_plan_throttled(context: ThrottleContext) -> bool:
     settings = get_settings()
     return (
-        context.product == "posthog_code"
+        context.product == POSTHOG_CODE_PRODUCT
         and settings.plan_aware_throttling_enabled
         and not is_pro_plan(context.plan_key)
     )
@@ -259,11 +259,9 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         base_key = super()._get_cache_key(context)
         if not base_key:
             return base_key
-        if _is_free_plan_throttled(context):
-            # Each billing period gets a fresh key so the sustained budget
-            # resets. In-flight requests near a period boundary may land on
-            # the old key and not count against the new window.
-            period = get_billing_period_number(context.seat_created_at, get_settings().free_plan_trial_period_days)
+        settings = get_settings()
+        if context.product == POSTHOG_CODE_PRODUCT and settings.plan_aware_throttling_enabled:
+            period = get_billing_period_number(context.seat_created_at, settings.free_plan_trial_period_days)
             return f"{base_key}:period:{period}"
         return base_key
 

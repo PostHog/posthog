@@ -10,7 +10,7 @@ from llm_gateway.dependencies import get_authenticated_user
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.services.plan_resolver import PlanResolver, resolve_plan_info
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanResolver, resolve_plan_info
 
 usage_router = APIRouter(prefix="/v1/usage", tags=["Usage"])
 
@@ -88,7 +88,7 @@ async def invalidate_plan_cache(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
 ) -> dict[str, bool]:
-    if product != "posthog_code":
+    if product != POSTHOG_CODE_PRODUCT:
         raise HTTPException(status_code=404, detail="Plan cache not available for this product")
     plan_resolver: PlanResolver = request.app.state.plan_resolver
     await plan_resolver.invalidate(user.user_id)
