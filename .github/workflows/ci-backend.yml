@@ -855,6 +855,13 @@ jobs:
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
+            - name: Verify ch_migrate plan
+              run: |
+                  # Smoke-test that the declarative schema tool parses YAMLs and
+                  # connects to ClickHouse without error. Exits 0 when schema dir
+                  # is empty (nothing to plan). Fails on import errors or bad YAML.
+                  python manage.py ch_migrate plan
+
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
