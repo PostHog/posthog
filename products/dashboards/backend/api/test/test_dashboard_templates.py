@@ -954,9 +954,11 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         self.organization.save()
 
     def _grant_template_viewer(self) -> None:
+        # `dashboard_template` inherits access from `dashboard`, so viewer on the parent resource
+        # is what limits a non-staff user to read-only template access.
         AccessControl.objects.create(
             team=self.team,
-            resource="dashboard_template",
+            resource="dashboard",
             resource_id=None,
             organization_member=self.organization_membership,
             role=None,

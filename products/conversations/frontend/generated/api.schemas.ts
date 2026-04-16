@@ -452,6 +452,8 @@ export interface TicketApi {
      */
     sla_due_at?: string | null
     /** @nullable */
+    snoozed_until?: string | null
+    /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
     readonly slack_thread_ts: string | null
@@ -523,6 +525,8 @@ export interface PatchedTicketApi {
      * @nullable
      */
     sla_due_at?: string | null
+    /** @nullable */
+    snoozed_until?: string | null
     /** @nullable */
     readonly slack_channel_id?: string | null
     /** @nullable */
