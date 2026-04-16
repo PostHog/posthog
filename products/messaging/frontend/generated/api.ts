@@ -192,7 +192,7 @@ export const messagingCategoriesRemoveWebhookConfigDestroy = async (
  * Save webhook signing secret and/or toggle the Customer.io webhook sync.
 
 Accepts:
-  - webhook_signing_secret (optional): update the secret
+  - webhook_signing_secret (optional): set on first creation only
   - webhook_enabled (required): enable or disable the webhook
  */
 export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: string) => {
