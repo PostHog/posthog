@@ -505,7 +505,7 @@ async fn test_missing_token_param_error(
 async fn test_missing_token_param_returns_correct_team_flags() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
@@ -515,13 +515,26 @@ async fn test_missing_token_param_returns_correct_team_flags() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    let (_team2, secret2, _) = context
+    let (team2, secret2, _) = context
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
 
-    context.populate_cache_for_team(team1.id).await.unwrap();
-    context.populate_cache_for_team(_team2.id).await.unwrap();
+    // Seed each team's cache with distinguishable flags so we can verify isolation
+    context
+        .populate_cache_for_team_with_flags(
+            team1.id,
+            json!({"flags": [{"key": "team1-flag", "active": true}], "group_type_mapping": {}, "cohorts": {}}),
+        )
+        .await
+        .unwrap();
+    context
+        .populate_cache_for_team_with_flags(
+            team2.id,
+            json!({"flags": [{"key": "team2-flag", "active": true}], "group_type_mapping": {}, "cohorts": {}}),
+        )
+        .await
+        .unwrap();
 
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
@@ -534,6 +547,7 @@ async fn test_missing_token_param_returns_correct_team_flags() {
         .await
         .unwrap();
     assert_eq!(resp1.status(), 200);
+    let body1: Value = serde_json::from_str(&resp1.text().await.unwrap()).unwrap();
 
     // Request with team2's secret token (no ?token= param)
     let resp2 = client
@@ -543,27 +557,15 @@ async fn test_missing_token_param_returns_correct_team_flags() {
         .await
         .unwrap();
     assert_eq!(resp2.status(), 200);
+    let body2: Value = serde_json::from_str(&resp2.text().await.unwrap()).unwrap();
 
-    // Verify that with-token and without-token responses match for team1
-    let resp_with_token = client
-        .get(format!(
-            "http://{}/flags/definitions?token={}",
-            server.addr, team1.api_token
-        ))
-        .header("Authorization", format!("Bearer {secret1}"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp_with_token.status(), 200);
-
-    let body_without_token: Value = serde_json::from_str(&resp1.text().await.unwrap()).unwrap();
-    let body_with_token: Value =
-        serde_json::from_str(&resp_with_token.text().await.unwrap()).unwrap();
-
-    assert_eq!(
-        body_without_token.get("flags"),
-        body_with_token.get("flags"),
-        "With-token and without-token should return the same flags for the same team"
+    // Each team should get its own flags, not the other's
+    assert_eq!(body1["flags"][0]["key"], "team1-flag");
+    assert_eq!(body2["flags"][0]["key"], "team2-flag");
+    assert_ne!(
+        body1.get("flags"),
+        body2.get("flags"),
+        "Different teams' phs_ tokens should resolve to different flags"
     );
 }
 
