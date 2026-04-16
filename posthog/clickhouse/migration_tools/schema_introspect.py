@@ -393,6 +393,13 @@ def compare_schemas(
             )
 
         for col_name in sorted(set(exp_cols.keys()) & set(act_cols.keys())):
+            # Only `type` is compared here. `default_kind`, `default_expression`,
+            # and `codec` are collected by introspection but intentionally deferred:
+            # CH renders codec aliases inconsistently across versions (e.g.
+            # "LZ4" vs "lz4hc(9)") which would produce false-positive drift
+            # reports before a normalization layer is in place. `as_select`
+            # (for Materialized columns) carries the same risk. When column-level
+            # default/codec drift checking is added, normalise both sides first.
             if exp_cols[col_name].type != act_cols[col_name].type:
                 diffs.append(
                     SchemaDiff(
