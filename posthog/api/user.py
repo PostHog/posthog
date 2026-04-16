@@ -563,6 +563,50 @@ class UserViewSet(
         user = self.get_object()
         return Response({"github_login": user.get_github_login()})
 
+    @action(methods=["GET"], detail=True, url_path="pending_invites")
+    def pending_invites(self, request, **kwargs):
+        """List pending organization invites for the current user, matched by email.
+
+        Returned invites are non-expired and target organizations the user is not yet a member of.
+        Used to surface invites a user received by email but never accepted — for example,
+        when they signed up and created their own org before clicking the email link.
+        """
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.helpers.email_utils import EmailNormalizer
+        from posthog.models import OrganizationInvite, OrganizationMembership
+
+        user = self.get_object()
+
+        if not user.email:
+            return Response([])
+
+        normalized_email = EmailNormalizer.normalize(user.email)
+        existing_memberships = OrganizationMembership.objects.filter(user=user).values_list(
+            "organization_id", flat=True
+        )
+
+        invites = (
+            OrganizationInvite.objects.filter(
+                target_email__iexact=normalized_email,
+                created_at__gt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+            )
+            .exclude(organization_id__in=list(existing_memberships))
+            .select_related("organization")
+            .order_by("-created_at")
+        )
+
+        data = [
+            {
+                "id": str(invite.id),
+                "target_email": invite.target_email,
+                "organization_id": str(invite.organization_id),
+                "organization_name": invite.organization.name,
+                "created_at": invite.created_at,
+            }
+            for invite in invites
+        ]
+        return Response(data)
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
