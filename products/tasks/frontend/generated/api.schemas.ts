@@ -435,9 +435,6 @@ export interface CodexTaskRunCreateSchemaApi {
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
-/**
- * Request body for creating a new task run
- */
 export interface TaskRunResumeRequestSchemaApi {
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
