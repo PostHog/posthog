@@ -9,7 +9,7 @@ from posthog.models.kafka_partition_stats.sql import (
     PartitionStatsV2MaterializedView as MaterializedView,
     PartitionStatsV2Table as Table,
 )
-from posthog.settings.data_stores import KAFKA_HOSTS
+from posthog.settings.kafka import KAFKA_HOSTS
 
 # Session recording snapshot Kafka tables that this migration originally created against
 # SESSION_RECORDING_KAFKA_HOSTS have been removed; fresh installs no longer get those MVs.

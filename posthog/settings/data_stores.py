@@ -5,7 +5,6 @@ from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -392,73 +391,6 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
-
-def _parse_kafka_hosts(hosts_string: str) -> list[str]:
-    hosts = []
-    for host in hosts_string.split(","):
-        if "://" in host:
-            hosts.append(urlparse(host).netloc)
-        else:
-            hosts.append(host)
-
-    # We don't want empty strings
-    return [host for host in hosts if host]
-
-
-# URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-# We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
-KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
-# Kafka broker host(s) that is used by clickhouse for ingesting messages.
-# Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
-
-# To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
-# Kafka Topics. See
-# https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans
-# for details.
-KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
-
-KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
-
-KAFKA_PRODUCER_SETTINGS = {
-    key: value
-    for key, value in {
-        "client_id": get_from_env("KAFKA_PRODUCER_CLIENT_ID", optional=True),
-        "metadata_max_age_ms": get_from_env("KAFKA_PRODUCER_METADATA_MAX_AGE_MS", optional=True, type_cast=int),
-        "batch_size": get_from_env("KAFKA_PRODUCER_BATCH_SIZE", optional=True, type_cast=int),
-        "max_request_size": get_from_env("KAFKA_PRODUCER_MAX_REQUEST_SIZE", optional=True, type_cast=int),
-        "linger_ms": get_from_env("KAFKA_PRODUCER_LINGER_MS", optional=True, type_cast=int),
-        "partitioner": get_from_env("KAFKA_PRODUCER_PARTITIONER", optional=True),
-        "max_in_flight_requests_per_connection": get_from_env(
-            "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
-        ),
-        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
-        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
-        # Warpstream-friendly tuning knobs. Names match the librdkafka-style env vars
-        # already used by the Node.js plugin-server and rust services so chart config
-        # blocks can be shared across languages.
-        "topic_metadata_refresh_interval_ms": get_from_env(
-            "KAFKA_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS", optional=True, type_cast=int
-        ),
-        "queue_buffering_max_messages": get_from_env(
-            "KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES", optional=True, type_cast=int
-        ),
-        "sticky_partitioning_linger_ms": get_from_env(
-            "KAFKA_PRODUCER_STICKY_PARTITIONING_LINGER_MS", optional=True, type_cast=int
-        ),
-    }.items()
-    if value is not None
-}
-
-KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
-KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
-KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
-KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
-
-# Per-topic overrides for the kafka_client.routing map. Comma-separated
-# "topic=profile" entries; merged over the code-level defaults at lookup time.
-# Example: "clickhouse_precalculated_person_properties=warpstream_calculated_events,clickhouse_events_json=default"
-KAFKA_TOPIC_ROUTING_OVERRIDES = os.getenv("KAFKA_TOPIC_ROUTING_OVERRIDES", "") or ""
 
 # A list of tokens for which events should be sent to the historical topic
 # TODO: possibly remove this and replace with something that provides the

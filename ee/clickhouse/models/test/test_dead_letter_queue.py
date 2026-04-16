@@ -15,7 +15,7 @@ from posthog.clickhouse.dead_letter_queue import (
     WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-from posthog.settings import KAFKA_HOSTS
+from posthog.settings.kafka import KAFKA_HOSTS
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 

@@ -2,7 +2,7 @@ import os
 
 from posthog.settings import TEST
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import _parse_kafka_hosts
+from posthog.settings.kafka import _parse_kafka_hosts
 from posthog.settings.utils import get_from_env, str_to_bool
 
 DATAWAREHOUSE_LOCAL_BUCKET_REGION = os.getenv("DATAWAREHOUSE_LOCAL_BUCKET_REGION", "us-east-1")

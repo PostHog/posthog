@@ -1,6 +1,7 @@
 # Keep this in sync with plugin-server/src/config/kafka-topics.ts
 
-from posthog.settings.data_stores import KAFKA_PREFIX, SUFFIX
+from posthog.settings.data_stores import SUFFIX
+from posthog.settings.kafka import KAFKA_PREFIX
 from posthog.settings.utils import get_from_env
 
 KAFKA_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}"

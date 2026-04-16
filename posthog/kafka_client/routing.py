@@ -19,13 +19,13 @@ Two lifecycle shapes:
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
-from enum import StrEnum
 from threading import Lock
 from typing import Optional
 
 from django.conf import settings
 
 from posthog.kafka_client.client import _AsyncKafkaProducer, _KafkaProducer
+from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.topics import (
     KAFKA_DWH_CDP_RAW_TABLE,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
@@ -33,12 +33,6 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_SOURCES_JOBS,
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
 )
-
-
-class KafkaClusterProfile(StrEnum):
-    DEFAULT = "default"
-    WAREHOUSE_SOURCES = "warehouse_sources"
-    CYCLOTRON = "cyclotron"
 
 
 @dataclass(frozen=True)
@@ -52,24 +46,24 @@ class ClusterProfileConfig:
 
 
 def _resolve_profile_config(profile: KafkaClusterProfile) -> ClusterProfileConfig:
-    if profile == KafkaClusterProfile.DEFAULT:
-        return ClusterProfileConfig(
-            hosts=settings.KAFKA_HOSTS,
-            security_protocol=settings.KAFKA_SECURITY_PROTOCOL,
-        )
-    if profile == KafkaClusterProfile.WAREHOUSE_SOURCES:
-        return ClusterProfileConfig(
-            hosts=settings.WAREHOUSE_PIPELINES_KAFKA_HOSTS,
-            security_protocol=settings.WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL,
-            acks="all",
-            enable_idempotence=True,
-        )
-    if profile == KafkaClusterProfile.CYCLOTRON:
-        return ClusterProfileConfig(
-            hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
-            security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL or "PLAINTEXT",
-        )
-    raise ValueError(f"Unknown KafkaClusterProfile: {profile}")
+    """Read the fully resolved profile settings from `settings.KAFKA_PROFILES`.
+
+    Profile-level defaults (acks, enable_idempotence, compression_type,
+    max_request_size) come from the profile's `producer_settings` which is
+    itself the code defaults layered with `KAFKA_<PROFILE>_*` env vars and
+    legacy aliases. See `posthog/settings/kafka.py`.
+    """
+    profile_settings = settings.KAFKA_PROFILES[profile.value]
+    producer = profile_settings.producer_settings
+    return ClusterProfileConfig(
+        hosts=profile_settings.hosts,
+        security_protocol=profile_settings.security_protocol
+        or ("PLAINTEXT" if profile == KafkaClusterProfile.CYCLOTRON else None),
+        acks=producer.get("acks", 1),
+        enable_idempotence=producer.get("enable_idempotence", False),
+        max_request_size=producer.get("max_request_size"),
+        compression_type=producer.get("compression_type"),
+    )
 
 
 # Code-level default topic → profile mapping. Topics not listed resolve to DEFAULT.
@@ -136,23 +130,33 @@ def _resolve_profile(topic: Optional[str], profile: Optional[KafkaClusterProfile
 
 def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
     config = _resolve_profile_config(profile)
+    profile_settings = settings.KAFKA_PROFILES[profile.value]
     return _KafkaProducer(
         kafka_hosts=config.hosts,
         kafka_security_protocol=config.security_protocol,
+        sasl_mechanism=profile_settings.sasl_mechanism,
+        sasl_user=profile_settings.sasl_user,
+        sasl_password=profile_settings.sasl_password,
         acks=config.acks,
         enable_idempotence=config.enable_idempotence,
         max_request_size=config.max_request_size,
         compression_type=config.compression_type,
+        producer_settings=profile_settings.producer_settings,
     )
 
 
 def _build_async_producer(profile: KafkaClusterProfile) -> _AsyncKafkaProducer:
     config = _resolve_profile_config(profile)
+    profile_settings = settings.KAFKA_PROFILES[profile.value]
     return _AsyncKafkaProducer(
         kafka_hosts=config.hosts,
         kafka_security_protocol=config.security_protocol,
+        sasl_mechanism=profile_settings.sasl_mechanism,
+        sasl_user=profile_settings.sasl_user,
+        sasl_password=profile_settings.sasl_password,
         max_request_size=config.max_request_size,
         compression_type=config.compression_type,
+        producer_settings=profile_settings.producer_settings,
     )
 
 
