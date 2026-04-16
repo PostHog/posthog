@@ -14,6 +14,8 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
     FunnelConversionWindowTimeUnit,
 )
 
@@ -365,8 +367,8 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert no_cuped_result.variant_results is not None
         assert cuped_result.variant_results is not None
-        no_cuped_variant = no_cuped_result.variant_results[0]
-        cuped_variant = cuped_result.variant_results[0]
+        no_cuped_variant = cast(ExperimentVariantResultFrequentist, no_cuped_result.variant_results[0])
+        cuped_variant = cast(ExperimentVariantResultFrequentist, cuped_result.variant_results[0])
 
         assert no_cuped_variant.p_value is not None
         assert cuped_variant.p_value is not None
@@ -414,8 +416,8 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         assert cuped_result.baseline is not None
         assert no_cuped_result.variant_results is not None
         assert cuped_result.variant_results is not None
-        no_cuped_variant = no_cuped_result.variant_results[0]
-        cuped_variant = cuped_result.variant_results[0]
+        no_cuped_variant = cast(ExperimentVariantResultBayesian, no_cuped_result.variant_results[0])
+        cuped_variant = cast(ExperimentVariantResultBayesian, cuped_result.variant_results[0])
 
         self.assertEqual(cuped_result.baseline.covariate_sum, 1830)
         self.assertEqual(cuped_variant.covariate_sum, 1830)
@@ -443,7 +445,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        variant = result.variant_results[0]
+        variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
         self.assertEqual(result.baseline.covariate_sum, 0)
         self.assertEqual(result.baseline.covariate_sum_squares, 0)
         self.assertEqual(result.baseline.main_covariate_sum_product, 0)

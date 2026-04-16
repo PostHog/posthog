@@ -494,12 +494,12 @@ def _apply_cuped_adjustment_if_enabled(
     control_stat: ExperimentStatistic,
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
-) -> tuple[ExperimentStatistic, ExperimentStatistic, dict[str, float]]:
+) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
     if not cuped_config.enabled or not isinstance(metric, ExperimentMeanMetric):
-        return test_stat, control_stat, {}
+        return test_stat, control_stat, None
 
     if not isinstance(test_stat, SampleMeanStatistic) or not isinstance(control_stat, SampleMeanStatistic):
-        return test_stat, control_stat, {}
+        return test_stat, control_stat, None
 
     cuped_result = cuped_adjust(
         test_stat,
@@ -511,7 +511,7 @@ def _apply_cuped_adjustment_if_enabled(
     return (
         cuped_result.treatment_adjusted,
         cuped_result.control_adjusted,
-        {"unadjusted_mean": cuped_result.control_unadjusted_mean},
+        cuped_result.control_unadjusted_mean,
     )
 
 
@@ -576,7 +576,7 @@ def get_frequentist_experiment_result(
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result, control_stat_for_result, test_kwargs = _apply_cuped_adjustment_if_enabled(
+                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
                     metric,
                     resolved_cuped_config,
                     test_stat,
@@ -585,7 +585,14 @@ def get_frequentist_experiment_result(
                     control_variant_validated,
                 )
 
-                result = method.run_test(test_stat_for_result, control_stat_for_result, **test_kwargs)
+                if unadjusted_mean is None:
+                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                else:
+                    result = method.run_test(
+                        test_stat_for_result,
+                        control_stat_for_result,
+                        unadjusted_mean=unadjusted_mean,
+                    )
 
                 confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -673,7 +680,7 @@ def get_bayesian_experiment_result(
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result, control_stat_for_result, test_kwargs = _apply_cuped_adjustment_if_enabled(
+                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
                     metric,
                     resolved_cuped_config,
                     test_stat,
@@ -682,7 +689,14 @@ def get_bayesian_experiment_result(
                     control_variant_validated,
                 )
 
-                result = method.run_test(test_stat_for_result, control_stat_for_result, **test_kwargs)
+                if unadjusted_mean is None:
+                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                else:
+                    result = method.run_test(
+                        test_stat_for_result,
+                        control_stat_for_result,
+                        unadjusted_mean=unadjusted_mean,
+                    )
 
                 # Convert credible interval to percentage
                 credible_interval = [result.credible_interval[0], result.credible_interval[1]]
