@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -46,6 +46,7 @@ import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTime
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
@@ -247,8 +248,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        usesNewQueryRunner,
+        isExperimentDraft,
+        exposureCriteria,
+        showDebugPanel,
+    } = useValues(experimentLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -278,6 +286,13 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    {showDebugPanel && (
+                        <div className="mb-4">
+                            <ExperimentDebugPanel
+                                experimentId={typeof experiment.id === 'number' ? experiment.id : null}
+                            />
+                        </div>
+                    )}
                     {!usesNewQueryRunner && (
                         <LemonBanner type="warning" className="mb-4">
                             This is a legacy experiment. Metrics can no longer be edited.
@@ -348,14 +363,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 ? [
                                       {
                                           key: 'feedback',
-                                          label: (
-                                              <div className="flex flex-row">
-                                                  <div>User feedback</div>
-                                                  <LemonTag className="ml-2 float-right uppercase" type="primary">
-                                                      New
-                                                  </LemonTag>
-                                              </div>
-                                          ),
+                                          label: 'User feedback',
                                           content: <ExperimentFeedbackTab experiment={experiment} />,
                                       },
                                   ]

@@ -226,7 +226,7 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     )
 }
 
-const WebAnalyticsDomainSelector = (): JSX.Element => {
+export const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
         useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)

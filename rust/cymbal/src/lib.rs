@@ -10,14 +10,12 @@ use uuid::Uuid;
 pub mod app_context;
 pub mod assignment_rules;
 pub mod config;
-pub mod consumer;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
-pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
@@ -29,6 +27,7 @@ pub mod symbol_store;
 pub mod teams;
 #[cfg(test)]
 pub mod test_utils;
+pub mod tokenizer;
 pub mod types;
 
 pub fn recursively_sanitize_properties(
@@ -83,11 +82,6 @@ pub fn sanitize_source_line(s: String) -> String {
 
 pub fn needs_sanitization(s: &str) -> bool {
     s.contains('\u{0000}') || s.len() > 512
-}
-
-struct WithIndices<T> {
-    indices: Vec<usize>,
-    inner: T,
 }
 
 #[cfg(test)]

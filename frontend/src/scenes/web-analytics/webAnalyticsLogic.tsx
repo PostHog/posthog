@@ -156,6 +156,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'compareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
+                'selectedHost',
                 'authorizedDomains',
             ],
         ],
@@ -622,7 +623,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (s) => [
                 s.rawWebAnalyticsFilters,
                 s.isPathCleaningEnabled,
-                s.validatedDomainFilter,
+                s.selectedHost,
                 s.deviceTypeFilter,
                 s.botTrafficFilter,
                 s.featureFlags,
@@ -630,7 +631,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
-                domainFilter: string | null,
+                selectedHost: string | null,
                 deviceTypeFilter: DeviceType | null,
                 botTrafficFilter: BotTrafficFilter,
                 featureFlags: Record<string, boolean | string | undefined>
@@ -662,16 +663,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                // Add domain filter if set
-                if (domainFilter && domainFilter !== 'all') {
-                    // Remove the leading protocol if it exists
-                    const value = domainFilter.replace(/^https?:\/\//, '')
-
+                if (selectedHost) {
                     filters = [
                         ...filters,
                         {
                             key: '$host',
-                            value: value,
+                            value: selectedHost,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },

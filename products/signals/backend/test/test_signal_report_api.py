@@ -16,7 +16,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 class TestSignalReportDeleteAPI(APIBaseTest):
     def _url(self, report_id: str | None = None) -> str:
-        base = f"/api/projects/{self.team.id}/signal_reports/"
+        base = f"/api/projects/{self.team.id}/signals/reports/"
         if report_id:
             return f"{base}{report_id}/"
         return base
@@ -81,7 +81,7 @@ class TestSignalReportListAPI(APIBaseTest):
     """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `status,-total_weight`)."""
 
     def _list_url(self, **query) -> str:
-        base = f"/api/projects/{self.team.id}/signal_reports/"
+        base = f"/api/projects/{self.team.id}/signals/reports/"
         if not query:
             return base
         return f"{base}?{urlencode(query)}"
@@ -180,7 +180,7 @@ class TestSignalReportListAPI(APIBaseTest):
         report = self._create_report()
         self._priority_artefact(report, priority="P0")
 
-        url = f"/api/projects/{self.team.id}/signal_reports/{report.id}/"
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"

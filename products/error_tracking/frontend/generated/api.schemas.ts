@@ -93,6 +93,9 @@ export const IntegrationKindApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -291,6 +294,37 @@ export interface PatchedErrorTrackingIssueFullApi {
     external_issues?: ErrorTrackingExternalReferenceApi[]
     /** @nullable */
     readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
+}
+
+export interface ErrorTrackingIssueMergeRequestApi {
+    /** IDs of the issues to merge into the current issue. */
+    ids: string[]
+}
+
+export interface ErrorTrackingIssueMergeResponseApi {
+    /** Whether the merge completed successfully. */
+    success: boolean
+}
+
+export interface ErrorTrackingIssueSplitFingerprintApi {
+    /** Fingerprint to split into a new issue. */
+    fingerprint: string
+    /** Optional name for the new issue created from this fingerprint. */
+    name?: string
+    /** Optional description for the new issue created from this fingerprint. */
+    description?: string
+}
+
+export interface ErrorTrackingIssueSplitRequestApi {
+    /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+    fingerprints?: ErrorTrackingIssueSplitFingerprintApi[]
+}
+
+export interface ErrorTrackingIssueSplitResponseApi {
+    /** Whether the split completed successfully. */
+    success: boolean
+    /** IDs of the new issues created by the split. */
+    new_issue_ids: string[]
 }
 
 export interface ErrorTrackingReleaseApi {

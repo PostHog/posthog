@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -14,10 +15,11 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
+import { evaluationErrorMessage } from './apiErrors'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
-const INITIAL_DATE_FROM = '-1h' as string | null
+const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface LLMEvaluationsLogicProps {
@@ -59,6 +61,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         duplicateEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
         toggleEvaluationEnabled: (id: string) => ({ id }),
         toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
+        toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
         setEvaluationsFilter: (filter: string) => ({ filter }),
     }),
 
@@ -85,7 +88,17 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, enabled: !e.enabled } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id
+                            ? {
+                                  ...e,
+                                  enabled: !e.enabled,
+                                  // Keep status in sync so the list-column pill updates optimistically.
+                                  status: !e.enabled ? 'active' : 'paused',
+                                  status_reason: null,
+                              }
+                            : e
+                    ),
             },
         ],
         evaluationsLoading: [
@@ -198,23 +211,26 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
 
         toggleEvaluationEnabled: async ({ id }) => {
+            const evaluation = values.evaluations.find((e: EvaluationConfig) => e.id === id)
+            if (!evaluation) {
+                return
+            }
+
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+
             try {
-                const evaluation = values.evaluations.find((e: EvaluationConfig) => e.id === id)
-                if (!evaluation) {
-                    return
-                }
-
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-
                 await api.update(`/api/environments/${teamId}/evaluations/${id}/`, {
                     enabled: !evaluation.enabled,
                 })
                 actions.toggleEvaluationEnabledSuccess(id)
             } catch (error) {
-                console.error('Failed to toggle evaluation enabled:', error)
+                const action = evaluation.enabled ? 'disable' : 'enable'
+                const message = evaluationErrorMessage(error, `Failed to ${action} evaluation`)
+                lemonToast.error(message)
+                actions.toggleEvaluationEnabledFailure(id, message)
             }
         },
     })),

@@ -199,9 +199,6 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
-    "experiment_recalculation_time",
-    "default_experiment_confidence_level",
-    "default_experiment_stats_method",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
@@ -919,9 +916,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    VALID_RETENTION_DAYS = {14, 30, 90}
+
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None or not self.instance:
             return value
+
+        new_retention = value.get("retention_days")
+        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
+            raise exceptions.ValidationError(
+                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
+            )
 
         # Only validate retention changes if we have an existing instance
         logs_settings = (
@@ -931,7 +936,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
         if self.instance and logs_settings:
             old_retention = logs_settings.get("retention_days")
-            new_retention = value.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
@@ -1544,6 +1548,39 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="experiments_config",
+    )
+    def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage experiment configuration for this environment."""
+        from rest_framework import serializers
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = TeamExperimentsConfig
+                fields = [
+                    "experiment_recalculation_time",
+                    "default_experiment_confidence_level",
+                    "default_experiment_stats_method",
+                    "experiment_precomputation_enabled",
+                ]
+
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+        if request.method == "PATCH":
+            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return response.Response(serializer.data)
+
+        return response.Response(TeamExperimentsConfigSerializer(config).data)
 
     @action(
         methods=["GET", "POST", "DELETE"],

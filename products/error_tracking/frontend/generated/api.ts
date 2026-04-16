@@ -18,6 +18,10 @@ import type {
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueFullApi,
+    ErrorTrackingIssueMergeRequestApi,
+    ErrorTrackingIssueMergeResponseApi,
+    ErrorTrackingIssueSplitRequestApi,
+    ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesList2Params,
@@ -719,14 +723,14 @@ export const getErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueMergeRequestApi: ErrorTrackingIssueMergeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueMergeResponseApi> => {
+    return apiMutator<ErrorTrackingIssueMergeResponseApi>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueMergeRequestApi),
     })
 }
 
@@ -737,14 +741,14 @@ export const getErrorTrackingIssuesSplitCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesSplitCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueSplitRequestApi: ErrorTrackingIssueSplitRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueSplitResponseApi> => {
+    return apiMutator<ErrorTrackingIssueSplitResponseApi>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueSplitRequestApi),
     })
 }
 
@@ -773,6 +777,17 @@ export const errorTrackingIssuesBulkCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingIssueFullApi),
+    })
+}
+
+export const getErrorTrackingIssuesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/exists/`
+}
+
+export const errorTrackingIssuesExistsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingIssuesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
