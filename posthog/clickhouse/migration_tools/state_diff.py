@@ -204,6 +204,19 @@ def _normalize_interval_funcs(s: str) -> str:
     return _INTERVAL_RE.sub(_sub, s)
 
 
+def _find_close_paren(s: str, open_pos: int) -> int | None:
+    """Return the index of the ')' matching s[open_pos], or None if unbalanced."""
+    depth = 1
+    i = open_pos + 1
+    while i < len(s) and depth > 0:
+        if s[i] == "(":
+            depth += 1
+        elif s[i] == ")":
+            depth -= 1
+        i += 1
+    return (i - 1) if depth == 0 else None
+
+
 def _strip_outer_balanced_parens(s: str, start: int) -> tuple[str, bool]:
     """If s[start] is '(', find matching ')' and strip if the group is redundant.
 
@@ -213,22 +226,13 @@ def _strip_outer_balanced_parens(s: str, start: int) -> tuple[str, bool]:
     """
     if start >= len(s) or s[start] != "(":
         return s, False
-    depth = 1
-    i = start + 1
-    while i < len(s) and depth > 0:
-        if s[i] == "(":
-            depth += 1
-        elif s[i] == ")":
-            depth -= 1
-        i += 1
-    if depth != 0:
+    end = _find_close_paren(s, start)
+    if end is None:
         return s, False
-    end = i - 1  # index of closing ')'
-    inner = s[start + 1 : end]
-    # Don't strip if inner is empty or if stripping would remove function-call parens
-    # (function call = identifier immediately before the '(')
+    # Don't strip function-call parens (identifier immediately before '(')
     if start > 0 and re.match(r"\w", s[start - 1]):
         return s, False
+    inner = s[start + 1 : end]
     s = s[:start] + inner + s[end + 1 :]
     return s, True
 
@@ -249,33 +253,21 @@ def _strip_redundant_parens(s: str) -> str:
         # Strip outer parens wrapping the full lambda body: -> (...) → -> ...
         m = re.search(r"->\s*\(", s)
         if m:
-            paren_start = m.end() - 1
-            s, _ = _strip_outer_balanced_parens(s, paren_start)
+            s, _ = _strip_outer_balanced_parens(s, m.end() - 1)
 
         # Strip parens around AND/OR operands by scanning for paren groups
         # adjacent to boolean operators
         changed = True
         while changed:
             changed = False
-            # Find (expr) followed by AND/OR
             for m in re.finditer(r"\(", s):
                 pos = m.start()
                 # Skip function-call parens (preceded by word char)
                 if pos > 0 and re.match(r"\w", s[pos - 1]):
                     continue
-                # Find the matching close paren
-                depth = 1
-                j = pos + 1
-                while j < len(s) and depth > 0:
-                    if s[j] == "(":
-                        depth += 1
-                    elif s[j] == ")":
-                        depth -= 1
-                    j += 1
-                if depth != 0:
+                close = _find_close_paren(s, pos)
+                if close is None:
                     continue
-                close = j - 1
-                # Check if followed by AND/OR or preceded by AND/OR (or ->)
                 after = s[close + 1 :].lstrip()
                 before = s[:pos].rstrip()
                 is_bool_context = (
@@ -284,8 +276,7 @@ def _strip_redundant_parens(s: str) -> str:
                     or before.endswith("->")
                 )
                 if is_bool_context:
-                    inner = s[pos + 1 : close]
-                    s = s[:pos] + inner + s[close + 1 :]
+                    s = s[:pos] + s[pos + 1 : close] + s[close + 1 :]
                     changed = True
                     break  # restart scan after mutation
 
