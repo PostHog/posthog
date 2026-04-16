@@ -37,7 +37,7 @@ def run_query(fn, *args):
 def get_clickhouse_query_stats(uuid):
     sync_execute("SYSTEM FLUSH LOGS")
     rows = sync_execute(
-        f"""
+        """
         SELECT
             query_duration_ms,
             read_rows,
