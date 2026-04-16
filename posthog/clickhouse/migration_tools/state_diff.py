@@ -79,7 +79,7 @@ def _resolve_setting(key: str) -> str:
 @dataclass
 class StateDiff:
     # "create", "alter_add_column", "alter_drop_column",
-    # "alter_modify_column", "drop", "recreate_mv", "recreate"
+    # "alter_modify_column", "drop", "recreate"
     action: str
     table: str
     detail: str
@@ -307,7 +307,7 @@ def _normalize_type(s: str) -> str:
     Handles:
     - Enum8/Enum16 → Enum (strip bit-width suffix and = N value assignments)
     - DateTime64 → DateTime64(3) (3 is the default precision)
-    - Decimal(18, 10) → Decimal64(10) (CH alias)
+    - Decimal(P, S) → Decimal32/64/128/256(S) (CH precision aliases)
     """
     # Fix 2: Enum8('a' = 1, 'b' = 2) → Enum('a', 'b')
     s = re.sub(r"Enum(?:8|16)\(", "Enum(", s)
@@ -315,8 +315,9 @@ def _normalize_type(s: str) -> str:
     # Fix 4: DateTime64 without precision → DateTime64(3)
     s = re.sub(r"\bDateTime64\b(?!\()", "DateTime64(3)", s)
 
-    # Fix 4: Decimal(18, 10) → Decimal64(10) etc.
-    # Decimal(P, S) where P ≤ 18 → Decimal64(S); P ≤ 9 → Decimal32(S); P ≤ 38 → Decimal128(S)
+    # Fix 4: Decimal(P, S) → Decimal32/64/128/256(S) etc.
+    # P ≤ 9 → Decimal32(S); P ≤ 18 → Decimal64(S);
+    # P ≤ 38 → Decimal128(S); P ≤ 76 → Decimal256(S)
     def _decimal_alias(m: re.Match) -> str:
         p, s = int(m.group(1)), m.group(2)
         if p <= 9:
@@ -325,6 +326,8 @@ def _normalize_type(s: str) -> str:
             return f"Decimal64({s})"
         elif p <= 38:
             return f"Decimal128({s})"
+        elif p <= 76:
+            return f"Decimal256({s})"
         return m.group(0)
 
     s = re.sub(r"\bDecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", _decimal_alias, s)
@@ -686,11 +689,20 @@ def diff_state(
     current: dict[str, TableSchema],
     database: str | None = None,
     cluster: str | None = None,
+    destructive: bool = False,
 ) -> list[StateDiff]:
     """Compare desired state against current schema and produce a list of diffs.
 
     Returns StateDiff objects sorted in dependency order (drops before creates,
     local before distributed, kafka before MV).
+
+    When destructive=False (the default), operations that require DROP (orphan
+    removal, engine-change recreates, structural recreates, MV SELECT changes)
+    are skipped and logged as warnings instead of being emitted as diffs. Set
+    destructive=True to include DROP-bearing operations in the output.
+
+    MV DROP operations always precede source-table ALTERs so that in-flight
+    inserts are not lost to a schema mismatch.
     """
     db = database or desired.database
     cl = cluster or desired.cluster
@@ -727,6 +739,13 @@ def diff_state(
 
     # Tables to drop (in current but not in desired)
     for table_name in sorted(current_names - desired_names):
+        if not destructive:
+            logger.warning(
+                "ch_migrate: table %s is an orphan (in ClickHouse but not in any YAML) — "
+                "run with destructive=True to emit the DROP",
+                table_name,
+            )
+            continue
         current_table = current[table_name]
         drops.append(
             StateDiff(
@@ -765,19 +784,35 @@ def diff_state(
         desired_table = desired.tables[table_name]
         current_table = current[table_name]
 
-        # Engine mismatch → recreate
+        # Engine mismatch → recreate (requires DROP — gated behind destructive)
         if desired_table.engine.lower() != current_table.engine.lower():
+            _engine_detail = f"engine changed: {current_table.engine} -> {desired_table.engine}"
+            if not destructive:
+                logger.warning(
+                    "ch_migrate: %s requires DROP+CREATE (%s) — run with destructive=True to emit",
+                    table_name,
+                    _engine_detail,
+                )
+                continue
             drop_sql = _drop_stmt(current_table.engine, db, table_name)
             if _is_mv(desired_table.engine) or _is_mv(current_table.engine):
-                recreates.append(
+                # Split into separate drop + create so the MV DROP lands before
+                # any source-table ALTERs in the final sorted output.
+                drops.append(
                     StateDiff(
-                        action="recreate_mv",
+                        action="drop",
                         table=table_name,
-                        detail=(
-                            f"Recreate MV {table_name} "
-                            f"(engine changed: {current_table.engine} -> {desired_table.engine})"
-                        ),
-                        sql=(f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}"),
+                        detail=f"Drop MV {table_name} ({_engine_detail} — will recreate)",
+                        sql=drop_sql,
+                        node_roles=desired_table.on_nodes,
+                    )
+                )
+                creates.append(
+                    StateDiff(
+                        action="create",
+                        table=table_name,
+                        detail=f"Recreate MV {table_name} ({_engine_detail})",
+                        sql=_generate_create_sql(desired_table, db, cl),
                         node_roles=desired_table.on_nodes,
                         depends_on=[desired_table.target] if desired_table.target else [],
                     )
@@ -787,10 +822,8 @@ def diff_state(
                     StateDiff(
                         action="recreate",
                         table=table_name,
-                        detail=(
-                            f"Recreate {table_name} (engine changed: {current_table.engine} -> {desired_table.engine})"
-                        ),
-                        sql=(f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}"),
+                        detail=f"Recreate {table_name} ({_engine_detail})",
+                        sql=f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}",
                         node_roles=desired_table.on_nodes,
                         sharded=desired_table.sharded,
                     )
@@ -952,14 +985,32 @@ def diff_state(
 
         if structural_recreate:
             detail_str = "; ".join(structural_details)
+            if not destructive:
+                logger.warning(
+                    "ch_migrate: %s requires DROP+CREATE (%s) — run with destructive=True to emit",
+                    table_name,
+                    detail_str,
+                )
+                continue
             drop_sql = _drop_stmt(current_table.engine, db, table_name)
             if _is_mv(desired_table.engine):
-                recreates.append(
+                # Split into separate drop + create so the MV DROP lands before
+                # any source-table ALTERs in the final sorted output.
+                drops.append(
                     StateDiff(
-                        action="recreate_mv",
+                        action="drop",
+                        table=table_name,
+                        detail=f"Drop MV {table_name} ({detail_str} — will recreate)",
+                        sql=drop_sql,
+                        node_roles=desired_table.on_nodes,
+                    )
+                )
+                creates.append(
+                    StateDiff(
+                        action="create",
                         table=table_name,
                         detail=f"Recreate MV {table_name} ({detail_str})",
-                        sql=f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}",
+                        sql=_generate_create_sql(desired_table, db, cl),
                         node_roles=desired_table.on_nodes,
                         depends_on=[desired_table.target] if desired_table.target else [],
                     )
@@ -991,24 +1042,30 @@ def diff_state(
                 and not is_select_star
                 and desired_norm != _normalize_mv_select(current_select, database=db)
             ):
-                drops.append(
-                    StateDiff(
-                        action="drop",
-                        table=table_name,
-                        detail=f"Drop MV {table_name} (SELECT changed — will recreate)",
-                        sql=_drop_stmt(current_table.engine, db, table_name),
-                        node_roles=desired_table.on_nodes,
+                if not destructive:
+                    logger.warning(
+                        "ch_migrate: MV %s SELECT changed — run with destructive=True to emit the DROP+recreate",
+                        table_name,
                     )
-                )
-                creates.append(
-                    StateDiff(
-                        action="create",
-                        table=table_name,
-                        detail=f"Recreate MV {table_name} with updated SELECT",
-                        sql=_generate_create_sql(desired_table, db, cl),
-                        node_roles=desired_table.on_nodes,
+                else:
+                    drops.append(
+                        StateDiff(
+                            action="drop",
+                            table=table_name,
+                            detail=f"Drop MV {table_name} (SELECT changed — will recreate)",
+                            sql=_drop_stmt(current_table.engine, db, table_name),
+                            node_roles=desired_table.on_nodes,
+                        )
                     )
-                )
+                    creates.append(
+                        StateDiff(
+                            action="create",
+                            table=table_name,
+                            detail=f"Recreate MV {table_name} with updated SELECT",
+                            sql=_generate_create_sql(desired_table, db, cl),
+                            node_roles=desired_table.on_nodes,
+                        )
+                    )
             elif not current_select:
                 logger.warning(
                     "MV %s: SELECT comparison not possible (as_select not available from host). "
@@ -1184,28 +1241,19 @@ def diff_state(
     # table if it was created inline. Re-add a CREATE step for any Kafka
     # table referenced by the MV's SELECT.
     #
-    # MV recreation takes two shapes in the diff:
-    #   1. A single `recreate_mv` entry (structural change: target/engine/etc.)
-    #   2. A paired DROP + CREATE on the same MV table name (SELECT changed,
-    #      see the MV SELECT comparison above that emits `drop` + `create`).
-    # Both cascade-drop the Kafka source, so both must trigger re-creation.
+    # MV recreation always produces a drop+create pair: the DROP goes into
+    # `drops` (sorted first as tier-3) and the CREATE goes into `creates`
+    # (sorted last as tier-3). Tables appearing in both lists are MV recreations.
     kafka_tables_in_desired = {name: t for name, t in desired_without_skipped.items() if _is_kafka(t.engine)}
     if kafka_tables_in_desired:
         # Collect table names already being created so we don't duplicate.
         tables_being_created = {d.table for d in creates}
 
-        # Build the set of MV names being recreated: explicit recreate_mv
-        # entries, plus tables that appear as BOTH a drop and a create (the
-        # drop+create pair path for SELECT changes).
+        # Tables that appear as both a drop and a create are being recreated.
         dropped_names = {d.table for d in drops}
         created_names = {d.table for d in creates}
-        drop_create_pairs = dropped_names & created_names
-
         recreated_mv_names: set[str] = set()
-        for rec in recreates:
-            if rec.action == "recreate_mv":
-                recreated_mv_names.add(rec.table)
-        for name in drop_create_pairs:
+        for name in dropped_names & created_names:
             maybe_desired: DesiredTable | None = desired_without_skipped.get(name)
             if maybe_desired and _is_mv(maybe_desired.engine):
                 recreated_mv_names.add(name)

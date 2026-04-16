@@ -293,9 +293,11 @@ class TestKafkaMVCascadePrevention:
                 columns=[_live_col("event", "String")],
             ),
         }
-        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
-        mv_recreates = [d for d in diffs if d.action == "recreate_mv"]
-        assert len(mv_recreates) == 1, f"Expected 1 MV recreate but got: {[d.detail for d in mv_recreates]}"
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster", destructive=True)
+        mv_drops = [d for d in diffs if d.action == "drop" and d.table == "kafka_events_mv"]
+        mv_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events_mv"]
+        assert len(mv_drops) == 1, f"Expected 1 MV drop but got: {[d.detail for d in diffs]}"
+        assert len(mv_creates) == 1, f"Expected 1 MV create but got: {[d.detail for d in diffs]}"
         kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
         assert len(kafka_creates) == 1, f"Expected Kafka re-create but got: {[d.detail for d in kafka_creates]}"
         assert "cascade" in kafka_creates[0].detail.lower()
@@ -376,7 +378,7 @@ class TestKafkaCascadeOnSelectChange:
                 columns=[_live_col("event", "String")],
             ),
         }
-        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster", destructive=True)
 
         mv_drops = [d for d in diffs if d.action == "drop" and d.table == "kafka_events_mv"]
         mv_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events_mv"]
