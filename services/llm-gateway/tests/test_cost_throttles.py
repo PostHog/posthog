@@ -302,7 +302,7 @@ class TestUserCostSustainedThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_cache_key_includes_product_and_scope(self) -> None:
+    async def test_cache_key_includes_product_scope_and_period(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)

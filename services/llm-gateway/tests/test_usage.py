@@ -61,7 +61,7 @@ class TestUsageEndpoint:
         with TestClient(app) as c:
             yield c
 
-    def test_returns_pro_limits_when_flag_off(self, authenticated_usage_client: TestClient) -> None:
+    def test_returns_pro_limits_by_default(self, authenticated_usage_client: TestClient) -> None:
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
             headers={"Authorization": "Bearer phx_test"},
