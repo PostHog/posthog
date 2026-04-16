@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 
 from posthog.models.integration import (
     GitHubIntegration,
@@ -14,6 +15,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingSymbolSet,
 )
 
 
@@ -93,6 +95,29 @@ def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[s
         ]
 
     return []
+
+
+def count_issues_created_since(team_id: int, since: datetime) -> int:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).count()
+
+
+def get_issue_counts_by_team() -> list[tuple[int, int]]:
+    return list(
+        ErrorTrackingIssue.objects.values("team_id")
+        .annotate(total=Count("id"))
+        .order_by("team_id")
+        .values_list("team_id", "total")
+    )
+
+
+def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
+    queryset = ErrorTrackingSymbolSet.objects.all()
+    if resolved_only:
+        queryset = queryset.filter(storage_ptr__isnull=False)
+
+    return list(
+        queryset.values("team_id").annotate(total=Count("id")).order_by("team_id").values_list("team_id", "total")
+    )
 
 
 def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:

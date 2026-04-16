@@ -15,10 +15,18 @@ interface PrimaryDef<TK extends string, PK extends string> {
     producerKey: PK
 }
 
-interface DualWriteDef<TK extends string, PK extends string, STK extends string, SPK extends string>
-    extends PrimaryDef<TK, PK> {
+interface DualWriteDef<
+    TK extends string,
+    PK extends string,
+    STK extends string,
+    SPK extends string,
+    MK extends string,
+    PerK extends string,
+> extends PrimaryDef<TK, PK> {
     secondaryTopicKey: STK
     secondaryProducerKey: SPK
+    modeKey: MK
+    percentageKey: PerK
 }
 
 /**
@@ -28,9 +36,10 @@ interface DualWriteDef<TK extends string, PK extends string, STK extends string,
  * builder's type parameters. `build(registry, config)` then checks that:
  * - The config contains all accumulated topic keys as `string`
  * - The config contains all accumulated producer keys as `P` (the registry's producer name type)
+ * - The config contains all accumulated number keys as `number`
  *
- * Use `registerDualWrite()` to enable dual writes for an output — when the config
- * contains non-empty values for both secondary keys, a second target is added.
+ * Use `registerDualWrite()` to enable dual writes for an output — the mode and percentage
+ * config keys control routing behavior at build time.
  *
  * @example
  * ```ts
@@ -40,10 +49,21 @@ interface DualWriteDef<TK extends string, PK extends string, STK extends string,
  *     .build(registry, config)
  * ```
  */
-export class IngestionOutputsBuilder<O extends string = never, TK extends string = never, PK extends string = never> {
+export class IngestionOutputsBuilder<
+    O extends string = never,
+    /** Accumulated config keys with string values (topics, mode). */
+    StringKey extends string = never,
+    /** Accumulated config keys with producer-name values. */
+    ProducerKey extends string = never,
+    /** Accumulated config keys with numeric values (percentage). */
+    NumberKey extends string = never,
+> {
     constructor(
-        private readonly primaryDefs: Map<string, PrimaryDef<TK, PK>> = new Map(),
-        private readonly dualWriteDefs: Map<string, DualWriteDef<TK, PK, TK, PK>> = new Map()
+        private readonly primaryDefs: Map<string, PrimaryDef<StringKey, ProducerKey>> = new Map(),
+        private readonly dualWriteDefs: Map<
+            string,
+            DualWriteDef<StringKey, ProducerKey, StringKey, ProducerKey, StringKey, NumberKey>
+        > = new Map()
     ) {}
 
     /**
@@ -55,8 +75,8 @@ export class IngestionOutputsBuilder<O extends string = never, TK extends string
     register<Name extends string, NewTK extends string, NewPK extends string>(
         name: Name & (Name extends O ? never : Name),
         definition: PrimaryDef<NewTK, NewPK>
-    ): IngestionOutputsBuilder<O | Name, TK | NewTK, PK | NewPK> {
-        const primaries = new Map<string, PrimaryDef<TK | NewTK, PK | NewPK>>(this.primaryDefs)
+    ): IngestionOutputsBuilder<O | Name, StringKey | NewTK, ProducerKey | NewPK, NumberKey> {
+        const primaries = new Map<string, PrimaryDef<StringKey | NewTK, ProducerKey | NewPK>>(this.primaryDefs)
         primaries.set(name, definition)
         return new IngestionOutputsBuilder(primaries, this.dualWriteDefs)
     }
@@ -64,8 +84,8 @@ export class IngestionOutputsBuilder<O extends string = never, TK extends string
     /**
      * Register an output with primary and secondary config key pairs for dual writes.
      *
-     * When both secondary topic and producer are non-empty in the config at build time,
-     * produces will fan out to both targets. Otherwise falls back to single output.
+     * The mode key controls routing behavior (`off`, `copy`, `move`).
+     * The percentage key controls what fraction of messages (by key hash) are routed to secondary.
      */
     registerDualWrite<
         Name extends string,
@@ -73,13 +93,27 @@ export class IngestionOutputsBuilder<O extends string = never, TK extends string
         NewPK extends string,
         NewSTK extends string,
         NewSPK extends string,
+        NewMK extends string,
+        NewPerK extends string,
     >(
         name: Name & (Name extends O ? never : Name),
-        definition: DualWriteDef<NewTK, NewPK, NewSTK, NewSPK>
-    ): IngestionOutputsBuilder<O | Name, TK | NewTK | NewSTK, PK | NewPK | NewSPK> {
+        definition: DualWriteDef<NewTK, NewPK, NewSTK, NewSPK, NewMK, NewPerK>
+    ): IngestionOutputsBuilder<
+        O | Name,
+        StringKey | NewTK | NewSTK | NewMK,
+        ProducerKey | NewPK | NewSPK,
+        NumberKey | NewPerK
+    > {
         const duals = new Map<
             string,
-            DualWriteDef<TK | NewTK | NewSTK, PK | NewPK | NewSPK, TK | NewTK | NewSTK, PK | NewPK | NewSPK>
+            DualWriteDef<
+                StringKey | NewTK | NewSTK | NewMK,
+                ProducerKey | NewPK | NewSPK,
+                StringKey | NewTK | NewSTK | NewMK,
+                ProducerKey | NewPK | NewSPK,
+                StringKey | NewTK | NewSTK | NewMK,
+                NumberKey | NewPerK
+            >
         >(this.dualWriteDefs)
         duals.set(name, definition)
         return new IngestionOutputsBuilder(this.primaryDefs, duals)
@@ -88,12 +122,13 @@ export class IngestionOutputsBuilder<O extends string = never, TK extends string
     /**
      * Resolve all registered outputs from the registry and config.
      *
-     * The compiler verifies that the config contains all accumulated topic keys as `string`
-     * and all accumulated producer keys as `P` (matching the registry's producer name type).
+     * The compiler verifies that the config contains all accumulated topic keys as `string`,
+     * all accumulated producer keys as `P` (matching the registry's producer name type),
+     * and all accumulated number keys as `number`.
      */
     build<P extends string>(
         registry: KafkaProducerRegistry<P>,
-        config: Record<TK, string> & Record<PK, P>
+        config: Record<StringKey, string> & Record<ProducerKey, P> & Record<NumberKey, number>
     ): IngestionOutputs<O> {
         const record: Record<string, IngestionOutput> = {}
 
@@ -116,20 +151,23 @@ export class IngestionOutputsBuilder<O extends string = never, TK extends string
                 producerName
             )
 
-            const secondaryTopic = config[def.secondaryTopicKey]
-            if (secondaryTopic) {
+            const mode = config[def.modeKey]
+            if (mode === 'off') {
+                record[name] = primary
+            } else {
                 const secondaryProducerName = config[def.secondaryProducerKey]
+                const percentage = config[def.percentageKey]
                 record[name] = new DualWriteIngestionOutput(
                     primary,
                     new SingleIngestionOutput(
                         name,
-                        secondaryTopic,
+                        config[def.secondaryTopicKey],
                         registry.getProducer(secondaryProducerName),
                         secondaryProducerName
-                    )
+                    ),
+                    mode,
+                    percentage
                 )
-            } else {
-                record[name] = primary
             }
         }
 
