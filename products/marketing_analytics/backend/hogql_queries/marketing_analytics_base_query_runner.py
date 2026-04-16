@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import Generic, Optional, TypeVar
 
 import structlog
@@ -18,6 +18,8 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.visitor import clone_expr
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -38,6 +40,73 @@ from .utils import convert_team_conversion_goals_to_objects
 logger = structlog.get_logger(__name__)
 
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
+
+
+# HogQL's parse_select is surprisingly slow — a 10KB UNION ALL of adapter
+# subqueries takes ~2s on Python to lex + parse + build the custom AST.
+# The same string is reparsed on every dashboard render (and twice when
+# ``compareFilter.compare`` is set — once per period). Cache the parsed AST
+# and hand out clones on each hit. The clone is a fast in-memory walk
+# (~1ms for these shapes) and protects the cached tree from downstream
+# mutations by the printer/resolver.
+#
+# Size chosen to hold a reasonable multi-tenant working set per worker:
+# a handful of teams × a handful of (date_range, drill_down) combinations.
+# Each cached AST is ~100-500KB, so 64 * 500KB ≈ 32MB upper bound per
+# worker. Lowering this starves multi-tenant workers; raising it wastes
+# memory when the long tail of unique strings rarely hits again.
+_MAX_CACHED_UNION_PARSE = 64
+
+
+@lru_cache(maxsize=_MAX_CACHED_UNION_PARSE)
+def _cached_parse_union_template(union_template: str) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse a date-range-agnostic template of the adapter UNION query.
+
+    The template contains ``{date_from}`` and ``{date_to}`` placeholders where
+    concrete datetimes used to be. Parsing happens once per unique template
+    (team config × drill-down combination); callers substitute the actual
+    dates on each request via ``replace_placeholders``.
+    """
+    parsed = parse_select(union_template)
+    assert isinstance(parsed, ast.SelectQuery | ast.SelectSetQuery)
+    return parsed
+
+
+def _parse_adapter_union_query(
+    union_query_string: str,
+    date_from_str: str,
+    date_to_str: str,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse the adapter UNION string with an LRU cache on the date-agnostic template.
+
+    Strategy:
+
+    1. Normalise the string by replacing the concrete ``'date_from_str'`` and
+       ``'date_to_str'`` literals with ``{date_from}`` / ``{date_to}``
+       placeholders. The resulting template is stable across different date
+       ranges for the same team config.
+    2. Parse the template — cached across requests.
+    3. Clone the cached AST and substitute the placeholders with the actual
+       datetimes for this request.
+
+    With compare mode, current and previous periods generate different dates
+    but the SAME template, so both hit the same cache entry.
+    """
+    template = union_query_string.replace(f"'{date_from_str}'", "{date_from}").replace(f"'{date_to_str}'", "{date_to}")
+
+    cached = _cached_parse_union_template(template)
+    cloned = clone_expr(cached)
+    assert isinstance(cloned, ast.SelectQuery | ast.SelectSetQuery)
+
+    substituted = replace_placeholders(
+        cloned,
+        {
+            "date_from": ast.Constant(value=date_from_str),
+            "date_to": ast.Constant(value=date_to_str),
+        },
+    )
+    assert isinstance(substituted, ast.SelectQuery | ast.SelectSetQuery)
+    return substituted
 
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
@@ -243,8 +312,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        # Parse the union query as a subquery and wrap it in a JoinExpr
-        union_subquery = parse_select(union_query_string)
+        # Parse the union query as a subquery and wrap it in a JoinExpr.
+        # The parse is cached on a date-agnostic template (dates become
+        # {date_from}/{date_to} placeholders before caching), so different
+        # date ranges and compare-mode periods all hit the same cache entry.
+        union_subquery = _parse_adapter_union_query(
+            union_query_string,
+            date_from_str=self.query_date_range.date_from_str,
+            date_to_str=self.query_date_range.date_to_str,
+        )
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
         # Build the CTE SELECT query
