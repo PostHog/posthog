@@ -219,6 +219,7 @@
         "pmtiles": "^2.11.0",
         "posthog-js": "catalog:",
         "protomaps-themes-base": "2.0.0-alpha.1",
+        "qrcode.react": "^4.2.0",
         "query-selector-shadow-dom": "^1.0.0",
         "re2js": "^0.4.1",
         "react": "^18.3.1",

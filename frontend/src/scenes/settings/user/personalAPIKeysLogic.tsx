@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { QRCodeSVG } from 'qrcode.react'
 
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
@@ -12,6 +13,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -31,7 +33,14 @@ export type EditingKeyFormValues = Pick<
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
     connect(() => ({
-        values: [userLogic, ['user', 'hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        values: [
+            userLogic,
+            ['user', 'hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeamId'],
+        ],
     })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
@@ -449,6 +458,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return
             }
 
+            const qrPayload = JSON.stringify({ apiKey: value, projectId: values.currentTeamId })
+
             LemonDialog.open({
                 title: 'Personal API key ready',
                 width: 536,
@@ -460,6 +471,15 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         <CodeSnippet className="ph-no-capture" thing="personal API key">
                             {value}
                         </CodeSnippet>
+
+                        {values.currentTeamId && (
+                            <div className="mt-4 flex flex-col items-center gap-2">
+                                <p className="text-sm text-muted">Scan with PostHog Mobile to sign in:</p>
+                                <div className="bg-white p-3 rounded">
+                                    <QRCodeSVG value={qrPayload} size={192} level="M" />
+                                </div>
+                            </div>
+                        )}
 
                         <LemonBanner type="warning" className="mt-4">
                             For security reasons the value above <em>will never be shown again</em>.
@@ -477,6 +497,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return
             }
 
+            const qrPayload = JSON.stringify({ apiKey: value, projectId: values.currentTeamId })
+
             LemonDialog.open({
                 title: 'Personal API key rolled',
                 width: 536,
@@ -487,6 +509,15 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         <CodeSnippet className="ph-no-capture" thing="personal API key">
                             {value}
                         </CodeSnippet>
+
+                        {values.currentTeamId && (
+                            <div className="mt-4 flex flex-col items-center gap-2">
+                                <p className="text-sm text-muted">Scan with PostHog Mobile to sign in:</p>
+                                <div className="bg-white p-3 rounded">
+                                    <QRCodeSVG value={qrPayload} size={192} level="M" />
+                                </div>
+                            </div>
+                        )}
 
                         <LemonBanner type="warning" className="mt-4">
                             Your previous key{prevMaskedValue ? ` "${prevMaskedValue}"` : ''} is no longer valid.
