@@ -15,11 +15,12 @@ import {
     ExperimentStatsBaseValidated,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
+    NewExperimentQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
-import { experimentLogic, ExperimentSavedMetric, isNewExperimentResponse } from '../experimentLogic'
+import { experimentLogic, ExperimentSavedMetric } from '../experimentLogic'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 
 interface PathResult {
@@ -33,49 +34,58 @@ interface ComparisonRow {
     variant: string
     directCount: number | null
     precomputedCount: number | null
+    directSum: number | null
+    precomputedSum: number | null
     directMean: number | null
     precomputedMean: number | null
-    countsMatch: boolean | null
+    match: boolean | null
+}
+
+function isNewResponse(response: ExperimentQueryResponse): response is NewExperimentQueryResponse {
+    return 'baseline' in response && response.baseline !== null
 }
 
 function buildComparisonRows(direct: ExperimentQueryResponse, precomputed: ExperimentQueryResponse): ComparisonRow[] {
-    if (!isNewExperimentResponse(direct) || !isNewExperimentResponse(precomputed)) {
+    if (!isNewResponse(direct) || !isNewResponse(precomputed)) {
         return []
     }
 
     const rows: ComparisonRow[] = []
 
-    // Add baseline
     const directBaseline = direct.baseline
     const precomputedBaseline = precomputed.baseline
     if (directBaseline && precomputedBaseline) {
-        rows.push({
-            variant: directBaseline.key,
-            directCount: directBaseline.number_of_samples,
-            precomputedCount: precomputedBaseline.number_of_samples,
-            directMean: getMean(directBaseline),
-            precomputedMean: getMean(precomputedBaseline),
-            countsMatch: directBaseline.number_of_samples === precomputedBaseline.number_of_samples,
-        })
+        rows.push(buildRow(directBaseline, precomputedBaseline))
     }
 
-    // Add variant results
     const directVariants = direct.variant_results || []
     const precomputedVariants = precomputed.variant_results || []
 
     for (const dv of directVariants) {
         const pv = precomputedVariants.find((v) => v.key === dv.key)
-        rows.push({
-            variant: dv.key,
-            directCount: dv.number_of_samples,
-            precomputedCount: pv?.number_of_samples ?? null,
-            directMean: getMean(dv),
-            precomputedMean: pv ? getMean(pv) : null,
-            countsMatch: pv ? dv.number_of_samples === pv.number_of_samples : null,
-        })
+        rows.push(buildRow(dv, pv ?? null))
     }
 
     return rows
+}
+
+function buildRow(
+    direct: ExperimentStatsBaseValidated,
+    precomputed: ExperimentStatsBaseValidated | null
+): ComparisonRow {
+    return {
+        variant: direct.key,
+        directCount: direct.number_of_samples,
+        precomputedCount: precomputed?.number_of_samples ?? null,
+        directSum: direct.sum,
+        precomputedSum: precomputed?.sum ?? null,
+        directMean: getMean(direct),
+        precomputedMean: precomputed ? getMean(precomputed) : null,
+        match:
+            precomputed != null
+                ? direct.number_of_samples === precomputed.number_of_samples && direct.sum === precomputed.sum
+                : null,
+    }
 }
 
 function getMean(stats: ExperimentStatsBaseValidated): number | null {
@@ -88,7 +98,7 @@ function getMean(stats: ExperimentStatsBaseValidated): number | null {
 function getSignificance(
     response: ExperimentQueryResponse
 ): { significant: boolean; pValue?: number; chanceToWin?: number } | null {
-    if (!isNewExperimentResponse(response)) {
+    if (!isNewResponse(response)) {
         return null
     }
     const firstVariant = response.variant_results?.[0]
@@ -196,9 +206,9 @@ function MetricComparison({
             title: 'Match',
             key: 'match',
             render: (_, row) =>
-                row.countsMatch === null ? (
+                row.match === null ? (
                     '—'
-                ) : row.countsMatch ? (
+                ) : row.match ? (
                     <LemonTag type="success">Yes</LemonTag>
                 ) : (
                     <LemonTag type="danger">No</LemonTag>
@@ -297,10 +307,8 @@ function MetricComparison({
     )
 }
 
-export function ExperimentExecutionPathComparison(): JSX.Element {
+function ExperimentExecutionPathComparison({ experimentId }: { experimentId: number }): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-
-    const experimentId = typeof experiment.id === 'number' ? experiment.id : null
 
     const sharedPrimaryMetrics: ExperimentMetric[] =
         (experiment.saved_metrics as ExperimentSavedMetric[] | undefined)
@@ -312,12 +320,12 @@ export function ExperimentExecutionPathComparison(): JSX.Element {
             ?.filter(({ metadata }) => metadata.type === 'secondary')
             .map(({ query }) => query) ?? []
 
-    const primaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
-    const secondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
-
-    if (!experimentId) {
-        return <div className="text-muted">Save the experiment first to compare execution paths.</div>
-    }
+    const primaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics].filter(
+        (m): m is ExperimentMetric => m.kind === NodeKind.ExperimentMetric
+    )
+    const secondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics].filter(
+        (m): m is ExperimentMetric => m.kind === NodeKind.ExperimentMetric
+    )
 
     if (primaryMetrics.length === 0 && secondaryMetrics.length === 0) {
         return <div className="text-muted">No metrics configured.</div>
@@ -364,11 +372,15 @@ export function ExperimentDebugPanel({ experimentId }: { experimentId: number | 
                     label: 'Query log',
                     content: <DebugCHQueries experimentId={experimentId} />,
                 },
-                {
-                    key: 'path-comparison',
-                    label: 'Path comparison',
-                    content: <ExperimentExecutionPathComparison />,
-                },
+                ...(experimentId != null
+                    ? [
+                          {
+                              key: 'path-comparison',
+                              label: 'Path comparison',
+                              content: <ExperimentExecutionPathComparison experimentId={experimentId} />,
+                          },
+                      ]
+                    : []),
             ]}
         />
     )
