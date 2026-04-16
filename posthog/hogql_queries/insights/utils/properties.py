@@ -1,3 +1,5 @@
+from typing import TypeGuard
+
 from posthog.schema import PropertyGroupFilter, PropertyGroupFilterValue
 
 from posthog.hogql import ast
@@ -9,7 +11,7 @@ from posthog.types import AnyPropertyFilter
 type PropertiesType = list[AnyPropertyFilter] | PropertyGroupFilter | None
 
 
-def has_any_property_filters(properties: object) -> bool:
+def has_any_property_filters(properties: object) -> TypeGuard[list[AnyPropertyFilter] | PropertyGroupFilter]:
     """Check if properties contain any actual filter values, not just empty group structure."""
     if isinstance(properties, PropertyGroupFilter):
         return any(has_any_property_filters_in_group(value) for value in properties.values)
