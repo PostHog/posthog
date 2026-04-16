@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+
 from parameterized import parameterized
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
