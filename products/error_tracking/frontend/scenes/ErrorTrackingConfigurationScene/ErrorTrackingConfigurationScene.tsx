@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Breadcrumb } from '~/types'
 
+import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
@@ -111,6 +112,7 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
             <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
                 <SceneBreadcrumbBackButton />
             </div>
+            <IntegrationsMovedBanner />
             <ErrorTrackingSetupPrompt>
                 <Settings
                     logicKey={ERROR_TRACKING_LOGIC_KEY}
