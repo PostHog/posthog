@@ -5742,6 +5742,7 @@ export namespace Schemas {
       new: number;
       removed: number;
       unchanged: number;
+      tolerated_matched?: number;
     }
 
     export type RunMetadata = {[key: string]: unknown};
@@ -9944,6 +9945,8 @@ export namespace Schemas {
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
       /** @nullable */
+      requestCost?: number | null;
+      /** @nullable */
       tools?: string[] | null;
       /** @nullable */
       totalCost?: number | null;
@@ -9951,6 +9954,8 @@ export namespace Schemas {
       totalLatency?: number | null;
       /** @nullable */
       traceName?: string | null;
+      /** @nullable */
+      webSearchCost?: number | null;
     }
 
     export interface Response25 {
@@ -19180,6 +19185,46 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
+
+
+    export const LogsAlertCreateDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface LogsAlertCreateDestination {
+      /** Destination type — slack or webhook.
+
+    * `slack` - slack
+    * `webhook` - webhook */
+      type: LogsAlertCreateDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      webhook_url?: string;
+    }
+
+    export interface LogsAlertDeleteDestination {
+      /**
+       * HogFunction IDs to delete as one atomic destination group.
+       * @minItems 1
+       */
+      hog_function_ids: string[];
+    }
+
+    export interface LogsAlertDestinationResponse {
+      hog_function_ids: string[];
+    }
+
     export interface LogsAlertSimulateBucket {
       /** Bucket start timestamp. */
       timestamp: string;
@@ -19470,6 +19515,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface MarkToleratedInput {
+      snapshot_id: string;
     }
 
     /**
@@ -21823,6 +21872,7 @@ export namespace Schemas {
       id: string;
       identifier: string;
       result: string;
+      classification_reason: string;
       /** @nullable */
       diff_percentage: number | null;
       /** @nullable */
@@ -21831,6 +21881,8 @@ export namespace Schemas {
       /** @nullable */
       reviewed_at: string | null;
       approved_hash: string;
+      /** @nullable */
+      tolerated_hash_id?: string | null;
       metadata?: SnapshotMetadata;
     }
 
@@ -22716,6 +22768,25 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TicketView[];
+    }
+
+    export interface ToleratedHashEntry {
+      id: string;
+      alternate_hash: string;
+      baseline_hash: string;
+      reason: string;
+      created_at: string;
+      /** @nullable */
+      source_run_id: string | null;
+    }
+
+    export interface PaginatedToleratedHashEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ToleratedHashEntry[];
     }
 
     export interface TraceReviewScore {
@@ -37633,6 +37704,21 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
     /**
      * Number of results to return per page.
      */
