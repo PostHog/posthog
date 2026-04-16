@@ -165,6 +165,9 @@ class QueryTags(BaseModel):
     # replays
     replay_playlist_id: Optional[int] = None
 
+    # ai events rollout
+    ai_query_source: Optional[str] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
