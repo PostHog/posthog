@@ -517,6 +517,21 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     Admins promote guests to regular members via the `/promote_to_member/` action (one-way).
     Demotion from regular → guest is not supported.
     """
+    bypass_sso_enforcement = models.BooleanField(default=False)
+    """Guest-mode-specific opt-out from the organization's SSO enforcement policy. Default False
+    (guests follow org SSO). An admin can set this to True at invite time to let an external
+    collaborator log in via email + password even when the org enforces SSO.
+
+    This is an intentional design decision, not a security hole. The feature exists so that orgs
+    can extend limited, auditable access to people who do not exist in their IdP (clients,
+    contractors, third-party reviewers). The admin UI requires explicit confirmation when this
+    flag is toggled on ("I understand that enabling this lets this external collaborator access
+    our shared resources using email and password, bypassing our SSO provider").
+
+    Independent of the org's current SSO setting — toggling org-level SSO on or off does not
+    affect this per-membership bypass. Only meaningful when `is_guest=True`; has no effect when
+    is_guest=False.
+    """
 
     class Meta:
         constraints = [
