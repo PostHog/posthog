@@ -31,6 +31,7 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
     PaginatedUserListApi,
     PatchedDashboardTemplateApi,
@@ -47,6 +48,8 @@ import type {
     PropertyDefinitionsListParams,
     SharingConfigurationApi,
     SubscriptionApi,
+    SubscriptionDeliveryApi,
+    SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
     UserApi,
     UsersListParams,
@@ -68,6 +71,65 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions. Listing is gated by the `hackathons_subscriptions` feature flag; single-delivery retrieve is not.
+ * @summary List subscription deliveries
+ */
+export const getSubscriptionsDeliveriesListUrl = (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/?${stringifiedParams}`
+        : `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/`
+}
+
+export const subscriptionsDeliveriesList = async (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams,
+    options?: RequestInit
+): Promise<PaginatedSubscriptionDeliveryListApi> => {
+    return apiMutator<PaginatedSubscriptionDeliveryListApi>(
+        getSubscriptionsDeliveriesListUrl(projectId, subscriptionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Fetch one delivery row by id (not gated by `hackathons_subscriptions`).
+ * @summary Retrieve subscription delivery
+ */
+export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
+    return `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
+}
+
+export const subscriptionsDeliveriesRetrieve = async (
+    projectId: string,
+    subscriptionId: number,
+    id: string,
+    options?: RequestInit
+): Promise<SubscriptionDeliveryApi> => {
+    return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getDomainsListUrl = (organizationId: string, params?: DomainsListParams) => {
     const normalizedParams = new URLSearchParams()

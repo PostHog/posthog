@@ -28,7 +28,7 @@ from products.batch_exports.backend.temporal.utils import JsonType
 
 def create_deeply_nested_dict(depth: int, value: str = "test") -> typing.Any:
     """Create a dict with specified nesting depth."""
-    result = value
+    result: typing.Any = value
     for _ in range(depth):
         result = {"nested": result}
     return result

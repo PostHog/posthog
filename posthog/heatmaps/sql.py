@@ -1,7 +1,12 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_HEATMAPS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_HEATMAPS,
+    CONSUMER_GROUP_HEATMAPS_WS,
+    kafka_engine,
+    ttl_period,
+)
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_HEATMAP_EVENTS
 
@@ -96,14 +101,21 @@ HEATMAPS_TABLE_SQL = lambda on_cluster=True: (
     ttl_period=ttl_period("timestamp", 90, unit="DAY"),
 )
 
+HEATMAPS_WRITABLE_TABLE = "writable_heatmaps"
+
 KAFKA_HEATMAPS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
     table_name="kafka_heatmaps",
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS, group=CONSUMER_GROUP_HEATMAPS),
 )
 
-HEATMAPS_TABLE_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv
+
+def HEATMAPS_TABLE_MV_SQL(
+    mv_name="heatmaps_mv",
+    kafka_table="kafka_heatmaps",
+    target_table=HEATMAPS_WRITABLE_TABLE,
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {database}.{target_table}
 AS SELECT
     session_id,
@@ -125,18 +137,20 @@ AS SELECT
     _timestamp,
     _offset,
     _partition
-FROM {database}.kafka_heatmaps
+FROM {database}.{kafka_table}
 """.format(
-        target_table="writable_heatmaps",
+        mv_name=mv_name,
+        target_table=target_table,
+        kafka_table=kafka_table,
         database=settings.CLICKHOUSE_DATABASE,
     )
-)
+
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_heatmaps based on a sharding key.
 WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
-    table_name="writable_heatmaps",
+    table_name=HEATMAPS_WRITABLE_TABLE,
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
@@ -154,7 +168,7 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
 
 DROP_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
 
-DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS writable_heatmaps")
+DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_WRITABLE_TABLE}")
 
 DROP_HEATMAPS_TABLE_MV_SQL = lambda: (f"DROP TABLE IF EXISTS heatmaps_mv")
 
@@ -165,3 +179,29 @@ TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA
 ALTER_TABLE_ADD_TTL_PERIOD = lambda: (
     f"ALTER TABLE {HEATMAPS_DATA_TABLE()} MODIFY {ttl_period('timestamp', 90, unit='DAY')}"
 )
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_HEATMAPS_WS_TABLE = "kafka_heatmaps_ws"
+HEATMAPS_WS_MV = "heatmaps_ws_mv"
+
+DROP_KAFKA_HEATMAPS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_HEATMAPS_WS_TABLE}"
+DROP_HEATMAPS_WS_MV_SQL = f"DROP TABLE IF EXISTS {HEATMAPS_WS_MV}"
+
+KAFKA_HEATMAPS_WS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
+    table_name=KAFKA_HEATMAPS_WS_TABLE,
+    engine=kafka_engine(
+        topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        group=CONSUMER_GROUP_HEATMAPS_WS,
+        named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+    ),
+)
+
+
+def HEATMAPS_WS_TABLE_MV_SQL():
+    return HEATMAPS_TABLE_MV_SQL(
+        mv_name=HEATMAPS_WS_MV,
+        kafka_table=KAFKA_HEATMAPS_WS_TABLE,
+        target_table=HEATMAPS_WRITABLE_TABLE,
+    )

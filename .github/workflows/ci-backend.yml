@@ -63,7 +63,6 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            products: ${{ steps.filter.outputs.products || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -116,8 +115,12 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
-                        - frontend/src/queries/schema.json # Used for generating schema.py
-                        - rust/feature-flags/src/properties/property_models.rs # Operator parity check
+                        # generates posthog/schema.py
+                        - frontend/src/queries/schema.json
+                        # Operator parity check
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -160,6 +163,8 @@ jobs:
                         - pytest.ini
                         - .test_durations
                         - frontend/src/queries/schema.json
+                        - frontend/src/products.json
+                        - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -1723,6 +1728,17 @@ jobs:
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Django Tests Pass'
+                  runner: 'depot'
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
