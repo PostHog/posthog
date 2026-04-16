@@ -6,11 +6,16 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfiguration, HogFunctionType, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+import {
+    BatchExportConfiguration,
+    HogFunctionType,
+    NotificationSettings,
+    OrganizationBasicType,
+    TeamBasicType,
+} from '~/types'
 
 enum NotificationBlock {
     Security = 'security',
@@ -302,8 +307,7 @@ function PipelineNotificationSelector(): JSX.Element {
             {expanded && (
                 <div className="mt-3 ml-6 space-y-2">
                     <span className="text-muted text-xs">
-                        All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications
-                        for.
+                        All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications for.
                     </span>
                     {loading ? (
                         <div className="flex items-center gap-2 py-2">
@@ -339,9 +343,7 @@ function PipelineNotificationSelector(): JSX.Element {
                                             key={pipeline.id}
                                             id={`pipeline-${pipeline.id}`}
                                             data-attr={`pipeline_notification_${pipeline.id}`}
-                                            onChange={(checked) =>
-                                                updatePipelineNotification(pipeline.id, checked)
-                                            }
+                                            onChange={(checked) => updatePipelineNotification(pipeline.id, checked)}
                                             checked={!isPipelineDisabled(pipeline.id)}
                                             disabled={userLoading}
                                             label={<span>{pipeline.name}</span>}
