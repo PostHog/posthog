@@ -210,6 +210,19 @@ describe('ci-alerts-devex', () => {
             expect(outputs.rate_limit_action).toBe('none')
             expect(outputs.action).toBe('none')
         })
+
+        it('fires workflow and rate-limit signals independently in the same tick', async () => {
+            const github = createGithubMock(
+                {
+                    'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
+                    'ci-frontend.yml': runs('Frontend CI', ['success']),
+                },
+                { rateLimitRemaining: 50 }
+            )
+            const { outputs } = await run(github)
+            expect(outputs.action).toBe('create')
+            expect(outputs.rate_limit_action).toBe('create')
+        })
     })
 
     describe('red commit streak', () => {
@@ -267,6 +280,12 @@ describe('ci-alerts-devex', () => {
             let { outputs } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted })
             expect(outputs.commit_failure_streak_action).toBe('update')
             expect(outputs.commit_failure_streak_count).toBe('14')
+
+            // 10 red with last_count already 10 → no-op (idempotent at/over threshold, no growth)
+            ;({ commits, runsByWorkflow } = redCommits(10))
+            ;({ outputs } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted }))
+            expect(outputs.commit_failure_streak_action).toBe('none')
+            expect(outputs.commit_failure_streak_count).toBe('10')
 
             // All green after alerted → resolve
             ;({ commits, runsByWorkflow } = greenCommits(12))
