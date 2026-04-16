@@ -118,14 +118,9 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
-            title: 'Team',
-            render: function TeamCell(_, item) {
-                return (
-                    <span>
-                        {item.team_name || 'Unknown'} <span className="text-muted">({item.team_id})</span>
-                    </span>
-                )
-            },
+            title: 'Team ID',
+            dataIndex: 'team_id',
+            width: 80,
         },
         {
             title: 'Experiment',
