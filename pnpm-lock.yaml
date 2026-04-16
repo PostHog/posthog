@@ -108,6 +108,8 @@ overrides:
   sha.js: '>=2.4.12'
   typescript: 5.8.3
   uWebSockets.js: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
+  fast-xml-parser@^4: '>=4.5.4'
+  fast-xml-parser@^5: '>=5.3.5'
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -15163,16 +15165,15 @@ packages:
   fast-uri@3.1.0:
     resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
 
-  fast-xml-parser@4.4.1:
-    resolution: {integrity: sha512-xkjOecfnKGkSsOwtZ5Pz7Us/T6mrbPQrq0nh+aCO5V9nk5NLWmasAHumTKjiPJPWANe+kAZ84Jc8ooJkzZ88Sw==}
+  fast-xml-builder@1.1.4:
+    resolution: {integrity: sha512-f2jhpN4Eccy0/Uz9csxh3Nu6q4ErKxf0XIsasomfOihuSUa3/xw6w8dnOtCDgEItQFJG8KyXPzQXzcODDrrbOg==}
+
+  fast-xml-parser@4.5.5:
+    resolution: {integrity: sha512-cK9c5I/DwIOI7/Q7AlGN3DuTdwN61gwSfL8rvuVPK+0mcCNHHGxRrpiFtaZZRfRMJL3Gl8B2AFlBG6qXf03w9A==}
     hasBin: true
 
-  fast-xml-parser@5.2.5:
-    resolution: {integrity: sha512-pfX9uG9Ki0yekDHx2SiuRIyFdyAr1kMIMitPvb0YBo8SUfKvia7w7FIyd/l6av85pFYRhZscS75MwMnbvY+hcQ==}
-    hasBin: true
-
-  fast-xml-parser@5.3.4:
-    resolution: {integrity: sha512-EFd6afGmXlCx8H8WTZHhAoDaWaGyuIBoZJ2mknrNxug+aZKjkp0a0dlars9Izl+jF+7Gu1/5f/2h68cQpe0IiA==}
+  fast-xml-parser@5.5.6:
+    resolution: {integrity: sha512-3+fdZyBRVg29n4rXP0joHthhcHdPUHaIC16cuyyd1iLsuaO6Vea36MPrxgAzbZna8lhvZeRL8Bc9GP56/J9xEw==}
     hasBin: true
 
   fast-zlib@2.0.1:
@@ -18977,6 +18978,10 @@ packages:
   path-exists@5.0.0:
     resolution: {integrity: sha512-RjhtfwJOxzcFmNOi6ltcbcu4Iu+FL3zEj83dk4kAS+fVpTxXLO1b38RvJgT/0QwvV/L3aY9TAnyv0EOqW4GoMQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  path-expression-matcher@1.5.0:
+    resolution: {integrity: sha512-cbrerZV+6rvdQrrD+iGMcZFEiiSrbv9Tfdkvnusy6y0x0GKBXREFg/Y65GhIfm0tnLntThhzCnfKwp1WRjeCyQ==}
+    engines: {node: '>=14.0.0'}
 
   path-is-absolute@1.0.1:
     resolution: {integrity: sha512-AVbw3UJ2e9bq64vSaS9Am0fje1Pa8pbGqTTsmXfaIiMpnr5DlDhfJOuLj9Sf95ZPVDAUerDfEk88MPmPe7UCQg==}
@@ -23891,7 +23896,7 @@ snapshots:
       '@smithy/smithy-client': 4.10.12
       '@smithy/types': 4.12.0
       '@smithy/util-middleware': 4.2.8
-      fast-xml-parser: 4.4.1
+      fast-xml-parser: 4.5.5
       tslib: 2.8.1
 
   '@aws-sdk/core@3.972.0':
@@ -24828,25 +24833,25 @@ snapshots:
   '@aws-sdk/xml-builder@3.972.0':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.2.5
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.1':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.2.5
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.2':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.2.5
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.4':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.3.4
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.2.3': {}
@@ -39849,16 +39854,18 @@ snapshots:
 
   fast-uri@3.1.0: {}
 
-  fast-xml-parser@4.4.1:
+  fast-xml-builder@1.1.4:
+    dependencies:
+      path-expression-matcher: 1.5.0
+
+  fast-xml-parser@4.5.5:
     dependencies:
       strnum: 1.0.5
 
-  fast-xml-parser@5.2.5:
+  fast-xml-parser@5.5.6:
     dependencies:
-      strnum: 2.1.2
-
-  fast-xml-parser@5.3.4:
-    dependencies:
+      fast-xml-builder: 1.1.4
+      path-expression-matcher: 1.5.0
       strnum: 2.1.2
 
   fast-zlib@2.0.1: {}
@@ -44968,6 +44975,8 @@ snapshots:
   path-exists@4.0.0: {}
 
   path-exists@5.0.0: {}
+
+  path-expression-matcher@1.5.0: {}
 
   path-is-absolute@1.0.1: {}
 

@@ -24,7 +24,7 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Sc
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedActionList>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/actions/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
                 query: {
                     limit: params.limit,
                     offset: params.offset,
@@ -79,7 +79,7 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema, WithPostHogUrl<Sche
             }
             const result = await context.api.request<Schemas.Action>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/actions/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
@@ -96,7 +96,7 @@ const actionGet = (): ToolBase<typeof ActionGetSchema, WithPostHogUrl<Schemas.Ac
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Action>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/actions/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
         },
@@ -136,7 +136,7 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, WithPostHogUrl<Sche
             }
             const result = await context.api.request<Schemas.Action>({
                 method: 'PATCH',
-                path: `/api/projects/${projectId}/actions/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
@@ -152,7 +152,7 @@ const actionDelete = (): ToolBase<typeof ActionDeleteSchema, Schemas.Action> => 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Action>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/actions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result

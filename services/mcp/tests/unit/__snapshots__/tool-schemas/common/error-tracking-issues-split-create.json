@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "fingerprints": {
+            "description": "Fingerprints to split into new issues. Each fingerprint becomes its own new issue.",
+            "items": {
+                "properties": {
+                    "description": {
+                        "description": "Optional description for the new issue created from this fingerprint.",
+                        "type": "string"
+                    },
+                    "fingerprint": {
+                        "description": "Fingerprint to split into a new issue.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Optional name for the new issue created from this fingerprint.",
+                        "type": "string"
+                    }
+                },
+                "required": ["fingerprint"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this error tracking issue.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

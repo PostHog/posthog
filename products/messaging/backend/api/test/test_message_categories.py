@@ -276,6 +276,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
                 "app_integration_id": None,
                 "app_import_result": None,
                 "csv_import_result": None,
+                "webhook_enabled": False,
+                "has_webhook_secret": False,
             },
         )
 
@@ -386,6 +388,23 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No API key", response.json()["error"])
 
+    def test_import_from_customerio_rejects_key_when_integration_exists(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="customerio-app",
+            sensitive_config={"app_api_key": "original_key"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self._url("import_from_customerio"),
+            {"app_api_key": "different_key"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        integration = Integration.objects.get(team=self.team, kind="customerio-app")
+        self.assertEqual(integration.sensitive_config["app_api_key"], "original_key")
+
     def test_remove_app_config_clears_integration_and_result(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -415,6 +434,95 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
     def test_remove_app_config_succeeds_when_no_config_exists(self):
         response = self.client.delete(self._url("remove_customerio_app_config"))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_optout_sync_config_includes_webhook_fields(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="customerio-webhook",
+            sensitive_config={"webhook_signing_secret": "secret123"},
+            created_by=self.user,
+        )
+        OptOutSyncConfig.objects.create(
+            team=self.team,
+            webhook_integration=integration,
+            webhook_enabled=True,
+        )
+
+        response = self.client.get(self._url("optout_sync_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["webhook_enabled"])
+        self.assertTrue(data["has_webhook_secret"])
+
+    def test_optout_sync_config_webhook_fields_default_false(self):
+        response = self.client.get(self._url("optout_sync_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["webhook_enabled"])
+        self.assertFalse(data["has_webhook_secret"])
+
+    def test_save_webhook_config_creates_integration(self):
+        response = self.client.post(
+            self._url("save_webhook_config"),
+            {"webhook_signing_secret": "my_secret", "webhook_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["webhook_enabled"])
+        self.assertTrue(response.json()["has_webhook_secret"])
+
+        integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
+        self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "my_secret")
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertEqual(config.webhook_integration, integration)
+        self.assertTrue(config.webhook_enabled)
+
+    def test_save_webhook_config_requires_secret_to_enable(self):
+        response = self.client.post(
+            self._url("save_webhook_config"),
+            {"webhook_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_save_webhook_config_rejects_secret_when_integration_exists(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="customerio-webhook",
+            sensitive_config={"webhook_signing_secret": "original"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self._url("save_webhook_config"),
+            {"webhook_signing_secret": "new_secret", "webhook_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
+        self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "original")
+
+    def test_save_webhook_config_toggles_without_secret(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="customerio-webhook",
+            sensitive_config={"webhook_signing_secret": "secret"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self._url("save_webhook_config"),
+            {"webhook_enabled": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["webhook_enabled"])
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertFalse(config.webhook_enabled)
+        integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
+        self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "secret")
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
     def test_csv_import_stores_success_result(self, mock_service_class):
