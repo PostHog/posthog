@@ -120,6 +120,60 @@ class TestQuickFilters(APIBaseTest):
         self.assertIsNone(dashboard_null.quick_filter_ids)
         self.assertEqual(dashboard_empty.quick_filter_ids, [])
 
+    def test_delete_quick_filter_error_tracking_context(self):
+        """Regression test: deleting a quick filter created in the error-tracking context."""
+        data, quick_filter = self._create_quick_filter(
+            "Environment", "$environment", contexts=["error-tracking-issue-filters"]
+        )
+
+        # Verify it appears in context-filtered list
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/quick_filters/?context=error-tracking-issue-filters"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(quick_filter.id))
+
+        # Delete using the ID from the list response (mimics frontend flow)
+        filter_id = response.json()["results"][0]["id"]
+        response = self.client.delete(f"/api/environments/{self.team.id}/quick_filters/{filter_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(QuickFilter.objects.filter(id=quick_filter.id).exists())
+
+    def test_delete_quick_filter_with_multiple_contexts(self):
+        """Deleting a filter that belongs to multiple contexts removes it entirely."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/quick_filters/",
+            {
+                "name": "Shared Filter",
+                "property_name": "$environment",
+                "type": "manual-options",
+                "options": [
+                    {"id": "prod", "value": "production", "label": "Production", "operator": "exact"},
+                ],
+                "contexts": ["dashboards", "error-tracking-issue-filters"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        filter_id = response.json()["id"]
+
+        # Delete without context param (as the frontend does)
+        response = self.client.delete(f"/api/environments/{self.team.id}/quick_filters/{filter_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(QuickFilter.objects.filter(id=filter_id).exists())
+
+    def test_delete_already_deleted_quick_filter_returns_404(self):
+        """Deleting a filter that was already deleted returns 404."""
+        _, quick_filter = self._create_quick_filter()
+
+        # First delete succeeds
+        response = self.client.delete(f"/api/environments/{self.team.id}/quick_filters/{quick_filter.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Second delete returns 404
+        response = self.client.delete(f"/api/environments/{self.team.id}/quick_filters/{quick_filter.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_dashboard_rejects_cross_team_quick_filter_ids(self):
         _, quick_filter = self._create_quick_filter()
 

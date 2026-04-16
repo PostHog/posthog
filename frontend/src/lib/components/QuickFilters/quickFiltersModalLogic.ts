@@ -25,7 +25,7 @@ export const quickFiltersModalLogic: LogicWrapper<quickFiltersModalLogicType> = 
     key((props) => props.context),
 
     connect((props: QuickFiltersModalLogicProps) => ({
-        actions: [quickFiltersLogic(props), ['deleteFilter']],
+        actions: [quickFiltersLogic(props), ['deleteFilter', 'loadQuickFilters']],
         values: [quickFiltersLogic(props), ['quickFilters']],
     })),
 
@@ -130,6 +130,10 @@ export const quickFiltersModalLogic: LogicWrapper<quickFiltersModalLogicType> = 
             actions.setView(ModalView.List)
         },
         openModal: () => {
+            // Reload to ensure we have the latest data before the user interacts
+            // with the modal. Prevents "Not found" errors when deleting filters
+            // that were already removed (e.g. by another user or in another tab).
+            actions.loadQuickFilters()
             cache.filterIdsOnOpen = new Set(values.quickFilters.map((f) => f.id))
             posthog.capture(QuickFiltersEvents.QuickFiltersModalOpened, {
                 context: props.context,
