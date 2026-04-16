@@ -583,6 +583,7 @@ class TestApproveSnapshots:
         )
 
         snapshot = updated.snapshots.first()
+        assert snapshot is not None
         assert snapshot.review_state == "approved"
         assert snapshot.approved_hash == "new_hash"
 
@@ -652,6 +653,7 @@ class TestToleratedHashes:
         logic.mark_run_completed(run.id)
 
         snapshot = run.snapshots.first()
+        assert snapshot is not None
         with pytest.raises(ValueError, match="Can only mark CHANGED"):
             logic.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
 

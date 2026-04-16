@@ -22729,7 +22729,7 @@ export namespace Schemas {
 
     export interface ToleratedHashEntry {
       id: string;
-      content_hash: string;
+      alternate_hash: string;
       baseline_hash: string;
       reason: string;
       created_at: string;
