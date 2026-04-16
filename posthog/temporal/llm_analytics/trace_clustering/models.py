@@ -1,17 +1,15 @@
 """Data models for trace clustering workflow."""
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
+from posthog.temporal.llm_analytics.shared_activities import AnalysisLevel  # noqa: F401
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
 )
-
-# Analysis level determines whether we cluster traces, individual generations, or evaluations
-AnalysisLevel = Literal["trace", "generation", "evaluation"]
 
 
 @dataclass
