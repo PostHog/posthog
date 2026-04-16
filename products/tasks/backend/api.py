@@ -398,6 +398,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
     queryset = TaskAutomation.objects.all()
+    filter_rewrite_rules = {"team_id": "task__team_id"}
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
