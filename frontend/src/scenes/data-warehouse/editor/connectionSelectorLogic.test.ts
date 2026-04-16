@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -43,8 +44,15 @@ describe('connectionSelectorLogic', () => {
         expect(logic.values.connectionSelectOptions[0].options).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ value: POSTHOG_WAREHOUSE }),
-                expect.objectContaining({ value: 'conn-123', label: 'warehouse (Postgres)' }),
+                expect.objectContaining({
+                    value: 'conn-123',
+                    label: 'warehouse (Postgres)',
+                    managementUrl: urls.dataWarehouseSource('managed-conn-123'),
+                }),
             ])
+        )
+        expect(logic.values.connectionSelectOptions[1].options).toEqual(
+            expect.arrayContaining([expect.not.objectContaining({ managementUrl: expect.anything() })])
         )
     })
 })

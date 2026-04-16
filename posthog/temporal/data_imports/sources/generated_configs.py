@@ -50,6 +50,18 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -379,18 +391,6 @@ class HelpScoutSourceConfig(config.Config):
 
 
 @config.config
-class HubspotCustomPropertiesConfig(config.Config):
-    contacts_properties: str | None = None
-    companies_properties: str | None = None
-    deals_properties: str | None = None
-    tickets_properties: str | None = None
-    quotes_properties: str | None = None
-    emails_properties: str | None = None
-    meetings_properties: str | None = None
-    enabled: bool = config.value(converter=config.str_to_bool, default=False)
-
-
-@config.config
 class HubspotSourceConfig(config.Config):
     hubspot_integration_id: int = config.value(converter=config.str_to_int)
     custom_properties: HubspotCustomPropertiesConfig | None = None
@@ -604,9 +604,9 @@ class PostgresSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 

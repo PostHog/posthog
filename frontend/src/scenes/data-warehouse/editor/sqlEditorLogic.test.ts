@@ -518,6 +518,61 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('switches the active tab into the created view immediately after create success', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.createDataWarehouseSavedQuerySuccess(
+                [
+                    {
+                        id: 'created-view-id',
+                        name: 'Created view',
+                        query: {
+                            kind: NodeKind.HogQLQuery,
+                            query: 'SELECT 1',
+                        },
+                        is_materialized: false,
+                        latest_history_id: null,
+                        sync_frequency: null,
+                        status: null,
+                        last_run_at: null,
+                        latest_error: null,
+                    } as any,
+                ],
+                {
+                    name: 'Created view',
+                    query: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'SELECT 1',
+                    },
+                    types: [],
+                }
+            )
+
+            await expectLogic(logic)
+                .toDispatchActions(['createDataWarehouseSavedQuerySuccess', 'updateTab'])
+                .toMatchValues({
+                    editingView: partial({
+                        id: 'created-view-id',
+                        name: 'Created view',
+                    }),
+                    titleSectionProps: partial({
+                        name: 'Created view',
+                    }),
+                })
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.view).toEqual('created-view-id')
+        })
+
         it('keeps the results tab when opening a view directly', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -823,6 +878,37 @@ describe('sqlEditorLogic', () => {
             expect(performQuerySpy).toHaveBeenCalledTimes(1)
             expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: 'conn-123' })
             expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('resets stale database connection state when reopening the editor without a connection in the url', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            databaseLogic.actions.setConnection('conn-123')
+            await databaseLogic.asyncActions.loadDatabase()
+            performQuerySpy.mockClear()
+            window.history.replaceState({}, '', urls.sqlEditor())
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.selectedConnectionId).toBeUndefined()
+            expect(databaseLogic.values.connectionId).toBeNull()
+            expect(performQuerySpy).toHaveBeenCalledTimes(1)
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: undefined })
 
             performQuerySpy.mockRestore()
         })

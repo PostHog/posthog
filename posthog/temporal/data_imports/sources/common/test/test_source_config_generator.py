@@ -449,6 +449,37 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             in output
         )
 
+    def test_optional_fields_are_sorted_after_required_fields(self):
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.STRIPE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="optional_value",
+                        label="optional value",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="optional",
+                    ),
+                    SourceFieldInputConfig(
+                        name="required_value",
+                        label="required value",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="123",
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.STRIPE: config})
+
+        assert output.index("required_value: int = config.value(converter=int)") < output.index(
+            "optional_value: str | None = None"
+        )
+
     def test_source_config_nested_class(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,

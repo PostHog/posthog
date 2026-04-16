@@ -704,6 +704,18 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
+/** Quote each segment of a dotted HogQL reference independently. */
+export function escapeDottedHogQLIdentifier(identifier: string): string {
+    if (isQuoted(identifier) || !identifier.includes('.')) {
+        return escapePropertyAsHogQLIdentifier(identifier)
+    }
+
+    return identifier
+        .split('.')
+        .map((segment) => escapePropertyAsHogQLIdentifier(segment))
+        .join('.')
+}
+
 export function taxonomicEventFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue

@@ -21,7 +21,7 @@ interface ConfigurationTabProps {
 export const ConfigurationTab = ({ id }: ConfigurationTabProps): JSX.Element => {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
     }
 

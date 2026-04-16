@@ -15,6 +15,11 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_warehouse.backend.direct_postgres import (
+    DIRECT_POSTGRES_CATALOG_OPTION,
+    DIRECT_POSTGRES_SCHEMA_OPTION,
+    DIRECT_POSTGRES_TABLE_OPTION,
+)
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
@@ -53,6 +58,70 @@ class TestTable(BaseTest):
 
         assert isinstance(definition, DirectPostgresTable)
         assert definition.postgres_table_name == table_name
+
+    def test_direct_postgres_table_uses_physical_schema_and_table_options(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            options={
+                DIRECT_POSTGRES_SCHEMA_OPTION: "public",
+                DIRECT_POSTGRES_TABLE_OPTION: "accounts",
+            },
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.name == "public.accounts"
+        assert definition.postgres_schema == "public"
+        assert definition.postgres_table_name == "accounts"
+
+    def test_direct_postgres_table_supports_catalog_options(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="system.query_log",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            options={
+                DIRECT_POSTGRES_CATALOG_OPTION: "ducklake",
+                DIRECT_POSTGRES_SCHEMA_OPTION: "system",
+                DIRECT_POSTGRES_TABLE_OPTION: "query_log",
+            },
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.postgres_catalog == "ducklake"
+        assert definition.to_printed_postgres(context=None) == "ducklake.system.query_log"
 
     def test_direct_postgres_table_cannot_be_printed_to_clickhouse(self):
         source = ExternalDataSource.objects.create(

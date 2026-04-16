@@ -78,18 +78,17 @@ test.describe('SQL Editor', () => {
             await page.getByRole('button', { name: 'Submit' }).click()
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
 
-            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
-            // Dismiss the quickstart popover if visible, as it can overlay the button
-            const quickstart = page.locator('[data-attr=global-product-setup-button]')
-            if (await quickstart.isVisible({ timeout: 1000 }).catch(() => false)) {
-                await quickstart.click()
-                await expect(async () => {
-                    await page.getByRole('button', { name: 'Minimize' }).click()
-                }).toPass()
-            }
+            const materializationButton = page.locator('[data-attr=sql-editor-materialization-button]')
+            await expect(materializationButton).toBeVisible()
 
-            await page.locator('[data-attr=sql-editor-materialization-button]').click()
+            await page
+                .getByRole('button', { name: 'Minimize' })
+                .click({ timeout: 1000 })
+                .catch(() => {})
+
+            await materializationButton.click()
             await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
+            await expect(page.getByRole('dialog')).toContainText(`Materialize ${uniqueViewName}`)
         })
 
         test('Query variables pane', async ({ page }) => {

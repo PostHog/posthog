@@ -20,6 +20,7 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
@@ -36,6 +37,7 @@ import type {
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
+    PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
     ProvisionWarehouseRequestApi,
@@ -727,6 +729,47 @@ export const externalDataSourcesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
+}
+
+export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSourceBulkUpdateSchemasApi: PatchedExternalDataSourceBulkUpdateSchemasApi,
+    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataSchemaListApi> => {
+    return apiMutator<PaginatedExternalDataSchemaListApi>(
+        getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceBulkUpdateSchemasApi),
+        }
+    )
 }
 
 /**

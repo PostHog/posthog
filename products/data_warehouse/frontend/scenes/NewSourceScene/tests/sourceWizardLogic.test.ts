@@ -1,6 +1,33 @@
-import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from '../sourceWizardLogic'
+import {
+    buildKeaFormDefaultFromSourceDetails,
+    getErrorsForFields,
+    getInitialSourceConnectionDetailsValues,
+} from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
+    describe('getInitialSourceConnectionDetailsValues', () => {
+        it('sets the access method when there are no saved values', () => {
+            expect(getInitialSourceConnectionDetailsValues(undefined, 'direct')).toEqual({
+                access_method: 'direct',
+            })
+        })
+
+        it('keeps a saved access method when one exists', () => {
+            expect(
+                getInitialSourceConnectionDetailsValues(
+                    {
+                        access_method: 'warehouse',
+                        payload: { host: 'localhost' },
+                    },
+                    'direct'
+                )
+            ).toEqual({
+                access_method: 'warehouse',
+                payload: { host: 'localhost' },
+            })
+        })
+    })
+
     describe('buildKeaFormDefaultFromSourceDetails', () => {
         it('returns the default for an empty source', async () => {
             const res = buildKeaFormDefaultFromSourceDetails({})

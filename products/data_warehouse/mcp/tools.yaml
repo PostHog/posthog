@@ -427,3 +427,6 @@ tools:
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: false
+    external-data-sources-bulk-update-schemas-partial-update:
+        operation: external_data_sources_bulk_update_schemas_partial_update
+        enabled: false

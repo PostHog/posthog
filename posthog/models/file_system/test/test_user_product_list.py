@@ -350,12 +350,13 @@ class TestUserProductList(BaseTest):
         unreleased_products = products_by_category.get(ProductItemCategory.UNRELEASED, [])
 
         # Add a product from the Tools category
-        assert "Web scripts" in products_by_category.get(ProductItemCategory.TOOLS, [])
+        assert tools_products
+        assert "Web scripts" in tools_products
         UserProductList.objects.create(user=user, team=self.team, product_path="Web scripts", enabled=True)
 
         # Add a product from the Unreleased category
-        assert "Links" in products_by_category.get(ProductItemCategory.UNRELEASED, [])
-        UserProductList.objects.create(user=user, team=self.team, product_path="Links", enabled=True)
+        assert unreleased_products
+        UserProductList.objects.create(user=user, team=self.team, product_path=unreleased_products[0], enabled=True)
 
         created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
         created_paths = {item.product_path for item in created_items}

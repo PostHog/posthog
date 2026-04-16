@@ -283,7 +283,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             sourcesDataLogic,
             ['dataWarehouseSources'],
             databaseTableListLogic,
-            ['database', 'databaseLoading'],
+            ['database', 'databaseLoading', 'connectionId as databaseConnectionId'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
             dataModelingLogic,
@@ -1134,17 +1134,40 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const response = logic.values.response
             const types = response && 'types' in response ? (response.types ?? []) : []
             try {
-                await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
-                    name,
-                    query: queryToSave,
-                    types,
-                    ...(folderId ? { folder_id: folderId } : {}),
-                    ...(dagId ? { dag_id: dagId } : {}),
-                    ...(isTest ? { is_test: true } : {}),
-                })
+                const dataWarehouseSavedQueries =
+                    await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
+                        name,
+                        query: queryToSave,
+                        types,
+                        ...(folderId ? { folder_id: folderId } : {}),
+                        ...(dagId ? { dag_id: dagId } : {}),
+                        ...(isTest ? { is_test: true } : {}),
+                    })
 
-                // Saved queries are unique by team,name
-                const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
+                // Saved queries are unique by team,name.
+                const savedQuery =
+                    dataWarehouseSavedQueries?.find((q: DataWarehouseSavedQuery) => q.name === name) ??
+                    dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
+                        (q: DataWarehouseSavedQuery) => q.name === name
+                    )
+
+                if (savedQuery && values.activeTab) {
+                    const nextTab = {
+                        ...values.activeTab,
+                        name: savedQuery.name,
+                        view: { ...savedQuery, query: queryToSave },
+                    }
+
+                    actions.updateTab(nextTab)
+
+                    if (!values.isEmbeddedMode) {
+                        router.actions.replace(
+                            urls.sqlEditor(),
+                            undefined,
+                            getTabHash({ ...values, activeTab: nextTab })
+                        )
+                    }
+                }
 
                 if (materializeAfterSave && savedQuery) {
                     await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
@@ -1452,7 +1475,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Only update the tab if it doesn't have a view (new query being saved)
                 // or if it's the same view being recreated (edge case)
                 if (oldTab && (!oldTab.view || oldTab.view.id === newView.id)) {
-                    actions.updateTab({ ...oldTab, view: newView })
+                    const nextTab = {
+                        ...oldTab,
+                        name: newView.name,
+                        view: view?.query ? { ...newView, query: view.query } : newView,
+                    }
+
+                    actions.updateTab(nextTab)
+
+                    if (!values.isEmbeddedMode) {
+                        router.actions.replace(
+                            urls.sqlEditor(),
+                            undefined,
+                            getTabHash({ ...values, activeTab: nextTab })
+                        )
+                    }
                 }
             }
         },
@@ -1928,6 +1965,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
+            const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
+            const shouldSyncDatabaseConnection =
+                values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
 
             if (
                 !searchParams.open_query &&
@@ -1944,6 +1984,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.output_tab &&
                 values.queryInput !== null
             ) {
+                if (shouldSyncDatabaseConnection && !values.databaseLoading) {
+                    actions.setConnection(expectedDatabaseConnectionId)
+                    actions.loadDatabase()
+                }
                 return
             }
 
@@ -2170,8 +2214,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
 
-            if (!values.database && !values.databaseLoading && connectionIdFromHash === undefined) {
-                actions.setConnection(values.selectedConnectionId ?? null)
+            if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
+                actions.setConnection(expectedDatabaseConnectionId)
                 actions.loadDatabase()
             }
         },
@@ -2179,9 +2223,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
 
+        const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
+        const shouldSyncDatabaseConnection =
+            values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
+        const hasExplicitEditorUrlState =
+            window.location.search.length > 0 ||
+            window.location.hash.length > 0 ||
+            window.location.pathname !== urls.sqlEditor()
+
         if (
-            isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) &&
-            !values.database &&
+            (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) || !hasExplicitEditorUrlState) &&
+            shouldSyncDatabaseConnection &&
             !values.databaseLoading
         ) {
             actions.setConnection(values.selectedConnectionId ?? null)
