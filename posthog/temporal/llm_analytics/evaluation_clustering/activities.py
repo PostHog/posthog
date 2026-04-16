@@ -116,6 +116,11 @@ class GenerateEvaluationLabelsInputs:
     item_metadata: list[TraceLabelingMetadata]
     centroid_coords_2d: list[list[float]]
     eval_metadata: dict[str, EvaluationMetadata]
+    # Forwarded into the agent's state so tools doing live DB queries
+    # (``get_generation_details``) can pass timestamp bounds through to
+    # ClickHouse for partition pruning.
+    window_start: str
+    window_end: str
 
 
 @dataclass
@@ -153,15 +158,32 @@ class EmitEvaluationClusterEventsInputs:
 # ---- Activities ----
 
 
-def _items_from_eval_ids(eval_ids: list[str]) -> list[ClusterItem]:
-    """Stuff each eval event uuid into ClusterItem.generation_id.
+def _items_from_eval_ids(
+    eval_ids: list[str],
+    eval_metadata: dict[str, EvaluationMetadata] | None = None,
+) -> list[ClusterItem]:
+    """Build ``ClusterItem``s for eval cluster members.
 
-    The spec treats each eval cluster member as a "generation-with-eval pairing";
-    downstream emission and labeling use ``generation_id`` as the per-item key
-    so we slot the eval uuid there. The actual linked generation + parent trace
-    come from the metadata join and aren't needed until emission.
+    The cluster view keys members by ``generation_id``, so we slot the eval
+    event UUID there — that's how the frontend map-lookups traced-back-from
+    the cluster dict find the right row. For ``trace_id`` we use the metadata
+    join's ``target_trace_id`` when available, because downstream navigation
+    (scatter plot clicks, cluster detail fallback links) treats ``trace_id`` as
+    a real trace identifier and otherwise lands on
+    ``/llm-analytics/traces/<evaluation_uuid>`` which doesn't exist. When
+    metadata is missing (generation purged, etc.) we fall back to the eval uuid
+    — no navigation is possible in that case but the cluster still renders.
     """
-    return [ClusterItem(trace_id=eval_id, generation_id=eval_id) for eval_id in eval_ids]
+    metadata = eval_metadata or {}
+    items: list[ClusterItem] = []
+    for eval_id in eval_ids:
+        meta = metadata.get(eval_id)
+        # Prefer target_trace_id so cluster members link back to a real trace.
+        # Fall back to the eval uuid only to keep existing call sites that don't
+        # yet have metadata (e.g. tests) working.
+        trace_id = (meta.target_trace_id if meta and meta.target_trace_id else None) or eval_id
+        items.append(ClusterItem(trace_id=trace_id, generation_id=eval_id))
+    return items
 
 
 def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationClusteringComputeResult:
@@ -171,13 +193,23 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
     # Putting job_id before the timestamp made the frontend's getTimestampBoundsFromRunId
     # parse the UUID as a date — the `3657-` chunk of a UUIDv7 got interpreted as the
     # year, and the `timestamp BETWEEN` filter on the day-window query never matched.
-    base_run_id = f"{inputs.team_id}_evaluation_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{inputs.job_id}"
+    now = datetime.now(UTC)
+    base_run_id = f"{inputs.team_id}_evaluation_{now.strftime('%Y%m%d_%H%M%S')}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
+
+    # Bound the random embedding sample to the same window Stage B's metadata
+    # query uses — otherwise the sample can include older eval ids whose linked
+    # generations have rolled out of METADATA_LOOKBACK, producing clusters with
+    # unresolvable navigation targets. Also prunes ClickHouse date partitions.
+    embeddings_window_end = now
+    embeddings_window_start = now - METADATA_LOOKBACK
 
     eval_ids, embeddings_map = fetch_evaluation_embeddings(
         team=team,
         job_id=inputs.job_id,
         max_samples=inputs.max_samples,
+        window_start=embeddings_window_start,
+        window_end=embeddings_window_end,
     )
 
     if len(eval_ids) < MIN_EMBEDDINGS_FOR_CLUSTERING:
@@ -287,7 +319,7 @@ async def fetch_evaluation_metadata_activity(
 
 
 def _label_sync(inputs: GenerateEvaluationLabelsInputs) -> GenerateEvaluationLabelsOutputs:
-    items = _items_from_eval_ids(inputs.eval_ids)
+    items = _items_from_eval_ids(inputs.eval_ids, inputs.eval_metadata)
     labels = generate_evaluation_cluster_labels(
         team_id=inputs.team_id,
         items=items,
@@ -295,6 +327,8 @@ def _label_sync(inputs: GenerateEvaluationLabelsInputs) -> GenerateEvaluationLab
         item_metadata=inputs.item_metadata,
         centroid_coords_2d=inputs.centroid_coords_2d,
         eval_metadata=inputs.eval_metadata,
+        window_start=inputs.window_start,
+        window_end=inputs.window_end,
     )
     return GenerateEvaluationLabelsOutputs(cluster_labels=labels)
 
@@ -324,7 +358,11 @@ async def compute_evaluation_cluster_aggregates_activity(
 
 
 def _emit_sync(inputs: EmitEvaluationClusterEventsInputs) -> ClusteringResult:
-    items = _items_from_eval_ids(inputs.eval_ids)
+    # Build cluster items using the metadata join so each member carries the
+    # real target_trace_id — without this, frontend navigation fall-backs
+    # (scatter plot clicks, list-item links before the summary resolves) would
+    # route to /llm-analytics/traces/<evaluation_uuid> and 404.
+    items = _items_from_eval_ids(inputs.eval_ids, inputs.eval_metadata)
     # Timestamps: eval events have their own timestamps. The simplest reliable
     # approach is to use the linked generation's window_end as a proxy — the
     # cluster view only needs an ISO string for navigation/sorting, not precise

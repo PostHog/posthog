@@ -25,12 +25,18 @@ def run_eval_labeling_agent(
     team_id: int,
     cluster_data: dict[int, ClusterEvalData],
     all_eval_contents: dict[str, EvalContent],
+    window_start: str,
+    window_end: str,
 ) -> dict[int, ClusterLabel]:
     """Run the evaluation cluster labeling agent and return generated labels.
 
     Mirrors ``run_labeling_agent`` in the trace agent — same ReAct pattern,
     same recursion cap, same OpenAI model. The eval-specific tools, prompt,
     and state shape come from this module's siblings.
+
+    ``window_start``/``window_end`` are the clustering-run window — forwarded
+    into state so that tools doing live DB queries (``get_generation_details``)
+    can pass bounds through to ClickHouse for partition pruning.
     """
     from posthog.temporal.llm_analytics.trace_clustering.constants import (
         LABELING_AGENT_MODEL,
@@ -50,6 +56,8 @@ def run_eval_labeling_agent(
     initial_state: dict[str, Any] = {
         "messages": [HumanMessage(content="Please begin labeling the evaluation clusters.")],
         "team_id": team_id,
+        "window_start": window_start,
+        "window_end": window_end,
         "cluster_data": cluster_data,
         "all_eval_contents": all_eval_contents,
         "current_labels": {},

@@ -211,6 +211,8 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
                 item_metadata=item_metadata,
                 centroid_coords_2d=compute_result.centroid_coords_2d,
                 eval_metadata=metadata_result.metadata,
+                window_start=window_start,
+                window_end=window_end,
             ),
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,

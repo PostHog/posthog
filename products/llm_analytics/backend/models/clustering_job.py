@@ -6,7 +6,7 @@ from posthog.models.utils import UUIDModel
 class ClusteringJob(UUIDModel):
     """A named clustering configuration for a team.
 
-    Each job defines one analysis level (trace or generation) and one set of
+    Each job defines one analysis level (trace, generation, or evaluation) and one set of
     event filters.  A team may have up to MAX_JOBS_PER_TEAM jobs (see api.clustering_job).
     """
 

@@ -68,6 +68,8 @@ def fetch_evaluation_embeddings(
     team: Team,
     job_id: str,
     max_samples: int,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
 ) -> tuple[list[str], dict[str, list[float]]]:
     """Read up to max_samples eval embeddings accumulated by Stage A for this job.
 
@@ -75,21 +77,46 @@ def fetch_evaluation_embeddings(
     ``rendering = {team_id}_{run_ts}_{job_id}``; we match by suffix since only the
     job id is stable across runs. Random-order sampling keeps the read size bounded
     when a job has accumulated far more than ``max_samples`` over time.
+
+    ``window_start``/``window_end`` must align with the Stage B metadata lookup
+    window — otherwise the random sample can return older eval ids that the
+    downstream metadata query can't resolve (linked generations fall outside
+    its window), producing clusters with missing trace/generation links.
+    Passing bounds also lets ClickHouse prune date partitions on the
+    ``(team_id, toDate(timestamp))`` index. Optional only to keep ad-hoc
+    scripts and tests working.
     """
     # Filter by model_name so raw_document_embeddings routes to the small (1536-dim)
     # subtable in the union view, matching what Stage A wrote.
-    query = parse_select(
-        """
-        SELECT toString(document_id) as eval_event_id, embedding
-        FROM raw_document_embeddings
-        WHERE document_type = {document_type}
-            AND model_name = {model_name}
-            AND endsWith(rendering, {job_id_suffix})
-            AND length(embedding) > 0
-        ORDER BY rand()
-        LIMIT {max_samples}
-        """
-    )
+    has_window = window_start is not None and window_end is not None
+    if has_window:
+        query = parse_select(
+            """
+            SELECT toString(document_id) as eval_event_id, embedding
+            FROM raw_document_embeddings
+            WHERE document_type = {document_type}
+                AND model_name = {model_name}
+                AND endsWith(rendering, {job_id_suffix})
+                AND length(embedding) > 0
+                AND timestamp >= {start_dt}
+                AND timestamp < {end_dt}
+            ORDER BY rand()
+            LIMIT {max_samples}
+            """
+        )
+    else:
+        query = parse_select(
+            """
+            SELECT toString(document_id) as eval_event_id, embedding
+            FROM raw_document_embeddings
+            WHERE document_type = {document_type}
+                AND model_name = {model_name}
+                AND endsWith(rendering, {job_id_suffix})
+                AND length(embedding) > 0
+            ORDER BY rand()
+            LIMIT {max_samples}
+            """
+        )
 
     placeholders: dict[str, ast.Expr] = {
         "document_type": ast.Constant(value=LLMA_EVALUATION_DOCUMENT_TYPE),
@@ -97,6 +124,9 @@ def fetch_evaluation_embeddings(
         "job_id_suffix": ast.Constant(value=f"_{job_id}"),
         "max_samples": ast.Constant(value=max_samples),
     }
+    if has_window:
+        placeholders["start_dt"] = ast.Constant(value=window_start)
+        placeholders["end_dt"] = ast.Constant(value=window_end)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
@@ -315,6 +345,8 @@ def fetch_generation_contents(
     team: Team,
     generation_ids: list[str],
     *,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
     max_input_chars: int = 1500,
     max_output_chars: int = 1500,
 ) -> dict[str, dict]:
@@ -327,33 +359,61 @@ def fetch_generation_contents(
     Each side is truncated to bound token cost; the labeling agent rarely needs
     full transcripts and the clusters that matter are identified by *patterns*
     across many members, not by deep reading of any one.
+
+    ``window_start``/``window_end`` are optional but recommended — without them
+    ClickHouse can't prune date partitions from the ``(team_id, toDate(timestamp))``
+    index and the query does a full-team scan for a handful of UUIDs. The
+    labeling agent passes the same metadata lookup window the workflow uses.
     """
     if not generation_ids:
         return {}
 
     ids_tuple = ast.Tuple(exprs=[ast.Constant(value=gid) for gid in generation_ids])
-    query = parse_select(
-        """
-        SELECT
-            toString(uuid) as generation_id,
-            properties.$ai_model as model,
-            properties.$ai_input as input_raw,
-            properties.$ai_output_choices as output_raw
-        FROM events
-        WHERE event = '$ai_generation'
-            AND toString(uuid) IN {ids}
-        LIMIT {limit}
-        """
-    )
+    has_window = window_start is not None and window_end is not None
+    if has_window:
+        query = parse_select(
+            """
+            SELECT
+                toString(uuid) as generation_id,
+                properties.$ai_model as model,
+                properties.$ai_input as input_raw,
+                properties.$ai_output_choices as output_raw
+            FROM events
+            WHERE event = '$ai_generation'
+                AND timestamp >= {start_dt}
+                AND timestamp < {end_dt}
+                AND toString(uuid) IN {ids}
+            LIMIT {limit}
+            """
+        )
+    else:
+        query = parse_select(
+            """
+            SELECT
+                toString(uuid) as generation_id,
+                properties.$ai_model as model,
+                properties.$ai_input as input_raw,
+                properties.$ai_output_choices as output_raw
+            FROM events
+            WHERE event = '$ai_generation'
+                AND toString(uuid) IN {ids}
+            LIMIT {limit}
+            """
+        )
+
+    placeholders: dict[str, ast.Expr] = {
+        "ids": ids_tuple,
+        "limit": ast.Constant(value=len(generation_ids)),
+    }
+    if has_window:
+        placeholders["start_dt"] = ast.Constant(value=window_start)
+        placeholders["end_dt"] = ast.Constant(value=window_end)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
             query_type="GenerationContentsForLabeling",
             query=query,
-            placeholders={
-                "ids": ids_tuple,
-                "limit": ast.Constant(value=len(generation_ids)),
-            },
+            placeholders=placeholders,
             team=team,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )

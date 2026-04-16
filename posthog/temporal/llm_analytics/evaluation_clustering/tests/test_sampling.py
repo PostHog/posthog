@@ -71,13 +71,18 @@ class TestComposeEvaluationText:
             "Reasoning: response fit",
         ]
 
-    def test_description_omitted_when_empty_or_none(self):
-        # Empty string — treat as absent to avoid flattening the embedding space with boilerplate
-        for desc in (None, ""):
-            text = _compose_evaluation_text(
-                name="Relevance", result=True, applicable=None, reasoning="ok", description=desc
-            )
-            assert "Description:" not in text
+    # Empty string — treat as absent to avoid flattening the embedding space with boilerplate
+    @parameterized.expand(
+        [
+            ("none_description", None),
+            ("empty_description", ""),
+        ]
+    )
+    def test_description_omitted_when_empty_or_none(self, _name, desc):
+        text = _compose_evaluation_text(
+            name="Relevance", result=True, applicable=None, reasoning="ok", description=desc
+        )
+        assert "Description:" not in text
 
 
 @patch(

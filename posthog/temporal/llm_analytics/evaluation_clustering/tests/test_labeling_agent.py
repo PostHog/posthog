@@ -222,6 +222,8 @@ class TestRunEvalLabelingAgent:
             team_id=1,
             cluster_data=cluster_data,
             all_eval_contents={},
+            window_start="2026-04-15T00:00:00Z",
+            window_end="2026-04-16T00:00:00Z",
         )
 
         assert result[0].title == "Agent-produced"
@@ -238,6 +240,12 @@ class TestRunEvalLabelingAgent:
 
         cluster_data = {0: ClusterEvalData(cluster_id=0, size=5, centroid_x=0, centroid_y=0, evals={})}
 
-        result = run_eval_labeling_agent(team_id=1, cluster_data=cluster_data, all_eval_contents={})
+        result = run_eval_labeling_agent(
+            team_id=1,
+            cluster_data=cluster_data,
+            all_eval_contents={},
+            window_start="2026-04-15T00:00:00Z",
+            window_end="2026-04-16T00:00:00Z",
+        )
         # Fallback kicks in; test must not raise
         assert result[0].title == "Cluster 0"

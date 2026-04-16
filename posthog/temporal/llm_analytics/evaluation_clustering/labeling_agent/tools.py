@@ -230,7 +230,25 @@ def get_generation_details(
 
     team = Team.objects.get(id=state["team_id"])
     generation_ids = [gen_id for _, gen_id in pairs]
-    fetched = fetch_generation_contents(team=team, generation_ids=generation_ids)
+    # Pass the clustering-run window through so ClickHouse can prune date partitions
+    # on the `(team_id, toDate(timestamp))` primary index. Without bounds this would
+    # full-scan the team for a handful of UUIDs.
+    from datetime import datetime
+
+    def _parse(ts: str | None) -> datetime | None:
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    fetched = fetch_generation_contents(
+        team=team,
+        generation_ids=generation_ids,
+        window_start=_parse(state.get("window_start")),
+        window_end=_parse(state.get("window_end")),
+    )
 
     result = []
     for eval_id, gen_id in pairs:

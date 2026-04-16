@@ -70,6 +70,11 @@ class EvalLabelingState(TypedDict):
     remaining_steps: RemainingSteps
 
     team_id: int
+    # The clustering-run window that bounded the metadata fetch. Tools that do
+    # live DB queries (``get_generation_details``) pass these through so
+    # ClickHouse can prune date partitions instead of scanning the whole team.
+    window_start: str  # ISO 8601
+    window_end: str  # ISO 8601
     cluster_data: dict[int, ClusterEvalData]  # cluster_id -> cluster info
     all_eval_contents: dict[str, EvalContent]  # eval_id -> full content
 

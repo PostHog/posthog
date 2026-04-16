@@ -25,6 +25,8 @@ def generate_evaluation_cluster_labels(
     item_metadata: list[TraceLabelingMetadata],
     centroid_coords_2d: list[list[float]],
     eval_metadata: dict[str, EvaluationMetadata],
+    window_start: str,
+    window_end: str,
 ) -> dict[int, ClusterLabel]:
     """Build eval-agent inputs from compute outputs and run the labeling agent."""
     labels_array = np.array(labels)
@@ -45,6 +47,8 @@ def generate_evaluation_cluster_labels(
         team_id=team_id,
         cluster_data=cluster_data,
         all_eval_contents=all_eval_contents,
+        window_start=window_start,
+        window_end=window_end,
     )
 
 
