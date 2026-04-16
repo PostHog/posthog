@@ -6,7 +6,7 @@ import math
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import pyarrow as pa
 from clickhouse_connect import get_client
@@ -76,7 +76,7 @@ def _get_client(
     port: int,
     database: str,
     user: str,
-    password: str,
+    password: str | None,
     secure: bool,
     verify: bool,
     query_timeout: int = DATA_QUERY_TIMEOUT_SECONDS,
@@ -95,7 +95,8 @@ def _get_client(
             port=port,
             database=database,
             username=user,
-            password=password,
+            # clickhouse-connect expects str; passwordless auth is empty string.
+            password=password or "",
             secure=secure,
             verify=verify,
             connect_timeout=CONNECT_TIMEOUT_SECONDS,
@@ -176,7 +177,7 @@ def get_schemas(
     port: int,
     database: str,
     user: str,
-    password: str,
+    password: str | None,
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
@@ -236,7 +237,7 @@ def get_clickhouse_row_count(
     port: int,
     database: str,
     user: str,
-    password: str,
+    password: str | None,
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
@@ -287,7 +288,7 @@ def get_connection_metadata(
     port: int,
     database: str,
     user: str,
-    password: str,
+    password: str | None,
     secure: bool,
     verify: bool,
 ) -> dict[str, Any]:
@@ -331,7 +332,7 @@ _FIXED_STRING_RE = re.compile(r"^FixedString\(\s*\d+\s*\)$")
 _ENUM_RE = re.compile(r"^Enum(?:8|16)\(.*\)$")
 
 
-def _datetime_unit_for_precision(precision: int) -> str:
+def _datetime_unit_for_precision(precision: int) -> Literal["s", "ms", "us", "ns"]:
     if precision <= 0:
         return "s"
     if precision <= 3:
@@ -406,15 +407,18 @@ class ClickHouseColumn(Column):
         # DateTime / DateTime('UTC')
         match_dt = _DATETIME_RE.match(inner)
         if match_dt is not None:
+            # pa.timestamp stubs don't accept tz=None as a typed overload, so
+            # we branch instead of passing through Optional[str].
             tz = match_dt.group(1) or None
-            return pa.timestamp("s", tz=tz)
+            return pa.timestamp("s", tz=tz) if tz else pa.timestamp("s")
 
         # DateTime64(precision[, timezone])
         match_dt64 = _DATETIME64_RE.match(inner)
         if match_dt64 is not None:
             precision = int(match_dt64.group(1))
             tz = match_dt64.group(2) or None
-            return pa.timestamp(_datetime_unit_for_precision(precision), tz=tz)
+            unit = _datetime_unit_for_precision(precision)
+            return pa.timestamp(unit, tz=tz) if tz else pa.timestamp(unit)
 
         # Decimal[32|64|128|256](p[, s])
         match_dec = _DECIMAL_RE.match(inner)
@@ -731,7 +735,7 @@ def clickhouse_source(
     *,
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
-    password: str,
+    password: str | None,
     database: str,
     secure: bool,
     verify: bool,

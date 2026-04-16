@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterable
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -605,7 +607,9 @@ class TestGetRowsBatching:
                 logger=MagicMock(),
                 db_incremental_field_last_value=None,
             )
-            return list(response.items())
+            items = response.items()
+            assert not isinstance(items, AsyncIterable)
+            return list(items)
 
     def _block(self, rows):
         return pa.table({"id": pa.array(list(range(rows)), type=pa.int64())})
