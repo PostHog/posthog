@@ -59,3 +59,10 @@ class ReviewState(StrEnum):
     APPROVED = "approved"  # Accepted the change — updates baseline
     TOLERATED = "tolerated"  # Acknowledged as rendering noise — does not update baseline
     REJECTED = "rejected"  # Explicitly rejected
+
+
+class ToleratedReason(StrEnum):
+    """Why a hash was tolerated."""
+
+    AUTO_THRESHOLD = "auto_threshold"  # Below pixel/SSIM diff threshold
+    HUMAN = "human"  # Manually marked by a reviewer

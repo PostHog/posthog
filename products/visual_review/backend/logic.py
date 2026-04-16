@@ -17,7 +17,7 @@ from django.utils import timezone
 
 import structlog
 
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
 from .models import Artifact, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -1433,7 +1433,7 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
         content_hash=snapshot.current_hash,
         defaults={
             "team_id": team_id,
-            "reason": "human",
+            "reason": ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
         },

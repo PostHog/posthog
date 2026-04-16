@@ -13,7 +13,7 @@ from uuid import UUID
 import structlog
 
 from .diff import compute_diff
-from .facade.enums import SnapshotResult
+from .facade.enums import SnapshotResult, ToleratedReason
 from .models import RunSnapshot, ToleratedHash
 from .ssim import compute_ssim
 
@@ -141,7 +141,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         content_hash=snapshot.current_hash,
         defaults={
             "team_id": snapshot.team_id,
-            "reason": "auto_threshold",
+            "reason": ToleratedReason.AUTO_THRESHOLD,
             "source_run": snapshot.run,
         },
     )

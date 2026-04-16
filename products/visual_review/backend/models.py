@@ -6,7 +6,7 @@ import uuid
 
 from django.db import models
 
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, RunType, SnapshotResult
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, RunType, SnapshotResult, ToleratedReason
 
 
 class Repo(models.Model):
@@ -287,7 +287,7 @@ class ToleratedHash(models.Model):
 
     reason = models.CharField(
         max_length=20,
-        choices=[("auto_threshold", "auto_threshold"), ("human", "human")],
+        choices=[(r.value, r.value) for r in ToleratedReason],
     )
 
     # Which run caused this toleration to be recorded
