@@ -255,7 +255,7 @@ export function AlertHistoryChart({
                                 const tag = spikeFlags[ctx.dataIndex]
                                     ? thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
                                         ? ' (outside threshold)'
-                                        : ' (unusual vs baseline)'
+                                        : ' (unusual compared to recent values)'
                                     : ''
                                 return `${valueLabel}: ${formatted}${tag}`
                             },
@@ -319,17 +319,19 @@ export function AlertHistoryChart({
                         ? `${pluralize(outsideCount, 'check')} outside threshold.`
                         : thresholdCtx?.lineMode === 'anomaly_probability'
                           ? `${pluralize(outsideCount, 'check')} above the probability cutoff.`
-                          : `${pluralize(outsideCount, 'check')} unusually high vs baseline.`}
+                          : `${pluralize(outsideCount, 'check')} flagged as unusual compared to recent values.`}
                 </p>
             ) : (
                 <p className="text-muted text-xs mb-0">
                     {thresholdCtx && (thresholdCtx.upper != null || thresholdCtx.lower != null)
-                        ? 'Each hollow dot is one evaluation; red dots mark firings.'
+                        ? 'Each hollow dot is one evaluation; red dots mark checks that triggered the alert.'
                         : thresholdCtx?.lineMode === 'anomaly_probability'
-                          ? 'Each hollow dot is one evaluation; red dots mark firings above the cutoff.'
-                          : 'Each hollow dot is one evaluation; red dots mark unusual values vs baseline.'}{' '}
+                          ? 'Each hollow dot is one evaluation; red dots mark checks that triggered the alert above the cutoff.'
+                          : 'Each hollow dot is one evaluation; red dots mark values flagged as unusual compared to recent values.'}{' '}
                     {thresholdCtx
-                        ? 'Dashed lines are your configured alert thresholds (or detector probability cutoff).'
+                        ? chartPlotsAnomalyScore
+                            ? 'Dashed lines are your configured alert thresholds (or detector probability cutoff).'
+                            : 'Dashed lines are your configured alert thresholds.'
                         : 'Threshold lines appear when this alert has explicit bounds or a detector probability threshold.'}
                 </p>
             )}
