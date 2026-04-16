@@ -721,6 +721,53 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
     }
 
+    // A trailing `LIMIT`/`OFFSET` written after an unparenthesized last branch of a
+    // UNION/INTERSECT/EXCEPT is grammatically absorbed by that branch's `selectStmt`.
+    // Standard SQL treats it as set-scoped though, and ClickHouse's bare-union LIMIT
+    // only binds to the last branch -- so hoist it onto the SelectSetQuery here.
+    // Parenthesized branches (`(SELECT ... LIMIT n)`) remain branch-scoped.
+    const auto last_subsequent = subsequent_clauses.back();
+    const auto last_branch_ctx = last_subsequent->selectStmtWithParens();
+    const bool is_unparenthesized_branch =
+        last_branch_ctx->selectStmt() != nullptr && last_branch_ctx->LPAREN() == nullptr;
+    if (is_unparenthesized_branch) {
+      auto& subsequent_arr = json["subsequent_select_queries"].getArrayMut();
+      if (!subsequent_arr.empty()) {
+        auto& last_entry = subsequent_arr.back();
+        if (last_entry.isObject()) {
+          auto& last_node = last_entry["select_query"];
+          if (last_node.isObject()) {
+            auto& outer_obj = json.getObjectMut();
+            auto& branch_obj = last_node.getObjectMut();
+            const auto has_nonnull = [](const Json::Object& obj, const char* key) {
+              auto it = obj.find(key);
+              return it != obj.end() && !it->second.isNull();
+            };
+            const bool outer_has_limit = has_nonnull(outer_obj, "limit");
+            const bool outer_has_offset = has_nonnull(outer_obj, "offset");
+            const bool branch_has_limit = has_nonnull(branch_obj, "limit");
+            const bool branch_has_offset = has_nonnull(branch_obj, "offset");
+            if (!outer_has_limit && branch_has_limit) {
+              outer_obj["limit"] = branch_obj["limit"];
+              branch_obj["limit"] = Json(nullptr);
+              if (has_nonnull(branch_obj, "limit_with_ties")) {
+                outer_obj["limit_with_ties"] = branch_obj["limit_with_ties"];
+                branch_obj["limit_with_ties"] = Json(nullptr);
+              }
+              if (has_nonnull(branch_obj, "limit_percent")) {
+                outer_obj["limit_percent"] = branch_obj["limit_percent"];
+                branch_obj["limit_percent"] = Json(nullptr);
+              }
+            }
+            if (!outer_has_offset && branch_has_offset) {
+              outer_obj["offset"] = branch_obj["offset"];
+              branch_obj["offset"] = Json(nullptr);
+            }
+          }
+        }
+      }
+    }
+
     return json;
   }
 

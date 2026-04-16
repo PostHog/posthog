@@ -153,30 +153,36 @@ class HogQLPrinter(Visitor[str]):
                     ret += f" {expr.set_operator} "
             ret += query
         self._indent += 1
-        if node.limit is not None:
-            limit_str = self.visit(node.limit)
-            if node.limit_percent:
-                if self.dialect == "clickhouse":
-                    if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, (int, float)):
-                        raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
-                    limit_str = str(node.limit.value / 100)
-                elif self.dialect == "postgres":
-                    limit_str += " %"
-                else:
-                    raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
 
-            if node.limit_with_ties:
-                limit_str += " WITH TIES"
+        # A bare trailing `LIMIT`/`OFFSET` after a UNION/INTERSECT/EXCEPT binds only to the last
+        # branch in ClickHouse. Wrap the union in `SELECT * FROM (...)` so a set-level limit/offset
+        # applies to the whole result.
+        has_set_level_limit = node.limit is not None or node.offset is not None
+        if has_set_level_limit:
+            limit_suffix = ""
+            if node.limit is not None:
+                limit_str = self.visit(node.limit)
+                if node.limit_percent:
+                    if self.dialect == "clickhouse":
+                        if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, (int, float)):
+                            raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+                        limit_str = str(node.limit.value / 100)
+                    elif self.dialect == "postgres":
+                        limit_str += " %"
+                    else:
+                        raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+                if node.limit_with_ties:
+                    limit_str += " WITH TIES"
+                limit_suffix += f" LIMIT {limit_str}"
+            if node.offset is not None:
+                offset_str = self.visit(node.offset)
+                limit_suffix += f" OFFSET {offset_str}"
+
             if self.pretty:
-                ret = ret.rstrip() + f"\n{self.indent(1)}LIMIT {limit_str}"
+                ret = f"SELECT * FROM (\n{ret.rstrip()}\n){limit_suffix}"
             else:
-                ret += f" LIMIT {limit_str}"
-        if node.offset is not None:
-            offset_str = self.visit(node.offset)
-            if self.pretty:
-                ret = ret.rstrip() + f"\n{self.indent(1)}OFFSET {offset_str}"
-            else:
-                ret += f" OFFSET {offset_str}"
+                ret = f"SELECT * FROM ({ret.strip()}){limit_suffix}"
+
         if len(self.stack) > 1:
             return f"({ret.strip()})"
         return ret

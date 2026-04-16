@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -1755,6 +1756,25 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 2)
 
+    def test_hogql_union_all_trailing_limit_applies_to_union(self):
+        """Trailing LIMIT after a UNION must cap the union as a whole, not just the last branch.
+        Regression: users reported that `A UNION ALL B LIMIT N` only limited B, while A
+        silently got the default 100-row cap.
+
+        Parses with the python backend to exercise the parser-level hoist; the cpp-json
+        backend gets the same fix via hogql_parser>=1.3.39."""
+        for i in range(150):
+            _create_event(distinct_id="u1", event=f"evt_{i}", team=self.team)
+        flush_persons_and_events()
+
+        parsed = parse_select(
+            "SELECT event FROM events UNION ALL SELECT event FROM events LIMIT 3",
+            backend="python",
+        )
+        response = execute_hogql_query(parsed, team=self.team, pretty=False)
+        # LIMIT 3 on the union -> at most 3 rows total, not 3 per branch
+        self.assertEqual(len(response.results), 3)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_union_all_limits(self):
         query = "SELECT event FROM events UNION ALL SELECT event FROM events"
@@ -1763,9 +1783,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             pretty=False,
         )
+        # The default row cap applies to the union as a whole, not to each branch --
+        # otherwise a UNION of two 100-row capped branches could silently return 200 rows.
+        # The set-level cap is also pushed down as a per-branch cap so neither branch
+        # scans more rows than the union could ever return.
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
+            "SELECT * FROM (SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100) LIMIT 100",
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 

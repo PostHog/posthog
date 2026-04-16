@@ -273,11 +273,38 @@ class HogQLQueryExecutor:
             self.context.limit_top_select = False
 
         with self.timings.measure("max_limit"):
-            for one_query in extract_select_queries(self.select_query):
-                if one_query.limit is None:
-                    one_query.limit = ast.Constant(
-                        value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
+            if self.select_query.limit is None:
+                self.select_query.limit = ast.Constant(
+                    value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
+                )
+            # For pure UNION ALL sets, push the set-level cap down into each branch.
+            # Without this, each branch scans up to the 50k printer safety cap before
+            # the outer LIMIT trims -- e.g. `A UNION ALL B LIMIT 100` would scan up to
+            # 100k rows per branch. UNION DISTINCT / INTERSECT / EXCEPT are excluded
+            # because dedup and set operations need the full per-branch input.
+            if isinstance(self.select_query, ast.SelectSetQuery) and self.select_query.limit is not None:
+                if self.select_query.offset is not None:
+                    branch_cap: ast.Expr = ast.ArithmeticOperation(
+                        left=self.select_query.limit,
+                        op=ast.ArithmeticOperationOp.Add,
+                        right=self.select_query.offset,
                     )
+                else:
+                    branch_cap = self.select_query.limit
+                self._push_union_all_branch_cap(self.select_query, branch_cap)
+
+    def _push_union_all_branch_cap(self, set_query: ast.SelectSetQuery, branch_cap: ast.Expr) -> None:
+        if not all(
+            sub.set_operator in ("UNION ALL", "UNION ALL BY NAME") for sub in set_query.subsequent_select_queries
+        ):
+            return
+        branches: list[ast.SelectQuery | ast.SelectSetQuery] = [set_query.initial_select_query]
+        branches.extend(sub.select_query for sub in set_query.subsequent_select_queries)
+        for branch in branches:
+            if isinstance(branch, ast.SelectQuery) and branch.limit is None:
+                branch.limit = clone_expr(branch_cap, True)
+            elif isinstance(branch, ast.SelectSetQuery) and branch.limit is None:
+                self._push_union_all_branch_cap(branch, branch_cap)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):

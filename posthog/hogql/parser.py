@@ -444,6 +444,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 result.limit_percent = True
             if limit_clause.TIES():
                 result.limit_with_ties = True
+
+        # A trailing `LIMIT`/`OFFSET` written after an unparenthesized last branch of a
+        # UNION/INTERSECT/EXCEPT is grammatically absorbed by that branch's `selectStmt`.
+        # Standard SQL treats it as set-scoped though, and ClickHouse's bare-union LIMIT
+        # only binds to the last branch -- so hoist it onto the SelectSetQuery here.
+        # Parenthesized branches (`(SELECT ... LIMIT n)`) remain branch-scoped.
+        last_clause = ctx.subsequentSelectSetClause()[-1]
+        last_branch_ctx = last_clause.selectStmtWithParens()
+        is_unparenthesized_branch = last_branch_ctx.selectStmt() is not None and last_branch_ctx.LPAREN() is None
+        if is_unparenthesized_branch:
+            last_branch = result.subsequent_select_queries[-1].select_query
+            if isinstance(last_branch, ast.SelectQuery):
+                if result.limit is None and last_branch.limit is not None:
+                    result.limit = last_branch.limit
+                    result.limit_with_ties = last_branch.limit_with_ties
+                    result.limit_percent = last_branch.limit_percent
+                    last_branch.limit = None
+                    last_branch.limit_with_ties = None
+                    last_branch.limit_percent = None
+                if result.offset is None and last_branch.offset is not None:
+                    result.offset = last_branch.offset
+                    last_branch.offset = None
         return result
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
