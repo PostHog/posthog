@@ -7,10 +7,10 @@ from products.messaging.backend.services.customerio_client import CustomerIOAPIE
 
 class TestCustomerIOTrackClient(TestCase):
     def setUp(self):
-        self.client = CustomerIOTrackClient(site_id="site_abc", api_key="key_123", region="us")
+        self.track_client = CustomerIOTrackClient(site_id="site_abc", api_key="key_123", region="us")
 
     def test_us_region_url(self):
-        self.assertEqual(self.client.entity_url, "https://track.customer.io/api/v2/entity")
+        self.assertEqual(self.track_client.entity_url, "https://track.customer.io/api/v2/entity")
 
     def test_eu_region_url(self):
         client = CustomerIOTrackClient(site_id="s", api_key="k", region="eu")
@@ -23,7 +23,7 @@ class TestCustomerIOTrackClient(TestCase):
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
 
-        self.client.update_subscription_preferences("user@example.com", {"topic_7": False, "topic_8": True})
+        self.track_client.update_subscription_preferences("user@example.com", {"topic_7": False, "topic_8": True})
 
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args
@@ -36,7 +36,7 @@ class TestCustomerIOTrackClient(TestCase):
 
     @patch("products.messaging.backend.services.customerio_client.requests.Session.post")
     def test_update_subscription_preferences_noop_when_empty(self, mock_post):
-        self.client.update_subscription_preferences("user@example.com", {})
+        self.track_client.update_subscription_preferences("user@example.com", {})
         mock_post.assert_not_called()
 
     @patch("products.messaging.backend.services.customerio_client.requests.Session.post")
@@ -46,7 +46,7 @@ class TestCustomerIOTrackClient(TestCase):
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
 
-        self.client.set_global_unsubscribe("user@example.com", True)
+        self.track_client.set_global_unsubscribe("user@example.com", True)
 
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
         self.assertTrue(payload["attributes"]["unsubscribed"])
@@ -58,7 +58,7 @@ class TestCustomerIOTrackClient(TestCase):
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
 
-        self.client.set_global_unsubscribe("user@example.com", False)
+        self.track_client.set_global_unsubscribe("user@example.com", False)
 
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
         self.assertFalse(payload["attributes"]["unsubscribed"])
@@ -73,12 +73,12 @@ class TestCustomerIOTrackClient(TestCase):
         mock_post.return_value = mock_resp
 
         with self.assertRaises(CustomerIOAPIError):
-            self.client.set_global_unsubscribe("user@example.com", True)
+            self.track_client.set_global_unsubscribe("user@example.com", True)
 
     def test_auth_header_is_base64(self):
         import base64
 
-        header = self.client._auth_header()
+        header = self.track_client._auth_header()
         token = header["Authorization"].removeprefix("Basic ")
         decoded = base64.b64decode(token).decode()
         self.assertEqual(decoded, "site_abc:key_123")
