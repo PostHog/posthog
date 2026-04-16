@@ -1471,11 +1471,17 @@ const EventContent = React.memo(
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
         // Check if the originally selected event (effectiveEventId) is a generation event
-        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level
-        const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : null
-        const generationEventForEvals = isGenerationEvent
-            ? (event as LLMTraceEvent)
-            : (effectiveEventNode?.event ?? null)
+        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level.
+        // When effectiveEventId is null (e.g. tab=summary suppresses auto-selection), fall back to
+        // the first generation in the tree so the Evals tab remains visible.
+        const firstGenerationNode = tree.find((node) => node.event.event === '$ai_generation') ?? null
+        const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : firstGenerationNode
+        const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
+        const effectiveGenerationEvent = isGenerationEvent
+            ? event
+            : isEffectiveEventGeneration
+              ? effectiveEventNode.event
+              : undefined
 
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
         const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
@@ -1485,7 +1491,7 @@ const EventContent = React.memo(
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab = generationEventForEvals !== null && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+        const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1586,7 +1592,9 @@ const EventContent = React.memo(
                                             )}
                                         </div>
                                     )}
-                                    {showEvalsTab && <EvalResultBadges generationEventId={event.id} />}
+                                    {showEvalsTab && (
+                                        <EvalResultBadges generationEventId={effectiveGenerationEvent.id} />
+                                    )}
                                 </div>
                             )}
                             {(showPromptButton ||
@@ -1782,9 +1790,9 @@ const EventContent = React.memo(
                                               'data-attr': 'llma-trace-evals-tab',
                                               content: (
                                                   <EvalsTabContent
-                                                      generationEventId={event.id}
-                                                      timestamp={event.createdAt}
-                                                      event={generationEventForEvals.event}
+                                                      generationEventId={effectiveGenerationEvent.id}
+                                                      timestamp={effectiveGenerationEvent.createdAt}
+                                                      event={effectiveGenerationEvent.event}
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
