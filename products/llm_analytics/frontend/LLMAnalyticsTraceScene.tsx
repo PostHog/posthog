@@ -36,6 +36,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
+import { sessionRecordingExistsLogic } from 'lib/components/ViewRecordingButton/sessionRecordingExistsLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -1464,7 +1465,18 @@ const EventContent = React.memo(
 
         const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
         const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
-        const hasSessionRecording = !!sessionId
+
+        const { checkRecordingExists: registerRecordingCheck } = useActions(sessionRecordingExistsLogic)
+        const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
+
+        useEffect(() => {
+            if (sessionId) {
+                registerRecordingCheck(sessionId)
+            }
+        }, [sessionId, registerRecordingCheck])
+
+        const recordingExists = sessionId ? getRecordingExists(sessionId) : false
+        const hasSessionRecording = !!sessionId && recordingExists !== false
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
