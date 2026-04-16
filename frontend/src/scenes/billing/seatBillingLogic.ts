@@ -69,8 +69,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 loadMySeat: async (): Promise<SeatData | null> => {
                     try {
                         return await api.get(`api/seats/me/?product_key=${CODE_PRODUCT_KEY}`)
-                    } catch (e: any) {
-                        if (e.status === 404) {
+                    } catch (e) {
+                        if (e instanceof ApiError && e.status === 404) {
                             return null
                         }
                         throw e
@@ -255,6 +255,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         }
         actions.loadMySeat()
         actions.ensureAllMembersLoaded()
-        actions.loadOrgSeats()
+        if (values.isAdmin) {
+            actions.loadOrgSeats()
+        }
     }),
 ])
