@@ -317,14 +317,14 @@
                                 "description": "Human-readable variant name",
                                 "type": "string"
                             },
-                            "rollout_percentage": {
+                            "split_percent": {
                                 "type": "number",
                                 "minimum": 0,
                                 "maximum": 100,
-                                "description": "Percentage of users to show this variant"
+                                "description": "Percentage of traffic allocated to this variant (0-100). All variants must sum to 100."
                             }
                         },
-                        "required": ["key", "rollout_percentage"]
+                        "required": ["key", "split_percent"]
                     }
                 },
                 "minimum_detectable_effect": {

@@ -69,12 +69,12 @@ class ExperimentParametersField(serializers.JSONField):
     def to_representation(self, value: Any) -> Any:
         from copy import deepcopy
 
-        # Add split_percent to outside representation for each variant
+        # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
         # Deep copy to avoid mutating the model instance's in-memory parameters dict
         data = deepcopy(super().to_representation(value))
-        if data and "feature_flag_variants" in data:
+        if isinstance(data, dict) and "feature_flag_variants" in data:
             for variant in data["feature_flag_variants"]:
-                if "rollout_percentage" in variant:
+                if isinstance(variant, dict) and "rollout_percentage" in variant:
                     variant["split_percent"] = variant["rollout_percentage"]
         return data
 
