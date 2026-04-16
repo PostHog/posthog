@@ -86,6 +86,9 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                         const response = await api.get(`api/seats/?product_key=${CODE_PRODUCT_KEY}`)
                         return Array.isArray(response) ? response : (response?.seats ?? [])
                     } catch (e) {
+                        if (e instanceof ApiError && e.status === 403) {
+                            return []
+                        }
                         lemonToast.error(seatErrorMessage(e, 'Failed to load organization seats'))
                         return []
                     }
@@ -252,8 +255,6 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         }
         actions.loadMySeat()
         actions.ensureAllMembersLoaded()
-        if (values.isAdmin) {
-            actions.loadOrgSeats()
-        }
+        actions.loadOrgSeats()
     }),
 ])

@@ -1,3 +1,4 @@
+import re
 from typing import Any, cast
 
 import requests
@@ -5,7 +6,7 @@ import structlog
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, PermissionDenied
+from rest_framework.exceptions import NotAuthenticated, ParseError, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -24,6 +25,9 @@ from ee.settings import BILLING_SERVICE_URL
 logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 30
+ALLOWED_PRODUCT_KEYS = frozenset({"posthog_code"})
+ALLOWED_SEAT_BODY_FIELDS = frozenset({"user_distinct_id", "product_key", "plan_key"})
+_SAFE_PK_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _is_org_admin(user: Any) -> bool:
@@ -76,9 +80,11 @@ class SeatViewSet(viewsets.ViewSet):
     @staticmethod
     def _resolve_distinct_id(pk: str | None, request: Request) -> str:
         if pk is None:
-            raise ValueError("pk is required")
+            raise ParseError("pk is required")
         if pk == "me":
             return str(cast(User, request.user).distinct_id)
+        if not _SAFE_PK_PATTERN.match(pk):
+            raise ParseError("Invalid identifier format")
         return pk
 
     def _forward_response(self, billing_response: requests.Response | None, extract_seat: bool = True) -> Response:
@@ -130,6 +136,21 @@ class SeatViewSet(viewsets.ViewSet):
         if not _is_org_admin(request.user):
             raise PermissionDenied("Only organization admins can perform this action.")
 
+    @staticmethod
+    def _filtered_query_params(request: Request) -> dict[str, str]:
+        product_key = request.query_params.get("product_key", "")
+        if product_key and product_key not in ALLOWED_PRODUCT_KEYS:
+            raise ParseError(f"Invalid product_key: {product_key}")
+        if product_key:
+            return {"product_key": product_key}
+        return {}
+
+    @staticmethod
+    def _filtered_body(data: Any) -> dict[str, Any]:
+        if not isinstance(data, dict):
+            return {}
+        return {k: v for k, v in data.items() if k in ALLOWED_SEAT_BODY_FIELDS}
+
     # ------------------------------------------------------------------
     # Endpoints
     # ------------------------------------------------------------------
@@ -146,7 +167,7 @@ class SeatViewSet(viewsets.ViewSet):
             "GET",
             "/api/v2/seats/",
             headers,
-            query_params=request.query_params.dict(),
+            query_params=self._filtered_query_params(request),
         )
         return self._forward_response(resp, extract_seat=False)
 
@@ -162,7 +183,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        resp = self._billing_request("POST", "/api/v2/seats/", headers, json_body=request.data)
+        resp = self._billing_request("POST", "/api/v2/seats/", headers, json_body=self._filtered_body(request.data))
         return self._forward_response(resp)
 
     def retrieve(self, request: Request, pk: str | None = None) -> Response:
@@ -179,7 +200,7 @@ class SeatViewSet(viewsets.ViewSet):
             "GET",
             f"/api/v2/seats/{distinct_id}/",
             headers,
-            query_params=request.query_params.dict(),
+            query_params=self._filtered_query_params(request),
         )
         return self._forward_response(resp)
 
@@ -197,7 +218,7 @@ class SeatViewSet(viewsets.ViewSet):
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
             headers,
-            json_body=request.data,
+            json_body=self._filtered_body(request.data),
         )
         return self._forward_response(resp)
 
@@ -215,7 +236,7 @@ class SeatViewSet(viewsets.ViewSet):
             "DELETE",
             f"/api/v2/seats/{distinct_id}/",
             headers,
-            query_params=request.query_params.dict(),
+            query_params=self._filtered_query_params(request),
         )
         return self._forward_response(resp, extract_seat=False)
 
@@ -234,6 +255,6 @@ class SeatViewSet(viewsets.ViewSet):
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",
             headers,
-            json_body=request.data,
+            json_body=self._filtered_body(request.data),
         )
         return self._forward_response(resp)

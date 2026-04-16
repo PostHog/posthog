@@ -9,7 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { billingLogic } from './billingLogic'
 import { CODE_PLAN_PRO } from './constants'
 import { isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
-import type { SeatData } from './types'
+import type { SeatData, SeatStatus } from './types'
 
 function planLabel(planKey: string): string {
     if (isProPlanKey(planKey)) {
@@ -29,7 +29,7 @@ function formatSeatDate(value: string | number | null): string {
     return parsed.format('MMM D, YYYY')
 }
 
-function statusColor(status: string): 'success' | 'warning' | 'muted' | 'primary' {
+function statusColor(status: SeatStatus): 'success' | 'warning' | 'muted' | 'primary' {
     switch (status) {
         case 'active':
             return 'success'

@@ -33,7 +33,7 @@ export function BillingSection(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const tabs = featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING]
-        ? [...baseTabs, { key: 'seats' as BillingSectionId, label: 'Seats' }]
+        ? [...baseTabs, { key: 'seats', label: 'Seats' }]
         : baseTabs
 
     const section = location.pathname.includes('seats')
