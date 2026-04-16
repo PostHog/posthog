@@ -3186,7 +3186,11 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["filters"] == original_experiment["filters"]
 
         # feature_flag_variants should come from the new flag; other parameters should match the original
-        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag.filters["multivariate"]["variants"]
+        # The API response includes split_percent alongside rollout_percentage
+        expected_variants = [
+            {**v, "split_percent": v["rollout_percentage"]} for v in new_flag.filters["multivariate"]["variants"]
+        ]
+        assert duplicate_data["parameters"]["feature_flag_variants"] == expected_variants
         assert {**duplicate_data["parameters"], "feature_flag_variants": None} == {
             **original_experiment["parameters"],
             "feature_flag_variants": None,
@@ -3252,7 +3256,9 @@ class TestExperimentCRUD(APILicensedTest):
 
         # The duplicate should use the NEW flag's variants, not the original's
         assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
-        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
+        # The API response includes split_percent alongside rollout_percentage
+        expected_variants = [{**v, "split_percent": v["rollout_percentage"]} for v in new_flag_variants]
+        assert duplicate_data["parameters"]["feature_flag_variants"] == expected_variants
 
     def test_duplicate_experiment_rejects_blank_feature_flag_key(self) -> None:
         original_response = self.client.post(

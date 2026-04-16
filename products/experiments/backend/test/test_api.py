@@ -32,8 +32,8 @@ class TestCreateExperiment(BaseTest):
                 key="test-flag",
                 name="Test Flag",
                 variants=(
-                    FeatureFlagVariant(key="control", name="Control", rollout_percentage=50),
-                    FeatureFlagVariant(key="test", name="Test", rollout_percentage=50),
+                    FeatureFlagVariant(key="control", name="Control", split_percent=50),
+                    FeatureFlagVariant(key="test", name="Test", split_percent=50),
                 ),
             ),
         )
@@ -125,7 +125,7 @@ class TestCreateExperiment(BaseTest):
             parameters={"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]},
             feature_flag_filters=CreateFeatureFlagInput(
                 key="both-flag",
-                variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                variants=(FeatureFlagVariant(key="control", split_percent=100),),
             ),
         )
 
@@ -143,7 +143,7 @@ class TestCreateExperiment(BaseTest):
                 feature_flag_key="transaction-flag",
                 feature_flag_filters=CreateFeatureFlagInput(
                     key="transaction-flag",
-                    variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                    variants=(FeatureFlagVariant(key="control", split_percent=100),),
                 ),
             )
 
