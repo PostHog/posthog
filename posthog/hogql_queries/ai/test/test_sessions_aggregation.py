@@ -43,6 +43,7 @@ def _create_ai_generation_event(
     trace_id: str,
     team,
     distinct_id: str = "test-user",
+    session_id: str | None = None,
     cost: float | None = None,
     latency: float | None = None,
     is_error: bool = False,
@@ -51,6 +52,8 @@ def _create_ai_generation_event(
     props: dict = {
         "$ai_trace_id": trace_id,
     }
+    if session_id is not None:
+        props["$ai_session_id"] = session_id
     if cost is not None:
         props["$ai_total_cost_usd"] = cost
     if latency is not None:
@@ -72,6 +75,7 @@ def _create_ai_span_event(
     trace_id: str,
     team,
     distinct_id: str = "test-user",
+    session_id: str | None = None,
     latency: float | None = None,
     timestamp: datetime | None = None,
 ):
@@ -79,6 +83,8 @@ def _create_ai_span_event(
         "$ai_trace_id": trace_id,
         "$ai_span_id": str(uuid.uuid4()),
     }
+    if session_id is not None:
+        props["$ai_session_id"] = session_id
     if latency is not None:
         props["$ai_latency"] = latency
 
@@ -96,6 +102,7 @@ def _create_ai_embedding_event(
     trace_id: str,
     team,
     distinct_id: str = "test-user",
+    session_id: str | None = None,
     cost: float | None = None,
     latency: float | None = None,
     timestamp: datetime | None = None,
@@ -103,6 +110,8 @@ def _create_ai_embedding_event(
     props: dict = {
         "$ai_trace_id": trace_id,
     }
+    if session_id is not None:
+        props["$ai_session_id"] = session_id
     if cost is not None:
         props["$ai_total_cost_usd"] = cost
     if latency is not None:
@@ -119,14 +128,15 @@ def _create_ai_embedding_event(
 
 @freeze_time("2025-01-16T00:00:00Z")
 class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
-    def _execute_sessions_query(self) -> list[list]:
+    def _execute_sessions_query(self) -> list[dict]:
         query = get_sessions_query(order_by="last_seen", order_direction="DESC")
         response = execute_hogql_query(query, team=self.team)
-        return response.results or []
+        columns = response.columns or []
+        return [dict(zip(columns, row)) for row in (response.results or [])]
 
-    def _find_session(self, results: list[list], session_id: str) -> list | None:
+    def _find_session(self, results: list[dict], session_id: str) -> dict | None:
         for row in results:
-            if row[0] == session_id:
+            if row["session_id"] == session_id:
                 return row
         return None
 
@@ -181,16 +191,15 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         results = self._execute_sessions_query()
 
         self.assertEqual(len(results), 1)
-        # Columns: session_id, traces, spans, generations, embeddings, errors, total_cost, total_latency, first_seen, last_seen
         row = results[0]
-        self.assertEqual(row[0], "session-1")
-        self.assertEqual(row[1], 2)  # traces
-        self.assertEqual(row[2], 1)  # spans
-        self.assertEqual(row[3], 2)  # generations
-        self.assertEqual(row[4], 1)  # embeddings
-        self.assertEqual(row[5], 0)  # errors
-        self.assertEqual(row[6], 0.8)  # total_cost: 0.4 + 0.3 + 0.1
-        self.assertEqual(row[7], 8.0)  # total_latency: 5.0 + 3.0 (trace-level latencies)
+        self.assertEqual(row["session_id"], "session-1")
+        self.assertEqual(row["traces"], 2)
+        self.assertEqual(row["spans"], 1)
+        self.assertEqual(row["generations"], 2)
+        self.assertEqual(row["embeddings"], 1)
+        self.assertEqual(row["errors"], 0)
+        self.assertEqual(row["total_cost"], 0.8)  # 0.4 + 0.3 + 0.1
+        self.assertEqual(row["total_latency"], 8.0)  # 5.0 + 3.0 (trace-level latencies)
 
     def test_session_aggregates_multiple_sessions(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -237,15 +246,15 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         session_1 = self._find_session(results, "session-1")
         assert session_1 is not None
-        self.assertEqual(session_1[1], 1)  # traces
-        self.assertEqual(session_1[3], 1)  # generations
-        self.assertEqual(session_1[6], 0.5)  # total_cost
+        self.assertEqual(session_1["traces"], 1)
+        self.assertEqual(session_1["generations"], 1)
+        self.assertEqual(session_1["total_cost"], 0.5)
 
         session_2 = self._find_session(results, "session-2")
         assert session_2 is not None
-        self.assertEqual(session_2[1], 1)  # traces
-        self.assertEqual(session_2[3], 2)  # generations
-        self.assertEqual(session_2[6], 0.5)  # total_cost: 0.2 + 0.3
+        self.assertEqual(session_2["traces"], 1)
+        self.assertEqual(session_2["generations"], 2)
+        self.assertEqual(session_2["total_cost"], 0.5)  # 0.2 + 0.3
 
     def test_traces_without_session_excluded(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -282,8 +291,8 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         results = self._execute_sessions_query()
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], "session-1")
-        self.assertEqual(results[0][6], 0.5)  # only the session trace's cost
+        self.assertEqual(results[0]["session_id"], "session-1")
+        self.assertEqual(results[0]["total_cost"], 0.5)  # only the session trace's cost
 
     def test_session_counts_errors(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -313,9 +322,9 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(results), 1)
         row = results[0]
-        self.assertEqual(row[5], 2)  # errors: trace + generation both have is_error
-        self.assertEqual(row[3], 2)  # generations
-        self.assertEqual(row[6], 0.3)  # total_cost: 0.1 + 0.2
+        self.assertEqual(row["errors"], 2)  # trace + generation both have is_error
+        self.assertEqual(row["generations"], 2)
+        self.assertEqual(row["total_cost"], 0.3)  # 0.1 + 0.2
 
     def test_latency_falls_back_to_children_when_trace_has_no_latency(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -343,4 +352,72 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         results = self._execute_sessions_query()
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][7], 4.0)  # latency: 2.5 + 1.5 (fallback to children sum)
+        self.assertEqual(results[0]["total_latency"], 4.0)  # 2.5 + 1.5 (fallback to children sum)
+
+    def test_generation_only_traces_included_in_session(self):
+        _create_person(distinct_ids=["test-user"], team=self.team)
+
+        _create_ai_generation_event(
+            trace_id="gen-only-trace",
+            session_id="session-gen",
+            cost=0.5,
+            latency=2.0,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        _create_ai_generation_event(
+            trace_id="gen-only-trace",
+            session_id="session-gen",
+            cost=0.3,
+            latency=1.0,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 1),
+        )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        row = results[0]
+        self.assertEqual(row["session_id"], "session-gen")
+        self.assertEqual(row["traces"], 1)
+        self.assertEqual(row["generations"], 2)
+        self.assertEqual(row["total_cost"], 0.8)  # 0.5 + 0.3
+        self.assertEqual(row["total_latency"], 3.0)  # 2.0 + 1.0 (sum of children)
+
+    def test_mixed_traces_with_and_without_trace_event(self):
+        _create_person(distinct_ids=["test-user"], team=self.team)
+
+        # Trace group 1: has $ai_trace event
+        _create_ai_trace_event(
+            trace_id="trace-with-parent",
+            session_id="session-mix",
+            latency=5.0,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        _create_ai_generation_event(
+            trace_id="trace-with-parent",
+            cost=0.4,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 1),
+        )
+
+        # Trace group 2: no $ai_trace event, only generations
+        _create_ai_generation_event(
+            trace_id="trace-orphan",
+            session_id="session-mix",
+            cost=0.2,
+            latency=1.5,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1, 0),
+        )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        row = results[0]
+        self.assertEqual(row["session_id"], "session-mix")
+        self.assertEqual(row["traces"], 2)
+        self.assertEqual(row["generations"], 2)
+        self.assertEqual(row["total_cost"], 0.6)  # 0.4 + 0.2
+        self.assertEqual(row["total_latency"], 6.5)  # 5.0 (trace-level) + 1.5 (child fallback)

@@ -2,8 +2,8 @@
 -- Session aggregation query.
 -- Groups events by trace_id first (inner query), then by session_id (outer query).
 --
--- This two-level approach is needed because only $ai_trace events carry $ai_session_id,
--- while cost/latency data lives on $ai_generation and $ai_embedding events.
+-- All AI event types can carry $ai_session_id, but cost/latency data lives
+-- on $ai_generation and $ai_embedding events.
 -- A single-level GROUP BY session_id would filter out all child events.
 --
 -- Cost is summed only from $ai_generation and $ai_embedding events (per data model).
@@ -23,14 +23,14 @@ SELECT
     max(last_seen) as last_seen
 FROM (
     SELECT
-        anyIf(properties.$ai_session_id, event = '$ai_trace') as session_id,
+        anyIf(properties.$ai_session_id, isNotNull(properties.$ai_session_id) AND properties.$ai_session_id != '') as session_id,
         countIf(event = '$ai_span') as spans,
         countIf(event = '$ai_generation') as generations,
         countIf(event = '$ai_embedding') as embeddings,
         countIf(properties.$ai_is_error = 'true') as errors,
         sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding')) as trace_cost,
         coalesce(
-            nullIf(anyIf(toFloat(properties.$ai_latency), event = '$ai_trace'), 0),
+            anyIf(toFloat(properties.$ai_latency), event = '$ai_trace' AND isNotNull(properties.$ai_latency)),
             sumIf(toFloat(properties.$ai_latency), event IN ('$ai_generation', '$ai_embedding', '$ai_span'))
         ) as trace_latency,
         min(timestamp) as first_seen,
