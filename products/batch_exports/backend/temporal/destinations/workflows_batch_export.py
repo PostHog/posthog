@@ -195,6 +195,7 @@ class WorkflowsConsumer(Consumer):
                 ServiceUnavailable,
                 TooManyRequests,
                 aiohttp.ServerDisconnectedError,
+                aiohttp.ClientOSError,
             ),
             # Retry forever on retryable errors
             max_attempts=None,
