@@ -303,3 +303,6 @@ tools:
         title: Delete a scheduled change
         description: |
             Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.
+    feature-flags-bulk-update-tags-create:
+        operation: feature_flags_bulk_update_tags_create
+        enabled: false
