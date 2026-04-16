@@ -193,13 +193,8 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(source_install_script_path, destination_install_script_path)
 
         # Refresh dist/skills if out of date so the context picks up the
-        # latest rendered output. Tolerant: populate_skills_directory will
-        # still fall back to sources if the build can't run.
-        try:
-            LocalSkillsCache(base_dir).ensure_built()
-        except Exception as exc:
-            logger.warning("Local skills unavailable for Modal build context: %s", exc)
-
+        # latest rendered output.
+        LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 
     return str(destination_dockerfile_path), str(context_dir)
