@@ -37,6 +37,8 @@ export const ToolConfigSchema = z
                 z
                     .object({
                         description: z.string().optional(),
+                        /** Override the default value for this parameter. The field becomes optional with `.default(value)`. */
+                        default: z.unknown().optional(),
                         input_schema: z.string().optional(),
                         /** Reference to a schema.json definition. Generates a Zod schema from JSON Schema at build time. */
                         schema_ref: z.string().optional(),
@@ -75,6 +77,11 @@ export const ToolConfigSchema = z
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
          */
+        /**
+         * Override the category-level URL prefix for `_posthogUrl` enrichment.
+         * Useful when a single category YAML covers tools that link to different frontend pages.
+         */
+        url_prefix: z.string().optional(),
         response: z
             .object({
                 /** Dot-path patterns of response fields to keep. Only matched fields are preserved. */

@@ -56,5 +56,21 @@ class ReviewState(StrEnum):
     """
 
     PENDING = "pending"  # Not yet reviewed
-    APPROVED = "approved"  # Accepted the change
+    APPROVED = "approved"  # Accepted the change — updates baseline
+    TOLERATED = "tolerated"  # Acknowledged as rendering noise — does not update baseline
     REJECTED = "rejected"  # Explicitly rejected
+
+
+class ClassificationReason(StrEnum):
+    """Why a snapshot was classified as UNCHANGED."""
+
+    EXACT = "exact"  # Hash matches baseline
+    TOLERATED_HASH = "tolerated_hash"  # Matched a known tolerated alternate
+    BELOW_THRESHOLD = "below_threshold"  # Diffed this run, below pixel/SSIM threshold
+
+
+class ToleratedReason(StrEnum):
+    """Why a hash was tolerated."""
+
+    AUTO_THRESHOLD = "auto_threshold"  # Below pixel/SSIM diff threshold
+    HUMAN = "human"  # Manually marked by a reviewer

@@ -78,7 +78,9 @@ describe('IngestionOutputs', () => {
             const outputs = new IngestionOutputs({
                 events: new DualWriteIngestionOutput(
                     new SingleIngestionOutput('events', 'events', primary, 'test'),
-                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test')
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
                 ),
             })
 
@@ -166,7 +168,9 @@ describe('IngestionOutputs', () => {
             const outputs = new IngestionOutputs({
                 events: new DualWriteIngestionOutput(
                     new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
-                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test')
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
                 ),
             })
 
@@ -200,7 +204,9 @@ describe('IngestionOutputs', () => {
             const outputs = new IngestionOutputs({
                 events: new DualWriteIngestionOutput(
                     new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
-                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test')
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
                 ),
             })
 
@@ -225,7 +231,9 @@ describe('IngestionOutputs', () => {
             const outputs = new IngestionOutputs({
                 events: new DualWriteIngestionOutput(
                     new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
-                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test')
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
                 ),
             })
 
@@ -259,19 +267,21 @@ describe('IngestionOutputs', () => {
             const outputs = new IngestionOutputs({
                 events: new DualWriteIngestionOutput(
                     new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
-                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test')
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
                 ),
             })
 
-            await outputs.queueMessages('events', [{ value: Buffer.from('msg1') }])
+            await outputs.queueMessages('events', [{ key: Buffer.from('k'), value: Buffer.from('msg1') }])
 
             expect(primary.queueMessages).toHaveBeenCalledWith({
                 topic: 'events_v1',
-                messages: [{ value: Buffer.from('msg1') }],
+                messages: [{ key: Buffer.from('k'), value: Buffer.from('msg1') }],
             })
             expect(secondary.queueMessages).toHaveBeenCalledWith({
                 topic: 'events_v2',
-                messages: [{ value: Buffer.from('msg1') }],
+                messages: [{ key: Buffer.from('k'), value: Buffer.from('msg1') }],
             })
         })
 
@@ -282,13 +292,15 @@ describe('IngestionOutputs', () => {
             const outputs = new IngestionOutputs({
                 events: new DualWriteIngestionOutput(
                     new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
-                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test')
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
                 ),
             })
 
-            await expect(outputs.queueMessages('events', [{ value: Buffer.from('msg1') }])).rejects.toThrow(
-                'secondary broker down'
-            )
+            await expect(
+                outputs.queueMessages('events', [{ key: Buffer.from('k'), value: Buffer.from('msg1') }])
+            ).rejects.toThrow('secondary broker down')
 
             expect(primary.queueMessages).toHaveBeenCalledTimes(1)
             expect(secondary.queueMessages).toHaveBeenCalledTimes(1)
