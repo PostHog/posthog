@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import OuterRef, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
+from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -21,6 +22,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
@@ -545,8 +547,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             log_activity(
                 organization_id=self.team.organization_id,
                 team_id=self.team_id,
-                user=request.user,
-                was_impersonated=False,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
                 item_id=alert.id,
                 scope="LogsAlertConfiguration",
                 activity="reset",
