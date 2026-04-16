@@ -1,7 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
@@ -10,18 +9,7 @@ import type { dashboardTemplateChooserLogicType } from './dashboardTemplateChoos
 import { runBlankDashboardFlow, runDashboardTemplateClickFlow } from './dashboardTemplateCreationFlows'
 import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 
-export type DashboardTemplateChooserExperimentVariant = 'control' | 'simple' | 'new'
-
-/** Single place for flag → chooser experiment variant (modal toolbar + grid must agree on chooser logic key). */
-export function resolveDashboardTemplateChooserExperimentVariant(
-    raw: unknown
-): DashboardTemplateChooserExperimentVariant {
-    return raw === 'simple' || raw === 'new' || raw === 'control' ? raw : 'new'
-}
-
-export type DashboardTemplateChooserLogicProps = DashboardTemplateProps & {
-    experimentVariant: DashboardTemplateChooserExperimentVariant
-}
+export type DashboardTemplateChooserLogicProps = DashboardTemplateProps
 
 function availabilityContextsKey(contexts: DashboardTemplateProps['availabilityContexts']): string {
     if (!contexts?.length) {
@@ -61,7 +49,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
     props({} as DashboardTemplateChooserLogicProps),
     key(
         (p: DashboardTemplateChooserLogicProps) =>
-            `${p.scope ?? 'default'}|${p.experimentVariant}|${availabilityContextsKey(p.availabilityContexts)}`
+            `${p.scope ?? 'default'}|${availabilityContextsKey(p.availabilityContexts)}`
     ),
     connect((props: DashboardTemplateChooserLogicProps) => ({
         values: [
@@ -186,15 +174,12 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
                 return
             }
             posthog.capture('dashboard template chooser template clicked', {
-                experiment_variant: props.experimentVariant,
                 selection_type: 'template',
                 tile_location: tileLocation,
                 template_id: template.id,
                 template_name: template.template_name.toLowerCase(),
                 is_featured: template.is_featured === true,
                 template_scope: template.scope ?? null,
-                $feature_flag: FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT,
-                $feature_flag_response: props.experimentVariant,
             })
             runDashboardTemplateClickFlow(template, {
                 isLoading: values.isLoading,
@@ -212,11 +197,8 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
                 return
             }
             posthog.capture('dashboard template chooser template clicked', {
-                experiment_variant: props.experimentVariant,
                 selection_type: 'blank',
                 tile_location: tileLocation,
-                $feature_flag: FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT,
-                $feature_flag_response: props.experimentVariant,
             })
             runBlankDashboardFlow({
                 isLoading: values.isLoading,
