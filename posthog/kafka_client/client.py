@@ -6,8 +6,6 @@ points for producing are in `posthog.kafka_client.routing`:
 * `get_producer(topic=...)` / `producer_scope(topic=...)` for sync producers
 * `async_producer_scope(topic=...)` for per-call async producers
 * `new_async_producer(topic=...)` for long-lived async producers
-* `producer_for_config(...)` for runtime-configured producers (e.g. DLQ that
-  mirrors the consumed cluster)
 """
 
 import os
