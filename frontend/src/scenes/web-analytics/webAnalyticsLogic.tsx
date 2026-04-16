@@ -60,6 +60,7 @@ import {
     AvailableFeature,
     BaseMathType,
     Breadcrumb,
+    BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
     InsightLogicProps,
@@ -2311,7 +2312,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             const botTrendsSeries = [
                                 {
                                     event: '$pageview',
-                                    kind: NodeKind.EventsNode,
+                                    kind: NodeKind.EventsNode as const,
                                     math: BaseMathType.TotalCount,
                                     name: 'Pageview',
                                     custom_name: 'Requests',
@@ -2321,7 +2322,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 id: string,
                                 title: string,
                                 breakdown: string,
-                                breakdownType: string
+                                breakdownType: BreakdownType
                             ): TabsTileTab => ({
                                 id,
                                 title,
@@ -2698,6 +2699,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.BOT_ANALYTICS,
                 ].includes(productTab)
             ) {
+                return
+            }
+
+            // Redirect away from bot analytics tab if the feature flag is disabled
+            if (
+                productTab === ProductTab.BOT_ANALYTICS &&
+                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
+            ) {
+                router.actions.replace(urls.webAnalytics())
                 return
             }
 
