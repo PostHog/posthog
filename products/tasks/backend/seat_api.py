@@ -25,8 +25,6 @@ from ee.settings import BILLING_SERVICE_URL
 logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 30
-ALLOWED_PRODUCT_KEYS = frozenset({"posthog_code"})
-ALLOWED_SEAT_BODY_FIELDS = frozenset({"user_distinct_id", "product_key", "plan_key"})
 _SAFE_PK_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -139,17 +137,9 @@ class SeatViewSet(viewsets.ViewSet):
     @staticmethod
     def _filtered_query_params(request: Request) -> dict[str, str]:
         product_key = request.query_params.get("product_key", "")
-        if product_key and product_key not in ALLOWED_PRODUCT_KEYS:
-            raise ParseError("Invalid product_key")
         if product_key:
             return {"product_key": product_key}
         return {}
-
-    @staticmethod
-    def _filtered_body(data: Any) -> dict[str, Any]:
-        if not isinstance(data, dict):
-            return {}
-        return {k: v for k, v in data.items() if k in ALLOWED_SEAT_BODY_FIELDS}
 
     # ------------------------------------------------------------------
     # Endpoints
@@ -185,7 +175,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        resp = self._billing_request("POST", "/api/v2/seats/", headers, json_body=self._filtered_body(request.data))
+        resp = self._billing_request("POST", "/api/v2/seats/", headers, json_body=request.data)
         return self._forward_response(resp)
 
     def retrieve(self, request: Request, pk: str | None = None) -> Response:
@@ -220,7 +210,7 @@ class SeatViewSet(viewsets.ViewSet):
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
             headers,
-            json_body=self._filtered_body(request.data),
+            json_body=request.data,
         )
         return self._forward_response(resp)
 
@@ -257,6 +247,6 @@ class SeatViewSet(viewsets.ViewSet):
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",
             headers,
-            json_body=self._filtered_body(request.data),
+            json_body=request.data,
         )
         return self._forward_response(resp)
