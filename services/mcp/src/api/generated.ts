@@ -33222,13 +33222,21 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -33245,6 +33253,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
@@ -33257,7 +33269,7 @@ export namespace Schemas {
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -33265,10 +33277,22 @@ export namespace Schemas {
      */
     attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -36682,13 +36706,21 @@ export namespace Schemas {
 
     export type LogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: LogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -36705,6 +36737,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
@@ -36717,7 +36753,7 @@ export namespace Schemas {
 
     export type LogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -36725,10 +36761,22 @@ export namespace Schemas {
      */
     attribute_type?: LogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1

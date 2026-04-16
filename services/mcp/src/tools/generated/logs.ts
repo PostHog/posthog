@@ -42,9 +42,12 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, unknown
             path: `/api/projects/${projectId}/logs/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                filterGroup: params.filterGroup,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                serviceNames: params.serviceNames,
             },
         })
         const filtered = pickResponseFields(result, ['results', 'count']) as typeof result
@@ -64,7 +67,10 @@ const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchem
             path: `/api/projects/${projectId}/logs/values/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                filterGroup: params.filterGroup,
                 key: params.key,
+                serviceNames: params.serviceNames,
                 value: params.value,
             },
         })
