@@ -380,18 +380,21 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-/// Fetches a team by its API token, delegating to FlagService for consistent
-/// negative caching, metrics, and error handling across all endpoints.
-async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    let flag_service = FlagService::new(
+fn flag_service(state: &AppState) -> FlagService {
+    FlagService::new(
         state.redis_client.clone(),
         state.database_pools.non_persons_reader.clone(),
         state.team_hypercache_reader.clone(),
         state.flags_hypercache_reader.clone(),
         state.team_negative_cache.clone(),
         *state.config.skip_pg_team_fallback,
-    );
-    flag_service.verify_token_and_get_team(token).await
+    )
+}
+
+/// Fetches a team by its API token, delegating to FlagService for consistent
+/// negative caching, metrics, and error handling across all endpoints.
+async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
+    flag_service(state).verify_token_and_get_team(token).await
 }
 
 /// Resolves a team from the Authorization header when no `?token=` param is provided.
@@ -400,12 +403,14 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
 /// team-scoped. Personal API keys can access multiple teams and require an explicit
 /// `?token=` param to disambiguate — returns an error in that case.
 async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
-    // Only phs_ tokens can derive team_id without a token param
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (auth_data, team_id) = auth::validate_secret_api_token(state, &token).await?;
-        let method = match &auth_data {
-            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
-            _ => "secret_api_key",
+        let (team_id, api_token, is_project_secret) =
+            auth::validate_secret_api_token(state, &token).await?;
+
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
         };
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
@@ -413,33 +418,25 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
             1,
         );
 
-        // Look up the full Team object by team_id. This hits PG directly because
-        // the team_metadata HyperCache is keyed by api_token (which we don't have
-        // here — only team_id from the auth data). Acceptable since the token-absent
-        // path is a small minority of traffic (~2.6 req/s). To avoid PG entirely,
-        // we'd need to include api_token in the cached TokenAuthData.
-        let flag_service = FlagService::new(
-            state.redis_client.clone(),
-            state.database_pools.non_persons_reader.clone(),
-            state.team_hypercache_reader.clone(),
-            state.flags_hypercache_reader.clone(),
-            state.team_negative_cache.clone(),
-            *state.config.skip_pg_team_fallback,
-        );
-        return flag_service.get_team_by_id(team_id).await;
+        // Prefer HyperCache via api_token (new cache entries include it).
+        // Fall back to PG for old cache entries that predate the field.
+        let svc = flag_service(state);
+        return match api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await,
+            None => svc.get_team_by_id(team_id).await,
+        };
     }
 
-    // Check if there's a personal API key — it's valid auth but can't derive team
+    // Personal API keys are multi-team — can't derive which team to use
     if auth::extract_personal_api_key(headers)?.is_some() {
         return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
             "The 'token' query parameter is required when authenticating with a personal API key. \
-             It can be omitted only when using a team-scoped phs_-prefixed secret API token or \
-             project secret API key."
+             It can be omitted only when using a phs_-prefixed token (team secret API token or \
+             project secret API key)."
                 .to_string(),
         )));
     }
 
-    // No auth provided at all
     Err(FlagError::NoAuthenticationProvided)
 }
 
