@@ -3348,8 +3348,10 @@ export interface ExperimentVariant {
     key: string
     /** Human-readable variant name. */
     name?: string
+    /** @deprecated Use split_percent instead. */
+    rollout_percentage?: number
     /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-    rollout_percentage: number
+    split_percent: number
 }
 
 export interface ExperimentParameters {
