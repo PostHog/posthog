@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from parameterized import parameterized
 
 from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
 
@@ -61,17 +62,23 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
         assert res.status_code == 200
         mock_post.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("billing_inactive", False, 400, "requires_payment_credentials"),
+            ("billing_already_active", True, 200, "complete"),
+        ]
+    )
     @patch("ee.api.agentic_provisioning.views.requests.get")
     @patch("ee.api.agentic_provisioning.views.requests.post")
     @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
     @patch("posthog.cloud_utils.get_cached_instance_license")
-    def test_provisioning_returns_error_if_billing_activation_fails(
-        self, mock_license, mock_build_token, mock_post, mock_get
+    def test_provisioning_spt_failure(
+        self, _name, has_active_subscription, expected_status, expected_code, mock_license, mock_build_token, mock_post, mock_get
     ):
         mock_license.return_value = MagicMock()
         mock_post.return_value = MagicMock(status_code=500)
         mock_get.return_value = MagicMock(
-            status_code=200, json=lambda: {"customer": {"has_active_subscription": False}}
+            status_code=200, json=lambda: {"customer": {"has_active_subscription": has_active_subscription}}
         )
 
         token = self._get_bearer_token()
@@ -86,36 +93,12 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
             },
             token=token,
         )
-        assert res.status_code == 400
+        assert res.status_code == expected_status
         body = res.json()
-        assert body["status"] == "error"
-        assert body["error"]["code"] == "requires_payment_credentials"
-
-    @patch("ee.api.agentic_provisioning.views.requests.get")
-    @patch("ee.api.agentic_provisioning.views.requests.post")
-    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
-    @patch("posthog.cloud_utils.get_cached_instance_license")
-    def test_provisioning_succeeds_if_spt_fails_but_billing_already_active(
-        self, mock_license, mock_build_token, mock_post, mock_get
-    ):
-        mock_license.return_value = MagicMock()
-        mock_post.return_value = MagicMock(status_code=500)
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"customer": {"has_active_subscription": True}})
-
-        token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
-            "/api/agentic/provisioning/resources",
-            data={
-                "service_id": "analytics",
-                "payment_credentials": {
-                    "type": "stripe_payment_token",
-                    "stripe_payment_token": "spt_test_123",
-                },
-            },
-            token=token,
-        )
-        assert res.status_code == 200
-        assert res.json()["status"] == "complete"
+        if expected_status == 400:
+            assert body["error"]["code"] == expected_code
+        else:
+            assert body["status"] == expected_code
 
     def test_token_exchange_returns_orchestrator(self):
         """Token exchange should return payment_credentials: orchestrator so Stripe collects payment."""

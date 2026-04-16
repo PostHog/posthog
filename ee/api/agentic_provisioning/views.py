@@ -814,19 +814,23 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+def _build_billing_token(team: Team, user: User) -> str | None:
+    from posthog.cloud_utils import get_cached_instance_license
+
+    from ee.billing.billing_manager import build_billing_token
+
+    license = get_cached_instance_license()
+    if not license:
+        return None
+    return build_billing_token(license, team.organization, user)
+
+
 def _team_has_active_billing(team: Team, user: User) -> bool:
     """Check if the team's organization already has an active billing subscription."""
     try:
-        from posthog.cloud_utils import get_cached_instance_license
-
-        from ee.billing.billing_manager import build_billing_token
-
-        license = get_cached_instance_license()
-        if not license:
+        billing_token = _build_billing_token(team, user)
+        if not billing_token:
             return False
-
-        organization = team.organization
-        billing_token = build_billing_token(license, organization, user)
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
@@ -850,17 +854,10 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
     Returns True if activation succeeded, False otherwise.
     """
     try:
-        from posthog.cloud_utils import get_cached_instance_license
-
-        from ee.billing.billing_manager import build_billing_token
-
-        license = get_cached_instance_license()
-        if not license:
+        billing_token = _build_billing_token(team, user)
+        if not billing_token:
             capture_exception(Exception("No license found for SPT billing activation"))
             return False
-
-        organization = team.organization
-        billing_token = build_billing_token(license, organization, user)
 
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
@@ -872,11 +869,11 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
         if res.status_code not in (200, 201):
             capture_exception(
                 Exception(f"Billing SPT activation failed: {res.status_code}"),
-                {"team_id": team.id, "org_id": str(organization.id), "status": res.status_code},
+                {"team_id": team.id, "org_id": str(team.organization_id), "status": res.status_code},
             )
             return False
 
-        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(organization.id))
+        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
         return True
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
