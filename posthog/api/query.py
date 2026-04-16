@@ -74,8 +74,6 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 
 def _extract_validation_code(error: ValidationError) -> str:
     validation_codes = error.get_codes()
-    if isinstance(validation_codes, str):
-        return validation_codes
     if isinstance(validation_codes, list):
         return validation_codes[0] if validation_codes and isinstance(validation_codes[0], str) else "unknown"
     if isinstance(validation_codes, dict):

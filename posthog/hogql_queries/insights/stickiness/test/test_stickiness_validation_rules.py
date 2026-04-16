@@ -55,7 +55,7 @@ class TestStickinessValidationRules(TestCase):
             ValidateStickinessCriteria().validate(self._context(query))
 
         self.assertIn(expected_error, str(context.exception))
-        self.assertEqual(context.exception.get_codes(), expected_code)
+        self.assertEqual(context.exception.get_codes(), [expected_code])
 
     def test_allows_zero_for_gte_stickiness_criteria(self):
         query = StickinessQuery(
@@ -91,7 +91,7 @@ class TestStickinessValidationRules(TestCase):
             ValidateIntervalCount().validate(self._context(query))
 
         self.assertIn(expected_error, str(context.exception))
-        self.assertEqual(context.exception.get_codes(), expected_code)
+        self.assertEqual(context.exception.get_codes(), [expected_code])
 
     def test_allows_valid_interval_count(self):
         query = StickinessQuery(series=[EventsNode(event="$pageview")], intervalCount=MAX_INTERVAL_COUNT)

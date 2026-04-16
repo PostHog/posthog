@@ -18,7 +18,9 @@ class ValidateStickinessCriteria:
             return
 
         if criteria.value < 0:
-            raise ValidationError("Stickiness criteria value must be non-negative.", code=STICKINESS_CRITERIA_NEGATIVE_CODE)
+            raise ValidationError(
+                "Stickiness criteria value must be non-negative.", code=STICKINESS_CRITERIA_NEGATIVE_CODE
+            )
 
         if criteria.value == 0 and criteria.operator in (StickinessOperator.EXACT, StickinessOperator.LTE):
             raise ValidationError(
@@ -34,7 +36,9 @@ class ValidateIntervalCount:
             return
 
         if interval_count <= 0:
-            raise ValidationError("intervalCount must be a positive integer.", code=STICKINESS_INTERVAL_COUNT_NON_POSITIVE_CODE)
+            raise ValidationError(
+                "intervalCount must be a positive integer.", code=STICKINESS_INTERVAL_COUNT_NON_POSITIVE_CODE
+            )
 
         if interval_count > MAX_INTERVAL_COUNT:
             raise ValidationError(
