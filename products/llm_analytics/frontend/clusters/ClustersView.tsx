@@ -53,6 +53,9 @@ export function ClustersView(): JSX.Element {
         { value: 'generation', label: 'Generations' },
         ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
     ]
+    const levelTooltip = evaluationsEnabled
+        ? 'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning'
+        : 'Traces cluster entire conversations, while generations cluster individual LLM calls'
 
     // Build a map from job_id to job name for run labels
     const jobNameById: Record<string, string> = {}
@@ -78,10 +81,7 @@ export function ClustersView(): JSX.Element {
                 <div className="flex items-center justify-between">
                     {/* Level toggle is always visible so users can switch */}
                     <div className="flex items-center gap-3">
-                        <Tooltip
-                            title="Traces cluster entire conversations, while generations cluster individual LLM calls"
-                            placement="bottom"
-                        >
+                        <Tooltip title={levelTooltip} placement="bottom">
                             <span>
                                 <LemonSegmentedButton
                                     value={clusteringLevel}
@@ -150,10 +150,7 @@ export function ClustersView(): JSX.Element {
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <Tooltip
-                        title="Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning"
-                        placement="bottom"
-                    >
+                    <Tooltip title={levelTooltip} placement="bottom">
                         <span>
                             <LemonSegmentedButton
                                 value={clusteringLevel}
