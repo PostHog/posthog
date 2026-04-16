@@ -1,5 +1,7 @@
 """Serializers for Conversations API."""
 
+from urllib.parse import urlparse
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -243,7 +245,6 @@ def validate_url_matches_request_origin(request, url: str) -> bool:
     and can't be used to smuggle a different destination via
     `https://victim.com@attacker.example`-style URLs.
     """
-    from urllib.parse import urlparse
 
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
     parsed_url = urlparse(url)
