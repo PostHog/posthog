@@ -1,8 +1,11 @@
 import {
+    KAFKA_CLICKHOUSE_TOPHOG,
+    KAFKA_INGESTION_WARNINGS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../config/kafka-topics'
+import { DEFAULT_PRODUCER, type ProducerName } from '../ingestion/common/outputs'
 import { isDevEnv } from '../utils/env-utils'
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
 
@@ -131,5 +134,35 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,
         INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
         INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
+    }
+}
+
+/**
+ * Config type for session replay output producer/topic keys.
+ *
+ * DLQ and overflow topic keys are already declared in `SessionRecordingConfig`
+ * and flow into the composed server config — only the producer keys and the
+ * outputs that don't exist elsewhere are added here.
+ */
+export type SessionReplayOutputsConfig = {
+    SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: string
+    SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: ProducerName
+
+    SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: ProducerName
+
+    SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: ProducerName
+
+    SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: string
+    SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: ProducerName
+}
+
+export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
+    return {
+        SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
+        SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
+        SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
     }
 }
