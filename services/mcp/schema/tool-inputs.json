@@ -818,7 +818,7 @@
                     "type": "string",
                     "description": "The insight ID or short_id to run."
                 },
-                "format": {
+                "output_format": {
                     "default": "optimized",
                     "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
                     "type": "string",
