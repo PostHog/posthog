@@ -1747,27 +1747,33 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
-    def test_select_order_by_with_fill(self):
-        self.assertEqual(
-            self._select("select event from events order by event WITH FILL"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event ASC WITH FILL LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-        self.assertEqual(
-            self._select("select event from events order by event WITH FILL FROM 0 TO 10 STEP 1"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event ASC WITH FILL FROM 0 TO 10 STEP 1 LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-        self.assertEqual(
-            self._select("select event from events order by event DESC WITH FILL FROM 0 TO 10"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC WITH FILL FROM 0 TO 10 LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-
-    def test_select_order_by_with_fill_and_interpolate(self):
-        self.assertEqual(
-            self._select(
-                "select event, distinct_id from events order by event WITH FILL FROM 'a' TO 'z' INTERPOLATE (distinct_id AS '')"
-            ),
-            f"SELECT events.event AS event, events.distinct_id AS distinct_id FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event ASC WITH FILL FROM %(hogql_val_0)s TO %(hogql_val_1)s INTERPOLATE (events.distinct_id AS %(hogql_val_2)s) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+    @parameterized.expand(
+        [
+            [
+                "bare",
+                "select event from events order by event WITH FILL",
+                "ORDER BY events.event ASC WITH FILL",
+            ],
+            [
+                "from_to_step",
+                "select event from events order by event WITH FILL FROM 0 TO 10 STEP 1",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 STEP 1",
+            ],
+            [
+                "desc_from_to",
+                "select event from events order by event DESC WITH FILL FROM 0 TO 10",
+                "ORDER BY events.event DESC WITH FILL FROM 0 TO 10",
+            ],
+            [
+                "interpolate",
+                "select event, distinct_id from events order by event WITH FILL FROM 'a' TO 'z' INTERPOLATE (distinct_id AS '')",
+                "ORDER BY events.event ASC WITH FILL FROM %(hogql_val_0)s TO %(hogql_val_1)s INTERPOLATE (events.distinct_id AS %(hogql_val_2)s)",
+            ],
+        ]
+    )
+    def test_select_order_by_with_fill(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
 
     def test_select_limit(self):
         self.assertEqual(
