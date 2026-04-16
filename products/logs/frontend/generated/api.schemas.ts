@@ -394,36 +394,6 @@ export interface _DateRangeApi {
 }
 
 /**
- * * `trace` - trace
- * `debug` - debug
- * `info` - info
- * `warn` - warn
- * `error` - error
- * `fatal` - fatal
- */
-export type SeverityLevelsEnumApi = (typeof SeverityLevelsEnumApi)[keyof typeof SeverityLevelsEnumApi]
-
-export const SeverityLevelsEnumApi = {
-    Trace: 'trace',
-    Debug: 'debug',
-    Info: 'info',
-    Warn: 'warn',
-    Error: 'error',
-    Fatal: 'fatal',
-} as const
-
-/**
- * * `latest` - latest
- * `earliest` - earliest
- */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
-
-export const OrderByEnumApi = {
-    Latest: 'latest',
-    Earliest: 'earliest',
-} as const
-
-/**
  * * `log` - log
  * `log_attribute` - log_attribute
  * `log_resource_attribute` - log_resource_attribute
@@ -500,6 +470,36 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+/**
+ * * `trace` - trace
+ * `debug` - debug
+ * `info` - info
+ * `warn` - warn
+ * `error` - error
+ * `fatal` - fatal
+ */
+export type SeverityLevelsEnumApi = (typeof SeverityLevelsEnumApi)[keyof typeof SeverityLevelsEnumApi]
+
+export const SeverityLevelsEnumApi = {
+    Trace: 'trace',
+    Debug: 'debug',
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+    Fatal: 'fatal',
+} as const
+
+/**
+ * * `latest` - latest
+ * `earliest` - earliest
+ */
+export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+
+export const OrderByEnumApi = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
+
 export interface _LogsQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -525,6 +525,40 @@ export interface _LogsQueryBodyApi {
 export interface _LogsQueryRequestApi {
     /** The logs query to execute. */
     query: _LogsQueryBodyApi
+}
+
+/**
+ * * `severity` - severity
+ * `service` - service
+ */
+export type SparklineBreakdownByEnumApi = (typeof SparklineBreakdownByEnumApi)[keyof typeof SparklineBreakdownByEnumApi]
+
+export const SparklineBreakdownByEnumApi = {
+    Severity: 'severity',
+    Service: 'service',
+} as const
+
+export interface _LogsSparklineBodyApi {
+    /** Date range for the sparkline. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Break down sparkline by "severity" (default) or "service".
+
+* `severity` - severity
+* `service` - service */
+    sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+}
+
+export interface _LogsSparklineRequestApi {
+    /** The sparkline query to execute. */
+    query: _LogsSparklineBodyApi
 }
 
 /**
@@ -602,13 +636,21 @@ export type LogsAlertsListParams = {
 
 export type LogsAttributesRetrieveParams = {
     /**
- * Type of attributes: "log" for log attributes, "resource" for resource attributes
+ * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
 * `log` - log
 * `resource` - resource
  * @minLength 1
  */
     attribute_type?: LogsAttributesRetrieveAttributeType
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRangeApi
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilterApi[]
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -625,6 +667,10 @@ export type LogsAttributesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[]
 }
 
 export type LogsAttributesRetrieveAttributeType =
@@ -637,7 +683,7 @@ export const LogsAttributesRetrieveAttributeType = {
 
 export type LogsValuesRetrieveParams = {
     /**
- * Type of attribute: "log" or "resource"
+ * Type of attribute: "log" or "resource". Defaults to "log".
 
 * `log` - log
 * `resource` - resource
@@ -645,10 +691,22 @@ export type LogsValuesRetrieveParams = {
  */
     attribute_type?: LogsValuesRetrieveAttributeType
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRangeApi
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilterApi[]
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[]
     /**
      * Search filter for attribute values
      * @minLength 1
