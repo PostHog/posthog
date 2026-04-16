@@ -242,3 +242,6 @@ tools:
     insights-all-activity-retrieve:
         operation: insights_all_activity_retrieve
         enabled: false
+    insights-bulk-update-tags-create:
+        operation: insights_bulk_update_tags_create
+        enabled: false

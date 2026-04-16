@@ -7,6 +7,7 @@ from django.http import JsonResponse, StreamingHttpResponse
 import orjson
 import structlog
 from drf_spectacular.utils import OpenApiResponse
+from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
@@ -63,6 +64,25 @@ from posthog.schema_migrations.upgrade import upgrade
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+
+QUERY_VALIDATION_ERROR_TOTAL = Counter(
+    "posthog_query_validation_error_total",
+    "Query validation failures returned from the query API.",
+    labelnames=["query_type", "validation_code"],
+)
+
+
+def _extract_validation_code(error: ValidationError) -> str:
+    validation_codes = error.get_codes()
+    if isinstance(validation_codes, list):
+        return validation_codes[0] if validation_codes and isinstance(validation_codes[0], str) else "unknown"
+    if isinstance(validation_codes, dict):
+        first_code = next(iter(validation_codes.values()), None)
+        if isinstance(first_code, str):
+            return first_code
+        if isinstance(first_code, list) and first_code and isinstance(first_code[0], str):
+            return first_code[0]
+    return "unknown"
 
 
 def _process_query_request(
@@ -145,6 +165,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
 
+        query = None
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -222,6 +243,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise ValidationError(str(e))
         except ResolutionError as e:
             raise ValidationError(str(e))
+        except ValidationError as e:
+            query_type = getattr(query, "kind", "unknown")
+            QUERY_VALIDATION_ERROR_TOTAL.labels(
+                query_type=query_type,
+                validation_code=_extract_validation_code(e),
+            ).inc()
+            raise
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:

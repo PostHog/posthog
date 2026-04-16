@@ -45,6 +45,7 @@ function baseCaptureConfig(overrides: Partial<CaptureConfig> = {}): CaptureConfi
         playbackSpeed: 8,
         trimFrameLimit: Infinity,
         maxVirtualTimeMs: Infinity,
+        outputFormat: 'mp4',
         ffmpegOutputOpts: [],
         ffmpegVideoFilters: [],
         screenshotFormat: 'jpeg',

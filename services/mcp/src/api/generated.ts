@@ -608,6 +608,20 @@ export namespace Schemas {
       actionId: number;
     }
 
+    /**
+     * * `add` - add
+    * `remove` - remove
+    * `set` - set
+     */
+    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
+
+
+    export const ActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -6890,6 +6904,37 @@ export namespace Schemas {
       DistinctId: 'distinct_id',
       DeviceId: 'device_id',
     } as const;
+
+    export interface BulkUpdateTagsError {
+      id: number;
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsItem {
+      id: number;
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsRequest {
+      /**
+       * List of object IDs to update tags on.
+       * @maxItems 500
+       */
+      ids: number[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+    * `add` - add
+    * `remove` - remove
+    * `set` - set */
+      action: ActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsResponse {
+      updated: BulkUpdateTagsItem[];
+      skipped: BulkUpdateTagsError[];
+    }
 
     /**
      * * `b2b` - B2B
@@ -15028,7 +15073,7 @@ export namespace Schemas {
       name: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 400
+       * @maxLength 3000
        * @nullable
        */
       description?: string | null;
@@ -19117,6 +19162,7 @@ export namespace Schemas {
     * `pending_resolve` - Pending resolve
     * `errored` - Errored
     * `snoozed` - Snoozed
+    * `broken` - Broken
      */
     export type LogsAlertConfigurationStateEnum = typeof LogsAlertConfigurationStateEnum[keyof typeof LogsAlertConfigurationStateEnum];
 
@@ -19127,6 +19173,7 @@ export namespace Schemas {
       PendingResolve: 'pending_resolve',
       Errored: 'errored',
       Snoozed: 'snoozed',
+      Broken: 'broken',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -20263,7 +20310,14 @@ export namespace Schemas {
       results: Action[];
     }
 
-    export type PaginatedActivityLogList = ActivityLog[];
+    export interface PaginatedActivityLogList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ActivityLog[];
+    }
 
     export interface PaginatedAlertList {
       count: number;
@@ -22071,6 +22125,9 @@ export namespace Schemas {
        * @nullable
        */
       invite_message?: string | null;
+      summary_enabled?: boolean;
+      /** @maxLength 500 */
+      summary_prompt_guide?: string;
     }
 
     export interface PaginatedSubscriptionList {
@@ -24319,7 +24376,7 @@ export namespace Schemas {
       name?: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 400
+       * @maxLength 3000
        * @nullable
        */
       description?: string | null;
@@ -26020,6 +26077,9 @@ export namespace Schemas {
        * @nullable
        */
       invite_message?: string | null;
+      summary_enabled?: boolean;
+      /** @maxLength 500 */
+      summary_prompt_guide?: string;
     }
 
     /**
@@ -32422,6 +32482,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateFormat = typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsDashboardsBulkUpdateTagsCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsCreateFromTemplateJsonCreateParams = {
     format?: EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat;
     };
@@ -32557,28 +32629,6 @@ export namespace Schemas {
     export type EnvironmentsEndpointsVersionsListParams = {
     created_by?: number;
     is_active?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -33067,14 +33117,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsActivityRetrieveParams = {
-    format?: EnvironmentsInsightsActivityRetrieveFormat;
+    export type EnvironmentsInsightsActivityRetrieve2Params = {
+    format?: EnvironmentsInsightsActivityRetrieve2Format;
     };
 
-    export type EnvironmentsInsightsActivityRetrieveFormat = typeof EnvironmentsInsightsActivityRetrieveFormat[keyof typeof EnvironmentsInsightsActivityRetrieveFormat];
+    export type EnvironmentsInsightsActivityRetrieve2Format = typeof EnvironmentsInsightsActivityRetrieve2Format[keyof typeof EnvironmentsInsightsActivityRetrieve2Format];
 
 
-    export const EnvironmentsInsightsActivityRetrieveFormat = {
+    export const EnvironmentsInsightsActivityRetrieve2Format = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -33115,14 +33165,26 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsAllActivityRetrieveParams = {
-    format?: EnvironmentsInsightsAllActivityRetrieveFormat;
+    export type EnvironmentsInsightsActivityRetrieveParams = {
+    format?: EnvironmentsInsightsActivityRetrieveFormat;
     };
 
-    export type EnvironmentsInsightsAllActivityRetrieveFormat = typeof EnvironmentsInsightsAllActivityRetrieveFormat[keyof typeof EnvironmentsInsightsAllActivityRetrieveFormat];
+    export type EnvironmentsInsightsActivityRetrieveFormat = typeof EnvironmentsInsightsActivityRetrieveFormat[keyof typeof EnvironmentsInsightsActivityRetrieveFormat];
 
 
-    export const EnvironmentsInsightsAllActivityRetrieveFormat = {
+    export const EnvironmentsInsightsActivityRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkUpdateTagsCreateFormat = typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkUpdateTagsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -33389,14 +33451,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsActivityRetrieveParams = {
-    format?: EnvironmentsPersonsActivityRetrieveFormat;
+    export type EnvironmentsPersonsActivityRetrieve2Params = {
+    format?: EnvironmentsPersonsActivityRetrieve2Format;
     };
 
-    export type EnvironmentsPersonsActivityRetrieveFormat = typeof EnvironmentsPersonsActivityRetrieveFormat[keyof typeof EnvironmentsPersonsActivityRetrieveFormat];
+    export type EnvironmentsPersonsActivityRetrieve2Format = typeof EnvironmentsPersonsActivityRetrieve2Format[keyof typeof EnvironmentsPersonsActivityRetrieve2Format];
 
 
-    export const EnvironmentsPersonsActivityRetrieveFormat = {
+    export const EnvironmentsPersonsActivityRetrieve2Format = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -33449,14 +33511,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsAllActivityRetrieveParams = {
-    format?: EnvironmentsPersonsAllActivityRetrieveFormat;
+    export type EnvironmentsPersonsActivityRetrieveParams = {
+    format?: EnvironmentsPersonsActivityRetrieveFormat;
     };
 
-    export type EnvironmentsPersonsAllActivityRetrieveFormat = typeof EnvironmentsPersonsAllActivityRetrieveFormat[keyof typeof EnvironmentsPersonsAllActivityRetrieveFormat];
+    export type EnvironmentsPersonsActivityRetrieveFormat = typeof EnvironmentsPersonsActivityRetrieveFormat[keyof typeof EnvironmentsPersonsActivityRetrieveFormat];
 
 
-    export const EnvironmentsPersonsAllActivityRetrieveFormat = {
+    export const EnvironmentsPersonsActivityRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -34077,6 +34139,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -34100,6 +34173,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingSuppressionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34615,7 +34699,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type OrgOrganizationsBatchExportsListParams = {
+    export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34637,7 +34721,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type OrgOrganizationsIntegrationsListParams = {
+    export type IntegrationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34681,7 +34765,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type OrganizationsProjectsListParams = {
+    export type List2Params = {
     /**
      * Number of results to return per page.
      */
@@ -34806,6 +34890,18 @@ export namespace Schemas {
 
 
     export const ActionsReferencesListFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat;
+    };
+
+    export type ActionsBulkUpdateTagsCreateFormat = typeof ActionsBulkUpdateTagsCreateFormat[keyof typeof ActionsBulkUpdateTagsCreateFormat];
+
+
+    export const ActionsBulkUpdateTagsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -35091,6 +35187,17 @@ export namespace Schemas {
      */
     is_system?: boolean | null;
     item_ids?: string[];
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
     scopes?: string[];
     search_text?: string;
     start_date?: string;
@@ -35142,7 +35249,7 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type BatchExportsListParams = {
+    export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -35546,6 +35653,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type DashboardsBulkUpdateTagsCreateFormat = typeof DashboardsBulkUpdateTagsCreateFormat[keyof typeof DashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const DashboardsBulkUpdateTagsCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsCreateFromTemplateJsonCreateParams = {
     format?: DashboardsCreateFromTemplateJsonCreateFormat;
     };
@@ -35702,7 +35821,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsListParams = {
+    export type List3Params = {
     /**
      * Number of results to return per page.
      */
@@ -35713,7 +35832,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ErrorTrackingReleasesListParams = {
+    export type ErrorTrackingReleasesList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -35724,7 +35843,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ErrorTrackingSymbolSetsListParams = {
+    export type ErrorTrackingSymbolSetsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -36002,7 +36121,7 @@ export namespace Schemas {
       RemoteConfig: 'remote_config',
     } as const;
 
-    export type FeatureFlagsActivityRetrieveParams = {
+    export type FeatureFlagsActivityRetrieve2Params = {
     /**
      * Number of items per page
      * @minimum 1
@@ -36015,7 +36134,7 @@ export namespace Schemas {
     page?: number;
     };
 
-    export type FeatureFlagsAllActivityRetrieveParams = {
+    export type FeatureFlagsActivityRetrieveParams = {
     /**
      * Number of items per page
      * @minimum 1
@@ -36462,14 +36581,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsActivityRetrieveParams = {
-    format?: InsightsActivityRetrieveFormat;
+    export type InsightsActivityRetrieve2Params = {
+    format?: InsightsActivityRetrieve2Format;
     };
 
-    export type InsightsActivityRetrieveFormat = typeof InsightsActivityRetrieveFormat[keyof typeof InsightsActivityRetrieveFormat];
+    export type InsightsActivityRetrieve2Format = typeof InsightsActivityRetrieve2Format[keyof typeof InsightsActivityRetrieve2Format];
 
 
-    export const InsightsActivityRetrieveFormat = {
+    export const InsightsActivityRetrieve2Format = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -36510,14 +36629,26 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsAllActivityRetrieveParams = {
-    format?: InsightsAllActivityRetrieveFormat;
+    export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat;
     };
 
-    export type InsightsAllActivityRetrieveFormat = typeof InsightsAllActivityRetrieveFormat[keyof typeof InsightsAllActivityRetrieveFormat];
+    export type InsightsActivityRetrieveFormat = typeof InsightsActivityRetrieveFormat[keyof typeof InsightsActivityRetrieveFormat];
 
 
-    export const InsightsAllActivityRetrieveFormat = {
+    export const InsightsActivityRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkUpdateTagsCreateParams = {
+    format?: InsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type InsightsBulkUpdateTagsCreateFormat = typeof InsightsBulkUpdateTagsCreateFormat[keyof typeof InsightsBulkUpdateTagsCreateFormat];
+
+
+    export const InsightsBulkUpdateTagsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -36582,7 +36713,7 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type IntegrationsListParams = {
+    export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -36907,14 +37038,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsActivityRetrieveParams = {
-    format?: PersonsActivityRetrieveFormat;
+    export type PersonsActivityRetrieve2Params = {
+    format?: PersonsActivityRetrieve2Format;
     };
 
-    export type PersonsActivityRetrieveFormat = typeof PersonsActivityRetrieveFormat[keyof typeof PersonsActivityRetrieveFormat];
+    export type PersonsActivityRetrieve2Format = typeof PersonsActivityRetrieve2Format[keyof typeof PersonsActivityRetrieve2Format];
 
 
-    export const PersonsActivityRetrieveFormat = {
+    export const PersonsActivityRetrieve2Format = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -36967,14 +37098,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsAllActivityRetrieveParams = {
-    format?: PersonsAllActivityRetrieveFormat;
+    export type PersonsActivityRetrieveParams = {
+    format?: PersonsActivityRetrieveFormat;
     };
 
-    export type PersonsAllActivityRetrieveFormat = typeof PersonsAllActivityRetrieveFormat[keyof typeof PersonsAllActivityRetrieveFormat];
+    export type PersonsActivityRetrieveFormat = typeof PersonsActivityRetrieveFormat[keyof typeof PersonsActivityRetrieveFormat];
 
 
-    export const PersonsAllActivityRetrieveFormat = {
+    export const PersonsActivityRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -37520,7 +37651,7 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type SurveysStatsRetrieveParams = {
+    export type SurveysStatsRetrieve2Params = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */
@@ -37531,7 +37662,7 @@ export namespace Schemas {
     date_to?: string;
     };
 
-    export type SurveysGlobalStatsRetrieveParams = {
+    export type SurveysStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */
