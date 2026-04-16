@@ -425,6 +425,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadRecords()
+        // Only needed for the missing_reverse_proxy notice, which requires both conditions.
+        // Avoids a network request on ~93% of page loads.
+        if (new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')) {
+            actions.loadRecords()
+        }
     }),
 ])
