@@ -210,6 +210,65 @@ class PropertySwapper(CloningVisitor):
         self.context = context
         self.setTimeZones = setTimeZones
         self._inside_call_depth = 0
+        self._inside_where_depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        # We need to track when we're inside WHERE/PREWHERE so that the
+        # toTimeZone stripping only fires where it helps (partition/PK pruning).
+        # Stripping in JOIN ON, SELECT, HAVING etc. is unnecessary.
+        #
+        # The CloningVisitor.visit_select_query visits fields in a fixed order.
+        # We replicate that here, wrapping only where/prewhere with our flag.
+        saved_where_depth = self._inside_where_depth
+        self._inside_where_depth = 0  # each SelectQuery gets its own scope
+
+        # Visit everything except where/prewhere normally (depth=0, no stripping)
+        ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
+        select_from = self.visit(node.select_from)
+        select = [self.visit(expr) for expr in node.select] if node.select else []
+        array_join_list = [self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None
+
+        # Visit where/prewhere with the flag set (depth=1, stripping enabled)
+        self._inside_where_depth = 1
+        where = self.visit(node.where)
+        prewhere = self.visit(node.prewhere)
+        self._inside_where_depth = 0
+
+        having = self.visit(node.having)
+        qualify = self.visit(node.qualify)
+        group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
+        order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+
+        self._inside_where_depth = saved_where_depth  # restore parent scope
+
+        return ast.SelectQuery(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            ctes=ctes,
+            select_from=select_from,
+            select=select,
+            array_join_op=node.array_join_op,
+            array_join_list=array_join_list,
+            where=where,
+            prewhere=prewhere,
+            having=having,
+            qualify=qualify,
+            group_by=group_by,
+            group_by_mode=node.group_by_mode,
+            order_by=order_by,
+            limit_by=self.visit(node.limit_by),
+            limit=self.visit(node.limit),
+            limit_with_ties=node.limit_with_ties,
+            limit_percent=node.limit_percent,
+            offset=self.visit(node.offset),
+            distinct=node.distinct,
+            window_exprs=(
+                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            ),
+            settings=node.settings.model_copy() if node.settings is not None else None,
+            view_name=node.view_name,
+        )
 
     def visit_call(self, node: ast.Call):
         self._inside_call_depth += 1
@@ -221,7 +280,12 @@ class PropertySwapper(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
 
-        if not self.setTimeZones or result.op not in self._RANGE_OPS or self._inside_call_depth > 0:
+        if (
+            not self.setTimeZones
+            or result.op not in self._RANGE_OPS
+            or self._inside_call_depth > 0
+            or self._inside_where_depth == 0
+        ):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result

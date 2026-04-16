@@ -356,6 +356,24 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone in SELECT for display, got:\n{select_clause}"
 
+    def test_toTimeZone_not_stripped_in_join_on(self):
+        """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
+        sql, _ = self._compile_hogql(
+            "SELECT e.timestamp FROM events e LEFT JOIN events e2 "
+            "ON e.person_id = e2.person_id AND e2.timestamp >= e.timestamp "
+            "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
+            timezone="America/New_York",
+        )
+        # The JOIN ON greaterOrEquals should still have toTimeZone wrapping
+        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql), (
+            f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
+        )
+        # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
+        assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
+            f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"
+        )
+        assert re.search(r"less\(e\.timestamp,", sql), f"Expected bare e.timestamp in WHERE less, got:\n{sql}"
+
     def test_toTimeZone_not_stripped_inside_function_calls(self):
         """toTimeZone should NOT be stripped from comparisons inside function calls."""
         sql, _ = self._compile_hogql(
