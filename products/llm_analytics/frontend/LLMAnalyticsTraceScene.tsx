@@ -1462,7 +1462,9 @@ const EventContent = React.memo(
         // Check if the originally selected event (effectiveEventId) is a generation event
         // This ensures the Evaluations tab stays visible even when viewing Summary at trace level
         const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : null
-        const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
+        const generationEventForEvals = isGenerationEvent
+            ? (event as LLMTraceEvent)
+            : (effectiveEventNode?.event ?? null)
 
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
         const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
@@ -1472,8 +1474,7 @@ const EventContent = React.memo(
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab =
-            (isGenerationEvent || isEffectiveEventGeneration) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+        const showEvalsTab = generationEventForEvals !== null && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1767,7 +1768,7 @@ const EventContent = React.memo(
                                                   <EvalsTabContent
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
-                                                      event={(event as LLMTraceEvent).event}
+                                                      event={generationEventForEvals.event}
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
