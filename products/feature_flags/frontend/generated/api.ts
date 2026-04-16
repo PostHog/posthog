@@ -390,8 +390,8 @@ export const featureFlagsStatusRetrieve = async (
  * Test feature flag evaluation against a specific user at an optional point in time.
 
 This endpoint allows testing how a feature flag would evaluate for a specific user,
-optionally at a historical timestamp. It provides detailed reasoning about why the
-flag matched or didn't match.
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
  */
 export const getFeatureFlagsTestEvaluationCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/test_evaluation/`

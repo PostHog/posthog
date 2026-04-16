@@ -16570,7 +16570,7 @@ export namespace Schemas {
       /** Person ID to test against (mutually exclusive with distinct_id) */
       person_id?: string;
       /**
-       * Optional timestamp to evaluate flag at a specific point in time (ISO format)
+       * Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)
        * @nullable
        */
       timestamp?: string | null;

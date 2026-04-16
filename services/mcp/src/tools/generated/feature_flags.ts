@@ -497,7 +497,7 @@ const featureFlagsTestEvaluationCreate = (): ToolBase<
             }
             const result = await context.api.request<Schemas.FeatureFlagTestEvaluationResponse>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/feature_flags/${params.id}/test_evaluation/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/test_evaluation/`,
                 body,
             })
             return result

@@ -754,8 +754,8 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
  * Test feature flag evaluation against a specific user at an optional point in time.
 
 This endpoint allows testing how a feature flag would evaluate for a specific user,
-optionally at a historical timestamp. It provides detailed reasoning about why the
-flag matched or didn't match.
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
  */
 export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -777,7 +777,9 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
     timestamp: zod.iso
         .datetime({})
         .nullish()
-        .describe('Optional timestamp to evaluate flag at a specific point in time (ISO format)'),
+        .describe(
+            'Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)'
+        ),
     groups: zod
         .string()
         .default(featureFlagsTestEvaluationCreateBodyGroupsDefault)
