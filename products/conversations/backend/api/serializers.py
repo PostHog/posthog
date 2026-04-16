@@ -201,8 +201,6 @@ def validate_url_domain(url: str, team: Team) -> bool:
     attacker with the public widget token from injecting an attacker-controlled
     request_url in the restore flow and having the live token emailed to it.
     """
-    from urllib.parse import urlparse
-
     settings = team.conversations_settings or {}
     domains = settings.get("widget_domains") or []
 
