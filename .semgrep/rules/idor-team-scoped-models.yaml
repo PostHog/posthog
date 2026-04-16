@@ -149,6 +149,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -178,6 +179,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |Subscription
+                              |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
                               |Tag
@@ -339,6 +341,7 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
@@ -368,6 +371,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |Subscription
+                        |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
                         |Tag

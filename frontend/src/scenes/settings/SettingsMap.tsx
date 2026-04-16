@@ -63,6 +63,7 @@ import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
+import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
@@ -115,7 +116,6 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
-import { WebhookIntegration } from './environment/WebhookIntegration'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
@@ -508,6 +508,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'Products',
         settings: [
             {
+                id: 'banner',
+                title: null,
+                component: <ErrorTrackingConfigurationMovedBanner />,
+            },
+            {
                 id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 description:
@@ -756,8 +761,13 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'logs-retention',
                 title: 'Retention',
-                description:
-                    'How long to retain logs before they are automatically deleted. You can only change this setting at most once per 24 hours.',
+                description: (
+                    <span>
+                        How long to retain logs before they are automatically deleted.{' '}
+                        <strong>Changes only affect the retention for new logs</strong>. You can only change this
+                        setting at most once per 24 hours.
+                    </span>
+                ),
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
@@ -1285,15 +1295,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-integrations',
         title: 'Integrations',
         settings: [
-            {
-                id: 'integration-webhooks',
-                title: 'Webhook integration',
-                description:
-                    'Send notifications when selected actions are performed by users. Supports Slack, Microsoft Teams, and Discord.',
-                docsUrl: 'https://posthog.com/docs/webhooks',
-                component: <WebhookIntegration />,
-                keywords: ['notification', 'alert', 'http', 'callback', 'slack', 'teams', 'discord'],
-            },
             {
                 id: 'integration-slack',
                 title: 'Slack integration',

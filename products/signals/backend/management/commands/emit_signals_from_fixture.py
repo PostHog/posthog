@@ -52,7 +52,13 @@ class Command(BaseCommand):
             "--limit",
             type=int,
             default=None,
-            help="Only emit the first N records from the fixture (useful for quick smoke tests)",
+            help="Only emit N records from the fixture (useful for quick smoke tests)",
+        )
+        parser.add_argument(
+            "--offset",
+            type=int,
+            default=0,
+            help="Skip the first N records before applying --limit (0-indexed; e.g. --offset 1 --limit 1 emits only the second record)",
         )
 
     def handle(self, *args, **options):
@@ -78,6 +84,12 @@ class Command(BaseCommand):
             records = json.load(f)
         if not isinstance(records, list):
             raise CommandError(f"Fixture file must contain a JSON array, got {type(records).__name__}")
+
+        offset = options["offset"]
+        if offset < 0:
+            raise CommandError(f"--offset must be a non-negative integer, got {offset}")
+        if offset:
+            records = records[offset:]
 
         limit = options["limit"]
         if limit is not None:

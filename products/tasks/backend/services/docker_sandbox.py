@@ -47,6 +47,7 @@ from .sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    build_agent_runtime_env_prefix,
     parse_sandbox_repo_mount_map,
     wait_for_health_check,
 )
@@ -580,21 +581,31 @@ class DockerSandbox(SandboxBase):
         task_id: str,
         run_id: str,
         mode: str,
+        create_pr: bool,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
     ) -> str:
-        env_prefix = (
-            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        env_prefix = build_agent_runtime_env_prefix(
+            interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
+            provider=provider,
+            model=model,
+            reasoning_effort=reasoning_effort,
         )
+        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         server_cmd = (
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -624,8 +635,13 @@ class DockerSandbox(SandboxBase):
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
     ) -> None:
@@ -661,8 +677,13 @@ class DockerSandbox(SandboxBase):
             task_id,
             run_id,
             mode,
+            create_pr,
             interaction_origin,
             branch,
+            runtime_adapter,
+            provider,
+            model,
+            reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
         )
@@ -688,8 +709,13 @@ class DockerSandbox(SandboxBase):
                 task_id,
                 run_id,
                 mode,
+                create_pr,
                 interaction_origin,
                 branch=None,
+                runtime_adapter=runtime_adapter,
+                provider=provider,
+                model=model,
+                reasoning_effort=reasoning_effort,
                 mcp_servers_arg=mcp_servers_arg,
                 allowed_domains=allowed_domains,
             )

@@ -1,10 +1,11 @@
 import json
+import uuid
 import asyncio
 import datetime as dt
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -20,19 +21,25 @@ from posthog.temporal.exports.types import (
 )
 from posthog.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    create_delivery_record,
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    update_delivery_record,
 )
 from posthog.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
+    DeliverSubscriptionResult,
+    DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionInfo,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
+    UpdateDeliveryRecordInputs,
 )
 
 
@@ -102,6 +109,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     team_id=sub.team_id,
                     distinct_id=sub.distinct_id,
                     trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    scheduled_at=sub.next_delivery_date,
                     slo=SloConfig(
                         operation=SloOperation.SUBSCRIPTION_DELIVERY,
                         area=SloArea.ANALYTIC_PLATFORM,
@@ -158,7 +166,34 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
 
+        # Delivery record tracking
+        delivery_id: uuid.UUID | None = None
+        final_status = DeliveryStatus.SKIPPED
+        delivery_exported_asset_ids: list[int] = []
+        delivery_content_snapshot: dict = {}
+        delivery_recipient_results: list[dict] = []
+
         try:
+            # Create delivery history record — uuid4() is deterministic across
+            # activity retries (replay) but unique across workflow retries.
+            delivery_id = await temporalio.workflow.execute_activity(
+                create_delivery_record,
+                CreateDeliveryRecordInputs(
+                    subscription_id=inputs.subscription_id,
+                    team_id=inputs.team_id,
+                    trigger_type=inputs.trigger_type,
+                    scheduled_at=inputs.scheduled_at,
+                    temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                    idempotency_key=str(temporalio.workflow.uuid4()),
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+
             # Phase 1: Prepare — create ExportedAssets
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
@@ -175,7 +210,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
             if not prepare_result.exported_asset_ids:
+                # No assets to export — SKIPPED status, finalized in finally
                 return
+
+            delivery_exported_asset_ids = prepare_result.exported_asset_ids
+            delivery_content_snapshot["total_insight_count"] = prepare_result.total_insight_count
+            delivery_content_snapshot["insights"] = prepare_result.insight_snapshots
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
             export_tasks = []
@@ -222,7 +262,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # is_new is true for target change triggers, false for scheduled and manual sends
             is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
 
-            await temporalio.workflow.execute_activity(
+            deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
                 deliver_subscription,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
@@ -240,11 +280,61 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 ),
             )
 
+            # Capture per-recipient results for the delivery record
+            delivery_recipient_results = [
+                {
+                    "recipient": r.recipient,
+                    "status": r.status,
+                    **({"error": r.error} if r.error else {}),
+                }
+                for r in deliver_result.recipient_results
+            ]
+            final_status = DeliveryStatus.COMPLETED
+
         except Exception as e:
+            # Preserve recipient outcomes carried in non-retryable delivery errors
+            # (e.g. Slack missing integration) so history isn't empty on failure.
+            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
+                details = e.cause.details
+                if details and isinstance(details[0], dict):
+                    recipient_results = details[0].get("recipient_results")
+                    if isinstance(recipient_results, list):
+                        delivery_recipient_results = recipient_results
             caught_error = e
+            final_status = DeliveryStatus.FAILED
             # Defer the re-raise until after the finally block — see note below.
 
         finally:
+            # Finalize delivery record with whatever state we have
+            if delivery_id is not None:
+                try:
+                    await temporalio.workflow.execute_activity(
+                        update_delivery_record,
+                        UpdateDeliveryRecordInputs(
+                            delivery_id=delivery_id,
+                            status=final_status,
+                            exported_asset_ids=delivery_exported_asset_ids or None,
+                            content_snapshot=delivery_content_snapshot or None,
+                            recipient_results=delivery_recipient_results or None,
+                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
+                            if caught_error
+                            else None,
+                            finished=True,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            initial_interval=dt.timedelta(seconds=5),
+                            maximum_interval=dt.timedelta(minutes=1),
+                            maximum_attempts=3,
+                        ),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
+                    )
+                    if caught_error is None:
+                        raise
+
             # Advance schedule — always for scheduled deliveries, even on failure
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(

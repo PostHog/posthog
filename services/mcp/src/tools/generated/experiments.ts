@@ -41,7 +41,7 @@ const experimentGetAll = (): ToolBase<typeof ExperimentGetAllSchema, WithPostHog
             })
             const filtered = {
                 ...result,
-                results: result.results.map((item: any) =>
+                results: (result.results ?? []).map((item: any) =>
                     pickResponseFields(item, [
                         'id',
                         'name',
@@ -62,7 +62,7 @@ const experimentGetAll = (): ToolBase<typeof ExperimentGetAllSchema, WithPostHog
                 {
                     ...filtered,
                     results: await Promise.all(
-                        filtered.results.map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
+                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
                     ),
                 },
                 '/experiments'
@@ -102,6 +102,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
     only_count_matured_users: true,
+    update_feature_flag_params: true,
 })
 
 const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHogUrl<Schemas.Experiment>> =>
@@ -168,6 +169,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         primary_metrics_ordered_uuids: true,
         secondary_metrics_ordered_uuids: true,
         only_count_matured_users: true,
+        update_feature_flag_params: true,
     }).shape
 )
 

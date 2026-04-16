@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -20,6 +20,7 @@ from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.relations import ManyRelatedField
 
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
@@ -89,6 +90,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
+
+    @staticmethod
+    def _insight_query_value(insight: Any) -> Any:
+        query = cast(dict[str, Any], insight.query)
+        return query["source"]["properties"]["values"][0]["values"][0]["value"]
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -962,7 +968,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         fields = serializer.get_fields()
 
         # The queryset should be empty (fail safe to prevent IDOR)
-        analytics_field = fields["analytics_dashboards"]
+        analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
         self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -2079,7 +2085,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2088,7 +2094,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
 
@@ -2227,7 +2233,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "a-new-feature-flag-key",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2236,7 +2242,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2263,7 +2269,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2272,7 +2278,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
             total_volume_insight.name = "This is a changed description"
@@ -2316,7 +2322,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "a-feature-flag-that-is-updated",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2325,7 +2331,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2352,7 +2358,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2361,12 +2367,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] = (
-                "something_unexpected"
-            )
+            total_volume_query = cast(dict[str, Any], total_volume_insight.query)
+            total_volume_query["source"]["properties"]["values"][0]["values"][0]["value"] = "something_unexpected"
             total_volume_insight.save()
 
             # Update the feature flag key
@@ -2406,7 +2411,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "something_unexpected",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2415,7 +2420,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2442,7 +2447,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2451,11 +2456,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
             # clear the values from total_volume_insight.query["source"]["properties"]["values"]
-            total_volume_insight.query["source"]["properties"]["values"] = []
+            total_volume_query = cast(dict[str, Any], total_volume_insight.query)
+            total_volume_query["source"]["properties"]["values"] = []
             total_volume_insight.save()
 
             # Update the feature flag key
@@ -2495,7 +2501,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"],
+            cast(dict[str, Any], total_volume_insight.query)["source"]["properties"]["values"],
             [],
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2504,7 +2510,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
