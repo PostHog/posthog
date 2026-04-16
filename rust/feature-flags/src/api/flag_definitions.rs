@@ -517,10 +517,12 @@ async fn authenticate_flag_definitions(
     // Try team secret token or project secret API key (from Authorization header only)
     // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let auth_data = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
-        let method = match &auth_data {
-            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
-            _ => "secret_api_key",
+        let (_, _, is_project_secret) =
+            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
         };
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,

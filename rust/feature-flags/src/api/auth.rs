@@ -80,50 +80,26 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
 /// prevents negative-cache poisoning when one source misses but the other would hit.
 ///
 /// Returns the matched TokenAuthData variant on success for metric labeling.
+/// Validates a phs_-prefixed token and checks it belongs to the expected team.
+/// Returns `(team_id, api_token, is_project_secret)` — same as
+/// `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(
     state: &AppState,
     token: &str,
     expected_team_id: i32,
-) -> Result<TokenAuthData, FlagError> {
-    debug!(
-        expected_team_id = expected_team_id,
-        "Validating secret API token for team"
-    );
+) -> Result<(i32, Option<String>, bool), FlagError> {
+    let result = validate_secret_api_token(state, token).await?;
 
-    let token_hash = hash_token_value(token);
-    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let token_owned = token.to_string();
-    let hash_for_loader = token_hash.clone();
-
-    let result = state
-        .auth_token_cache
-        .get_or_load(&token_hash, |_key| {
-            load_token_from_pg(pg_reader, &token_owned, &hash_for_loader)
-        })
-        .await?;
-
-    match result.value {
-        Some(data @ TokenAuthData::Secret { team_id, .. }) if team_id == expected_team_id => {
-            debug!(team_id = team_id, "Secret API token validated");
-            Ok(data)
-        }
-        Some(data @ TokenAuthData::ProjectSecret { team_id, .. })
-            if team_id == expected_team_id =>
-        {
-            debug!(team_id = team_id, "Project secret API key validated");
-            Ok(data)
-        }
-        Some(TokenAuthData::Secret { team_id, .. })
-        | Some(TokenAuthData::ProjectSecret { team_id, .. }) => {
-            warn!(
-                cached_team_id = team_id,
-                expected_team_id = expected_team_id,
-                "Token belongs to a different team"
-            );
-            Err(FlagError::SecretApiTokenInvalid)
-        }
-        _ => Err(FlagError::SecretApiTokenInvalid),
+    if result.0 != expected_team_id {
+        warn!(
+            cached_team_id = result.0,
+            expected_team_id = expected_team_id,
+            "Token belongs to a different team"
+        );
+        return Err(FlagError::SecretApiTokenInvalid);
     }
+
+    Ok(result)
 }
 
 /// Validates a phs_-prefixed token without checking against a specific team.
