@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery
 
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.utils import get_query_insight_name
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
@@ -21,7 +22,7 @@ class DisallowUnsupportedDataWarehouseSettings:
             return
 
         unsupported_settings: list[str] = []
-        if context.query.properties not in (None, []):
+        if has_any_property_filters(context.query.properties):
             unsupported_settings.append("filters")
         if context.query.filterTestAccounts:
             unsupported_settings.append("test account filters")

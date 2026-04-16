@@ -4,7 +4,6 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
@@ -47,6 +46,7 @@ import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTime
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
@@ -288,7 +288,9 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <ExperimentWarningBanner />
                     {showDebugPanel && (
                         <div className="mb-4">
-                            <DebugCHQueries experimentId={typeof experiment.id === 'number' ? experiment.id : null} />
+                            <ExperimentDebugPanel
+                                experimentId={typeof experiment.id === 'number' ? experiment.id : null}
+                            />
                         </div>
                     )}
                     {!usesNewQueryRunner && (

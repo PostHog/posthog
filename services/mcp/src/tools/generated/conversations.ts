@@ -127,6 +127,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at
         }
+        if (params.snoozed_until !== undefined) {
+            body['snoozed_until'] = params.snoozed_until
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }

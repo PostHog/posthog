@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 from django.core.paginator import Paginator
 from django.utils.timezone import now
@@ -284,5 +284,5 @@ def _execute_insert(states: list[Optional[InsightCachingState]]):
 
     with connection.cursor() as cursor:
         query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
-        cursor.execute(query, params=params)
+        cursor.execute(query, params=cast(list[Any], params))
         INSIGHT_CACHING_STATES_UPSERTED_COUNT.inc(cursor.rowcount)
