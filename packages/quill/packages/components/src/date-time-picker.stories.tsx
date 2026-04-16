@@ -9,15 +9,10 @@ import { DateTimePicker, type DateTimeValue } from './date-time-picker'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'
 
-// Layout is `padded` (block flow) not `centered` (flex): the picker uses CSS
-// container queries with `container-type: inline-size`, and inside a flex parent
-// without definite width the card collapses to min-content and the responsive
-// layout breaks. Block parents give the card its parent's full inline size.
 const meta = {
     title: 'Components/DateTimePicker',
     component: DateTimePicker,
     tags: ['autodocs'],
-    parameters: { layout: 'padded' },
 } satisfies Meta<typeof DateTimePicker>
 
 export default meta
@@ -126,10 +121,6 @@ export const NarrowContainer: Story = {
     args: baseArgs,
     render: () => {
         const [value, setValue] = React.useState<DateTimeValue>(initialValue)
-        return (
-            <div className="w-[22rem] rounded-lg ring-1 ring-border p-2">
-                <DateTimePicker value={value} onApply={setValue} />
-            </div>
-        )
+        return <DateTimePicker value={value} onApply={setValue} compact />
     },
 }

@@ -67,6 +67,7 @@ export interface DateTimePickerProps {
     dateFormat?: DateFormatOrder
     weekStartsOn?: Day
     onDateTimeSettings?: () => void
+    compact?: boolean
     className?: string
 }
 
@@ -399,6 +400,7 @@ export function DateTimePicker({
     dateFormat = 'MDY',
     weekStartsOn,
     onDateTimeSettings,
+    compact = false,
     className,
 }: DateTimePickerProps): React.ReactElement {
     const [start, setStart] = React.useState<Date>(value.start)
@@ -483,76 +485,83 @@ export function DateTimePicker({
     const presentationalStart = format(start, dateTimeFormat)
     const presentationalEnd = format(end, dateTimeFormat)
 
-    // Responsive layout is driven by the card's own width via container queries, not
-    // viewport width — so dropping the picker into a narrow Popover collapses it to
-    // the stacked layout automatically regardless of window size. `min-w-[19rem]`
-    // is a floor so flex parents without definite width can't collapse the card to
-    // min-content (which would break the calendar's grid-cols-7 layout).
     return (
         <div
             className={cn(
-                '@container bg-popover text-popover-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
-                'w-full min-w-[19rem] max-w-[49rem]',
+                'bg-popover text-popover-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
+                compact ? 'w-[19rem]' : 'w-[19rem] lg:w-full max-w-[49rem]',
                 className
             )}
         >
             {/* Headers */}
-            <div className="hidden @[49rem]:grid @[49rem]:grid-cols-[minmax(0,1fr)_10.625rem]">
-                <div className="flex justify-end px-4 py-2 bg-muted/30 border-b border-border rounded-tl-lg">
-                    <span className="text-xs text-muted-foreground">Custom</span>
+            {!compact && (
+                <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_10.625rem]">
+                    <div className="flex justify-end px-4 py-2 bg-muted/30 border-b border-border rounded-tl-lg">
+                        <span className="text-xs text-muted-foreground">Custom</span>
+                    </div>
+                    <div className="flex justify-end px-4 py-2 bg-muted/30 border-b border-l border-border rounded-tr-lg">
+                        <span className="text-xs text-muted-foreground">Quick ranges</span>
+                    </div>
                 </div>
-                <div className="flex justify-end px-4 py-2 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                    <span className="text-xs text-muted-foreground">Quick ranges</span>
-                </div>
-            </div>
+            )}
 
             {/* Body */}
-            <div className="flex flex-col @[49rem]:grid @[49rem]:grid-cols-[minmax(0,1fr)_10.625rem]">
+            <div className={compact
+                ? 'flex flex-col'
+                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_10.625rem]'
+            }>
                 {/* Calendars column */}
-                <div className="order-1 @[49rem]:order-none">
+                <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
                     {/* Inputs */}
-                    <div className="hidden @[49rem]:flex justify-center items-center p-4 pb-1">
-                        <div className="flex items-center gap-2">
-                            {onDateTimeSettings && (
+                    {!compact && (
+                        <div className="hidden lg:flex justify-center items-center p-4 pb-1">
+                            <div className="flex items-center gap-2">
+                                {onDateTimeSettings && (
+                                    <Button
+                                        size="icon-sm"
+                                        onClick={onDateTimeSettings}
+                                        aria-label="Date and time settings"
+                                        title="Date and time settings"
+                                        className="text-muted-foreground hover:text-foreground"
+                                    >
+                                        <SettingsIcon className="w-4 h-4" />
+                                    </Button>
+                                )}
+                                <DateTimeInput date={start} onChange={handleStartChange} dateFormat={dateFormat} />
+                                <span className="text-xs text-muted-foreground">to</span>
+                                <DateTimeInput date={end} onChange={handleEndChange} dateFormat={dateFormat} />
                                 <Button
-                                    size="icon-sm"
-                                    onClick={onDateTimeSettings}
-                                    aria-label="Date and time settings"
-                                    title="Date and time settings"
-                                    className="text-muted-foreground hover:text-foreground"
+                                    variant="link"
+                                    size="sm"
+                                    onClick={handleNow}
+                                    aria-label="Set end to now"
+                                    title="Set end to now"
                                 >
-                                    <SettingsIcon className="w-4 h-4" />
+                                    Now
                                 </Button>
-                            )}
-                            <DateTimeInput date={start} onChange={handleStartChange} dateFormat={dateFormat} />
-                            <span className="text-xs text-muted-foreground">to</span>
-                            <DateTimeInput date={end} onChange={handleEndChange} dateFormat={dateFormat} />
-                            <Button
-                                variant="link"
-                                size="sm"
-                                onClick={handleNow}
-                                aria-label="Set end to now"
-                                title="Set end to now"
-                            >
-                                Now
-                            </Button>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Calendars */}
-                    <div className="flex flex-col @[49rem]:flex-row justify-between">
-                        <div className="p-3 hidden @[49rem]:block">
-                            <Calendar
-                                defaultViewing={leftViewing}
-                                startDate={start}
-                                endDate={end}
-                                maxDate={maxDate}
-                                onSelect={handleSelect}
-                                onViewChange={setLeftViewing}
-                                siblingViewing={rightViewing}
-                                weekStartsOn={weekStartsOn}
-                            />
-                        </div>
+                    <div className={compact
+                        ? 'flex flex-col justify-between'
+                        : 'flex flex-col lg:flex-row justify-between'
+                    }>
+                        {!compact && (
+                            <div className="p-3 hidden lg:block">
+                                <Calendar
+                                    defaultViewing={leftViewing}
+                                    startDate={start}
+                                    endDate={end}
+                                    maxDate={maxDate}
+                                    onSelect={handleSelect}
+                                    onViewChange={setLeftViewing}
+                                    siblingViewing={rightViewing}
+                                    weekStartsOn={weekStartsOn}
+                                />
+                            </div>
+                        )}
                         <div className="p-3">
                             <Calendar
                                 defaultViewing={rightViewing}
@@ -561,28 +570,32 @@ export function DateTimePicker({
                                 maxDate={maxDate}
                                 onSelect={handleSelect}
                                 onViewChange={setRightViewing}
-                                siblingViewing={leftViewing}
+                                siblingViewing={compact ? undefined : leftViewing}
                                 weekStartsOn={weekStartsOn}
                             />
                         </div>
                     </div>
                 </div>
 
-                {/* Quick ranges column
-                 * Wide layout: cell is `@[49rem]:relative`; ScrollArea is absolutely
-                 * positioned so the grid cell takes height from the calendar sibling
-                 * (inputs row + calendars row combined) and the list scrolls inside.
-                 * Narrow layout: ScrollArea in normal flow with flex-row content and
-                 * horizontal scroll inside the card. */}
-                <div className="order-0 @[49rem]:order-none @[49rem]:relative @[49rem]:border-l @[49rem]:border-border border-b border-border @[49rem]:border-b-0">
-                    <ScrollArea className="w-full @[49rem]:absolute @[49rem]:inset-0">
-                        <ul className="flex flex-row @[49rem]:flex-col p-3 gap-px max-h-[388px]">
+                {/* Quick ranges column */}
+                <div className={compact
+                    ? 'order-0 border-b border-border'
+                    : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                }>
+                    <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
+                        <ul className={compact
+                            ? 'flex flex-row p-3 gap-px max-h-[388px]'
+                            : 'flex flex-row lg:flex-col p-3 gap-px max-h-[388px]'
+                        }>
                             {quickRanges.slice(1).map((quick) => (
-                                <li key={quick.id} className="@[49rem]:w-full">
+                                <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
                                     <Button
                                         variant="default"
                                         left
-                                        className="whitespace-nowrap @[49rem]:w-full @[49rem]:justify-start"
+                                        className={compact
+                                            ? 'whitespace-nowrap'
+                                            : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                        }
                                         aria-selected={range.id === quick.id}
                                         aria-label={`Choose ${quick.name.toLowerCase()}`}
                                         title={quick.name}
