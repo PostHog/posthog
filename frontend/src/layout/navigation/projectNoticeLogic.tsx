@@ -64,6 +64,11 @@ function storeNoticeDismissal(key: string): void {
     }
 }
 
+/** Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched). */
+function shouldFetchProxyRecords(): boolean {
+    return new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
@@ -206,11 +211,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Only show the reverse proxy nudge on Cloud (or dev) — self-hosted users
                     // control their own infrastructure and don't need managed proxies.
                     isCloudOrDev &&
-                    // Only show during the first 7 days of each month.
-                    // Showing it all the time causes people to ignore it — surfacing it periodically
-                    // keeps it noticeable and drives more adoption.
-                    new Date().getDate() <= 7 &&
-                    !isNoticeDismissed('missing_reverse_proxy') &&
+                    shouldFetchProxyRecords() &&
                     proxyRecords !== null &&
                     proxyRecords.length === 0
                 ) {
@@ -425,9 +426,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        // Only needed for the missing_reverse_proxy notice, which requires both conditions.
-        // Avoids a network request on ~93% of page loads.
-        if (new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')) {
+        if (shouldFetchProxyRecords()) {
             actions.loadRecords()
         }
     }),

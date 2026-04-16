@@ -34,24 +34,13 @@ describe('projectNoticeLogic', () => {
             jest.useRealTimers()
         })
 
-        it('does not load proxy records when day of month is > 7', async () => {
+        it.each([
+            { label: 'day of month is > 7', date: new Date(2026, 3, 15), dismissed: false },
+            { label: 'notice is dismissed', date: new Date(2026, 3, 3), dismissed: true },
+        ])('does not load proxy records when $label', async ({ date, dismissed }) => {
             jest.useFakeTimers()
-            jest.setSystemTime(new Date(2026, 3, 15)) // April 15
-
-            const logic = projectNoticeLogic()
-            logic.mount()
-
-            await expectLogic(logic).toNotHaveDispatchedActions(['loadRecords'])
-            expect(logic.values.proxyRecords).toBeNull()
-
-            logic.unmount()
-        })
-
-        it('does not load proxy records when notice is dismissed', async () => {
-            jest.useFakeTimers()
-            jest.setSystemTime(new Date(2026, 3, 3)) // April 3
-
-            getItemSpy.mockImplementation((key: string) => (key === DISMISS_KEY ? 'true' : null))
+            jest.setSystemTime(date)
+            getItemSpy.mockImplementation((key: string) => (dismissed && key === DISMISS_KEY ? 'true' : null))
 
             const logic = projectNoticeLogic()
             logic.mount()
