@@ -38,8 +38,8 @@ class GuestResourceGrant(ModelActivityMixin, UUIDTModel):
     )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=True)
-    resource = models.CharField(max_length=32, choices=Resource.choices, db_index=True)
-    resource_id = models.BigIntegerField(db_index=True)
+    resource = models.CharField(max_length=32, choices=Resource.choices)
+    resource_id = models.BigIntegerField()
 
     is_pending = models.BooleanField(default=True, db_index=True)
     """True while the grant is attached to an unaccepted invite. Flips to False when the invite
@@ -52,6 +52,12 @@ class GuestResourceGrant(ModelActivityMixin, UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["team", "resource", "resource_id"],
+                name="guest_grant_team_resource_idx",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["organization_membership", "team", "resource", "resource_id"],
