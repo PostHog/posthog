@@ -8,6 +8,7 @@ const STATE_CONFIG: Record<LogsAlertConfigurationStateEnumApi, { label: string; 
     [LogsAlertConfigurationStateEnumApi.PendingResolve]: { label: 'Resolving', type: 'warning' },
     [LogsAlertConfigurationStateEnumApi.Errored]: { label: 'Errored', type: 'danger' },
     [LogsAlertConfigurationStateEnumApi.Snoozed]: { label: 'Snoozed', type: 'muted' },
+    [LogsAlertConfigurationStateEnumApi.Broken]: { label: 'Broken', type: 'danger' },
 }
 
 export function LogsAlertStateIndicator({ state }: { state: LogsAlertConfigurationStateEnumApi }): JSX.Element {

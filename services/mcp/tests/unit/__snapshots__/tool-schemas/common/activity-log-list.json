@@ -12,7 +12,7 @@
             "type": "number"
         },
         "page_size": {
-            "default": 100,
+            "default": 10,
             "description": "Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
             "maximum": 1000,
             "minimum": 1,

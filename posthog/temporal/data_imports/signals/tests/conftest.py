@@ -96,6 +96,34 @@ def zendesk_ticket_record() -> dict:
     return {**MOCK_ZENDESK_TICKET_RECORD}
 
 
+MOCK_CONVERSATIONS_TICKET_RECORD: dict = {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "ticket_number": 17,
+    "channel_source": "widget",
+    "channel_detail": "widget_embedded",
+    "status": "open",
+    "priority": "high",
+    "created_at": "2025-06-10T14:30:00Z",
+    "email_subject": None,
+    "messages": [
+        (
+            "customer",
+            "Hi, I'm trying to create a funnel but it keeps showing 0 results even though I know there are events.",
+        ),
+        ("team", "Could you share a screenshot of your funnel setup? Also, which date range are you using?"),
+        (
+            "customer",
+            "Sure, here's a screenshot. I'm using the last 7 days. The events show up in the activity feed but the funnel is empty.",
+        ),
+    ],
+}
+
+
 @pytest.fixture
 def linear_issue_record() -> dict:
     return {**MOCK_LINEAR_ISSUE_RECORD}
+
+
+@pytest.fixture
+def conversations_ticket_record() -> dict:
+    return {**MOCK_CONVERSATIONS_TICKET_RECORD}

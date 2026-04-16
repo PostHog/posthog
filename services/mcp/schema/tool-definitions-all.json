@@ -583,21 +583,6 @@
             "readOnlyHint": false
         }
     },
-    "activity-logs-list": {
-        "description": "List recent activity logs for the project. Shows who changed what and when — includes feature flag updates, insight creations, dashboard modifications, experiment launches, and other project changes. Use scope parameter to filter by resource type (e.g. \"FeatureFlag\", \"Insight\", \"Dashboard\", \"Experiment\", \"Survey\", \"Cohort\"). Use item_id to filter changes for a specific resource. Returns results ordered by most recent first. Each result includes: user (who performed the action with first_name and email), activity (e.g. \"created\", \"updated\", \"deleted\"), scope (entity type like \"FeatureFlag\"), item_id (ID of the affected resource), detail (structured JSON with name, short_id, and a changes array where each change has type, action, field, before, and after values), and created_at timestamp.",
-        "category": "Activity logs",
-        "feature": "activity_logs",
-        "summary": "List activity logs",
-        "title": "List activity logs",
-        "required_scopes": ["activity_log:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "alerts-list": {
         "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID via query parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
         "category": "Alerts",
