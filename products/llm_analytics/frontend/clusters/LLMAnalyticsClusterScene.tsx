@@ -315,8 +315,10 @@ function TraceListItem({
 
     // For eval list items, the link should jump to the *linked generation* that the
     // evaluator was judging. traceId in summary is $ai_trace_id; generationId is the
-    // $ai_target_event_id of the eval.
-    const evalLinkedTraceId = summary?.traceId || traceInfo.trace_id
+    // $ai_target_event_id of the eval. Only use summary.traceId — traceInfo.trace_id
+    // is the backend's eval-uuid fallback for items whose metadata couldn't be
+    // resolved, and routing to /traces/<eval_uuid> 404s.
+    const evalLinkedTraceId = summary?.traceId
     const evalLinkedGenerationId = summary?.generationId
 
     const linkHref = isEvalLevel

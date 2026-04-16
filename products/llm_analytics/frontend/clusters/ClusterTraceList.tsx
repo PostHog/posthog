@@ -82,7 +82,12 @@ function TraceListItem({
     // Its "trace" context is whatever the evaluator was judging — we jump to the
     // parent trace with the linked generation uuid highlighted, so the user
     // lands directly on the generation the evaluator reacted to.
-    const evalLinkedTraceId = summary?.traceId || traceInfo.trace_id
+    //
+    // Only use summary.traceId — the backend falls back to `trace_id = eval_uuid`
+    // for cluster items whose metadata join couldn't resolve (events older than
+    // METADATA_LOOKBACK), and routing to `/traces/<eval_uuid>` 404s. Hiding the
+    // link when summary hasn't loaded is the right signal.
+    const evalLinkedTraceId = summary?.traceId
     const evalLinkedGenerationId = summary?.generationId
 
     const linkHref = isEvalLevel

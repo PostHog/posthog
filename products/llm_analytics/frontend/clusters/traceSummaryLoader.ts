@@ -87,6 +87,9 @@ async function loadEvaluationSummaries(
     windowStart: string,
     windowEnd: string
 ): Promise<Record<string, TraceSummary>> {
+    // Cluster members can include eval events from Stage B's embedding lookback,
+    // which extends a few days past the UI's run-day window. Widen by 7 days on
+    // the leading edge so we catch all members while still pruning partitions.
     const response = await api.queryHogQL(
         hogql`
             SELECT
@@ -101,8 +104,8 @@ async function loadEvaluationSummaries(
                 timestamp
             FROM events
             WHERE event = '$ai_evaluation'
-                AND timestamp >= parseDateTimeBestEffort(${windowStart})
-                AND timestamp <= parseDateTimeBestEffort(${windowEnd})
+                AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
+                AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
                 AND toString(uuid) IN ${evalIds}
             LIMIT 10000
         `,
