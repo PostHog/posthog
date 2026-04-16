@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 
@@ -14,11 +13,28 @@ from products.tasks.backend.services.local_skills import (
     populate_skills_directory,
 )
 
-PATCH_TARGET = "products.tasks.backend.services.local_skills.subprocess.run"
+PATCH_TARGET = "products.posthog_ai.scripts.build_skills.SkillBuilder"
 
 
-def _ok(returncode: int = 0, stdout: str = "", stderr: str = "") -> MagicMock:
-    return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+def _mock_builder(cache: LocalSkillsCache, *, produce_files: bool = True):
+    """Return a mock SkillBuilder whose build_all populates dist_dir."""
+    mock_cls = MagicMock()
+    manifest = MagicMock()
+
+    if produce_files:
+        manifest.resources = [MagicMock()]
+
+        def side_effect(*_args, **_kwargs):
+            cache.dist_dir.mkdir(parents=True, exist_ok=True)
+            (cache.dist_dir / "built.md").write_text("rendered")
+            return manifest
+
+        mock_cls.return_value.build_all.side_effect = side_effect
+    else:
+        manifest.resources = []
+        mock_cls.return_value.build_all.return_value = manifest
+
+    return mock_cls
 
 
 class TestLocalSkills(BaseTest):
@@ -31,11 +47,6 @@ class TestLocalSkills(BaseTest):
         self.cache = LocalSkillsCache(self.base_dir)
 
     def _make_fake_repo(self) -> None:
-        """Lay out a minimal synthetic repo that LocalSkillsCache can hash.
-
-        One product skill plus a stub build_skills.py so the hash covers
-        both source classes the production code cares about.
-        """
         skill_dir = self.base_dir / "products" / "alpha" / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("# skill body\n")
@@ -45,7 +56,6 @@ class TestLocalSkills(BaseTest):
         (scripts_dir / "build_skills.py").write_text("# stub renderer\n")
 
     def _seed_dist(self, filename: str = "placeholder.md") -> Path:
-        """Pre-populate dist/skills/ as if a prior build had produced output."""
         self.cache.dist_dir.mkdir(parents=True, exist_ok=True)
         target = self.cache.dist_dir / filename
         target.write_text("rendered content")
@@ -55,44 +65,51 @@ class TestLocalSkills(BaseTest):
         self._seed_dist()
         self.cache.hash_file.write_text(self.cache._compute_source_hash())
 
-        with patch(PATCH_TARGET) as run_mock:
+        with patch(PATCH_TARGET) as mock_cls:
             result = self.cache.ensure_built()
 
         self.assertEqual(result, self.cache.dist_dir)
-        run_mock.assert_not_called()
+        mock_cls.assert_not_called()
 
     def test_ensure_built_build_success_writes_hash(self) -> None:
-        def fake_run(*args, **kwargs):
-            self.cache.dist_dir.mkdir(parents=True, exist_ok=True)
-            (self.cache.dist_dir / "built.md").write_text("rendered")
-            return _ok()
+        mock_cls = _mock_builder(self.cache)
 
-        with patch(PATCH_TARGET, side_effect=fake_run) as run_mock:
+        with patch(PATCH_TARGET, mock_cls):
             result = self.cache.ensure_built()
 
-        run_mock.assert_called_once()
+        mock_cls.return_value.build_all.assert_called_once()
         self.assertEqual(result, self.cache.dist_dir)
         self.assertEqual(self.cache.hash_file.read_text(), self.cache._compute_source_hash())
 
     def test_ensure_built_build_failure_with_populated_dist_pins_hash(self) -> None:
-        # Regression test for the "missing hash after fallback" bug: the
-        # fallback branch must pin the hash so subsequent runs hit the cache
-        # instead of re-invoking the failing subprocess every time.
         self._seed_dist()
         expected_hash = self.cache._compute_source_hash()
 
-        with patch(PATCH_TARGET, return_value=_ok(returncode=1, stderr="boom")):
+        mock_cls = MagicMock()
+        mock_cls.return_value.build_all.side_effect = RuntimeError("boom")
+
+        with patch(PATCH_TARGET, mock_cls):
             result = self.cache.ensure_built()
 
         self.assertEqual(result, self.cache.dist_dir)
         self.assertEqual(self.cache.hash_file.read_text(), expected_hash)
 
     def test_ensure_built_build_failure_with_empty_dist_raises(self) -> None:
-        with patch(PATCH_TARGET, return_value=_ok(returncode=1, stderr="boom")):
+        mock_cls = MagicMock()
+        mock_cls.return_value.build_all.side_effect = RuntimeError("boom")
+
+        with patch(PATCH_TARGET, mock_cls):
             with self.assertRaisesRegex(RuntimeError, "hogli build:skills"):
                 self.cache.ensure_built()
 
         self.assertFalse(self.cache.hash_file.exists())
+
+    def test_ensure_built_empty_manifest_raises(self) -> None:
+        mock_cls = _mock_builder(self.cache, produce_files=False)
+
+        with patch(PATCH_TARGET, mock_cls):
+            with self.assertRaisesRegex(RuntimeError, "hogli build:skills"):
+                self.cache.ensure_built()
 
     def test_hash_reacts_to_relevant_changes_only(self) -> None:
         skill_file = self.base_dir / "products" / "alpha" / "skills" / "my-skill" / "SKILL.md"
@@ -100,23 +117,18 @@ class TestLocalSkills(BaseTest):
 
         baseline = self.cache._compute_source_hash()
 
-        # Editing a skill file must bust the cache.
         original_skill = skill_file.read_text()
         skill_file.write_text(original_skill + "edit\n")
         self.assertNotEqual(self.cache._compute_source_hash(), baseline)
         skill_file.write_text(original_skill)
         self.assertEqual(self.cache._compute_source_hash(), baseline)
 
-        # Editing the renderer script must bust the cache.
         original_builder = builder_script.read_text()
         builder_script.write_text(original_builder + "edit\n")
         self.assertNotEqual(self.cache._compute_source_hash(), baseline)
         builder_script.write_text(original_builder)
         self.assertEqual(self.cache._compute_source_hash(), baseline)
 
-        # Irrelevant files must not bust the cache: ambient __pycache__
-        # entries and files outside products/*/skills/ should be ignored
-        # so git state and stale bytecode don't trigger needless rebuilds.
         pycache = skill_file.parent / "__pycache__"
         pycache.mkdir()
         (pycache / "x.pyc").write_bytes(b"\x00\x01")
@@ -125,22 +137,18 @@ class TestLocalSkills(BaseTest):
         (unrelated / "y.md").write_text("irrelevant")
         self.assertEqual(self.cache._compute_source_hash(), baseline)
 
-    def test_build_subprocess_argv_is_stable(self) -> None:
-        def fake_run(*args, **kwargs):
-            self.cache.dist_dir.mkdir(parents=True, exist_ok=True)
-            (self.cache.dist_dir / "built.md").write_text("x")
-            return _ok()
+    def test_build_invokes_skill_builder_correctly(self) -> None:
+        mock_cls = _mock_builder(self.cache)
 
-        with patch(PATCH_TARGET, side_effect=fake_run) as run_mock:
+        with patch(PATCH_TARGET, mock_cls):
             self.cache.ensure_built()
 
-        args, kwargs = run_mock.call_args
-        argv = args[0]
-        self.assertEqual(argv[0], sys.executable)
-        self.assertTrue(argv[1].endswith("products/posthog_ai/scripts/build_skills.py"))
-        self.assertEqual(kwargs["cwd"], str(self.base_dir))
-        self.assertEqual(kwargs["timeout"], 300)
-        self.assertEqual(kwargs["env"]["DJANGO_SETTINGS_MODULE"], "posthog.settings")
+        mock_cls.assert_called_once_with(
+            self.base_dir,
+            self.base_dir / "products",
+            self.base_dir / "products" / "posthog_ai",
+        )
+        mock_cls.return_value.build_all.assert_called_once()
 
     def test_populate_skills_directory_copies_nested_layout(self) -> None:
         dist_dir = self.base_dir / BUILT_SKILLS_RELATIVE_PATH
@@ -148,7 +156,6 @@ class TestLocalSkills(BaseTest):
         skill_refs.mkdir(parents=True)
         (skill_refs / "foo.md").write_text("ref body")
 
-        # __pycache__ under the source must not be mirrored.
         pycache = dist_dir / "my-skill" / "__pycache__"
         pycache.mkdir()
         (pycache / "x.pyc").write_bytes(b"\x00")
@@ -180,7 +187,5 @@ class TestLocalSkills(BaseTest):
         self.assertTrue(any("No rendered skills" in msg for msg in captured.output))
 
     def test_module_constants_are_stable(self) -> None:
-        # These are referenced from docker_sandbox, modal_sandbox, and the
-        # eval harness conftest — a rename here should be explicit.
         self.assertEqual(BUILD_HASH_FILENAME, ".build-hash")
         self.assertEqual(BUILT_SKILLS_RELATIVE_PATH, Path("products/posthog_ai/dist/skills"))

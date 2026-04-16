@@ -20,11 +20,9 @@ destination directory — used by the Modal build-context path.
 from __future__ import annotations
 
 import os
-import sys
 import shutil
 import hashlib
 import logging
-import subprocess
 from pathlib import Path
 
 from django.conf import settings
@@ -96,11 +94,10 @@ class LocalSkillsCache:
         Priority:
 
         1. Content hash matches last build → reuse ``dist/skills`` as-is.
-        2. Subprocess build succeeds → use its fresh output.
+        2. In-process build succeeds → use its fresh output.
         3. Build fails but ``dist/skills`` is already populated → reuse it
            with a warning. Keeps things working when the renderer breaks
-           for unrelated reasons (a broken transitive dep, or missing DB
-           access inside pytest).
+           for unrelated reasons.
         4. Otherwise raise.
 
         Never falls back to ``.agents/skills/`` — that directory is the
@@ -150,29 +147,12 @@ class LocalSkillsCache:
             return False
 
     def _build(self, source_hash: str) -> None:
-        # Run the builder in a subprocess. SkillBuilder pulls in Jinja2
-        # helpers that use freezegun for deterministic rendering; when those
-        # helpers crash mid-init (e.g. on a broken transformers version)
-        # freezegun leaks a partial monkey-patch on ``time.time`` that
-        # poisons the entire parent process — breaking S3 request signing,
-        # freezing pytest timers, etc. Isolating the build in a child
-        # process bounds the blast radius to that child.
-        script = self.base_dir / "products" / "posthog_ai" / "scripts" / "build_skills.py"
-        env = {**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"}
-        result = subprocess.run(
-            [sys.executable, str(script)],
-            cwd=str(self.base_dir),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"build_skills.py exited {result.returncode}\n"
-                f"stdout: {result.stdout[-2000:]}\n"
-                f"stderr: {result.stderr[-2000:]}"
-            )
+        from products.posthog_ai.scripts.build_skills import SkillBuilder
+
+        builder = SkillBuilder(self.base_dir, self.base_dir / "products", self.base_dir / "products" / "posthog_ai")
+        manifest = builder.build_all()
+        if not manifest.resources:
+            raise RuntimeError("build_skills produced no skills")
 
         self.dist_dir.mkdir(parents=True, exist_ok=True)
         self.hash_file.write_text(source_hash)
