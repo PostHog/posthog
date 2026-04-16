@@ -209,8 +209,13 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests
-        runs-on: depot-ubuntu-latest-4
+        name: Integration Tests (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
