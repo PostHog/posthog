@@ -765,7 +765,6 @@ async def ensure_llm_single_session_summary(
                 posthoganalytics.capture_exception(
                     result,
                     distinct_id=inputs.user_distinct_id_to_log,
-                    properties={"$session_id": inputs.session_id},
                 )
                 logger.exception(
                     f"Error analyzing video segment for session {inputs.session_id}: {result}",

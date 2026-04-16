@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 
+MAX_CONSECUTIVE_FAILURES = 5
+
 
 class AlertState(StrEnum):
     NOT_FIRING = "not_firing"
@@ -11,6 +13,7 @@ class AlertState(StrEnum):
     PENDING_RESOLVE = "pending_resolve"
     ERRORED = "errored"
     SNOOZED = "snoozed"
+    BROKEN = "broken"
 
 
 class NotificationAction(Enum):
@@ -57,6 +60,17 @@ def evaluate_alert_check(
     (CloudWatch-style) for firing, immediate resolution on the first OK
     check, and cooldown suppression.
     """
+    if snapshot.state == AlertState.BROKEN:
+        # Terminal until manual reset — scheduler should already be excluding these,
+        # this is belt-and-braces against a race.
+        return AlertCheckOutcome(
+            new_state=AlertState.BROKEN,
+            notification=NotificationAction.NONE,
+            consecutive_failures=snapshot.consecutive_failures,
+            update_last_notified_at=False,
+            error_message=None,
+        )
+
     if snapshot.state == AlertState.SNOOZED:
         if snapshot.snooze_until is not None and snapshot.snooze_until > now:
             return AlertCheckOutcome(
@@ -71,10 +85,12 @@ def evaluate_alert_check(
         effective_state = snapshot.state
 
     if check.error_message is not None:
+        consecutive_failures = snapshot.consecutive_failures + 1
+        new_state = AlertState.BROKEN if consecutive_failures >= MAX_CONSECUTIVE_FAILURES else AlertState.ERRORED
         return AlertCheckOutcome(
-            new_state=AlertState.ERRORED,
+            new_state=new_state,
             notification=NotificationAction.NONE,
-            consecutive_failures=snapshot.consecutive_failures + 1,
+            consecutive_failures=consecutive_failures,
             update_last_notified_at=False,
             error_message=check.error_message,
         )
@@ -91,7 +107,6 @@ def evaluate_alert_check(
     if effective_state == AlertState.ERRORED:
         effective_state = AlertState.NOT_FIRING
 
-    new_state: AlertState
     notification = NotificationAction.NONE
 
     if effective_state == AlertState.NOT_FIRING:

@@ -862,6 +862,7 @@ class FeatureFlagSerializer(
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
+            assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
@@ -1030,7 +1031,7 @@ class FeatureFlagSerializer(
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(
-                            pk=prop.value, team__project_id=self.context["project_id"]
+                            pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
                         dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
                         for cohort in [initial_cohort, *dependency_cohorts]:

@@ -35,6 +35,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
         setProgress: (sessionId: string, progress: SummarizationProgress | null) => ({ sessionId, progress }),
         setSummary: (sessionId: string, summary: SessionSummaryContent | null) => ({ sessionId, summary }),
         markFeedbackGiven: (sessionId: string) => ({ sessionId }),
+        setSummaryOpen: (sessionId: string, open: boolean) => ({ sessionId, open }),
     }),
     reducers({
         loadingBySessionId: [
@@ -63,6 +64,14 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             {} as Record<string, boolean>,
             {
                 markFeedbackGiven: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
+            },
+        ],
+        openBySessionId: [
+            {} as Record<string, boolean>,
+            {
+                setSummaryOpen: (state, { sessionId, open }) => ({ ...state, [sessionId]: open }),
+                startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
+                setSummary: (state, { sessionId, summary }) => (summary ? { ...state, [sessionId]: true } : state),
             },
         ],
     }),

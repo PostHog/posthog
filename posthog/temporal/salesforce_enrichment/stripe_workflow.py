@@ -39,9 +39,10 @@ from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals, fetch
 
 LOGGER = get_logger(__name__)
 
-# SOQL IN clauses are limited by query length, not cardinality. ~500 UUID
-# org ids the IN list ~ 20k characters —  under the 100k SOQL limit
-_SFDC_LOOKUP_CHUNK_SIZE = 500
+# simple_salesforce sends SOQL as a GET URL parameter, so the HTTP URL/header
+# size limit (~16k) applies rather than the 100k SOQL limit. Each UUID org id
+# is ~40 chars with quotes and commas, so 200 ids ~ 8k — safely under the cap.
+_SFDC_LOOKUP_CHUNK_SIZE = 200
 
 
 def _compose_billing_street(signals: StripeSignals) -> str | None:

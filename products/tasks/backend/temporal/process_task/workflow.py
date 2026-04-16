@@ -506,9 +506,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def send_followup_message(self, message: str) -> None:
+        # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
+        # log below — gaps between the two point at workflow-loop backpressure.
+        workflow.logger.info(
+            "send_followup_signal_received",
+            run_id=self.context.run_id,
+            message_length=len(message),
+        )
         self._pending_followup = message
 
     async def _send_followup_to_sandbox(self, message: str) -> None:
+        workflow.logger.info(
+            "send_followup_dispatch_begin",
+            run_id=self.context.run_id,
+            message_length=len(message),
+        )
         try:
             await workflow.execute_activity(
                 send_followup_to_sandbox,

@@ -79,7 +79,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 button: {
                                     label: 'Understood',
                                     action: () => {
-                                        userLogic.findMounted()?.actions.logout()
+                                        userLogic.findMounted()?.actions.logout(true)
                                     },
                                 },
                                 autoClose: false,
@@ -105,7 +105,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
-                            userLogic.findMounted()?.actions.logout()
+                            userLogic.findMounted()?.actions.logout(true)
                         }
                     })
                 }
