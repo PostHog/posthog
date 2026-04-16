@@ -66,7 +66,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
         # If we add other forms of 2FA we need to use default_device here instead
         # But not using that here as it increased the number of queries we did by a lot
-        return TOTPDevice.objects.filter(user=instance.user, name="default").exists()
+        return TOTPDevice.objects.filter(user=instance.user).exists()
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0

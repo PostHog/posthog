@@ -64,7 +64,8 @@ def download(request, *args, **kwargs) -> HttpResponse:
     except UploadedMedia.DoesNotExist:
         return HttpResponse(status=404)
 
-    assert instance.media_location is not None
+    if instance.media_location is None:
+        return HttpResponse(status=404)
     file_bytes = object_storage.read_bytes(instance.media_location)
 
     statsd.incr(
@@ -111,7 +112,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 # to save having to copy the stream so that we can read it to verify the image,
                 # save it to minio anyway and then delete the record if it's not valid
-                assert uploaded_media.media_location is not None
+                if uploaded_media.media_location is None:
+                    raise APIException("Could not read uploaded media")
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
                     statsd.incr(
