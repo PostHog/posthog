@@ -10,9 +10,6 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
-
-import { SessionRecordingSidebarTab } from '~/types'
 
 import { SessionGroupSummaryDetailsMetadata } from './SessionGroupSummaryDetailsMetadata'
 import { PatternAssignedEventSegmentContext } from './types'
@@ -34,7 +31,6 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
     }
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setTab } = useActions(playerSidebarLogic)
     const { setSidebarOpen } = useActions(playerSettingsLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { sessionSummary } = useValues(playerMetaLogic(logicProps))
@@ -46,17 +42,14 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
             seekToTime(timeToSeekTo(event.target_event.milliseconds_since_start))
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
-    // Automatically open sidebar, select AI summary tab, and trigger summary fetch when modal opens
     useEffect(() => {
         if (isOpen && sessionPlayerData) {
             setSidebarOpen(true)
-            setTab(SessionRecordingSidebarTab.SESSION_SUMMARY)
-            // Only trigger summary fetch if it hasn't been fetched yet
             if (!sessionSummary) {
                 summarizeSession()
             }
         }
-    }, [isOpen, sessionPlayerData, sessionSummary, setSidebarOpen, setTab, summarizeSession])
+    }, [isOpen, sessionPlayerData, sessionSummary, setSidebarOpen, summarizeSession])
     // Handle conditional rendering after all hooks
     if (!event || !event.target_event) {
         return <></>

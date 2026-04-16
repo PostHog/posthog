@@ -272,13 +272,14 @@ export const SessionRecordingPreview = memo(
 
         const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-        const { loadingBySessionId } = useValues(sessionSummaryProgressLogic)
+        const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
         const { startSummarization } = useActions(sessionSummaryProgressLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const summaryEnabled =
             !!featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || !!featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]
         const isSummarizing = !!loadingBySessionId[recording.id]
-        const hasSummary = !!recording.summary_outcome?.description
+        const summaryOutcome = recording.summary_outcome ?? summaryBySessionId[recording.id]?.session_outcome ?? null
+        const hasSummary = !!summaryOutcome?.description
 
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading
@@ -372,14 +373,12 @@ export const SessionRecordingPreview = memo(
                                 <Tooltip title="Generating summary…">
                                     <Spinner className="shrink-0 text-lg mb-1" />
                                 </Tooltip>
-                            ) : hasSummary ? (
-                                <Tooltip title={recording.summary_outcome!.description}>
+                            ) : hasSummary && summaryOutcome ? (
+                                <Tooltip title={summaryOutcome.description}>
                                     <IconAIText
                                         className={clsx(
                                             'shrink-0 text-lg mb-1',
-                                            recording.summary_outcome!.success === false
-                                                ? 'text-danger'
-                                                : 'text-success'
+                                            summaryOutcome.success === false ? 'text-danger' : 'text-success'
                                         )}
                                     />
                                 </Tooltip>
