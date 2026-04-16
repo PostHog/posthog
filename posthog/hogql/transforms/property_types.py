@@ -186,6 +186,13 @@ class PropertyFinder(TraversingVisitor):
 
 
 class PropertySwapper(CloningVisitor):
+    _RANGE_OPS: set[str] = {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+
     def __init__(
         self,
         timezone: str,
@@ -202,6 +209,114 @@ class PropertySwapper(CloningVisitor):
         self.group_properties = group_properties
         self.context = context
         self.setTimeZones = setTimeZones
+        self._inside_call_depth = 0
+
+    def visit_call(self, node: ast.Call):
+        self._inside_call_depth += 1
+        try:
+            return super().visit_call(node)
+        finally:
+            self._inside_call_depth -= 1
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        result = super().visit_compare_operation(node)
+
+        if not self.setTimeZones or result.op not in self._RANGE_OPS or self._inside_call_depth > 0:
+            return result
+
+        return self._move_timezone_from_field_to_constant(result) or result
+
+    def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
+        """Move toTimeZone() from the field side to the constant side of a range comparison.
+
+        ClickHouse DateTime values are epoch seconds internally, and toTimeZone()
+        only changes display metadata — not the underlying value. So for range
+        comparisons, instead of:
+
+            toTimeZone(timestamp, 'US/Pacific') >= '2024-03-01'
+
+        we rewrite to:
+
+            timestamp >= toDateTime64('2024-03-01', 6, 'US/Pacific')
+
+        This lets the query planner use the partition key (toYYYYMM(timestamp))
+        and primary key (toDate(timestamp)) for pruning, which it can't do when
+        the field is wrapped in a function call. The timezone on the constant
+        ensures ClickHouse interprets it in the correct timezone.
+
+        We only do this for top-level range comparisons (not inside function
+        calls like if(), coalesce()) via the _inside_call_depth guard.
+        """
+        bare_field, tz, constant, swapped = self._extract_toTimeZone_parts(node)
+        if bare_field is None or tz is None or constant is None:
+            return None
+
+        tz_constant = self._ensure_constant_has_timezone(constant, tz)
+
+        if swapped:
+            return ast.CompareOperation(left=tz_constant, right=bare_field, op=node.op)
+        else:
+            return ast.CompareOperation(left=bare_field, right=tz_constant, op=node.op)
+
+    @staticmethod
+    def _extract_toTimeZone_parts(
+        node: ast.CompareOperation,
+    ) -> tuple[ast.Expr | None, str | None, ast.Expr | None, bool]:
+        """Extract (bare_field, timezone, constant, swapped) from a comparison
+        where one side is toTimeZone(field, tz).
+
+        Returns (None, None, None, False) if the pattern doesn't match.
+        swapped=True means the toTimeZone was on the right side.
+        """
+        for left_is_tz in (True, False):
+            tz_side = node.left if left_is_tz else node.right
+            const_side = node.right if left_is_tz else node.left
+
+            inner = tz_side
+            if isinstance(inner, ast.Alias):
+                inner = inner.expr
+            if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
+                tz_arg = inner.args[1]
+                if isinstance(tz_arg, ast.Constant) and isinstance(tz_arg.value, str):
+                    return inner.args[0], tz_arg.value, const_side, not left_is_tz
+
+        return None, None, None, False
+
+    @staticmethod
+    def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
+        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
+        already carry timezone information.
+
+        Constants that are already wrapped in toDateTime64/toDateTime with a tz
+        argument are left unchanged. Bare string/datetime constants get wrapped.
+        """
+        inner = expr
+        if isinstance(inner, ast.Alias):
+            inner = inner.expr
+
+        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
+        if isinstance(inner, ast.Call):
+            if inner.name == "toDateTime64" and len(inner.args) == 3:
+                return expr
+            if inner.name == "toDateTime" and len(inner.args) == 2:
+                return expr
+            # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
+            if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
+                wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
+                if wrapped_arg is not inner.args[0]:
+                    return ast.Call(name=inner.name, args=[wrapped_arg])
+                return expr
+
+        # Bare constant — wrap with toDateTime64 carrying the timezone
+        if isinstance(inner, ast.Constant):
+            return ast.Call(
+                name="toDateTime64",
+                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+            )
+
+        # For anything else (arithmetic, other calls), leave as-is.
+        # These typically already produce timezone-aware values.
+        return expr
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
