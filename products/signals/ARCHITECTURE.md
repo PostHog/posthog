@@ -602,7 +602,7 @@ Read-only list of tasks associated with a signal report. Nested under the report
 | ------ | ----------------------------- | -------------------------------------------- |
 | GET    | `signals/reports/{id}/tasks/` | List `SignalReportTask` entries for a report |
 
-Supports ordering via `?ordering=` with fields: `created_at`, `relationship`. Default: `-created_at`. Each item includes `id`, `relationship`, `task_id`, `task_title`, `task_status` (from latest run), and `created_at`.
+Supports ordering via `?ordering=` with fields: `created_at`, `relationship`. Default: `-created_at`. Each item includes `id`, `relationship`, `task_id`, and `created_at`.
 
 #### `SignalProcessingViewSet`
 
