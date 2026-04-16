@@ -4397,10 +4397,16 @@ export namespace Schemas {
 
     export interface ExperimentStatsBaseValidated {
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       number_of_samples: number;
       /** @nullable */
       numerator_denominator_sum_product?: number | null;
@@ -4429,10 +4435,16 @@ export namespace Schemas {
        */
       confidence_interval?: number[] | null;
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultFrequentistMethod;
       number_of_samples: number;
       /** @nullable */
@@ -4461,6 +4473,10 @@ export namespace Schemas {
     export interface ExperimentVariantResultBayesian {
       /** @nullable */
       chance_to_win?: number | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /**
        * @minItems 2
        * @maxItems 2
@@ -4472,6 +4488,8 @@ export namespace Schemas {
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultBayesianMethod;
       number_of_samples: number;
       /** @nullable */
