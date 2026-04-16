@@ -23,7 +23,11 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 **Run** — one CI execution. Created with a manifest of snapshot identifiers + hashes (or empty for shard flow). Holds summary counts (changed/new/removed), commit SHA, branch, PR number, and a status lifecycle: `pending → processing → completed` (or `failed`). Snapshot classification (changed/new/unchanged/removed) happens at `complete_run` time when the backend fetches the baseline from GitHub.
 
-**RunSnapshot** — one screenshot within a run. Links current and baseline artifacts, holds the computed result (`unchanged`, `changed`, `new`, `removed`) and the human review state (`pending`, `approved`). Snapshots are stored with a provisional result at creation; final classification happens at `complete_run` time when the backend compares against the GitHub baseline. The diff artifact and pixel metrics come later from async processing.
+**RunSnapshot** — one screenshot within a run. Links current and baseline artifacts, holds the computed result (`unchanged`, `changed`, `new`, `removed`) and the human review state (`pending`, `approved`, `tolerated`). Review state is only set on actionable snapshots (changed/new/removed) — unchanged snapshots have an empty review state. Snapshots are stored with a provisional result at creation; final classification happens at `complete_run` time when the backend compares against the GitHub baseline. The diff artifact and pixel metrics come later from async processing.
+
+**RunSnapshot.classification_reason** — when a snapshot is classified as `unchanged`, this field records why: `exact` (hash matches baseline), `tolerated_hash` (matched a known acceptable alternate via the tolerance cache), or `below_threshold` (pixel diff was below threshold this run, auto-populates the cache). Empty for `changed`/`new`/`removed` snapshots.
+
+**ToleratedHash** — stores alternate content hashes that have been determined acceptable for a specific (repo, identifier, baseline_hash) tuple. When CI produces rendering noise (timestamps, animations, font hinting), the resulting hash differs from the baseline but is visually acceptable. If the pixel diff is below threshold, the hash is auto-populated as tolerated. Tolerations are scoped to a specific baseline hash — when the baseline changes, old tolerations expire naturally. A human can also manually mark a snapshot as tolerated via the review UI. Keyed by `(repo, identifier, baseline_hash, alternate_hash)`.
 
 **Supersession** — when a new run is created for the same (repo, branch, run_type), older runs get a `superseded_by` pointer. This prevents approving stale runs without GitHub API polling — the DB knows what's current.
 
@@ -47,6 +51,7 @@ CI captures screenshots, runs `vr submit`
 Backend completes the run
   - fetch baseline YAML from GitHub (source of truth)
   - classify each snapshot against baseline (unchanged/changed/new)
+  - check tolerance cache for known acceptable hash variations before diffing
   - detect removals: baseline identifiers missing from RunSnapshot rows
   - verify uploads, create artifact records, link to snapshots
   - queue async diff (Celery) for changed snapshots
@@ -91,6 +96,40 @@ Final job: `vr run complete --run-id <id>`
 ```
 
 The backend is the source of truth for baselines — it fetches the `.snapshots.yml` from GitHub at `complete_run` time. The CLI no longer sends baseline hashes; it only sends snapshot identifiers and content hashes.
+
+## Tolerance cache
+
+~35% of Storybook stories produce slightly different PNG bytes each CI run due to rendering non-determinism (timestamps, animations, font hinting). The tolerance cache prevents these known acceptable variations from triggering expensive pixel diff processing on every run.
+
+### How it works
+
+When a snapshot's content hash differs from the baseline, the backend checks the tolerance cache before running a full pixel diff:
+
+1. **Tolerated hash lookup** — if the `(repo, identifier, baseline_hash, alternate_hash)` tuple exists in the `ToleratedHash` table, the snapshot is immediately classified as `unchanged` with `classification_reason: tolerated_hash`. No diff processing needed.
+
+2. **Pixel diff fallback** — if not in the cache, the backend runs the normal pixel diff. If the diff is below threshold (< 1% pixel difference + SSIM check), the snapshot is classified as `unchanged` with `classification_reason: below_threshold`, and the hash is auto-added to the tolerance cache for future runs.
+
+3. **Baseline expiration** — tolerations are keyed by baseline hash. When a baseline is updated (via approval), old tolerations naturally stop matching since lookups use the new baseline hash.
+
+### Classification reasons
+
+Each `RunSnapshot` now carries a `classification_reason` field:
+
+- `exact` — content hash matches baseline hash exactly
+- `tolerated_hash` — content hash is a known acceptable variation (from cache)
+- `below_threshold` — pixel diff was below threshold (auto-populates tolerance cache)
+
+### Manual toleration
+
+Developers can manually mark a `changed` snapshot as tolerated via the "Mark as tolerated" button in the review UI. This:
+
+1. Creates a `ToleratedHash` entry with `reason: human`
+2. Sets the snapshot's `review_state` to `tolerated` (the `result` stays `changed` — it's the technical truth)
+3. Updates the run's `tolerated_match_count`
+
+Manual toleration is useful when rendering noise exceeds the pixel threshold but is still acceptable noise rather than a real visual change. Unlike approval, toleration does not update the baseline.
+
+The tolerated hash history for any snapshot identifier is viewable in the sidebar.
 
 ## CLI
 
