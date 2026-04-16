@@ -42,23 +42,10 @@ logger = structlog.get_logger(__name__)
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 
 
-# HogQL's parse_select is surprisingly slow — a 10KB UNION ALL of adapter
-# subqueries takes ~2s on Python to lex + parse + build the custom AST.
-# The same string is reparsed on every dashboard render (and twice when
-# ``compareFilter.compare`` is set — once per period). Cache the parsed AST
-# and hand out clones on each hit. The clone is a fast in-memory walk
-# (~1ms for these shapes) and protects the cached tree from downstream
-# mutations by the printer/resolver.
-#
-# Size chosen to hold a reasonable multi-tenant working set per worker:
-# a handful of teams × a handful of (date_range, drill_down) combinations.
-# Each cached AST is ~100-500KB, so 64 * 500KB ≈ 32MB upper bound per
-# worker. Lowering this starves multi-tenant workers; raising it wastes
-# memory when the long tail of unique strings rarely hits again.
-_MAX_CACHED_UNION_PARSE = 64
-
-
-@lru_cache(maxsize=_MAX_CACHED_UNION_PARSE)
+# parse_select on the adapter UNION string (~10 KB) takes ~2 s in HogQL's
+# Python parser. Cache the parsed AST and clone on each hit (~1 ms).
+# 32 covers all ~30 real adapter combinations observed in prod.
+@lru_cache(maxsize=32)
 def _cached_parse_union_template(union_template: str) -> ast.SelectQuery | ast.SelectSetQuery:
     """Parse a date-range-agnostic template of the adapter UNION query.
 
