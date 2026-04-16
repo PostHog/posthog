@@ -620,17 +620,61 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     )
 
 
-class TaskRunResumeRequestSchemaSerializer(TaskRunCreateRequestSerializer):
-    runtime_adapter = None
-    model = None
-    reasoning_effort = None
-    initial_permission_mode = None
-
-    def get_fields(self):
-        fields = super().get_fields()
-        for field_name in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
-            fields.pop(field_name, None)
-        return fields
+class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
+    resume_from_run_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="ID of a previous run to resume from. Must belong to the same task.",
+    )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+    )
 
 
 TaskRunCreateRequestSchemaSerializer = PolymorphicProxySerializer(
