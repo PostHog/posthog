@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from llm_gateway.api.usage import _to_cost_limit_status
 from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.cost_throttles import (
     CostStatus,
@@ -11,6 +12,32 @@ from llm_gateway.rate_limiting.cost_throttles import (
 )
 from llm_gateway.services.plan_resolver import PlanInfo
 from tests.conftest import create_test_app
+
+
+class TestToCostLimitStatus:
+    @pytest.mark.parametrize(
+        "used_usd,limit_usd,expected_percent",
+        [
+            (0.0, 100.0, 0.0),
+            (25.5, 100.0, 25.5),
+            (100.0, 100.0, 100.0),
+            (150.0, 100.0, 100.0),
+            (0.0, 0.0, 100.0),
+            (5.0, 0.0, 100.0),
+        ],
+    )
+    def test_used_percent(self, used_usd: float, limit_usd: float, expected_percent: float) -> None:
+        status = CostStatus(
+            used_usd=used_usd, limit_usd=limit_usd, remaining_usd=0.0, resets_in_seconds=60, exceeded=False
+        )
+        result = _to_cost_limit_status(status)
+        assert result.used_percent == expected_percent
+
+    def test_passes_through_exceeded_and_resets(self) -> None:
+        status = CostStatus(used_usd=100.0, limit_usd=100.0, remaining_usd=0.0, resets_in_seconds=3600, exceeded=True)
+        result = _to_cost_limit_status(status)
+        assert result.exceeded is True
+        assert result.resets_in_seconds == 3600
 
 
 class TestUsageEndpoint:
@@ -208,3 +235,26 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         assert response.json()["user_id"] == 42
+
+    def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
+        app = authenticated_usage_client.app
+        app.state.plan_resolver.invalidate = AsyncMock()
+
+        response = authenticated_usage_client.post(
+            "/v1/usage/posthog_code/invalidate-plan-cache",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+        app.state.plan_resolver.invalidate.assert_called_once_with(42)
+
+    def test_invalidate_plan_cache_404_for_other_product(self, authenticated_usage_client: TestClient) -> None:
+        response = authenticated_usage_client.post(
+            "/v1/usage/wizard/invalidate-plan-cache",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 404
+
+    def test_invalidate_plan_cache_401_without_auth(self, client: TestClient) -> None:
+        response = client.post("/v1/usage/posthog_code/invalidate-plan-cache")
+        assert response.status_code == 401

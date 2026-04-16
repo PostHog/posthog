@@ -21,7 +21,7 @@ def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "posthog_code",
     end_user_id: str | None = None,
-    plan_key: str | None = None,
+    plan_key: str | None = "posthog-code-200-20260301",
     in_trial_period: bool = True,
     seat_created_at: str | None = None,
 ) -> ThrottleContext:
@@ -307,13 +307,11 @@ class TestUserCostSustainedThrottle:
     async def test_cache_key_includes_product_and_scope(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
-        get_settings.cache_clear()
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code", end_user_id="42")
 
         key = throttle._get_cache_key(context)
         assert key == "cost:user:user_cost_sustained:posthog_code:42"
-        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_cache_key_includes_period_for_free_plan(self, monkeypatch: pytest.MonkeyPatch) -> None:
