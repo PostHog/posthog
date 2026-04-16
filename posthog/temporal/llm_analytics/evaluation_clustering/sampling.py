@@ -227,11 +227,15 @@ async def sample_and_embed_for_job_activity(inputs: SamplerActivityInputs) -> Sa
 
     Exceptions are stringified before propagating so Temporal's failure serializer
     doesn't trip on cyclic references inside HogQL AST nodes or ClickHouse error
-    payloads.
+    payloads. ``ValueError`` and ``TypeError`` are re-raised unchanged so they
+    still match the non-retryable list in ``SAMPLER_ACTIVITY_RETRY_POLICY`` —
+    those never carry cyclic references and must fail fast.
     """
     async with Heartbeater():
         try:
             return await database_sync_to_async(_sample_and_embed_sync, thread_sensitive=False)(inputs)
+        except (ValueError, TypeError):
+            raise
         except Exception as exc:
             logger.exception(
                 "eval_sampler_activity_failed",

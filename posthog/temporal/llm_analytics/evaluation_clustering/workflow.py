@@ -99,13 +99,11 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SamplerWorkflowInputs:
-        if not inputs:
-            return SamplerWorkflowInputs(team_id=0, job_id="", job_name="")
-        return SamplerWorkflowInputs(
-            team_id=int(inputs[0]),
-            job_id=inputs[1] if len(inputs) > 1 else "",
-            job_name=inputs[2] if len(inputs) > 2 else "",
-        )
+        # Delegate to the sampler's parser — both accept the same shape; the
+        # stub only needs parse_inputs so Temporal can instantiate the workflow
+        # when it's triggered manually. A dedicated ClusteringWorkflowInputs
+        # type lands with the real 5-step pipeline in a follow-up PR.
+        return LLMAEvaluationSamplerWorkflow.parse_inputs(inputs)
 
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
