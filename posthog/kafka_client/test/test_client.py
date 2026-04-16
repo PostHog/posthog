@@ -161,3 +161,44 @@ class KafkaClientTestCase(TestCase):
         config = mock_producer_class.call_args[0][0]
         self.assertNotIn("partitioner", config)
         self.assertNotIn("partitioner", config.values())
+
+    @override_settings(
+        KAFKA_BASE64_KEYS=True,
+        KAFKA_PROFILES=_make_profiles(
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="<mechanism>",
+            sasl_user="<user>",
+            sasl_password="<password>",
+            producer_settings={"linger_ms": 250, "batch_size": 1_000_000},
+        ),
+    )
+    @patch(
+        "posthog.kafka_client.helper.ssl_cert_config",
+        return_value={
+            "security.protocol": "SSL",
+            "ssl.certificate.location": "/tmp/cert.crt",
+            "ssl.key.location": "/tmp/key.key",
+            "ssl.ca.location": "/tmp/ca.crt",
+            "ssl.endpoint.identification.algorithm": "none",
+        },
+    )
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_base64_keys_merges_ssl_config(self, mock_producer_class: MagicMock, mock_ssl_cert_config: MagicMock):
+        """Self-hosted base64 mode overrides security.protocol with SSL and
+        adds cert paths, but still honours KAFKA_PRODUCER_SETTINGS tuning."""
+        mock_producer_class.return_value = MagicMock()
+        _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+
+        self.assertEqual(config["security.protocol"], "SSL")
+        self.assertEqual(config["ssl.certificate.location"], "/tmp/cert.crt")
+        self.assertEqual(config["ssl.key.location"], "/tmp/key.key")
+        self.assertEqual(config["ssl.ca.location"], "/tmp/ca.crt")
+        self.assertEqual(config["ssl.endpoint.identification.algorithm"], "none")
+
+        # SASL config from the profile must not leak through when SSL certs are active.
+        self.assertNotIn("sasl.mechanism", config)
+
+        # Producer settings still flow through — this is what the old helper dropped.
+        self.assertEqual(config["linger.ms"], 250)
+        self.assertEqual(config["batch.size"], 1_000_000)

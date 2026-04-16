@@ -1,8 +1,9 @@
-"""Helper for creating a Kafka producer with SSL authentication.
+"""Helper for SSL-certificate-based Kafka auth (self-hosted deployments).
 
 Originally for Heroku-style base64-encoded certificates
-(https://github.com/heroku/kafka-helper). Only `get_kafka_producer` is used —
-selected by `_KafkaProducer` when `KAFKA_BASE64_KEYS` is true.
+(https://github.com/heroku/kafka-helper). Only `ssl_cert_config` is called —
+`_KafkaProducer` merges it into its confluent config when `KAFKA_BASE64_KEYS`
+is true.
 """
 
 import os
@@ -10,9 +11,6 @@ import atexit
 import base64
 from tempfile import NamedTemporaryFile
 
-from django.conf import settings
-
-from confluent_kafka import Producer as ConfluentProducer
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
@@ -76,48 +74,22 @@ def _write_ssl_files_for_confluent():
 _ssl_files: tuple | None = None
 
 
-def get_kafka_producer(retries: int = 5) -> ConfluentProducer:
-    """
-    Return a confluent-kafka Producer that uses SSL certificates from environment variables.
+def ssl_cert_config() -> dict[str, str]:
+    """Return the confluent-kafka SSL-cert config block for base64-keys mode.
+
+    Writes the cert/key/CA files on first call and reuses the paths thereafter.
+    Hostname verification is disabled to match the legacy kafka-python behavior.
     """
     global _ssl_files
 
-    # Write SSL files once and keep them around
     if _ssl_files is None:
         _ssl_files = _write_ssl_files_for_confluent()
 
     cert_file, key_file, ca_file = _ssl_files
-
-    hosts = settings.KAFKA_HOSTS
-    bootstrap_servers = ",".join(hosts) if isinstance(hosts, list) else hosts
-
-    config = {
-        "bootstrap.servers": bootstrap_servers,
+    return {
         "security.protocol": "SSL",
         "ssl.certificate.location": cert_file.name,
         "ssl.key.location": key_file.name,
         "ssl.ca.location": ca_file.name,
-        # Disable hostname verification (same as original)
         "ssl.endpoint.identification.algorithm": "none",
-        # Wait for leader to acknowledge (matches kafka-python default)
-        "acks": 1,
-        # Retry configuration
-        "message.send.max.retries": retries,
-        "retry.backoff.ms": 100,
-        # Connection management
-        "connections.max.idle.ms": 60000,
-        "reconnect.backoff.ms": 50,
-        "reconnect.backoff.max.ms": 1000,
-        # Timeouts
-        "socket.timeout.ms": 60000,
-        "request.timeout.ms": 30000,
-        # Explicit API version to avoid slow auto-detection
-        "api.version.request": True,
-        "broker.version.fallback": "2.8.0",
-        # Enable TCP keepalive
-        "socket.keepalive.enable": True,
-        # Delivery report callback will be called for all messages
-        "delivery.report.only.error": False,
     }
-
-    return ConfluentProducer(config)

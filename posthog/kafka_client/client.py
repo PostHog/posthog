@@ -195,6 +195,10 @@ class _KafkaProducer:
             kafka_hosts = default_profile.hosts
         if kafka_base64_keys is None:
             kafka_base64_keys = settings.KAFKA_BASE64_KEYS
+        # Self-hosted base64 cert mode provides its own SSL material; force the
+        # protocol to SSL before SASL resolution so SASL creds aren't attached.
+        if kafka_base64_keys:
+            kafka_security_protocol = _KafkaSecurityProtocol.SSL
         if sasl_mechanism is None:
             sasl_mechanism = default_profile.sasl_mechanism
         if sasl_user is None:
@@ -209,8 +213,6 @@ class _KafkaProducer:
 
         if test:
             self.producer = KafkaProducerForTests()
-        elif kafka_base64_keys:
-            self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES)
         else:
             config: dict[str, Any] = {
                 "bootstrap.servers": ",".join(kafka_hosts) if isinstance(kafka_hosts, list) else kafka_hosts,
@@ -250,6 +252,11 @@ class _KafkaProducer:
                 # Idempotence requires acks=all, override if necessary
                 if config["acks"] != "all":
                     config["acks"] = "all"
+
+            if kafka_base64_keys:
+                # Writes cert/key/CA files on first call; returns the ssl.* paths
+                # plus a redundant security.protocol=SSL (already set above).
+                config.update(helper.ssl_cert_config())
 
             self.producer = ConfluentProducer(config)
 
