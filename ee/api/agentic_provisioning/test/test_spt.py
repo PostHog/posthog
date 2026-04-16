@@ -74,7 +74,15 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
     @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
     @patch("posthog.cloud_utils.get_cached_instance_license")
     def test_provisioning_spt_failure(
-        self, _name, has_active_subscription, expected_status, expected_code, mock_license, mock_build_token, mock_post, mock_get
+        self,
+        _name,
+        has_active_subscription,
+        expected_status,
+        expected_code,
+        mock_license,
+        mock_build_token,
+        mock_post,
+        mock_get,
     ):
         mock_license.return_value = MagicMock()
         mock_post.return_value = MagicMock(status_code=500)
