@@ -469,3 +469,32 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         )
         assert "toDateTime64" in sql, f"Expected toDateTime64 wrapping on constants, got:\n{sql}"
         assert "America/New_York" in values.values(), f"Expected timezone in parameterized values, got:\n{values}"
+
+    def test_alias_preserved_when_recursing_into_assumeNotNull(self):
+        """Alias wrappers on assumeNotNull(toDateTime(...)) constants must be preserved."""
+        from posthog.hogql import ast as ast_module
+        from posthog.hogql.transforms.property_types import PropertySwapper
+
+        inner_call = ast_module.Call(name="toDateTime", args=[ast_module.Constant(value="2024-03-01")])
+        assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
+        aliased = ast_module.Alias(alias="date_from", expr=assume_call)
+
+        result = PropertySwapper._ensure_constant_has_timezone(aliased, "America/New_York")
+
+        assert isinstance(result, ast_module.Alias), f"Expected Alias wrapper preserved, got {type(result).__name__}"
+        assert result.alias == "date_from"
+        assert isinstance(result.expr, ast_module.Call)
+        assert result.expr.name == "assumeNotNull"
+
+    def test_alias_not_added_when_not_present(self):
+        """When there's no Alias wrapper, the result should not have one either."""
+        from posthog.hogql import ast as ast_module
+        from posthog.hogql.transforms.property_types import PropertySwapper
+
+        inner_call = ast_module.Call(name="toDateTime", args=[ast_module.Constant(value="2024-03-01")])
+        assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
+
+        result = PropertySwapper._ensure_constant_has_timezone(assume_call, "America/New_York")
+
+        assert isinstance(result, ast_module.Call), f"Expected Call, got {type(result).__name__}"
+        assert result.name == "assumeNotNull"

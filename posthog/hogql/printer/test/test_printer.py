@@ -3746,8 +3746,9 @@ class TestPrinter(BaseTest):
         self.assertIn("c.conversion_time", result)
         self.assertIn("e.exposure_time", result)
         # Verify the greaterOrEquals comparison exists with the qualified fields
-        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
-        self.assertIn("toTimeZone(e.exposure_time", result)
+        # toTimeZone is stripped from the LHS of range comparisons (partition pruning optimisation)
+        self.assertIn("greaterOrEquals(c.conversion_time", result)
+        self.assertIn("e.exposure_time", result)
         # Verify CTE aliasing in FROM/JOIN clauses
         self.assertIn("FROM exposures AS e", result)
         self.assertIn("LEFT JOIN conversions AS c", result)
