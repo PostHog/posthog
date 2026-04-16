@@ -6,7 +6,7 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 
 import structlog
@@ -201,20 +201,16 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
 
     playlist_ids = [p.id for p in db_playlists]
 
-    counts_by_playlist: dict[int, int] = dict(
-        SessionRecordingPlaylistItem.objects.filter(playlist_id__in=playlist_ids)
-        .exclude(deleted=True)
-        .values("playlist_id")
-        .annotate(c=Count("id"))
-        .values_list("playlist_id", "c")
-    )
-
-    # Match the historical behavior of count_collection_recordings, which builds
-    # the watched-count list from all items (including soft-deleted ones).
+    # Single pass over SessionRecordingPlaylistItem — compute non-deleted counts
+    # and collect every session_id (including from soft-deleted rows, to match
+    # the historical watched-count behavior of count_collection_recordings).
+    counts_by_playlist: dict[int, int] = defaultdict(int)
     session_ids_by_playlist: dict[int, list[str]] = defaultdict(list)
-    for playlist_id, session_id in SessionRecordingPlaylistItem.objects.filter(
+    for playlist_id, session_id, deleted in SessionRecordingPlaylistItem.objects.filter(
         playlist_id__in=playlist_ids
-    ).values_list("playlist_id", "session_id"):
+    ).values_list("playlist_id", "session_id", "deleted"):
+        if not deleted:
+            counts_by_playlist[playlist_id] += 1
         if session_id:
             session_ids_by_playlist[playlist_id].append(session_id)
 
