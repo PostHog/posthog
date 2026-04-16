@@ -211,6 +211,9 @@ if (res.status >= 400) {
             "required": False,
         },
     ],
+    filters={
+        "filter_test_accounts": True,
+    },
     mapping_templates=[
         HogFunctionMappingTemplate(
             name="Conversion",
