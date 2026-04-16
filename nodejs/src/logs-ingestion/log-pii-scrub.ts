@@ -5,8 +5,12 @@
  * key substrings, otherwise pattern-scrub values. Map values are JSON-string cells (JSON.stringify) so ClickHouse
  * JSONExtractString matches Rust OTLP encoding. Misses: secrets without those shapes, digit runs that fail Luhn,
  * keys outside the sensitive substring list (those values still get plain-text patterns only).
+ *
+ * The four main match rules use RE2 (via createTrackedRE2) for linear-time matching and consistency with other
+ * nodejs regex paths; patterns use ASCII-explicit classes so behavior stays stable under node-re2’s Unicode mode.
  */
 import { parseJSON } from '../utils/json-parse'
+import { createTrackedRE2 } from '../utils/tracked-re2'
 import type { LogRecord } from './log-record-avro'
 
 export const PII_REDACTED = '{{REDACTED}}'
@@ -27,11 +31,12 @@ const SENSITIVE_KEY_SUBSTRINGS = [
     'email',
 ]
 
-const BEARER_HEADER_RE = /Bearer\s+[\w\-._~+/]+=*/gi
-const STRIPE_SECRET_KEY_RE = /\bsk_(?:live|test)_[a-zA-Z0-9]{20,}\b/g
-const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
-/** 13–19 digits; optional single space or hyphen between digit groups (no nested quantifier over digit class). */
-const CARD_LIKE_RE = /\b\d(?:[- ]?\d){12,18}\b/g
+/** RFC 6750-ish token chars (ASCII only); body then optional `=` padding, case-insensitive `Bearer`. */
+const BEARER_HEADER_RE = createTrackedRE2('Bearer\\s+[-A-Za-z0-9._~+/]+=*', 'gi', 'log-pii-scrub:bearer')
+const STRIPE_SECRET_KEY_RE = createTrackedRE2('\\bsk_(?:live|test)_[a-zA-Z0-9]{20,}\\b', 'g', 'log-pii-scrub:stripe')
+const EMAIL_RE = createTrackedRE2('\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b', 'g', 'log-pii-scrub:email')
+/** 13–19 ASCII digits; optional single space or hyphen between digit groups (no nested quantifier over digit class). */
+const CARD_LIKE_RE = createTrackedRE2('\\b[0-9](?:[- ]?[0-9]){12,18}\\b', 'g', 'log-pii-scrub:card')
 
 /** True when the attribute key contains a known sensitive substring (case-insensitive). */
 export function isSensitiveAttributeKey(key: string): boolean {

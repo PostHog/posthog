@@ -47,6 +47,15 @@ describe('log-pii-scrub', () => {
         it('does not redact digit sequences that fail Luhn', () => {
             expect(scrubPlainString('id 4242424242424243')).toBe('id 4242424242424243')
         })
+
+        it('stops Bearer redaction at the first non-ASCII token character (ASCII-only rule)', () => {
+            expect(scrubPlainString('Bearer caf\u00E9token')).toBe(`Bearer ${PII_REDACTED}\u00E9token`)
+        })
+
+        it('does not treat fullwidth digits as card-like digits', () => {
+            const panWithFullwidthOne = '4242424242\uFF1142424242'
+            expect(scrubPlainString(`card ${panWithFullwidthOne} end`)).toBe(`card ${panWithFullwidthOne} end`)
+        })
     })
 
     describe('unwrapAttributeCell / encodeAttributeCell', () => {
