@@ -950,18 +950,20 @@ class TestGetTable:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        "inserts,expected_scale",
+        "inserts,expected_precision,expected_scale",
         [
             pytest.param(
                 [
                     "INSERT INTO test_probe_scale VALUES (1, 0.84497449830783164117::numeric)",
                     "INSERT INTO test_probe_scale VALUES (2, 0::numeric)",
                 ],
+                38,
                 20,
-                id="fractional_data_uses_probed_scale",
+                id="fractional_fits_in_decimal128",
             ),
             pytest.param(
                 [],
+                38,
                 DEFAULT_NUMERIC_SCALE,
                 id="empty_table_falls_back_to_default",
             ),
@@ -969,8 +971,9 @@ class TestGetTable:
                 [
                     "INSERT INTO test_probe_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)",
                 ],
+                38,
                 MAX_NUMERIC_SCALE,
-                id="scale_exceeding_max_is_clamped",
+                id="scale_past_max_clamped_with_small_int_still_fits",
             ),
             # Pins the intentional conservative behavior: all-integer data means MAX(scale(val))
             # returns 0, but we fall back to DEFAULT_NUMERIC_SCALE rather than freezing the delta
@@ -982,14 +985,57 @@ class TestGetTable:
                     "INSERT INTO test_probe_scale VALUES (1, 42::numeric)",
                     "INSERT INTO test_probe_scale VALUES (2, 1000::numeric)",
                 ],
+                38,
                 DEFAULT_NUMERIC_SCALE,
                 id="integer_only_data_falls_back_to_default",
             ),
+            # 8 integer digits + 30 fractional digits = 38 total, which is the `decimal128`
+            # precision budget. Must fit without escalating.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 12345678.012345678901234567890123456789::numeric)",
+                ],
+                38,
+                30,
+                id="total_exactly_at_decimal128_budget_fits",
+            ),
+            # 9 integer digits + 30 fractional digits = 39 total, one digit past the `decimal128`
+            # budget. The column must escalate precision past 38 so `build_pyarrow_decimal_type`
+            # promotes to `decimal256`; staying at (38, 30) would silently lose the leading integer
+            # digit when the data is later cast to arrow.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 123456789.012345678901234567890123456789::numeric)",
+                ],
+                39,
+                30,
+                id="integer_overflow_escalates_precision_past_38",
+            ),
+            # 10 integer digits + 32 fractional digits = 42 total. Scale is at MAX_NUMERIC_SCALE,
+            # integer side is over budget. Must escalate precision to cover both dimensions.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 1234567890.12345678901234567890123456789012::numeric)",
+                ],
+                42,
+                MAX_NUMERIC_SCALE,
+                id="both_dimensions_exceed_budget_escalates_precision",
+            ),
         ],
     )
-    def test_unconstrained_numeric_probe_scale(self, inserts: list[str], expected_scale: int):
-        """Unconstrained `numeric` columns get their scale from actual data, with well-defined
-        fallbacks for empty tables, clamping past MAX_NUMERIC_SCALE, and integer-only data."""
+    def test_unconstrained_numeric_probe_dimensions(
+        self,
+        inserts: list[str],
+        expected_precision: int,
+        expected_scale: int,
+    ):
+        """Unconstrained `numeric` columns probe both fractional scale and integer digits so the
+        resulting decimal type has enough precision to hold the observed data. When total digits
+        exceed `decimal128`'s 38-digit budget, precision must escalate past 38 so
+        `build_pyarrow_decimal_type` promotes the column to `decimal256` (which delta-rs will then
+        collapse to `string` at write). Freezing at `decimal128(38, scale)` silently truncates
+        either fractional digits (original bug pre-PR) or integer digits (regression introduced by
+        the single-dimension probe)."""
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -1005,6 +1051,7 @@ class TestGetTable:
                 probe_unconstrained_numeric_scale=True,
             )
             val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == expected_precision
             assert val_col.numeric_scale == expected_scale
 
     @pytest.mark.django_db
