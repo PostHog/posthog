@@ -381,8 +381,8 @@ export function getSurveyResponse(question: SurveyQuestion, index: number): stri
     }
 
     return `COALESCE(
-        NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
-        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
+        NULLIF(events.properties['${idBasedKey}'], ''),
+        NULLIF(events.properties['${indexBasedKey}'], '')
     )`
 }
 
@@ -583,10 +583,7 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
 
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
-        return `AND (
-        NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-        OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
-    )`
+        return `AND coalesce(properties.\`${SurveyEventProperties.SURVEY_COMPLETED}\` = true, true)`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
@@ -597,14 +594,15 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
         FROM events
         WHERE and(
             equals(event, '${SurveyEventName.SENT}'),
-            equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
+            equals(properties.\`${SurveyEventProperties.SURVEY_ID}\`, '${survey.id}'),
             greaterOrEquals(timestamp, '${fromDate}'),
             lessOrEquals(timestamp, '${toDate}')
         )
         GROUP BY
             if(
-                JSONHas(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
-                JSONExtractString(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                isNotNull(properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`)
+                    AND properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\` != '',
+                properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`,
                 toString(uuid)
             )
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
@@ -633,7 +631,7 @@ export function buildAggregateQuery(
     const branches: string[] = []
 
     const baseWhere = `event = '${SurveyEventName.SENT}'
-        AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
         ${filters.timestampFilter}
         ${filters.answerFilterHogQLExpression}
         ${filters.archivedResponsesFilter}
@@ -854,9 +852,14 @@ function getTeamTimezone(): string {
     return getAppContext()?.current_team?.timezone || 'UTC'
 }
 
-export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
+export function getSurveyStartDateForQuery(
+    survey: Pick<Survey, 'created_at'> & Partial<Pick<Survey, 'start_date'>>
+): string {
     const tz = getTeamTimezone()
-    return dayjs.tz(survey.created_at, tz).startOf('day').format(DATE_FORMAT)
+    return dayjs
+        .tz(survey.start_date ?? survey.created_at, tz)
+        .startOf('day')
+        .format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
@@ -872,7 +875,7 @@ export interface SurveyDateRange {
 }
 
 export function getResolvedSurveyDateRange(
-    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): { fromDate: string; toDate: string } {
     let fromDate = getSurveyStartDateForQuery(survey)
@@ -893,7 +896,7 @@ export function getResolvedSurveyDateRange(
 }
 
 export function buildSurveyTimestampFilter(
-    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): string {
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)

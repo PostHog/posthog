@@ -19,7 +19,6 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.postgres import (
-    SSL_REQUIRED_AFTER_DATE,
     SSLRequiredError,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
@@ -29,6 +28,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_schemas as get_postgres_schemas,
     pg_connection,
     postgres_source,
+    source_requires_ssl,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
@@ -200,9 +200,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                 ) as conn:
-                    tables_with_pks = set(get_primary_key_columns(conn, config.schema, list(db_schemas.keys())).keys())
+                    pk_columns_by_table = get_primary_key_columns(conn, config.schema, list(db_schemas.keys()))
+                    tables_with_pks = set(pk_columns_by_table.keys())
             except Exception as e:
                 capture_exception(e)
+                pk_columns_by_table = {}
                 tables_with_pks = set()
 
         for table_name, columns in db_schemas.items():
@@ -228,6 +230,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     row_count=row_counts.get(table_name, None),
                     columns=columns,
                     foreign_keys=db_foreign_keys.get(table_name, []),
+                    detected_primary_keys=pk_columns_by_table.get(table_name)
+                    or (["id"] if any(col[0] == "id" for col in columns) else None),
                 )
             )
 
@@ -270,50 +274,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         return True, None
 
-    def validate_cdc_credentials(
-        self,
-        config: PostgresSourceConfig,
-        team_id: int,
-        management_mode: str,
-        tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
-    ) -> tuple[bool, list[str]]:
-        """Validate CDC-specific prerequisites on top of regular credentials.
-
-        Returns (is_valid, list_of_error_messages).
-        """
-        import psycopg
-
-        from posthog.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import validate_cdc_prerequisites
-
-        try:
-            with self.with_ssh_tunnel(config) as (host, port):
-                conn = psycopg.connect(
-                    host=host,
-                    port=port,
-                    dbname=config.database,
-                    user=config.user,
-                    password=config.password,
-                    connect_timeout=15,
-                )
-                try:
-                    errors = validate_cdc_prerequisites(
-                        conn=conn,
-                        management_mode=management_mode,  # type: ignore[arg-type]
-                        tables=tables,
-                        schema=config.schema,
-                        slot_name=slot_name,
-                        publication_name=publication_name,
-                    )
-                finally:
-                    conn.close()
-        except Exception as e:
-            capture_exception(e)
-            return False, [f"Could not connect to validate CDC prerequisites: {e}"]
-
-        return len(errors) == 0, errors
-
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
@@ -326,6 +286,44 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 database=config.database,
                 require_ssl=require_ssl,
             )
+
+    def check_cdc_prerequisites(
+        self,
+        config: PostgresSourceConfig,
+        management_mode: str,
+        tables: list[str],
+        slot_name: str | None = None,
+        publication_name: str | None = None,
+        require_ssl: bool = True,
+    ) -> list[str]:
+        """Validate Postgres CDC prerequisites against a live connection.
+
+        Pre-creation check — no ExternalDataSource exists yet, so caller passes raw config.
+        Defaults require_ssl=True (all new sources are past the SSL cutoff).
+        """
+        from posthog.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import validate_cdc_prerequisites
+        from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres
+
+        with self.with_ssh_tunnel(config) as (host, port):
+            conn = _connect_to_postgres(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                require_ssl=require_ssl,
+            )
+            try:
+                return validate_cdc_prerequisites(
+                    conn=conn,
+                    management_mode=management_mode,  # type: ignore[arg-type]
+                    tables=tables,
+                    schema=config.schema,
+                    slot_name=slot_name,
+                    publication_name=publication_name,
+                )
+            finally:
+                conn.close()
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
@@ -343,8 +341,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             )
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
-        # Require SSL for sources created after the cutoff date
-        require_ssl = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE
+        require_ssl = source_requires_ssl(schema.source, config)
 
         return postgres_source(
             tunnel=ssh_tunnel,
@@ -362,4 +359,5 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             chunk_size_override=schema.chunk_size_override,
             team_id=inputs.team_id,
             require_ssl=require_ssl,
+            is_initial_sync=not schema.initial_sync_complete,
         )

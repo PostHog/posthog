@@ -1350,6 +1350,18 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
             )
             return
 
+        # If another workflow already created a task for this thread (e.g. the
+        # user sent a follow-up message instead of using the picker), skip the
+        # expired message.
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        if SlackThreadTaskMapping.objects.filter(
+            integration_id=integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        ).exists():
+            return
+
         try:
             # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
             integration = Integration.objects.get(

@@ -24,14 +24,6 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
             date_to=self.query_date_range.date_to(),
         )
 
-        if not self.query.series:
-            return TrendsQueryResponse(
-                results=[],
-                boxplot_data=[],
-                modifiers=self.modifiers,
-                resolved_date_range=resolved_date_range,
-            )
-
         if any(not s.math_property for s in self.query.series):
             return TrendsQueryResponse(
                 results=[],
