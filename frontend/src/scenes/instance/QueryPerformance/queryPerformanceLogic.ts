@@ -22,6 +22,8 @@ export interface SlowestQuery {
     exception: string
     status: number
     team_id: number
+    team_name: string | null
+    organization_name: string | null
     query_type: string
     experiment_name: string
     experiment_metric_name: string

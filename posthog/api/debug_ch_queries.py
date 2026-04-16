@@ -335,6 +335,16 @@ class DebugCHQueries(viewsets.ViewSet):
             },
         )
 
+        # Batch-fetch team and org names from Postgres
+        team_ids = {row[6] for row in response if row[6]}
+        teams_by_id = {}
+        if team_ids:
+            for team in Team.objects.filter(id__in=team_ids).select_related("organization"):
+                teams_by_id[team.id] = {
+                    "team_name": team.name,
+                    "organization_name": team.organization.name if team.organization else None,
+                }
+
         return Response(
             [
                 {
@@ -345,6 +355,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     "exception": row[4],
                     "status": row[5],
                     "team_id": row[6],
+                    "team_name": teams_by_id.get(row[6], {}).get("team_name"),
+                    "organization_name": teams_by_id.get(row[6], {}).get("organization_name"),
                     "query_type": row[7],
                     "experiment_name": row[8],
                     "experiment_metric_name": row[9],
