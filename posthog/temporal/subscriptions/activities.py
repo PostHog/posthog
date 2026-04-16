@@ -1,20 +1,37 @@
+import uuid
+import typing
 import datetime as dt
+from datetime import datetime
+
+from django.utils import timezone as tz
 
 import temporalio.activity
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.subscription import Subscription
+from posthog.models.insight import Insight
+from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.sync import database_sync_to_async
+from posthog.temporal.subscriptions.insight_snapshot import (
+    build_initial_content_snapshot,
+    build_insight_delivery_snapshot,
+)
 from posthog.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
+    DeliverSubscriptionResult,
     FetchDueSubscriptionsActivityInputs,
+    RecipientResult,
     SubscriptionInfo,
+    UpdateDeliveryRecordInputs,
 )
+
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
@@ -40,11 +57,12 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 distinct_id=str(sub["created_by__distinct_id"])
                 if sub["created_by__distinct_id"]
                 else str(sub["team_id"]),
+                next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
             )
             for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
-            .values("id", "team_id", "created_by__distinct_id")
+            .values("id", "team_id", "created_by__distinct_id", "next_delivery_date")
         ]
 
     subscriptions = await get_subscriptions()
@@ -101,7 +119,9 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
                 (x.layouts or {}).get("sm", {}).get("x", 100),
             )
         )
-        insights = [tile.insight for tile in tiles if tile.insight]
+        tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = [
+            (tile, tile.insight) for tile in tiles if tile.insight
+        ]
 
         selected_ids = await database_sync_to_async(
             lambda: (
@@ -112,11 +132,14 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             thread_sensitive=False,
         )()
         if selected_ids:
-            insights = [i for i in insights if i.id in selected_ids]
+            tile_insight_pairs = [(t, i) for t, i in tile_insight_pairs if i.id in selected_ids]
     elif subscription.insight:
-        insights = [subscription.insight]
+        tile_insight_pairs = [(None, subscription.insight)]
     else:
         raise Exception("There are no insights to be sent for this Subscription")
+
+    total_insight_count = len(tile_insight_pairs)
+    export_pairs = tile_insight_pairs[: inputs.max_asset_count]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [
@@ -127,27 +150,45 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             dashboard=dashboard,
             expires_after=expiry,
         )
-        for insight in insights[: inputs.max_asset_count]
+        for _tile, insight in export_pairs
     ]
     await database_sync_to_async(ExportedAsset.objects.bulk_create, thread_sensitive=False)(assets)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def build_insight_snapshots() -> list[dict[str, typing.Any]]:
+        return [
+            build_insight_delivery_snapshot(
+                insight=insight,
+                team=team,
+                dashboard=dashboard,
+                tile=tile,
+                user=subscription.created_by,
+            )
+            for tile, insight in export_pairs
+        ]
+
+    insight_snapshots = await build_insight_snapshots()
 
     await LOGGER.ainfo(
         "create_export_assets.assets_created",
         subscription_id=inputs.subscription_id,
         asset_count=len(assets),
-        total_insights=len(insights),
+        total_insights=total_insight_count,
     )
     return CreateExportAssetsResult(
         exported_asset_ids=[a.id for a in assets],
-        total_insight_count=len(insights),
+        total_insight_count=total_insight_count,
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
+        insight_snapshots=insight_snapshots,
     )
 
 
 @temporalio.activity.defn
-async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
+async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    recipient_results: list[RecipientResult] = []
+
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
         thread_sensitive=False,
@@ -167,7 +208,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        return
+        return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     assets_by_id = await database_sync_to_async(
         lambda: {
@@ -184,7 +225,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
     if not assets:
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": inputs.subscription_id})
-        return
+        return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == "email":
         emails = subscription.target_value.split(",")
@@ -210,6 +251,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     send_async=False,
                 )
                 success_count += 1
+                recipient_results.append(RecipientResult(recipient=email, status="success"))
             except Exception as e:
                 _capture_delivery_failed_event(subscription, e)
                 LOGGER.error(
@@ -222,6 +264,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                 )
                 capture_exception(e)
                 last_error = e
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=email,
+                        status="failed",
+                        error={"message": str(e), "type": type(e).__name__},
+                    )
+                )
 
         await LOGGER.ainfo(
             "deliver_subscription.email_complete",
@@ -258,7 +307,33 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     "deliver_subscription.no_slack_integration",
                     subscription_id=inputs.subscription_id,
                 )
-                return
+                missing_integration_error = {
+                    "message": "No Slack integration configured",
+                    "type": "missing_integration",
+                }
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=subscription.target_value,
+                        status="failed",
+                        error=missing_integration_error,
+                    )
+                )
+                # Same shape as ProcessSubscriptionWorkflow success-path serialization so
+                # update_delivery_record gets per-recipient rows from ActivityError.details.
+                raise ApplicationError(
+                    "No Slack integration configured for this team",
+                    {
+                        "recipient_results": [
+                            {
+                                "recipient": r.recipient,
+                                "status": r.status,
+                                **({"error": r.error} if r.error else {}),
+                            }
+                            for r in recipient_results
+                        ]
+                    },
+                    non_retryable=True,
+                )
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
             delivery_result = await send_slack_message_with_integration_async(
@@ -274,6 +349,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     "deliver_subscription.slack_sent",
                     subscription_id=inputs.subscription_id,
                 )
+                recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success"))
             elif delivery_result.is_partial_failure:
                 await LOGGER.awarning(
                     "deliver_subscription.slack_partial_failure",
@@ -281,7 +357,19 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     failed_thread_count=len(delivery_result.failed_thread_message_indices),
                     total_thread_count=delivery_result.total_thread_messages,
                 )
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=subscription.target_value,
+                        status="partial",
+                        error={
+                            "message": f"{len(delivery_result.failed_thread_message_indices)} thread message(s) failed",
+                            "type": "partial_thread_failure",
+                        },
+                    )
+                )
 
+        except ApplicationError:
+            raise
         except Exception as e:
             is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
             _capture_delivery_failed_event(subscription, e)
@@ -293,6 +381,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                 exc_info=True,
             )
             capture_exception(e)
+            recipient_results.append(
+                RecipientResult(
+                    recipient=subscription.target_value,
+                    status="failed",
+                    error={"message": str(e), "type": type(e).__name__},
+                )
+            )
             if not is_user_config_error:
                 raise  # Transient Slack errors — let Temporal retry
 
@@ -300,6 +395,80 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
         "deliver_subscription.completed",
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
+    )
+    return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+
+@temporalio.activity.defn
+async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUID:
+    scheduled_at = datetime.fromisoformat(inputs.scheduled_at) if inputs.scheduled_at else None
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _create() -> uuid.UUID:
+        subscription = Subscription.objects.select_related("insight", "dashboard").get(pk=inputs.subscription_id)
+        if subscription.team_id != inputs.team_id:
+            raise ValueError(
+                f"Subscription team_id ({subscription.team_id}) does not match inputs.team_id ({inputs.team_id})"
+            )
+
+        content_snapshot = build_initial_content_snapshot(subscription)
+
+        delivery, _created = SubscriptionDelivery.objects.get_or_create(
+            idempotency_key=inputs.idempotency_key,
+            defaults={
+                "subscription": subscription,
+                "team_id": inputs.team_id,
+                "temporal_workflow_id": inputs.temporal_workflow_id,
+                "trigger_type": inputs.trigger_type,
+                "scheduled_at": scheduled_at,
+                "target_type": subscription.target_type,
+                "target_value": subscription.target_value,
+                "content_snapshot": content_snapshot,
+                "status": SubscriptionDelivery.Status.STARTING,
+            },
+        )
+        return delivery.id
+
+    delivery_id = await _create()
+    await LOGGER.ainfo(
+        "create_delivery_record.created",
+        subscription_id=inputs.subscription_id,
+        delivery_id=delivery_id,
+    )
+    return delivery_id
+
+
+@temporalio.activity.defn
+async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
+    @database_sync_to_async(thread_sensitive=False)
+    def _update() -> None:
+        delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id)
+        update_fields: list[str] = ["status", "last_updated_at"]
+        delivery.status = inputs.status
+
+        if inputs.exported_asset_ids is not None:
+            delivery.exported_asset_ids = inputs.exported_asset_ids
+            update_fields.append("exported_asset_ids")
+        if inputs.content_snapshot is not None:
+            # Merge so workflow patches (e.g. total_insight_count) do not wipe create_delivery_record snapshot.
+            delivery.content_snapshot = {**(delivery.content_snapshot or {}), **inputs.content_snapshot}
+            update_fields.append("content_snapshot")
+        if inputs.recipient_results is not None:
+            delivery.recipient_results = inputs.recipient_results
+            update_fields.append("recipient_results")
+        delivery.error = inputs.error
+        update_fields.append("error")
+        if inputs.finished:
+            delivery.finished_at = tz.now()
+            update_fields.append("finished_at")
+
+        delivery.save(update_fields=update_fields)
+
+    await _update()
+    await LOGGER.ainfo(
+        "update_delivery_record.updated",
+        delivery_id=inputs.delivery_id,
+        status=inputs.status,
     )
 
 

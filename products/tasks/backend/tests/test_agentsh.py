@@ -201,3 +201,23 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
+
+    def test_command_includes_runtime_environment_variables(self):
+        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            runtime_adapter="codex",
+            provider="openai",
+            model="gpt-5.3-codex",
+            reasoning_effort="high",
+        )
+        self.assertIn("POSTHOG_CODE_RUNTIME_ADAPTER=codex", cmd)
+        self.assertIn("POSTHOG_CODE_PROVIDER=openai", cmd)
+        self.assertIn("POSTHOG_CODE_MODEL=gpt-5.3-codex", cmd)
+        self.assertIn("POSTHOG_CODE_REASONING_EFFORT=high", cmd)
