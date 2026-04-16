@@ -6,19 +6,28 @@ import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi } from '~/generated/core/api.schemas'
-import { TargetTypeEnumApi } from '~/generated/core/api.schemas'
 import type { InsightShortId } from '~/types'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
+import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
-const TARGET_TYPE_LABEL: Record<SubscriptionApi['target_type'], string> = {
-    [TargetTypeEnumApi.Email]: 'Email',
-    [TargetTypeEnumApi.Slack]: 'Slack',
-    [TargetTypeEnumApi.Webhook]: 'Webhook',
-}
-
+/**
+ * Label for this subscription in lists, breadcrumbs, and the subscription scene header.
+ * Prefers user `title`, then the attached resource name. For the resource’s own label
+ * (table resource link, summary line), use {@link subscriptionResourceLabel} instead.
+ */
 export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
+}
+
+export function subscriptionEditHref(sub: SubscriptionApi): string | null {
+    if (sub.insight && sub.insight_short_id) {
+        return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
+    }
+    if (sub.dashboard) {
+        return urls.dashboardSubscription(sub.dashboard, String(sub.id))
+    }
+    return null
 }
 
 /** URL to view the insight or dashboard this subscription is attached to (not the subscription edit UI). */
@@ -32,18 +41,39 @@ export function subscriptionResourceViewUrl(sub: SubscriptionApi): string | null
     return null
 }
 
-function subscriptionResourceLinkLabel(sub: SubscriptionApi): string {
-    const name = sub.resource_name?.trim()
-    if (name) {
-        return name
+/** How to finish the label when `resource_name` is empty; see {@link subscriptionResourceLabel}. */
+export type SubscriptionResourceLabelMode = 'resourceLink' | 'summary'
+
+/**
+ * Label for the insight or dashboard this subscription is attached to (not the subscription’s list name).
+ * Always prefers API `resource_name` when set.
+ *
+ * When it is missing:
+ * - `resourceLink` — short generic text for the resource column (Insight / Dashboard / View).
+ * - `summary` — subscription `title`, else `Untitled` if something is attached, else em dash.
+ */
+export function subscriptionResourceLabel(sub: SubscriptionApi, mode: SubscriptionResourceLabelMode): string {
+    const resourceName = sub.resource_name?.trim()
+    if (resourceName) {
+        return resourceName
     }
-    if (sub.insight) {
-        return 'Insight'
+    if (mode === 'resourceLink') {
+        if (sub.insight) {
+            return 'Insight'
+        }
+        if (sub.dashboard) {
+            return 'Dashboard'
+        }
+        return 'View'
     }
-    if (sub.dashboard) {
-        return 'Dashboard'
+    const title = sub.title?.trim()
+    if (title) {
+        return title
     }
-    return 'View'
+    if (sub.insight || sub.dashboard) {
+        return 'Untitled'
+    }
+    return '—'
 }
 
 function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): LemonTableColumns<SubscriptionApi> {
@@ -62,7 +92,13 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 return (
                     <Tooltip title={name}>
                         <div className="min-w-0 w-full overflow-hidden">
-                            <span className="font-medium block truncate">{name}</span>
+                            <Link
+                                to={urls.subscription(sub.id)}
+                                className="font-medium block truncate"
+                                data-attr="subscription-name-link"
+                            >
+                                {name}
+                            </Link>
                         </div>
                     </Tooltip>
                 )
@@ -88,7 +124,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 if (!href) {
                     return <span className="text-secondary">—</span>
                 }
-                const label = subscriptionResourceLinkLabel(sub)
+                const label = subscriptionResourceLabel(sub, 'resourceLink')
                 return (
                     <Tooltip title={label}>
                         <div className="min-w-0 w-full overflow-hidden">

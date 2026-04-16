@@ -114,6 +114,7 @@
     "pnpm": {
         "// Fix React version to a fixed known good version across the monorepo": "",
         "overrides": {
+            "axios": "^1.15.0",
             "@modelcontextprotocol/sdk": "^1.26.0",
             "@types/react": "18.3.27",
             "@types/react-dom": "18.3.7",

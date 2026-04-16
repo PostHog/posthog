@@ -611,3 +611,9 @@ tools:
     dashboards-run-insights-retrieve:
         operation: dashboards_run_insights_retrieve
         enabled: false
+    subscriptions-deliveries-list:
+        operation: subscriptions_deliveries_list
+        enabled: false
+    subscriptions-deliveries-retrieve:
+        operation: subscriptions_deliveries_retrieve
+        enabled: false
