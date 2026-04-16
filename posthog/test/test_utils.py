@@ -837,18 +837,16 @@ class TestGetJsUrl(SimpleTestCase):
         self.assertEqual(get_js_url(request), "http://192.168.1.5:8234")
 
     @override_settings(DEBUG=True, JS_URL="http://localhost:8234")
-    def test_coder_host_slug_swap(self) -> None:
-        request = RequestFactory().get(
-            "/",
-            HTTP_HOST="posthog--dev--ws--user.coder.dev.posthog.dev",
-            secure=True,
-        )
-        self.assertEqual(
-            get_js_url(request),
-            "https://vite--dev--ws--user.coder.dev.posthog.dev",
-        )
+    def test_non_localhost_https_scheme_aware(self) -> None:
+        request = RequestFactory().get("/", HTTP_HOST="dev.example.com", secure=True)
+        self.assertEqual(get_js_url(request), "https://dev.example.com:8234")
 
-    @override_settings(DEBUG=False, JS_URL="https://vite--prod.example.com")
+    @override_settings(DEBUG=True, JS_URL="https://frontend.example.com")
+    def test_absolute_js_url_returned_unchanged(self) -> None:
+        request = RequestFactory().get("/", HTTP_HOST="anything.example.com", secure=True)
+        self.assertEqual(get_js_url(request), "https://frontend.example.com")
+
+    @override_settings(DEBUG=False, JS_URL="https://assets.example.com")
     def test_non_debug_returns_settings_unchanged(self) -> None:
         request = RequestFactory().get("/", HTTP_HOST="anything.example.com")
-        self.assertEqual(get_js_url(request), "https://vite--prod.example.com")
+        self.assertEqual(get_js_url(request), "https://assets.example.com")
