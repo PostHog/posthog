@@ -11,7 +11,13 @@ describe('Tool Filtering - Features', () => {
         {
             features: undefined,
             description: 'all tools when no features specified',
-            expectedTools: ['feature-flag-get-definition', 'dashboard-create', 'insights-list', 'organizations-list'],
+            expectedTools: [
+                'feature-flag-get-definition',
+                'dashboard-create',
+                'insights-list',
+                'organizations-list',
+                'organization-get',
+            ],
         },
         {
             features: [],
