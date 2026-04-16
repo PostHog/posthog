@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeUiHost, toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -205,6 +205,7 @@ describe('toolbar toolbarConfigLogic', () => {
         it.each([
             ['https://us.posthog.com', true],
             ['https://eu.posthog.com', true],
+            ['https://app.posthog.com', true], // legacy canonical
             ['https://selfhosted.example.com', false],
             ['http://us.posthog.com', false], // http scheme is not trusted
             ['https://us.posthog.com.evil.com', false],
@@ -218,10 +219,10 @@ describe('toolbar toolbarConfigLogic', () => {
             mockTokenExchangeSuccess()
             const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
             logic.mount()
-            // Wait for the mount-time uiHost reachability check so authStatus leaves 'checking'
+            // Trusted hosts skip the HEAD check so authStatus stays idle
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
 
-            expectLogic(logic, () => {
+            await expectLogic(logic, () => {
                 logic.actions.authenticate()
             }).toMatchValues({ authConfirmModalVisible: false })
         })
@@ -232,9 +233,133 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
 
-            expectLogic(logic, () => {
+            await expectLogic(logic, () => {
                 logic.actions.authenticate()
             }).toMatchValues({ authConfirmModalVisible: true })
+        })
+
+        it('confirmAuthenticate opens the config modal when authStatus flipped to error after modal was shown', async () => {
+            // Simulate: user opened the modal, then the in-flight reachability check failed
+            // before they clicked Continue.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('network')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmAuthenticate()
+            }).toMatchValues({
+                authStatus: 'error',
+                uiHostConfigModalVisible: true,
+            })
+            // Should not have progressed to authenticating or set PKCE.
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('confirmAuthenticate is a no-op while authStatus is checking', async () => {
+            // Never-resolving fetch keeps status stuck in 'checking'.
+            ;(global.fetch as jest.Mock).mockImplementation(() => new Promise(() => {}))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('checking')
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmAuthenticate()
+            }).toMatchValues({
+                authStatus: 'checking',
+                uiHostConfigModalVisible: false,
+            })
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('confirmAuthenticate ignores re-entrant calls while already authenticating', async () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+            // Synthesize the race: set status to 'authenticating' (as the first
+            // confirmAuthenticate would) and verify a second click bails out
+            // without capturing the toolbar-authenticate event or touching PKCE.
+            logic.actions.setAuthStatus('authenticating')
+            logic.actions.confirmAuthenticate()
+
+            await expectLogic(logic).delay(0)
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+    })
+
+    describe('reachability check gating', () => {
+        it('skips the HEAD check entirely for trusted PostHog Cloud hosts', () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('idle')
+            // No HEAD request was fired.
+            const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+            )
+            expect(headCalls).toHaveLength(0)
+        })
+
+        it('skips the HEAD check when already authenticated and no pending code exchange', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://selfhosted.example.com',
+                accessToken: 'pha_existing',
+                refreshToken: 'phr_existing',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('idle')
+            const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+            )
+            expect(headCalls).toHaveLength(0)
+        })
+
+        it('runs the HEAD check for untrusted hosts that are not authenticated yet', () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('checking')
+            const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+            )
+            expect(headCalls).toHaveLength(1)
+        })
+
+        it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://selfhosted.example.com',
+                accessToken: 'pha_existing',
+                refreshToken: 'phr_existing',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('checking')
+            window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('canonicalizeUiHost', () => {
+        it.each([
+            // valid
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://us.posthog.com/', 'https://us.posthog.com'],
+            ['HTTPS://US.POSTHOG.COM', 'https://us.posthog.com'], // lowercased
+            ['https://us.posthog.com:443', 'https://us.posthog.com'], // default port stripped
+            ['https://us.posthog.com/some/path?q=1#hash', 'https://us.posthog.com'], // origin only
+            ['http://localhost:8000', 'http://localhost:8000'],
+            // rejected (returns null)
+            ['', null],
+            [undefined, null],
+            ['javascript:alert(1)', null],
+            ['data:text/html,<script>alert(1)</script>', null],
+            ['blob:https://us.posthog.com/abc', null],
+            ['https://us.posthog.com@evil.com', null], // userinfo rejected
+            ['https://user:pass@us.posthog.com', null], // userinfo rejected
+            ['not a url', null],
+            ['//protocol-relative.example.com', null],
+        ])('canonicalizeUiHost(%p) === %p', (input, expected) => {
+            expect(canonicalizeUiHost(input as any)).toBe(expected)
         })
     })
 
@@ -337,6 +462,70 @@ describe('toolbar toolbarConfigLogic', () => {
                 accessToken: null,
                 isAuthenticated: false,
             })
+            // Stale entry is cleaned up so we don't re-warn on every subsequent mount.
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+            warnSpy.mockRestore()
+        })
+
+        it('clears localStorage when the stored uiHost does not match the current uiHost', () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'https://us.posthog.com',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+            expect(logic.values.accessToken).toBeNull()
+            // Stale mismatched entry is purged — prevents log-noise on every mount
+            // and prevents tokens from being accepted again if the user returns to
+            // the originally-stored uiHost without re-authenticating in between.
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+            warnSpy.mockRestore()
+        })
+
+        it('tolerates trailing-slash / case differences between stored and current uiHost', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    // Old toolbar wrote trailing slash + mixed case; the selector and
+                    // canonicalizer should make this a no-op equivalence.
+                    uiHost: 'HTTPS://US.POSTHOG.COM/',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                isAuthenticated: true,
+            })
+        })
+
+        it('discards tokens whose stored fields are not strings', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({ accessToken: 123, refreshToken: {}, clientId: null, uiHost: 'https://us.posthog.com' })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: null, isAuthenticated: false })
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+        })
+
+        it('discards tokens when localStorage contains malformed JSON', () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(OAUTH_LOCALSTORAGE_KEY, '{not valid json')
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: null })
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
             warnSpy.mockRestore()
         })
 
@@ -760,11 +949,11 @@ describe('toolbar toolbarConfigLogic', () => {
                 isAuthenticated: true,
             })
 
-            // [0] = HEAD check, [1] = token exchange
-            expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('https://us.posthog.com/toolbar_oauth/check')
-            const fetchCall = (global.fetch as jest.Mock).mock.calls[1]
-            expect(fetchCall[0]).toBe('https://us.posthog.com/oauth/token/')
-            const body = new URLSearchParams(fetchCall[1].body)
+            // Trusted Cloud hosts skip the HEAD reachability check, so the first
+            // fetch is the token exchange.
+            const tokenExchangeCall = (global.fetch as jest.Mock).mock.calls[0]
+            expect(tokenExchangeCall[0]).toBe('https://us.posthog.com/oauth/token/')
+            const body = new URLSearchParams(tokenExchangeCall[1].body)
             expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
         })
 
