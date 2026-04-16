@@ -1,11 +1,12 @@
 import json
 import builtins
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils.timezone import now
 
 import structlog
@@ -159,6 +160,108 @@ def count_synthetic_playlist(
     }
 
 
+def _empty_saved_filters_counts() -> dict[str, int | bool | None]:
+    return {
+        "count": None,
+        "has_more": None,
+        "watched_count": None,
+        "increased": None,
+        "last_refreshed_at": None,
+    }
+
+
+def _saved_filters_counts_from_data(data: dict, viewed_session_ids: set[str]) -> dict[str, int | bool | None]:
+    id_list: Optional[list[str]] = data.get("session_ids", None)
+    current_count = len(id_list) if id_list else 0
+    previous_ids = data.get("previous_ids", None)
+    watched_count = len(set(id_list) & viewed_session_ids) if id_list else 0
+    return {
+        "count": current_count,
+        "has_more": data.get("has_more", False),
+        "watched_count": watched_count,
+        "increased": previous_ids is not None and current_count > len(previous_ids),
+        "last_refreshed_at": data.get("refreshed_at", None),
+    }
+
+
+def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user: User, team: Team) -> None:
+    """Batch-fetch recording counts and viewed status for a page of playlists.
+
+    The per-playlist path in the serializer issues 3 DB queries per collection
+    (plus one Redis GET + one DB query when saved-filter data exists), which is
+    O(N) round-trips for a list response. This helper collapses that into a
+    constant number of queries and attaches the results as `_prefetched_*`
+    attributes on each instance so the serializer can consume them.
+
+    Synthetic playlists are skipped — they have their own count path.
+    """
+    db_playlists = [p for p in playlists if not getattr(p, "_is_synthetic", False)]
+    if not db_playlists:
+        return
+
+    playlist_ids = [p.id for p in db_playlists]
+
+    counts_by_playlist: dict[int, int] = dict(
+        SessionRecordingPlaylistItem.objects.filter(playlist_id__in=playlist_ids)
+        .exclude(deleted=True)
+        .values("playlist_id")
+        .annotate(c=Count("id"))
+        .values_list("playlist_id", "c")
+    )
+
+    # Match the historical behavior of count_collection_recordings, which builds
+    # the watched-count list from all items (including soft-deleted ones).
+    session_ids_by_playlist: dict[int, list[str]] = defaultdict(list)
+    for playlist_id, session_id in SessionRecordingPlaylistItem.objects.filter(
+        playlist_id__in=playlist_ids
+    ).values_list("playlist_id", "session_id"):
+        if session_id:
+            session_ids_by_playlist[playlist_id].append(session_id)
+
+    playlists_needing_saved_filters = [p for p in db_playlists if counts_by_playlist.get(p.id, 0) == 0]
+
+    saved_filter_data_by_short_id: dict[str, dict] = {}
+    saved_filter_session_ids: set[str] = set()
+    if playlists_needing_saved_filters:
+        redis_client = get_client()
+        keys = [f"{PLAYLIST_COUNT_REDIS_PREFIX}{p.short_id}" for p in playlists_needing_saved_filters]
+        values = redis_client.mget(keys)
+        for playlist, value in zip(playlists_needing_saved_filters, values):
+            if not value:
+                continue
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError):
+                continue
+            saved_filter_data_by_short_id[playlist.short_id] = parsed
+            id_list = parsed.get("session_ids") or []
+            saved_filter_session_ids.update(id_list)
+
+    collection_session_ids: set[str] = {sid for sids in session_ids_by_playlist.values() for sid in sids}
+    all_session_ids = collection_session_ids | saved_filter_session_ids
+    viewed_session_ids = current_user_viewed(list(all_session_ids), user, team) if all_session_ids else set()
+
+    for playlist in db_playlists:
+        count = counts_by_playlist.get(playlist.id, 0)
+        session_ids = session_ids_by_playlist.get(playlist.id, [])
+        watched_count = len(set(session_ids) & viewed_session_ids)
+        playlist._prefetched_collection_count = {  # type: ignore[attr-defined]
+            "count": count if count > 0 else None,
+            "watched_count": watched_count,
+        }
+
+        if count > 0:
+            # Match existing behavior: saved_filters is only loaded when collection is empty.
+            continue
+
+        data = saved_filter_data_by_short_id.get(playlist.short_id)
+        playlist._prefetched_saved_filters_count = (  # type: ignore[attr-defined]
+            _saved_filters_counts_from_data(data, viewed_session_ids)
+            if data is not None
+            else _empty_saved_filters_counts()
+        )
+
+
 def log_playlist_activity(
     activity: str,
     playlist: SessionRecordingPlaylist,
@@ -266,13 +369,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
     def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, dict[str, int | bool | None]]:
         recordings_counts: dict[str, dict[str, int | bool | None]] = {
-            "saved_filters": {
-                "count": None,
-                "has_more": None,
-                "watched_count": None,
-                "increased": None,
-                "last_refreshed_at": None,
-            },
+            "saved_filters": _empty_saved_filters_counts(),
             "collection": {
                 "count": None,
                 "watched_count": None,
@@ -287,11 +384,19 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             if getattr(playlist, "_is_synthetic", False):
                 recordings_counts["collection"] = count_synthetic_playlist(playlist, user, team)
             else:
-                recordings_counts["collection"] = count_collection_recordings(playlist, user, team)
+                prefetched_collection = getattr(playlist, "_prefetched_collection_count", None)
+                if prefetched_collection is not None:
+                    recordings_counts["collection"] = prefetched_collection
+                else:
+                    recordings_counts["collection"] = count_collection_recordings(playlist, user, team)
 
                 # we only return saved filters if there are no collection recordings
                 if recordings_counts["collection"]["count"] is None or recordings_counts["collection"]["count"] == 0:
-                    recordings_counts["saved_filters"] = count_saved_filters(playlist, user, team)
+                    prefetched_saved = getattr(playlist, "_prefetched_saved_filters_count", None)
+                    if prefetched_saved is not None:
+                        recordings_counts["saved_filters"] = prefetched_saved
+                    else:
+                        recordings_counts["saved_filters"] = count_saved_filters(playlist, user, team)
 
         except Exception as e:
             posthoganalytics.capture_exception(e)
@@ -444,6 +549,14 @@ class SessionRecordingPlaylistViewSet(
         # don't cause the response to exceed the requested limit.
         limit = int(request.GET.get("limit", 100))
         combined = combined[:limit]
+
+        # Batch-fetch recording counts for the page to avoid the per-playlist
+        # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
+        # Failures fall through to the per-playlist path inside the serializer.
+        try:
+            precompute_recordings_counts(combined, cast(User, request.user), self.team)
+        except Exception as e:
+            posthoganalytics.capture_exception(e)
 
         serializer = self.get_serializer(combined, many=True)
 
