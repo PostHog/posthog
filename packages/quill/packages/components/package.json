@@ -31,7 +31,9 @@
     },
     "dependencies": {
         "@posthog/quill-primitives": "workspace:^",
-        "@posthog/quill-tokens": "workspace:^"
+        "@posthog/quill-tokens": "workspace:^",
+        "date-fns": "^2.29.3",
+        "lucide-react": "^0.577.0"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.1.17",

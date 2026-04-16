@@ -18,6 +18,7 @@ export {
     ComboboxLabel,
     ComboboxCollection,
     ComboboxEmpty,
+    ComboboxListFooter,
     ComboboxSeparator,
     ComboboxChips,
     ComboboxChip,
