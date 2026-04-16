@@ -1,12 +1,20 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import { Region, UserType } from '~/types'
 
+import { adminLoginAs } from './adminLoginAs'
 import type { impersonationNoticeLogicType } from './impersonationNoticeLogicType'
+
+export interface ExpiredSessionInfo {
+    email: string
+    userId: number
+}
 
 export interface ImpersonationTicketContext {
     ticketId: string
@@ -27,7 +35,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
 
     connect(() => ({
         values: [userLogic, ['user', 'isImpersonationUpgradeInProgress']],
-        actions: [userLogic, ['upgradeImpersonation', 'upgradeImpersonationSuccess']],
+        actions: [userLogic, ['upgradeImpersonation', 'upgradeImpersonationSuccess', 'loadUser', 'loadUserSuccess']],
     })),
 
     actions({
@@ -38,6 +46,9 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         setPageVisible: (visible: boolean) => ({ visible }),
         clearPageHiddenAt: true,
         setTicketContext: (context: ImpersonationTicketContext | null) => ({ context }),
+        setSessionExpired: (info: ExpiredSessionInfo | null) => ({ info }),
+        reImpersonate: (reason: string, readOnly: boolean) => ({ reason, readOnly }),
+        reImpersonateFailure: (error: string) => ({ error }),
     }),
 
     reducers({
@@ -70,6 +81,20 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 setTicketContext: (_, { context }) => context,
             },
         ],
+        expiredSessionInfo: [
+            null as ExpiredSessionInfo | null,
+            {
+                setSessionExpired: (_, { info }) => info,
+            },
+        ],
+        isReImpersonating: [
+            false,
+            {
+                reImpersonate: () => true,
+                reImpersonateFailure: () => false,
+                setSessionExpired: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -84,6 +109,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 return adminLoginUrlForTicket(ticketContext)
             },
         ],
+        isSessionExpired: [(s) => [s.expiredSessionInfo], (info: ExpiredSessionInfo | null): boolean => info !== null],
     }),
 
     listeners(({ actions, values }) => ({
@@ -92,9 +118,36 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 actions.closeUpgradeModal()
             }
         },
+        reImpersonate: async ({ reason, readOnly }) => {
+            const { expiredSessionInfo } = values
+            if (!expiredSessionInfo) {
+                return
+            }
+
+            try {
+                await adminLoginAs({ userId: expiredSessionInfo.userId, reason, readOnly })
+                actions.loadUser()
+            } catch (e) {
+                const errorMessage = e instanceof Error ? e.message : 'Failed to re-impersonate'
+                lemonToast.error(errorMessage)
+                actions.reImpersonateFailure(errorMessage)
+            }
+        },
+        loadUserSuccess: ({ user }) => {
+            if (!values.expiredSessionInfo) {
+                return
+            }
+            if (user?.is_impersonated) {
+                actions.setSessionExpired(null)
+                lemonToast.success('Impersonation session renewed')
+            }
+        },
         setPageVisible: ({ visible }) => {
             if (!visible) {
                 return
+            }
+            if (values.expiredSessionInfo) {
+                actions.loadUser()
             }
             const { pageHiddenAt } = values
             actions.clearPageHiddenAt()
