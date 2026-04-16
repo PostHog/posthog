@@ -17,7 +17,15 @@ from django.utils import timezone
 
 import structlog
 
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .facade.enums import (
+    ClassificationReason,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+    ToleratedReason,
+)
 from .models import Artifact, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -596,12 +604,12 @@ def complete_run(run_id: UUID) -> Run:
             result = SnapshotResult.NEW
         elif snapshot.current_hash == baseline_hash:
             result = SnapshotResult.UNCHANGED
-            classification_reason = "exact"
+            classification_reason = ClassificationReason.EXACT
         else:
             match = tolerated_lookup.get((snapshot.identifier, baseline_hash, snapshot.current_hash))
             if match is not None:
                 result = SnapshotResult.UNCHANGED
-                classification_reason = "tolerated_hash"
+                classification_reason = ClassificationReason.TOLERATED_HASH
                 tolerated_match = match
             else:
                 result = SnapshotResult.CHANGED

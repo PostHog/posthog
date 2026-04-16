@@ -61,6 +61,14 @@ class ReviewState(StrEnum):
     REJECTED = "rejected"  # Explicitly rejected
 
 
+class ClassificationReason(StrEnum):
+    """Why a snapshot was classified as UNCHANGED."""
+
+    EXACT = "exact"  # Hash matches baseline
+    TOLERATED_HASH = "tolerated_hash"  # Matched a known tolerated alternate
+    BELOW_THRESHOLD = "below_threshold"  # Diffed this run, below pixel/SSIM threshold
+
+
 class ToleratedReason(StrEnum):
     """Why a hash was tolerated."""
 

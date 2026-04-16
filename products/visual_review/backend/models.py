@@ -6,7 +6,16 @@ import uuid
 
 from django.db import models
 
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, RunType, SnapshotResult, ToleratedReason
+from .facade.enums import (
+    ClassificationReason,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+    ToleratedReason,
+)
 
 
 class Repo(models.Model):
@@ -213,12 +222,10 @@ class RunSnapshot(models.Model):
     result = models.CharField(
         max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED
     )
-    # Why this snapshot was classified as UNCHANGED:
-    #   "exact" — hash matches baseline
-    #   "tolerated_hash" — matched a known tolerated alternate
-    #   "below_threshold" — newly diffed this run, below pixel/SSIM threshold
-    #   "" — not applicable (CHANGED, NEW, REMOVED)
-    classification_reason = models.CharField(max_length=20, blank=True, default="")
+    # Why this snapshot was classified as UNCHANGED (empty for CHANGED/NEW/REMOVED)
+    classification_reason = models.CharField(
+        max_length=20, choices=[(r.value, r.value) for r in ClassificationReason], blank=True, default=""
+    )
     # Set when classification used a tolerated alternate hash
     tolerated_hash_match = models.ForeignKey(
         "ToleratedHash", on_delete=models.SET_NULL, null=True, blank=True, related_name="matched_snapshots"

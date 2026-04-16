@@ -13,7 +13,7 @@ from uuid import UUID
 import structlog
 
 from .diff import compute_diff
-from .facade.enums import SnapshotResult, ToleratedReason
+from .facade.enums import ClassificationReason, SnapshotResult, ToleratedReason
 from .models import RunSnapshot, ToleratedHash
 from .ssim import compute_ssim
 
@@ -121,7 +121,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
 
     # Both below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
-    snapshot.classification_reason = "below_threshold"
+    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
     snapshot.diff_percentage = result.diff_percentage
     snapshot.diff_pixel_count = result.diff_pixel_count
     snapshot.save(update_fields=["result", "classification_reason", "diff_percentage", "diff_pixel_count"])
