@@ -631,9 +631,9 @@ class TestClusterRegistry:
         assert names == sorted(names)
         assert set(names) == set(_CLUSTER_REGISTRY.keys())
 
-    def test_is_known_cluster_true_for_each_registered(self):
-        for name in _CLUSTER_REGISTRY:
-            assert is_known_cluster(name), name
+    @pytest.mark.parametrize("name", list(_CLUSTER_REGISTRY))
+    def test_is_known_cluster_true_for_each_registered(self, name: str):
+        assert is_known_cluster(name), name
 
     def test_is_known_cluster_false_for_garbage(self):
         assert not is_known_cluster("")

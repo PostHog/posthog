@@ -563,8 +563,8 @@ def get_cluster_by_name(
         raise ValueError(f"Unknown cluster '{logical_name}'. Known clusters: {known}")
 
     host_attr, cluster_attr = _CLUSTER_REGISTRY[logical_name]
-    host = getattr(settings, host_attr, settings.CLICKHOUSE_HOST)
-    cluster_name = getattr(settings, cluster_attr, settings.CLICKHOUSE_CLUSTER)
+    host = getattr(settings, host_attr)
+    cluster_name = getattr(settings, cluster_attr)
     return get_cluster(host=host, cluster=cluster_name, **kwargs)
 
 
