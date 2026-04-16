@@ -370,20 +370,15 @@ function escapeSqlString(value: string): string {
 }
 
 export function getSurveyResponse(question: SurveyQuestion, index: number): string {
-    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
-
+    // Delegate to the backend HogQL helper so survey response typing stays
+    // consistent with PropertyDefinition metadata and materialized column rules.
     if (question.type === SurveyQuestionType.MultipleChoice) {
-        return `if(
-        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
-        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
-        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
-    )`
+        return question.id
+            ? `getSurveyResponse(${index}, '${question.id}', true)`
+            : `getSurveyResponse(${index}, '', true)`
     }
 
-    return `COALESCE(
-        NULLIF(events.properties['${idBasedKey}'], ''),
-        NULLIF(events.properties['${indexBasedKey}'], '')
-    )`
+    return question.id ? `getSurveyResponse(${index}, '${question.id}')` : `getSurveyResponse(${index})`
 }
 
 /**
