@@ -143,6 +143,7 @@ export interface ErrorTrackingRelease {
     id: string
     metadata?: {
         git?: ReleaseGitMetadata
+        build?: string
     }
     project?: string // Only present in recent releases (10-11-2025)
     version: string

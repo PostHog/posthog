@@ -134,39 +134,22 @@ mod tests {
         }
     }
 
+    // (version, build) → (has_version, has_name, has_metadata("build"))
     #[test]
-    fn version_only() {
-        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), None).into();
-        assert!(builder.has_version());
-        assert!(builder.has_name());
-        assert!(!builder.has_metadata("build"));
-    }
+    fn release_args_to_builder() {
+        let cases: Vec<(Option<&str>, Option<&str>, bool, bool)> = vec![
+            // (version,    build,      has_version, has_build_metadata)
+            (Some("1.0"), None,         true,        false),
+            (Some("1.0"), Some("42"),   true,        true),
+            (None,        Some("42"),   false,       true),
+            (None,        None,         false,       false),
+        ];
 
-    #[test]
-    fn version_and_build() {
-        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), Some("42")).into();
-        assert!(builder.has_version());
-        assert!(builder.has_metadata("build"));
-    }
-
-    #[test]
-    fn build_only() {
-        let builder: ReleaseBuilder = make_args(Some("com.app"), None, Some("42")).into();
-        assert!(!builder.has_version());
-        assert!(builder.has_metadata("build"));
-    }
-
-    #[test]
-    fn no_build_no_metadata() {
-        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), None).into();
-        assert!(!builder.has_metadata("build"));
-    }
-
-    #[test]
-    fn version_not_packed_with_build() {
-        let builder: ReleaseBuilder = make_args(Some("com.app"), Some("1.0"), Some("42")).into();
-        // version should stay clean, NOT "1.0+42" — build goes to metadata
-        assert!(builder.has_version());
-        assert!(builder.has_metadata("build"));
+        for (version, build, expect_version, expect_build) in cases {
+            let builder: ReleaseBuilder = make_args(Some("com.app"), version, build).into();
+            assert!(builder.has_name(), "name should always be set");
+            assert_eq!(builder.has_version(), expect_version, "version={version:?} build={build:?}");
+            assert_eq!(builder.has_metadata("build"), expect_build, "version={version:?} build={build:?}");
+        }
     }
 }

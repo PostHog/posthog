@@ -41,6 +41,12 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
                             })()}
                         </td>
                     </tr>
+                    {release.metadata?.build && (
+                        <tr>
+                            <th>Build</th>
+                            <td className="text-right">{release.metadata.build}</td>
+                        </tr>
+                    )}
                 </table>
             </div>
             {match(release?.metadata?.git)
