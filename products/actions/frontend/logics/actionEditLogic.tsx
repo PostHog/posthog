@@ -312,21 +312,25 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 return false
             }
 
-            // Skip the prompt when the user is merely switching to another tab — our tab still
-            // exists, the logic stays mounted via the scene-logic cache, and the form state is
-            // preserved. We only want to prompt when the user is actually leaving this tab
-            // (closing it, or navigating within it to a different URL).
+            // Skip the prompt for tab switches — our tab still exists, the logic stays mounted
+            // via the scene-logic cache, and the form state is preserved. A tab switch shows up
+            // in one of two ways at beforeUnload time:
+            //  - switching AWAY: sceneLogic.activateTab() has already moved active to another
+            //    tab before router.push fires, so activeTabId !== our tabId.
+            //  - switching BACK: active is now us again, and the push target is our own tab's
+            //    stored pathname.
+            // Anything else (in-tab navigation, closing our tab) should still prompt.
             const myTabId = logic.props.tabId
             const scene = sceneLogic.findMounted()
             if (myTabId && scene && newLocation) {
-                const tabs = scene.values.tabs
-                const myTab = tabs.find((t) => t.id === myTabId)
-                const stillExists = Boolean(myTab)
-                const destinationMatchesAnotherTab = tabs.some(
-                    (t) => t.id !== myTabId && t.pathname === newLocation.pathname
-                )
-                if (stillExists && destinationMatchesAnotherTab) {
-                    return false
+                const myTab = scene.values.tabs.find((t) => t.id === myTabId)
+                if (myTab) {
+                    if (scene.values.activeTabId !== myTabId) {
+                        return false
+                    }
+                    if (myTab.pathname === newLocation.pathname) {
+                        return false
+                    }
                 }
             }
 
