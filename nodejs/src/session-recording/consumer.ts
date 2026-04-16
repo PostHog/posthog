@@ -4,7 +4,13 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
-import { DlqOutput, IngestionWarningsOutput, OverflowOutput, TophogOutput } from '../ingestion/common/outputs'
+import {
+    DlqOutput,
+    IngestionWarningsOutput,
+    LogEntriesOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
@@ -82,7 +88,9 @@ export class SessionRecordingIngester {
     constructor(
         private config: SessionRecordingIngesterConfig,
         postgres: PostgresRouter,
-        outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput>,
+        outputs: IngestionOutputs<
+            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput
+        >,
         kafkaMetadataProducer: KafkaProducerWrapper,
         redisPool: RedisPool,
         restrictionRedisPool: RedisPool
@@ -147,11 +155,9 @@ export class SessionRecordingIngester {
             this.kafkaMetadataProducer,
             this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
         )
-        const consoleLogStore = new SessionConsoleLogStore(
-            this.kafkaMetadataProducer,
-            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
-            { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
-        )
+        const consoleLogStore = new SessionConsoleLogStore(outputs, {
+            messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+        })
         this.fileStorage = s3Client
             ? new RetentionAwareStorage(
                   s3Client,

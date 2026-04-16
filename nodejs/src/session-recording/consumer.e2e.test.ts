@@ -19,7 +19,13 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../config/kafka-topics'
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT, TOPHOG_OUTPUT } from '../ingestion/common/outputs'
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -868,6 +874,12 @@ describe('Session Recording Consumer Integration', () => {
                 TOPHOG_OUTPUT,
                 'clickhouse_tophog_test',
                 kafkaMessageProducer,
+                'test'
+            ),
+            [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
+                LOG_ENTRIES_OUTPUT,
+                'log_entries_test',
+                kafkaMetadataProducer,
                 'test'
             ),
         })

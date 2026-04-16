@@ -1899,6 +1899,16 @@ class Resolver(CloningVisitor):
             else:
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, ast.SelectQuery)
+            and (self._is_sessions_table(node.left) or self._select_reads_sessions(node.right))
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
     def _get_scope(self):
@@ -1938,6 +1948,56 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.field_type.table_type, ast.TableType):
                 return isinstance(node.type.field_type.table_type.table, EventsTable)
+        return False
+
+    # The set of "sessions-cluster" tables is whatever the current database resolves
+    # for these names — adding a new sessions version means wiring it up in
+    # database.py, and this helper picks it up automatically.
+    _SESSIONS_TABLE_NAMES = ("sessions", "raw_sessions", "raw_sessions_v3")
+
+    def _sessions_table_classes(self) -> tuple[type, ...]:
+        database = self.context.database
+        if database is None:
+            return ()
+        return tuple(
+            {type(database.get_table(name)) for name in self._SESSIONS_TABLE_NAMES if database.has_table(name)}
+        )
+
+    def _is_sessions_table(self, node: ast.Expr) -> bool:
+        classes = self._sessions_table_classes()
+        if not classes:
+            return False
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if not isinstance(node, ast.Field):
+            return False
+        field_type = node.type
+        if isinstance(field_type, ast.PropertyType):
+            field_type = field_type.field_type
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        table_type = field_type.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if isinstance(table_type, (ast.LazyTableType, ast.TableType)):
+            return isinstance(table_type.table, classes)
+        if isinstance(table_type, ast.LazyJoinType):
+            return isinstance(table_type.lazy_join.join_table, classes)
+        return False
+
+    def _select_reads_sessions(self, node: ast.SelectQuery) -> bool:
+        classes = self._sessions_table_classes()
+        if not classes:
+            return False
+        join = node.select_from
+        while join is not None:
+            if isinstance(join.table, ast.Field) and isinstance(join.table.type, ast.BaseTableType):
+                table_type: ast.Type = join.table.type
+                while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                    table_type = table_type.table_type
+                if isinstance(table_type, (ast.LazyTableType, ast.TableType)) and isinstance(table_type.table, classes):
+                    return True
+            join = join.next_join
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
