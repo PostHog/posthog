@@ -614,8 +614,16 @@ def complete_run(run_id: UUID) -> Run:
             else:
                 result = SnapshotResult.CHANGED
 
+        # review_state is only set on actionable snapshots
+        review_state = (
+            ReviewState.PENDING
+            if result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+            else ""
+        )
+
         snapshot.result = result
         snapshot.classification_reason = classification_reason
+        snapshot.review_state = review_state
         snapshot.tolerated_hash_match = tolerated_match
         snapshot.baseline_hash = baseline_hash or ""
         snapshot.baseline_artifact = baseline_artifact
@@ -625,6 +633,7 @@ def complete_run(run_id: UUID) -> Run:
             update_fields=[
                 "result",
                 "classification_reason",
+                "review_state",
                 "tolerated_hash_match",
                 "baseline_hash",
                 "baseline_artifact",
@@ -648,6 +657,7 @@ def complete_run(run_id: UUID) -> Run:
                         "baseline_hash": b_hash or "",
                         "baseline_artifact": b_artifact,
                         "result": SnapshotResult.REMOVED,
+                        "review_state": ReviewState.PENDING,
                         "metadata": {},
                     },
                 )

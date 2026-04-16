@@ -235,13 +235,13 @@ class RunSnapshot(models.Model):
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
 
-    # Review state (human decision, separate from computed result)
-    # result = computed diff status (immutable once set)
-    # review_state = human decision (can change, e.g., reset on new runs)
+    # Review state — only set on actionable snapshots (CHANGED, NEW, REMOVED).
+    # Empty for unchanged snapshots that don't need review.
     review_state = models.CharField(
         max_length=20,
         choices=[(s.value, s.value) for s in ReviewState],
-        default=ReviewState.PENDING,
+        blank=True,
+        default="",
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
     # References posthog.User in the main database — plain integer, no FK.
