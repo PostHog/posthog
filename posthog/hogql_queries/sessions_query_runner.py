@@ -44,6 +44,26 @@ SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
     }
 )
 
+
+def _extract_session_id_values(prop) -> Optional[list[str]]:
+    # Returns a list of session IDs extracted from a `$session_id` exact-match
+    # EventPropertyFilter, or None if the prop is not such a filter and should
+    # continue to flow through the events subquery. An empty list is returned
+    # verbatim so callers can emit a zero-result constraint — matching the
+    # semantic intent of `$session_id IN ()`.
+    if not isinstance(prop, EventPropertyFilter):
+        return None
+    if prop.key != "$session_id":
+        return None
+    if prop.operator not in (None, PropertyOperator.EXACT):
+        return None
+    if prop.value is None:
+        return None
+    if isinstance(prop.value, list):
+        return [str(v) for v in prop.value]
+    return [str(prop.value)]
+
+
 # Allow-listed fields returned when you select "*" from sessions
 SELECT_STAR_FROM_SESSIONS_FIELDS = [
     "session_id",
@@ -328,22 +348,21 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         # table round-trip.
                         remaining_event_properties = []
                         session_id_values: list[str] = []
+                        extracted_empty_session_id_filter = False
                         if self.query.eventProperties:
                             for prop in self.query.eventProperties:
-                                if (
-                                    isinstance(prop, EventPropertyFilter)
-                                    and prop.key == "$session_id"
-                                    and prop.operator in (None, PropertyOperator.EXACT)
-                                    and prop.value is not None
-                                ):
-                                    if isinstance(prop.value, list):
-                                        session_id_values.extend(str(v) for v in prop.value)
-                                    else:
-                                        session_id_values.append(str(prop.value))
-                                else:
+                                extracted = _extract_session_id_values(prop)
+                                if extracted is None:
                                     remaining_event_properties.append(prop)
+                                elif not extracted:
+                                    # `$session_id IN ()` must match zero sessions.
+                                    extracted_empty_session_id_filter = True
+                                else:
+                                    session_id_values.extend(extracted)
 
-                        if session_id_values:
+                        if extracted_empty_session_id_filter:
+                            where_exprs.append(ast.Constant(value=False))
+                        elif session_id_values:
                             where_exprs.append(
                                 ast.CompareOperation(
                                     left=ast.Field(chain=["session_id"]),

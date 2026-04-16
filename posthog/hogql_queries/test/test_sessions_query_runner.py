@@ -1168,6 +1168,26 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(response.results) == 2
             assert "FROM events" not in response.hogql
 
+    def test_session_id_event_property_filter_empty_list_returns_no_sessions(self):
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                eventProperties=[EventPropertyFilter(key="$session_id", value=[], operator="exact", type="event")],
+            )
+            response = SessionsQueryRunner(query=query, team=self.team).run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert response.results == []
+
     def test_session_id_event_property_with_other_event_filters_keeps_subquery(self):
         """When $session_id is combined with an event name filter, we still need the events subquery
         for the event filter, but $session_id is applied directly to sessions."""
