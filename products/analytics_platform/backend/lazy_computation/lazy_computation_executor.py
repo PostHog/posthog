@@ -964,14 +964,25 @@ def ensure_precomputed(
     base_placeholders = placeholders or {}
     _validate_no_reserved_placeholders(base_placeholders)
 
+    if sentinel_placeholders:
+        missing = sentinel_placeholders - set(base_placeholders)
+        if missing:
+            raise ValueError(
+                f"sentinel_placeholders {missing} must also be present in placeholders "
+                "so real values are available at INSERT time."
+            )
+
     # Parse the query template with sentinel placeholders for stable hashing.
     # time_window_min/max are always sentinelized (managed by the executor).
     # Callers can opt additional placeholders into sentinelization via sentinel_placeholders.
-    hash_placeholders = {
+    caller_sentinels: dict[str, ast.Expr] = {
+        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
+    }
+    hash_placeholders: dict[str, ast.Expr] = {
         **base_placeholders,
         "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
         "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
-        **{name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())},
+        **caller_sentinels,
     }
     parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
     assert isinstance(parsed_for_hash, ast.SelectQuery)
