@@ -283,9 +283,10 @@ def auto_approve_run(
 
 
 def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
-    """Approve specific snapshots (DB only, no GitHub commit).
+    """Approve specific snapshots (DB only).
 
-    For full run approval with GitHub commit, use auto_approve_run via approve_all=true.
+    For full run finalization with GitHub commit, use approve_all=true
+    which routes through auto_approve_run.
     """
     if team_id is not None:
         logic.get_run(input.run_id, team_id=team_id)  # validates ownership
