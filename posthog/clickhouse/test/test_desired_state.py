@@ -110,6 +110,229 @@ class TestCircularInheritance:
         assert child.columns[0].name == "id"
 
 
+class TestColumnDefOptionalFields:
+    def test_codec(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: id
+                    type: String
+                    codec: ZSTD(1)
+                order_by: [id]
+            """,
+        )
+        state = parse_desired_state(f)
+        assert state.tables["t"].columns[0].codec == "ZSTD(1)"
+
+    def test_default_kind_and_expression(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: ts
+                    type: DateTime
+                    default_kind: DEFAULT
+                    default_expression: now()
+                order_by: [ts]
+            """,
+        )
+        state = parse_desired_state(f)
+        col = state.tables["t"].columns[0]
+        assert col.default_kind == "DEFAULT"
+        assert col.default_expression == "now()"
+
+    def test_default_alias_for_default_expression(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: ts
+                    type: DateTime
+                    default: now()
+                order_by: [ts]
+            """,
+        )
+        state = parse_desired_state(f)
+        assert state.tables["t"].columns[0].default_expression == "now()"
+
+
+class TestOnNodesCoercion:
+    def test_string_coerced_to_list(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: id
+                    type: String
+                on_nodes: DATA
+                order_by: [id]
+            """,
+        )
+        state = parse_desired_state(f)
+        assert state.tables["t"].on_nodes == ["DATA"]
+
+    def test_list_unchanged(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: id
+                    type: String
+                on_nodes: [DATA, COORDINATOR]
+                order_by: [id]
+            """,
+        )
+        state = parse_desired_state(f)
+        assert state.tables["t"].on_nodes == ["DATA", "COORDINATOR"]
+
+    def test_null_defaults_to_all(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              t:
+                engine: MergeTree
+                columns:
+                  - name: id
+                    type: String
+                on_nodes:
+                order_by: [id]
+            """,
+        )
+        state = parse_desired_state(f)
+        assert state.tables["t"].on_nodes == ["ALL"]
+
+
+class TestKafkaSettings:
+    def test_integer_values_coerced_to_strings(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              kafka_t:
+                engine: Kafka
+                columns:
+                  - name: msg
+                    type: String
+                settings:
+                  kafka_num_consumers: 4
+                  kafka_max_block_size: 65536
+                  kafka_topic_list: events
+            """,
+        )
+        state = parse_desired_state(f)
+        settings = state.tables["kafka_t"].settings
+        assert settings == {
+            "kafka_num_consumers": "4",
+            "kafka_max_block_size": "65536",
+            "kafka_topic_list": "events",
+        }
+
+
+class TestMaterializedView:
+    def test_target_and_select_stored(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              mv_t:
+                engine: MaterializedView
+                columns: []
+                target: dest_table
+                select: "SELECT id FROM src_table"
+            """,
+        )
+        state = parse_desired_state(f)
+        t = state.tables["mv_t"]
+        assert t.target == "dest_table"
+        assert t.select == "SELECT id FROM src_table"
+
+
+class TestDictionaryEngine:
+    def test_dict_fields_parsed(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              rate_dict:
+                engine: Dictionary
+                columns:
+                  - name: currency
+                    type: String
+                primary_key: currency
+                source:
+                  type: CLICKHOUSE
+                  table: raw_rates
+                layout:
+                  type: COMPLEX_KEY_HASHED
+                lifetime:
+                  min: 3000
+                  max: 3600
+                range:
+                  min: start_date
+                  max: end_date
+            """,
+        )
+        state = parse_desired_state(f)
+        t = state.tables["rate_dict"]
+        assert t.engine == "Dictionary"
+        assert t.primary_key == "currency"
+        assert t.dict_source == {"type": "CLICKHOUSE", "table": "raw_rates"}
+        assert t.dict_layout == {"type": "COMPLEX_KEY_HASHED"}
+        assert t.dict_lifetime == {"min": 3000, "max": 3600}
+        assert t.dict_range == {"min": "start_date", "max": "end_date"}
+        # source string field must not be contaminated by the dict mapping
+        assert t.source is None
+
+    def test_dict_lifetime_values_coerced_to_int(self, tmp_path):
+        f = _write_yaml(
+            tmp_path,
+            """
+            ecosystem: events
+            tables:
+              d:
+                engine: Dictionary
+                columns: []
+                source:
+                  type: CLICKHOUSE
+                  table: t
+                layout:
+                  type: FLAT
+                lifetime:
+                  min: "100"
+                  max: "200"
+            """,
+        )
+        state = parse_desired_state(f)
+        lt = state.tables["d"].dict_lifetime
+        assert lt == {"min": 100, "max": 200}
+
+
 class TestParseDesiredStateDir:
     def test_happy_path_returns_both_states(self, tmp_path):
         (tmp_path / "events.yaml").write_text("ecosystem: events\ntables: {}\n")
