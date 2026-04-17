@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         ClusteringWorkflowInputs,
         PrimeSessionEmbeddingsActivityInputs,
     )
+    from posthog.temporal.session_replay.session_summary.summarize_session import SummarizeSingleSessionWorkflow
     from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
     from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
@@ -96,7 +97,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
                     video_validation_enabled="full",
                 ),
-                id=f"session-summary:single:direct:{team_id}:{session_id}:{user_id}:{workflow.uuid4()}",
+                id=SummarizeSingleSessionWorkflow.workflow_id_for(team_id, session_id),
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 execution_timeout=timedelta(minutes=30),
                 retry_policy=RetryPolicy(
