@@ -14,6 +14,7 @@
             "type": "string"
         },
         "id": {
+            "description": "A UUID string identifying this hog function.",
             "type": "string"
         },
         "instance_id": {
@@ -32,7 +33,13 @@
             "maximum": 500,
             "minimum": 1,
             "type": "number"
+        },
+        "search": {
+            "description": "Search string to filter log messages (case-insensitive substring match).",
+            "minLength": 1,
+            "type": "string"
         }
     },
+    "required": ["id"],
     "type": "object"
 }
