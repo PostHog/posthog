@@ -456,7 +456,7 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
 
     Background on the motivating ExperimentQuery OOM and why the pushdown must be scoped to
     selective event filters (it regresses ``WebStatsTableQuery``):
-    https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-elevenlabs-experiment-sessions-oom.md
+    https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
 
     Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
     resolve to the EventsTable and tombstone everything else, letting the base AND/OR/NOT

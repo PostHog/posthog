@@ -570,7 +570,7 @@ WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
     # Tests for the sessionIdPushdown modifier — see
-    # https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-elevenlabs-experiment-sessions-oom.md
+    # https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
 
     snapshot: Any
 
