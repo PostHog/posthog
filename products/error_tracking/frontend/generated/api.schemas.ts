@@ -513,6 +513,20 @@ export interface ErrorTrackingAssignmentRuleCreateRequestApi {
     assignee: ErrorTrackingAssignmentRuleAssigneeRequestApi
 }
 
+export interface ErrorTrackingAssignmentRuleUpdateRequestApi {
+    /** Property-group filters that define when this rule matches incoming error events. */
+    filters?: PropertyGroupFilterValueApi | null
+    /** User or role to assign matching issues to. */
+    assignee?: ErrorTrackingAssignmentRuleAssigneeRequestApi | null
+}
+
+export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
+    /** Property-group filters that define when this rule matches incoming error events. */
+    filters?: PropertyGroupFilterValueApi | null
+    /** User or role to assign matching issues to. */
+    assignee?: ErrorTrackingAssignmentRuleAssigneeRequestApi | null
+}
+
 /**
  * @nullable
  */

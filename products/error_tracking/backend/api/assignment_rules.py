@@ -80,6 +80,19 @@ class ErrorTrackingAssignmentRuleCreateRequestSerializer(serializers.Serializer)
     )
 
 
+class ErrorTrackingAssignmentRuleUpdateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingAssignmentRuleFiltersField(
+        required=False,
+        allow_null=True,
+        help_text="Property-group filters that define when this rule matches incoming error events.",
+    )
+    assignee = ErrorTrackingAssignmentRuleAssigneeRequestSerializer(
+        required=False,
+        allow_null=True,
+        help_text="User or role to assign matching issues to.",
+    )
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
 
@@ -114,10 +127,10 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    def update(self, request, *args, **kwargs) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         assignment_rule = self.get_object()
-        assignee = request.data.get("assignee")
-        json_filters = request.data.get("filters")
+        json_filters = request.validated_data.get("filters")
+        assignee = request.validated_data.get("assignee")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
@@ -138,8 +151,19 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-    def partial_update(self, request, *args, **kwargs) -> Response:
-        return self.update(request, *args, **kwargs)
+    @validated_request(
+        request_serializer=ErrorTrackingAssignmentRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
+
+    @validated_request(
+        request_serializer=ErrorTrackingAssignmentRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
 
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

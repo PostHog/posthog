@@ -14424,6 +14424,13 @@ export namespace Schemas {
       assignee: ErrorTrackingAssignmentRuleAssigneeRequest;
     }
 
+    export interface ErrorTrackingAssignmentRuleUpdateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters?: PropertyGroupFilterValue | null;
+      /** User or role to assign matching issues to. */
+      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
     export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
 
 
@@ -24535,6 +24542,13 @@ export namespace Schemas {
       disabled_data?: unknown | null;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters?: PropertyGroupFilterValue | null;
+      /** User or role to assign matching issues to. */
+      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
     export interface PatchedErrorTrackingExternalReference {
