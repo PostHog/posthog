@@ -21,6 +21,8 @@ export interface ImpersonationReasonModalProps {
     // Forced-choice modals (e.g. session-expired) set closable={false} so the user
     // must pick a footer action — no ESC, no overlay-click, no X button.
     closable?: boolean
+    // Renders inline rather than in a portal — used by Storybook to capture snapshots.
+    inline?: boolean
 }
 
 export function ImpersonationReasonModal({
@@ -34,6 +36,7 @@ export function ImpersonationReasonModal({
     children,
     cancelButton,
     closable = true,
+    inline = false,
 }: ImpersonationReasonModalProps): JSX.Element {
     const [reason, setReason] = useState('')
     const reasonInputId = useId()
@@ -57,6 +60,7 @@ export function ImpersonationReasonModal({
             isOpen={isOpen}
             onClose={handleClose}
             closable={closable}
+            inline={inline}
             title={title}
             footer={
                 <>
