@@ -1,5 +1,3 @@
-posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
-posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: have distinct disjoint bases  [unreachable]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "_Wrapped[[VarArg(Any), KwArg(Any)], Any, [VarArg(Any), KwArg(Any)], Any]" has no attribute "cache_clear"  [attr-defined]
