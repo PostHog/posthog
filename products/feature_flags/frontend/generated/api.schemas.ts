@@ -737,6 +737,11 @@ export interface ActivityLogEntryApi {
     readonly scope: string
     readonly item_id: string
     detail?: DetailApi
+    /**
+     * SDK or integration that triggered this action (from x-posthog-client header).
+     * @nullable
+     */
+    readonly client: string | null
     readonly created_at: string
 }
 
