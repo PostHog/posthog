@@ -1,4 +1,3 @@
-import threading
 from datetime import timedelta
 from typing import Any
 
@@ -29,9 +28,7 @@ from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
-from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
-
-VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 # Allow max 10 full video exports per team per calendar month
 FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
@@ -108,20 +105,23 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        # NEW: Check full video export limit for team (only MP4 exports with "video" mode)
+        # Check full video export limit for team (video session recording exports)
         export_format = data.get("export_format")
         export_context = data.get("export_context", {})
-        export_mode = export_context.get("mode")
 
-        if export_format == "video/mp4" and export_mode == "video":
+        is_full_video_export = export_format in ("video/mp4", "video/webm", "image/gif") and export_context.get(
+            "session_recording_id"
+        )
+
+        if is_full_video_export:
             # Calculate the start of the current month
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
             existing_full_video_exports_count = ExportedAsset.objects.filter(
                 team_id=self.context["team_id"],
-                export_format="video/mp4",
-                export_context__mode="video",
+                export_format__in=["video/mp4", "video/webm", "image/gif"],
+                export_context__session_recording_id__isnull=False,
                 created_at__gte=start_of_month,
             ).count()
 
@@ -208,28 +208,26 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         {"export_format": ["Video export supports session recordings only."]}
                     )
 
-                logger.info("starting_video_export_workflow", asset_id=instance.id)
+                logger.info("starting_rasterize_recording_workflow", asset_id=instance.id)
 
                 async def _start():
                     client = await async_connect()
                     await client.execute_workflow(
-                        VideoExportWorkflow.run,
-                        VideoExportInputs(exported_asset_id=instance.id, use_puppeteer=False),
+                        "rasterize-recording",
+                        RasterizeRecordingInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        # Keep hard limit to avoid hanging workflows
-                        execution_timeout=timedelta(hours=3),
+                        execution_timeout=timedelta(hours=1),
                     )
 
-                with VIDEO_EXPORT_SEMAPHORE:
-                    try:
-                        async_to_sync(_start)()
-                        logger.info("video_export_workflow_dispatched", asset_id=instance.id)
-                    except Exception as e:
-                        logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
-                        raise
+                try:
+                    async_to_sync(_start)()
+                    logger.info("rasterize_recording_workflow_dispatched", asset_id=instance.id)
+                except Exception as e:
+                    logger.exception("rasterize_recording_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
+                    raise
             else:
                 self._start_export_workflow(instance, team, user, force_async=False)
         else:

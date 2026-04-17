@@ -24,7 +24,6 @@ import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDe
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
 import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
-import { externalDataSourceActivityDescriber } from 'scenes/data-warehouse/external-data-sources/activityDescriptions'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
 import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -47,6 +46,7 @@ import { urls } from 'scenes/urls'
 import { ActivityScope } from '~/types'
 
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
+import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 

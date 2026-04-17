@@ -1130,6 +1130,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        assert invite.private_project_access is not None
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], "member")
@@ -1161,6 +1162,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        assert invite.private_project_access is not None
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], "member")
@@ -1237,6 +1239,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        assert invite.private_project_access is not None
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], "member")

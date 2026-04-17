@@ -206,6 +206,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
         return ProcessTeamSignalsBatchOutput(processed_count=0)
 
     for signal in signals:
+        temporalio.activity.heartbeat()
         metadata = dict(signal.metadata)
         metadata["deleted"] = True
 
@@ -361,7 +362,7 @@ class SignalReportReingestionWorkflow:
                 max_wait_time_seconds=3600,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(minutes=2),
+            heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -455,7 +456,7 @@ class TeamSignalReingestionWorkflow:
                         limit=TEAM_SIGNAL_REINGESTION_BATCH_SIZE,
                     ),
                     start_to_close_timeout=timedelta(hours=1, minutes=15),
-                    heartbeat_timeout=timedelta(minutes=2),
+                    heartbeat_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
 

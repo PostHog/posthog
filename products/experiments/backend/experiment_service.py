@@ -1255,6 +1255,8 @@ class ExperimentService:
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
         """
+        update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
+
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
@@ -1301,8 +1303,13 @@ class ExperimentService:
                 saved_metric_serializer.is_valid(raise_exception=True)
                 saved_metric_serializer.save()
 
-        # --- feature flag variant sync for draft experiments ---------------
-        if experiment.is_draft:
+        # --- feature flag sync ------------------------------------------------
+        # Draft experiments always sync parameters to the linked feature flag.
+        # Running experiments only sync when update_feature_flag_params=True,
+        # to prevent accidental side effects (e.g. overwrites when the frontend
+        # spreads stale parameters alongside unrelated updates, or an agent
+        # calls MCP with too many params).
+        if experiment.is_draft or update_feature_flag_params:
             holdout = experiment.holdout
             if "holdout" in update_data:
                 holdout = update_data["holdout"]
@@ -1399,9 +1406,16 @@ class ExperimentService:
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
+        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
+        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
+            raise ValidationError(
+                "Cannot restore experiment: the linked feature flag has been deleted. "
+                "Restore the feature flag first, then restore the experiment."
+            )
+
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
-            allowed_fields = {"name", "description", "end_date"}
+            allowed_fields = {"name", "description", "end_date", "deleted"}
             update_fields = set(update_data.keys())
 
             # Remove internal fields that are handled separately
@@ -1420,12 +1434,6 @@ class ExperimentService:
 
             # If only allowed fields are being updated, skip the rest of the validation
             return
-
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
 
         expected_keys = {
             "name",

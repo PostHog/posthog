@@ -125,6 +125,9 @@ class Integration(models.Model):
         JIRA = "jira"
         PINTEREST_ADS = "pinterest-ads"
         STRIPE = "stripe"
+        CUSTOMERIO_APP = "customerio-app"
+        CUSTOMERIO_WEBHOOK = "customerio-webhook"
+        CUSTOMERIO_TRACK = "customerio-track"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -1115,7 +1118,9 @@ class GoogleAdsIntegration:
         response = requests.request(
             "POST",
             f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
-            json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
+            json={
+                "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
+            },
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",

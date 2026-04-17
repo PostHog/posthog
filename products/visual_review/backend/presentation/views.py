@@ -32,6 +32,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ReviewDecision
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -40,11 +41,13 @@ from .serializers import (
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    MarkToleratedInputSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
+    ToleratedHashEntrySerializer,
     UpdateRepoInputSerializer,
 )
 
@@ -182,6 +185,46 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
 
+    @validated_request(
+        request_serializer=MarkToleratedInputSerializer,
+        responses={200: OpenApiResponse(response=SnapshotSerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path="tolerate")
+    def mark_tolerated(self, request: TypedRequest, pk: str, **kwargs) -> Response:
+        """Mark a changed snapshot as a known tolerated alternate."""
+        try:
+            snapshot = api.mark_snapshot_as_tolerated(
+                run_id=UUID(pk),
+                snapshot_id=request.validated_data["snapshot_id"],
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError:
+            return Response({"detail": "Snapshot cannot be marked as tolerated"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SnapshotSerializer(instance=snapshot).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: ToleratedHashEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tolerated-hashes")
+    def tolerated_hashes(self, request: Request, pk: str, **kwargs) -> Response:
+        """List known tolerated hashes for a snapshot identifier."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            return self.get_paginated_response(ToleratedHashEntrySerializer(instance=page, many=True).data)
+        return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
+
     @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
     @action(detail=True, methods=["post"], url_path="add-snapshots")
     @validated_request(AddSnapshotsInputSerializer)
@@ -245,7 +288,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             if body.approve_all:
-                result = api.auto_approve_run(run_id=run_id, user_id=user_id, team_id=self.team_id)
+                result = api.approve_all(run_id=run_id, user_id=user_id, team_id=self.team_id)
                 return Response(AutoApproveResultSerializer(instance=result).data)
 
             input_dto = ApproveRunInput(
@@ -282,12 +325,14 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Deprecated: use POST /approve/ with approve_all=true instead."""
+        """CLI auto-approve: approve all and return baseline YAML for local write."""
         try:
-            result = api.auto_approve_run(
+            result = api.approve_all(
                 run_id=UUID(pk),
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                review_decision=ReviewDecision.AUTO_APPROVED,
+                commit_to_github=False,
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)

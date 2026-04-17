@@ -143,10 +143,13 @@ export interface PatchedOrganizationIntegrationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  * `stripe` - Stripe
+ * `customerio-app` - Customerio App
+ * `customerio-webhook` - Customerio Webhook
+ * `customerio-track` - Customerio Track
  */
-export type KindBa9EnumApi = (typeof KindBa9EnumApi)[keyof typeof KindBa9EnumApi]
+export type KindEc9EnumApi = (typeof KindEc9EnumApi)[keyof typeof KindEc9EnumApi]
 
-export const KindBa9EnumApi = {
+export const KindEc9EnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -176,6 +179,9 @@ export const KindBa9EnumApi = {
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
     Stripe: 'stripe',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 /**
@@ -183,7 +189,7 @@ export const KindBa9EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindBa9EnumApi
+    kind: KindEc9EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -205,7 +211,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindBa9EnumApi
+    kind?: KindEc9EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

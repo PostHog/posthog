@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -61,7 +61,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Early access features',
             intents: [ProductKey.EARLY_ACCESS_FEATURES],
-            category: 'Features',
+            category: ProductItemCategory.FEATURES,
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
             iconType: 'early_access_feature' as FileSystemIconType,

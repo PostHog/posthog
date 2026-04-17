@@ -33,7 +33,7 @@ const promptList = (): ToolBase<
             }
         >({
             method: 'GET',
-            path: `/api/environments/${projectId}/llm_prompts/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/`,
             query: parsedParams,
         })
         return result
@@ -51,7 +51,7 @@ const promptGet = (): ToolBase<typeof PromptGetSchema, Schemas.LLMPromptPublic> 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LLMPromptPublic>({
             method: 'GET',
-            path: `/api/environments/${projectId}/llm_prompts/name/${params.prompt_name}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             query: {
                 version: params.version,
             },
@@ -76,7 +76,7 @@ const promptCreate = (): ToolBase<typeof PromptCreateSchema, Schemas.LLMPrompt> 
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
-            path: `/api/environments/${projectId}/llm_prompts/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/`,
             body,
         })
         return result
@@ -104,7 +104,7 @@ const promptUpdate = (): ToolBase<typeof PromptUpdateSchema, Schemas.LLMPrompt> 
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'PATCH',
-            path: `/api/environments/${projectId}/llm_prompts/name/${params.prompt_name}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             body,
         })
         return result
@@ -126,7 +126,7 @@ const promptDuplicate = (): ToolBase<typeof PromptDuplicateSchema, Schemas.LLMPr
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
-            path: `/api/environments/${projectId}/llm_prompts/name/${params.prompt_name}/duplicate/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/duplicate/`,
             body,
         })
         return result

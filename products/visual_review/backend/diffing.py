@@ -13,8 +13,8 @@ from uuid import UUID
 import structlog
 
 from .diff import compute_diff
-from .facade.enums import SnapshotResult
-from .models import RunSnapshot
+from .facade.enums import ClassificationReason, SnapshotResult, ToleratedReason
+from .models import RunSnapshot, ToleratedHash
 from .ssim import compute_ssim
 
 logger = structlog.get_logger(__name__)
@@ -119,17 +119,31 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         )
         return
 
-    # Both below threshold — genuine noise
+    # Both below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
+    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
     snapshot.diff_percentage = result.diff_percentage
     snapshot.diff_pixel_count = result.diff_pixel_count
-    snapshot.save(update_fields=["result", "diff_percentage", "diff_pixel_count"])
+    snapshot.save(update_fields=["result", "classification_reason", "diff_percentage", "diff_pixel_count"])
     logger.info(
         "visual_review.diff_below_threshold",
         snapshot_id=str(snapshot.id),
         identifier=snapshot.identifier,
         diff_percentage=result.diff_percentage,
         ssim_dissimilarity=round(ssim_dissimilarity, 4),
+    )
+
+    # Auto-populate tolerance cache so future runs skip diffing for this hash
+    ToleratedHash.objects.get_or_create(
+        repo_id=snapshot.run.repo_id,
+        identifier=snapshot.identifier,
+        baseline_hash=snapshot.baseline_hash,
+        alternate_hash=snapshot.current_hash,
+        defaults={
+            "team_id": snapshot.team_id,
+            "reason": ToleratedReason.AUTO_THRESHOLD,
+            "source_run": snapshot.run,
+        },
     )
 
 
