@@ -8,7 +8,11 @@ from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 
-from ee.api.agentic_provisioning.signature import _parse_signature_header, compute_signature, verify_provisioning_signature
+from ee.api.agentic_provisioning.signature import (
+    _parse_signature_header,
+    compute_signature,
+    verify_provisioning_signature,
+)
 
 HMAC_SECRET = "test_hmac_secret"
 
