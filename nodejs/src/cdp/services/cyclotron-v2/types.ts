@@ -17,6 +17,7 @@ export type CyclotronV2JobInit = {
     scheduled?: Date
     parentRunId?: string | null
     state?: Buffer | null
+    distinctId?: string | null
 }
 
 export interface CyclotronV2DequeuedJob {

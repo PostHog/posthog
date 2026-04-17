@@ -213,6 +213,12 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
+
+    // Extract distinct_id from invocation state for the top-level column.
+    // Event-triggered workflows have state.event.distinct_id; batch workflows
+    // have state.personId instead. The consumer matches by distinct_id.
+    const distinctId = (invocation.state as any)?.event?.distinct_id || (invocation.state as any)?.personId || null
+
     return {
         id: invocation.id,
         teamId: invocation.teamId,
@@ -222,6 +228,7 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,
         state,
+        distinctId,
     }
 }
 
