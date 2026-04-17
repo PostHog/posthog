@@ -113,6 +113,7 @@ def _build_series_rows(scores: list[AnomalyScore]) -> list[dict[str, Any]]:
         snapshot["anomaly_index"] = anomaly_indices[-1] if anomaly_indices else None
 
         insight = latest.insight
+        total_scored = len(group)
         rows.append(
             {
                 "id": f"{latest.insight_id}:{latest.series_index}",
@@ -128,6 +129,11 @@ def _build_series_rows(scores: list[AnomalyScore]) -> list[dict[str, Any]]:
                 "data_snapshot": snapshot,
                 "scored_at": latest.scored_at.isoformat(),
                 "anomaly_count": len(anomalous),
+                "scored_count": total_scored,
+                # Fraction of scoring ticks in the window that came back
+                # anomalous. A high rate means the series is consistently
+                # misbehaving, not that it had a single bad moment.
+                "anomaly_rate": len(anomalous) / total_scored if total_scored else 0.0,
             }
         )
 

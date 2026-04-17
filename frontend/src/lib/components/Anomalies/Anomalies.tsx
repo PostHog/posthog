@@ -42,6 +42,16 @@ const severityBar: Record<Severity, string> = {
     moderate: 'bg-border-bold',
 }
 
+function ratePercent(rate: number): string {
+    const pct = rate * 100
+    // Sub-1% rates would render as "0%" and lose signal; show one decimal so
+    // "0.3%" stays distinguishable from "0%".
+    if (pct > 0 && pct < 1) {
+        return pct.toFixed(1)
+    }
+    return String(Math.round(pct))
+}
+
 function intervalLabel(interval: string): string {
     switch (interval) {
         case 'hour':
@@ -94,9 +104,13 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                     <LemonTag type="muted" size="small">
                         {intervalLabel(anomaly.interval)}
                     </LemonTag>
-                    {anomaly.anomaly_count > 1 && (
-                        <LemonTag type="danger" size="small" title={`${anomaly.anomaly_count} anomalies in window`}>
-                            ×{anomaly.anomaly_count}
+                    {anomaly.scored_count > 0 && (
+                        <LemonTag
+                            type="danger"
+                            size="small"
+                            title={`${anomaly.anomaly_count} of ${anomaly.scored_count} ticks flagged`}
+                        >
+                            {ratePercent(anomaly.anomaly_rate)}%
                         </LemonTag>
                     )}
                     {anomaly.timestamp && (

@@ -24,6 +24,10 @@ export interface AnomalyScoreType {
     scored_at: string
     /** How many anomalies this series had in the window. */
     anomaly_count: number
+    /** Total scoring ticks for this series in the window (anomalous + normal). */
+    scored_count: number
+    /** anomaly_count / scored_count — fraction of ticks flagged anomalous (0–1). */
+    anomaly_rate: number
 }
 
 export type AnomalyWindow = '24h' | '7d' | '30d'
