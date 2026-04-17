@@ -284,7 +284,8 @@ class ExternalTicketView(APIView):
                     business_hours=serializer.validated_data.get("sla_business_hours"),
                 )
             except (ValueError, RuntimeError) as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+                return Response({"error": "Invalid SLA configuration."}, status=status.HTTP_400_BAD_REQUEST)
 
             ticket.sla_due_at = new_sla_due_at
             if "sla_due_at" not in update_fields:
