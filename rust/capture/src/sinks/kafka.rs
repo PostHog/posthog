@@ -546,6 +546,10 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let batch_size = events.len();
+        // Record the batch-size histogram up front so the distribution is a
+        // faithful view of batches submitted, not only those that succeeded.
+        // Matches the single-event `send` path which records before any await.
+        histogram!("capture_event_batch_size").record(batch_size as f64);
 
         // Phase 1: parallel prep across tokio workers. Each task returns its
         // input index so we can reassemble results in the original event order
@@ -564,16 +568,26 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
 
         let mut prepared: Vec<Option<ProduceRecord>> = (0..batch_size).map(|_| None).collect();
         while let Some(join_result) = prep_set.join_next().await {
-            let (idx, result) = join_result.map_err(|err| {
-                error!("join error while preparing Kafka record: {err:#}");
-                CaptureError::RetryableSinkError
-            })?;
+            let (idx, result) = match join_result {
+                Err(err) => {
+                    error!("join error while preparing Kafka record: {err:#}");
+                    // Drain remaining prep tasks before returning so they can't
+                    // leak records into librdkafka after we've already failed.
+                    // Record the histogram on the error path too so prep-duration
+                    // stays observable during failures (not just happy path).
+                    prep_set.abort_all();
+                    histogram!("capture_kafka_batch_prep_duration_seconds")
+                        .record(prep_start.elapsed().as_secs_f64());
+                    return Err(CaptureError::RetryableSinkError);
+                }
+                Ok(inner) => inner,
+            };
             match result {
                 Ok(record) => prepared[idx] = Some(record),
                 Err(err) => {
-                    // Drain remaining prep tasks before returning so they can't
-                    // leak records into librdkafka after we've already failed.
                     prep_set.abort_all();
+                    histogram!("capture_kafka_batch_prep_duration_seconds")
+                        .record(prep_start.elapsed().as_secs_f64());
                     return Err(err);
                 }
             }
@@ -590,8 +604,18 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         let mut ack_set = JoinSet::new();
         for slot in prepared {
             let record = slot.expect("prep slot not filled");
-            let ack_future = self.enqueue_record(record)?;
-            ack_set.spawn(ack_future);
+            match self.enqueue_record(record) {
+                Ok(ack_future) => {
+                    ack_set.spawn(ack_future);
+                }
+                Err(err) => {
+                    // Record enqueue duration on the error path too so slow-fail
+                    // cases (e.g. QueueFull after a long stall) stay observable.
+                    histogram!("capture_kafka_batch_enqueue_duration_seconds")
+                        .record(enqueue_start.elapsed().as_secs_f64());
+                    return Err(err);
+                }
+            }
         }
         histogram!("capture_kafka_batch_enqueue_duration_seconds")
             .record(enqueue_start.elapsed().as_secs_f64());
@@ -617,7 +641,6 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         .instrument(info_span!("ack_wait_many"))
         .await?;
 
-        histogram!("capture_event_batch_size").record(batch_size as f64);
         Ok(())
     }
 

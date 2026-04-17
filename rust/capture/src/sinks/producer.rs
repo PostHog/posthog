@@ -36,10 +36,17 @@ pub trait KafkaProducer: Send + Sync {
 /// Also records the full app-side ack duration (from `send_result()` returning to
 /// broker ack / error / cancellation) as a histogram so we can see the true long
 /// tail that the per-broker rdkafka rtt gauge smears away.
+///
+/// `recorded` flips to true once `poll` observes `Poll::Ready` so the Drop impl
+/// can emit a `capture_kafka_produce_ack_duration_ms{outcome="dropped"}` sample
+/// when the future is cancelled mid-flight (e.g. `JoinSet::abort_all()` fires
+/// after a peer ack fails). Without this, the slowest in-flight acks get
+/// censored out of the histogram precisely when the tail matters most.
 pub struct DeliveryAckFuture {
     inner: DeliveryFuture,
     started: Instant,
     topic: String,
+    recorded: bool,
 }
 
 impl Future for DeliveryAckFuture {
@@ -49,6 +56,8 @@ impl Future for DeliveryAckFuture {
         match Pin::new(&mut self.inner).poll(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
+                // Mark before recording so a panic inside the match still disables Drop.
+                self.recorded = true;
                 let elapsed_ms = self.started.elapsed().as_secs_f64() * 1000.0;
                 let (outcome, mapped) = match result {
                     Err(_) => {
@@ -91,6 +100,23 @@ impl Future for DeliveryAckFuture {
     }
 }
 
+impl Drop for DeliveryAckFuture {
+    fn drop(&mut self) {
+        // Only fires when the future is dropped before poll saw Ready
+        // (e.g. JoinSet::abort_all on batch fail-fast). Records the elapsed
+        // wait so tail-latency dashboards don't lose the slowest samples.
+        if !self.recorded {
+            let elapsed_ms = self.started.elapsed().as_secs_f64() * 1000.0;
+            histogram!(
+                "capture_kafka_produce_ack_duration_ms",
+                "outcome" => "dropped",
+                "topic" => self.topic.clone()
+            )
+            .record(elapsed_ms);
+        }
+    }
+}
+
 /// Real Kafka producer implementation using rdkafka
 pub struct RdKafkaProducer<C: rdkafka::ClientContext + Send + Sync + 'static> {
     producer: FutureProducer<C>,
@@ -121,6 +147,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
                 inner: delivery_future,
                 started: Instant::now(),
                 topic,
+                recorded: false,
             }),
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
