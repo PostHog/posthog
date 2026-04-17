@@ -180,7 +180,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                 {comparableAddons.map((addon) => (
                     <div
                         key={addon.type}
-                        className="px-4 py-4 text-sm font-semibold text-secondary text-center"
+                        className="px-4 py-4 text-sm font-semibold text-secondary text-center border-l border-primary"
                     >
                         {addon.name}
                     </div>
