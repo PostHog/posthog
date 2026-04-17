@@ -24,6 +24,7 @@
         "inspector": "npx @modelcontextprotocol/inspector npx -y mcp-remote@latest http://localhost:8787/mcp",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
+        "test:workers": "vitest run --config vitest.workers.config.mts",
         "test:watch": "vitest watch",
         "typecheck": "tsc --noEmit",
         "generate-mcp-types": "node scripts/generate-mcp-types.mjs",
@@ -48,6 +49,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@cloudflare/vitest-pool-workers": "^0.12.21",
         "@cloudflare/workers-types": "^4.20260120.0",
         "@posthog/openapi-codegen": "workspace:*",
         "@tailwindcss/postcss": "^4.1.10",

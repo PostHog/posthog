@@ -22,6 +22,6 @@ export default defineConfig({
         testTimeout: 10000,
         setupFiles: ['tests/setup.ts'],
         include: ['tests/**/*.test.ts'],
-        exclude: ['node_modules/**', 'dist/**', 'tests/**/*.integration.test.ts'],
+        exclude: ['node_modules/**', 'dist/**', 'tests/**/*.integration.test.ts', 'tests/workers/**'],
     },
 })
