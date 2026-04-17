@@ -1025,7 +1025,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
-                for query_type in get_args(self.query_type):  # type: ignore
+                for query_type in get_args(self.query_type):
                     try:
                         query = query_type.model_validate(query)
                         break
@@ -1047,7 +1047,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         pass
 
     @property
-    def query_type(self) -> type[Q]:
+    def query_type(self) -> Any:
         return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
 
     @property
@@ -1055,10 +1055,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        query_type = self.query_type
-        # Resolve type alias if present
-        if hasattr(query_type, "__value__"):
-            query_type = query_type.__value__
+        query_type: Any = self.query_type
+        query_type = getattr(query_type, "__value__", query_type)
         # Handle both UnionType and typing._UnionGenericAlias
         if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
             return any(isinstance(data, t) for t in get_args(query_type))

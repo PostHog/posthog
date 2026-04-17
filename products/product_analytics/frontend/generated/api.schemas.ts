@@ -9262,7 +9262,11 @@ export interface ChartSettingsApi {
     /** @nullable */
     showNullsAsZero?: boolean | null
     /** @nullable */
+    showPieTotal?: boolean | null
+    /** @nullable */
     showTotalRow?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
     /** @nullable */
     showXAxisBorder?: boolean | null
     /** @nullable */

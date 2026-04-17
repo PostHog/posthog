@@ -312,7 +312,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
             pass  # Keep existing name if new one is invalid
 
     app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    app.logo_uri = metadata.get("logo_uri") or None
+    app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
     try:
@@ -405,19 +405,15 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     - App exists + cache stale: return stale app, refresh in background
     - No app: fetch synchronously (must have the app before proceeding)
     """
-    app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
-
-    if app and cache.get(_cache_key(url)):
-        return app
-
-    if app:
-        refresh_cimd_metadata_task.delay(url)
+    # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
+    if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
+        if not cache.get(_cache_key(url)):
+            refresh_cimd_metadata_task.delay(url)
         return app
 
     # New client: synchronous fetch
-    result = fetch_and_upsert_cimd_application(url)
-    if result:
-        return result
+    if app := fetch_and_upsert_cimd_application(url):
+        return app
 
     # Lock was held — another request is already creating this app.
     # Poll the DB until it appears or we give up.

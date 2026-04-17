@@ -2635,7 +2635,6 @@ dependencies = [
  "metrics",
  "mockall",
  "moka",
- "once_cell",
  "posthog-rs 0.3.7",
  "posthog-symbol-data",
  "proguard",
