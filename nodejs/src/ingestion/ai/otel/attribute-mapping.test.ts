@@ -1,5 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { extractToolCallNames } from '../tools/extract-tool-calls'
 import { mapOtelAttributes } from './attribute-mapping'
 
 const createEvent = (event: string, properties: Record<string, unknown>): PluginEvent => ({
@@ -232,5 +233,170 @@ describe('mapOtelAttributes', () => {
         })
         mapOtelAttributes(event)
         expect(event.event).toBe('$ai_generation')
+    })
+
+    describe('older-spec span events (`events` attribute)', () => {
+        it('reconstructs $ai_input and $ai_output_choices from span-events-style `events`', () => {
+            const events = [
+                {
+                    role: 'system',
+                    content: 'Extract city information.',
+                    'gen_ai.message.index': 0,
+                    'event.name': 'gen_ai.system.message',
+                },
+                {
+                    role: 'user',
+                    content: 'Tell me about Montreal, Canada.',
+                    'gen_ai.message.index': 0,
+                    'event.name': 'gen_ai.user.message',
+                },
+                {
+                    index: 0,
+                    message: {
+                        role: 'assistant',
+                        content: 'Montreal is a city in Canada.',
+                    },
+                    'event.name': 'gen_ai.choice',
+                },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([
+                { role: 'system', content: 'Extract city information.' },
+                { role: 'user', content: 'Tell me about Montreal, Canada.' },
+            ])
+            expect(event.properties!.$ai_output_choices).toEqual([
+                { role: 'assistant', content: 'Montreal is a city in Canada.' },
+            ])
+            expect(event.properties!.events).toBeUndefined()
+        })
+
+        it('orders $ai_input by gen_ai.message.index when all entries have one', () => {
+            const events = [
+                { role: 'assistant', 'gen_ai.message.index': 2, 'event.name': 'gen_ai.assistant.message' },
+                { role: 'user', 'gen_ai.message.index': 1, 'event.name': 'gen_ai.user.message' },
+                { role: 'system', 'gen_ai.message.index': 0, 'event.name': 'gen_ai.system.message' },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system' }, { role: 'user' }, { role: 'assistant' }])
+        })
+
+        it('preserves array order when entries lack gen_ai.message.index', () => {
+            const events = [
+                { role: 'system', content: 'S', 'event.name': 'gen_ai.system.message' },
+                { role: 'user', content: 'U', 'event.name': 'gen_ai.user.message' },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([
+                { role: 'system', content: 'S' },
+                { role: 'user', content: 'U' },
+            ])
+        })
+
+        it('prefers newer gen_ai.input.messages over older `events` but still strips `events`', () => {
+            const newer = [{ role: 'user', content: 'newer' }]
+            const older = [{ role: 'user', content: 'older', 'event.name': 'gen_ai.user.message' }]
+            const event = createEvent('$ai_generation', {
+                'gen_ai.input.messages': JSON.stringify(newer),
+                events: JSON.stringify(older),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual(newer)
+            expect(event.properties!.events).toBeUndefined()
+        })
+
+        it('produces $ai_output_choices that downstream tool extraction can read', () => {
+            const events = [
+                {
+                    index: 0,
+                    message: {
+                        role: 'assistant',
+                        tool_calls: [
+                            {
+                                id: 'call_abc',
+                                type: 'function',
+                                function: { name: 'final_result', arguments: '{}' },
+                            },
+                            {
+                                id: 'call_def',
+                                type: 'function',
+                                function: { name: 'get_weather', arguments: '{}' },
+                            },
+                        ],
+                    },
+                    'event.name': 'gen_ai.choice',
+                },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(extractToolCallNames(event.properties!.$ai_output_choices)).toEqual(['final_result', 'get_weather'])
+        })
+
+        it('infers role="tool" for gen_ai.tool.message entries without explicit role', () => {
+            const events = [
+                {
+                    content: 'Paris is the capital of France.',
+                    tool_call_id: 'call_xyz',
+                    'event.name': 'gen_ai.tool.message',
+                },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([
+                { role: 'tool', content: 'Paris is the capital of France.', tool_call_id: 'call_xyz' },
+            ])
+        })
+
+        it('does not throw on malformed `events` JSON and still strips the property', () => {
+            const event = createEvent('$ai_generation', { events: 'not { valid json' })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toBeUndefined()
+            expect(event.properties!.$ai_output_choices).toBeUndefined()
+            expect(event.properties!.events).toBeUndefined()
+        })
+
+        it('does not throw when `events` parses to a non-array and still strips the property', () => {
+            const event = createEvent('$ai_generation', { events: JSON.stringify({ foo: 1 }) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toBeUndefined()
+            expect(event.properties!.$ai_output_choices).toBeUndefined()
+            expect(event.properties!.events).toBeUndefined()
+        })
+
+        it('accepts `events` as an already-parsed array', () => {
+            const events = [
+                { role: 'user', content: 'hi', 'event.name': 'gen_ai.user.message' },
+                { index: 0, message: { role: 'assistant', content: 'hello' }, 'event.name': 'gen_ai.choice' },
+            ]
+            const event = createEvent('$ai_generation', { events })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'hi' }])
+            expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'hello' }])
+            expect(event.properties!.events).toBeUndefined()
+        })
+
+        it('ignores entries with unknown event.name but reconstructs recognised ones', () => {
+            const events = [
+                { role: 'user', content: 'hi', 'event.name': 'gen_ai.user.message' },
+                { role: 'spurious', 'event.name': 'gen_ai.unknown.thing' },
+                { index: 0, message: { role: 'assistant', content: 'hello' }, 'event.name': 'gen_ai.choice' },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'hi' }])
+            expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'hello' }])
+        })
     })
 })
