@@ -1,6 +1,6 @@
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Optional, cast
 
 import chdb
 import structlog
@@ -48,7 +48,7 @@ WEB_DATA_QUALITY_CONFIG_SCHEMA = {
 
 
 def table_has_data(
-    table_name: str, tags: DagsterTags = None, context: AssetCheckExecutionContext = None
+    table_name: str, tags: Optional[DagsterTags] = None, context: Optional[AssetCheckExecutionContext] = None
 ) -> AssetCheckResult:
     # Skip simple data checks during backfill runs if context is provided
     if context and hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
@@ -84,7 +84,7 @@ def table_has_data(
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
         export_filename = f"{export_type}_export"
-        export_path = get_s3_url(table_name=export_filename, team_id=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
+        export_path = get_s3_url(table_name=export_filename, team_id=int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS))
 
         if export_type == "web_stats_daily":
             table_structure = get_s3_web_stats_structure().strip()
@@ -229,10 +229,10 @@ def log_query_sql(
 def setup_accuracy_check_config(
     context: AssetCheckExecutionContext, check_name: str
 ) -> tuple[float, int, int, str, str]:
-    run_config = context.run.run_config.get("ops", {}).get(check_name, {}).get("config", {})
-    tolerance_percentage = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
-    days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
-    team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
+    run_config = cast(dict[str, Any], context.run.run_config.get("ops", {}).get(check_name, {}).get("config", {}))
+    tolerance_percentage = float(run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT))
+    days_back = int(run_config.get("days_back", DEFAULT_DAYS_BACK))
+    team_id = int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
 
     end_date = (datetime.now(UTC) - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).date()
     start_date = end_date - timedelta(days=days_back)
@@ -305,7 +305,7 @@ def execute_accuracy_check(
         pre_agg_metrics = results_to_dict(pre_agg_response.results)
         regular_metrics = results_to_dict(regular_response.results)
 
-        comparison_data = {
+        comparison_data: dict[str, Any] = {
             "team_id": team_id,
             "date_from": date_from,
             "date_to": date_to,
@@ -378,7 +378,7 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
         severity = AssetCheckSeverity.ERROR
         description = f"Team {team_id} {table_version} tables failed accuracy validation."
 
-    metadata = {
+    metadata: dict[str, MetadataValue] = {
         "success_rate": MetadataValue.float(success_rate),
         "failed_metrics": MetadataValue.int(failed_metrics),
         "total_metrics": MetadataValue.int(total_metrics_checked),
@@ -389,7 +389,7 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
     }
 
     # Add individual metric metadata for Dagster plotting
-    metrics = comparison_data.get("metrics", {})
+    metrics = cast(dict[str, dict[str, Any]], comparison_data.get("metrics", {}))
     for metric_name, metric_values in metrics.items():
         metadata.update(
             {
@@ -404,10 +404,11 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
 
     # Add timing metadata if available
     if comparison_data and not comparison_data.get("skipped") and "timing" in comparison_data:
+        timing = cast(dict[str, float], comparison_data["timing"])
         metadata.update(
             {
-                "pre_agg_time": MetadataValue.float(round(comparison_data["timing"]["pre_aggregated"], 3)),
-                "regular_time": MetadataValue.float(round(comparison_data["timing"]["regular"], 3)),
+                "pre_agg_time": MetadataValue.float(round(timing["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(timing["regular"], 3)),
             }
         )
 

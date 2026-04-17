@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
@@ -10,6 +10,9 @@ from django.db import models
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from products.logs.backend.alert_state_machine import AlertSnapshot
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
 # cap on retained OK check rows — the N-of-M evaluator never reads more than this many
@@ -108,17 +111,27 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
-    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Returns field names modified (for use with update_fields)."""
-        updated: list[str] = []
-        if reset_state:
-            self.state = self.State.NOT_FIRING
-            self.consecutive_failures = 0
-            updated.append("state")
-            updated.append("consecutive_failures")
+    def clear_next_check(self) -> list[str]:
+        """Nulls `next_check_at` so the scheduler picks this alert up on the next tick.
+        Returns modified fields for `save(update_fields=...)`.
+        """
         self.next_check_at = None
-        updated.append("next_check_at")
-        return updated
+        return ["next_check_at"]
+
+    def to_snapshot(self) -> AlertSnapshot:
+        """Capture the fields the state machine reads for a transition decision."""
+        from products.logs.backend.alert_state_machine import AlertSnapshot, AlertState
+
+        return AlertSnapshot(
+            state=AlertState(self.state),
+            evaluation_periods=self.evaluation_periods,
+            datapoints_to_alarm=self.datapoints_to_alarm,
+            cooldown_minutes=self.cooldown_minutes,
+            last_notified_at=self.last_notified_at,
+            snooze_until=self.snooze_until,
+            consecutive_failures=self.consecutive_failures,
+            recent_checks_breached=self.get_recent_breaches(),
+        )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:
         """Last M non-errored checks' threshold_breached values, newest first."""
@@ -134,14 +147,6 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
             raise ValidationError(
                 f"datapoints_to_alarm cannot exceed evaluation_periods ({self.datapoints_to_alarm} > {self.evaluation_periods})"
             )
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.enabled:
-            self.state = self.State.NOT_FIRING
-            if "update_fields" in kwargs and "state" not in kwargs["update_fields"]:
-                kwargs["update_fields"] = [*kwargs["update_fields"], "state"]
-
-        super().save(*args, **kwargs)
 
 
 class LogsAlertCheck(UUIDModel):
