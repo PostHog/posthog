@@ -414,7 +414,7 @@ impl IntoResponse for FlagError {
             }
             FlagError::PersonalApiKeyInsufficientScopes => {
                 let response = AuthenticationErrorResponse {
-                    error_type: "permission_denied".to_string(),
+                    error_type: "authentication_error".to_string(),
                     code: "permission_denied".to_string(),
                     detail: "Personal API key lacks required scopes (feature_flag:read or feature_flag:write).".to_string(),
                     attr: None,

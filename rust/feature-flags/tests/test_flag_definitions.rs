@@ -295,7 +295,18 @@ async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 403);
+    let status = response.status();
+    let body_text = response.text().await.unwrap();
+    assert_eq!(status, 403);
+
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(body["type"], "authentication_error");
+    assert_eq!(body["code"], "permission_denied");
+    assert_eq!(
+        body["detail"],
+        "Personal API key lacks required scopes (feature_flag:read or feature_flag:write)."
+    );
+    assert_eq!(body["attr"], serde_json::Value::Null);
 }
 
 #[tokio::test]
