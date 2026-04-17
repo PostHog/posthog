@@ -330,7 +330,8 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
 
     prefix = _MANAGED_CODER_DIR.parent
     prefix.mkdir(parents=True, exist_ok=True)
-    cmd = f"curl -fsSL {coder_url}/install.sh | sh -s -- --prefix {shlex.quote(str(prefix))}"
+    install_url = shlex.quote(f"{coder_url}/install.sh")
+    cmd = f"curl -fsSL {install_url} | sh -s -- --prefix {shlex.quote(str(prefix))}"
     result = subprocess.run(["sh", "-c", cmd], text=True, capture_output=not verbose)
     if result.returncode != 0:
         if not verbose:
