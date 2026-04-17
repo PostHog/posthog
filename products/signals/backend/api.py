@@ -1,3 +1,4 @@
+import enum
 from datetime import timedelta
 from typing import get_args
 
@@ -21,21 +22,30 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
 
+
+def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
+    """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
+    args = get_args(field.annotation)
+    if args:
+        return args
+    if isinstance(field.annotation, type) and issubclass(field.annotation, enum.Enum):
+        return tuple(m.value for m in field.annotation)
+    if field.default is not pydantic.fields.PydanticUndefined:
+        return (field.default,)
+    return ()
+
+
 # Build a lookup from (source_product, source_type) -> variant model class
 # so we can validate signals without needing the synthetic discriminator tag.
 _SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
 for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
-    _sp_field = _variant_type.model_fields.get("source_product")
-    _st_field = _variant_type.model_fields.get("source_type")
-    if _sp_field is None or _st_field is None:
+    _product_field = _variant_type.model_fields.get("source_product")
+    _type_field = _variant_type.model_fields.get("source_type")
+    if _product_field is None or _type_field is None:
         continue
-    # source_type may be a multi-value Literal (e.g. ErrorTrackingSignalInput)
-    _sp_values = get_args(_sp_field.annotation) or (_sp_field.default,)
-    _st_values = get_args(_st_field.annotation) or (_st_field.default,)
-    for _sp_val in _sp_values:
-        for _st_val in _st_values:
-            if _sp_val and _st_val:
-                _SIGNAL_VARIANT_LOOKUP[(_sp_val, _st_val)] = _variant_type
+    for _product in _get_field_values(_product_field):
+        for _source_type in _get_field_values(_type_field):
+            _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
 async def emit_signal(
