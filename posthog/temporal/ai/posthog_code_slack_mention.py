@@ -923,19 +923,31 @@ def forward_posthog_code_followup_activity(
     slack = SlackIntegration(integration)
 
     if slack_user_id != mapping.mentioning_slack_user_id:
+        from products.slack_app.backend.api import resolve_slack_user
+
+        user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts, post_feedback=False)
+        if not user_context:
+            log.info(
+                "posthog_code_followup_unauthorized_actor",
+                channel=channel,
+                thread_ts=thread_ts,
+                expected=mapping.mentioning_slack_user_id,
+                actual=slack_user_id,
+            )
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="You don't have access to the PostHog project for this task. Please ask an admin to grant you access.",
+            )
+            return True
         log.info(
-            "posthog_code_followup_unauthorized_actor",
+            "posthog_code_followup_collaborative_contributor",
             channel=channel,
             thread_ts=thread_ts,
-            expected=mapping.mentioning_slack_user_id,
-            actual=slack_user_id,
+            original_user=mapping.mentioning_slack_user_id,
+            contributing_user=slack_user_id,
+            contributing_posthog_user_id=user_context.user.id,
         )
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Only the person who started this task can send follow-up messages to the agent.",
-        )
-        return True
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(
