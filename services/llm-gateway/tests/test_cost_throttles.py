@@ -800,7 +800,7 @@ class TestUnconfiguredProductsUseDefaults:
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
             '{"posthog_code": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
-            f'"{UNCONFIGURED_PRODUCT}": {{"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}}',
+            f'"{UNCONFIGURED_PRODUCT}": {{"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}}}',
         )
         get_settings.cache_clear()
 
