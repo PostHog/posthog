@@ -4,7 +4,7 @@ from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -21,6 +21,12 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
+
+# Only index-backed orderings are allowed. `-joined_at` is served by the
+# `(organization, -joined_at)` composite index; other fields would force a
+# full scan + sort and can time out for large organizations.
+ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
+DEFAULT_ORDERING = "-joined_at"
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -90,7 +96,19 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
-@extend_schema(tags=["core", "platform_features"])
+@extend_schema(
+    tags=["core", "platform_features"],
+    parameters=[
+        OpenApiParameter(
+            name="order",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            enum=sorted(ALLOWED_ORDERINGS),
+            description=f"Sort order. Defaults to `{DEFAULT_ORDERING}`.",
+        ),
+    ],
+)
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -135,21 +153,11 @@ class OrganizationMemberViewSet(
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-            allowed_orderings = {
-                "joined_at",
-                "-joined_at",
-                "user__first_name",
-                "-user__first_name",
-                "user__email",
-                "-user__email",
-                "level",
-                "-level",
-            }
-            order = self.request.GET.get("order", None)
-            if order and order in allowed_orderings:
+            order = self.request.GET.get("order")
+            if order in ALLOWED_ORDERINGS:
                 queryset = queryset.order_by(order)
             else:
-                queryset = queryset.order_by("-joined_at")
+                queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
 
