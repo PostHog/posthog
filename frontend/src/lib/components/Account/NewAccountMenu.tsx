@@ -41,6 +41,8 @@ import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
+import { pendingInvitesLogic } from './pendingInvitesLogic'
+import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
@@ -58,6 +60,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
+    const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canAccessBilling } = useValues(billingLogic)
@@ -79,7 +83,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1 py-1 min-w-0 group', {
+                            className={cn('relative flex-1 py-1 min-w-0 group', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             data-attr="new-account-menu-button"
@@ -94,6 +98,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                                     </div>
                                     <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
+                                    {hasPendingInvites && <div>You have a pending invitation</div>}
                                 </div>
                             }
                         >
@@ -116,7 +121,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         : 'Account menu'}
                                 </span>
                             )}
-                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
+                            {hasPendingInvites && (
+                                <PendingInviteDot
+                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'ml-auto mr-0.5'}
+                                />
+                            )}
+                            {!isLayoutNavCollapsed && !isAiFirst && (
+                                <MenuOpenIndicator className={hasPendingInvites ? '' : 'ml-auto'} />
+                            )}
                         </ButtonPrimitive>
                     )}
                 />
@@ -174,7 +186,13 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
-                                                    <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                                    {hasPendingInvites && (
+                                                        <PendingInviteDot className="ml-auto mr-0.5" />
+                                                    )}
+                                                    <MenuOpenIndicator
+                                                        intent="sub"
+                                                        className={hasPendingInvites ? '' : 'ml-auto'}
+                                                    />
                                                 </ButtonPrimitive>
                                             }
                                         />
