@@ -13,6 +13,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from posthog.models.integration import Integration
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.webhooks import find_task_run
 
@@ -96,6 +98,80 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["pr_url"], "https://github.com/posthog/posthog/pull/123")
         self.assertEqual(call_kwargs["properties"]["task_id"], str(self.task.id))
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    def test_pr_merged_adds_checkmark_to_slack(self, mock_update_reaction, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T12345",
+            channel="C001",
+            thread_ts="1234.5678",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_update_reaction.assert_called_once_with("white_check_mark")
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    def test_pr_closed_without_merge_does_not_add_checkmark(self, mock_update_reaction, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": False,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_update_reaction.assert_not_called()
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    def test_pr_merged_without_slack_mapping_does_not_fail(self, mock_update_reaction, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_update_reaction.assert_not_called()
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

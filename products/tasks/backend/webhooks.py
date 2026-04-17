@@ -11,6 +11,9 @@ from posthog.models.instance_setting import get_instance_setting
 
 from products.tasks.backend.models import TaskRun
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+
 logger = structlog.get_logger(__name__)
 
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
@@ -153,4 +156,26 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
 
     task_run.capture_event(analytics_event, {"pr_url": pr_url})
 
+    # When a PR is merged, add a checkmark reaction to the originating Slack message
+    if event_action == "merged":
+        _add_slack_merge_reaction(task_run)
+
     return HttpResponse(status=200)
+
+
+def _add_slack_merge_reaction(task_run: TaskRun) -> None:
+    """Add a white_check_mark reaction to the Slack thread that originated this task."""
+    try:
+        mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+        if not mapping:
+            return
+
+        context = SlackThreadContext(
+            integration_id=mapping.integration_id,
+            channel=mapping.channel,
+            thread_ts=mapping.thread_ts,
+        )
+        handler = SlackThreadHandler(context)
+        handler.update_reaction("white_check_mark")
+    except Exception:
+        logger.exception("github_pr_webhook_slack_reaction_failed", run_id=str(task_run.id))
