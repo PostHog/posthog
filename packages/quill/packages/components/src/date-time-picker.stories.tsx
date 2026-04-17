@@ -48,6 +48,13 @@ export const Default: Story = {
     },
 }
 
+export const THIS_COMPONENT_IS_EXPERIMENTAL: Story = {
+    args: baseArgs,
+    render: () => {
+        return <>Just a small note this is experimental and likely not ready for use.</>
+    },
+}
+
 export const InPopover: Story = {
     args: baseArgs,
     render: () => {
