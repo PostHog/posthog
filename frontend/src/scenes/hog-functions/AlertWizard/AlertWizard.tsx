@@ -12,9 +12,10 @@ import { TriggerStep } from './steps/TriggerStep'
 export interface AlertWizardProps {
     onCancel: () => void
     onSwitchToTraditional: () => void
+    hideTriggerStep?: boolean
 }
 
-export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProps): JSX.Element {
+export function AlertWizard({ onCancel, onSwitchToTraditional, hideTriggerStep }: AlertWizardProps): JSX.Element {
     const { currentStep } = useValues(alertWizardLogic)
     const { setStep } = useActions(alertWizardLogic)
 
@@ -22,7 +23,7 @@ export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProp
         <div className="flex flex-col min-h-[400px]">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center">
                 <div />
-                <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} />
+                <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} hideTriggerStep={hideTriggerStep} />
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -35,7 +36,7 @@ export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProp
 
             <div className="max-w-lg mx-auto flex-1 w-full mt-4">
                 {currentStep === WizardStep.Destination && <DestinationStep />}
-                {currentStep === WizardStep.Trigger && <TriggerStep />}
+                {currentStep === WizardStep.Trigger && !hideTriggerStep && <TriggerStep />}
                 {currentStep === WizardStep.Configure && <ConfigureStep />}
             </div>
 

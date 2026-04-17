@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { recommendationsTabLogicType } from './recommendationsTabLogicType'
-import type { CrossSellRecommendation, ErrorTrackingRecommendation } from './types'
+import type { AlertsRecommendation, CrossSellRecommendation, ErrorTrackingRecommendation } from './types'
 
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
@@ -72,3 +72,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
 export const isCrossSellRecommendation = (
     recommendation: ErrorTrackingRecommendation
 ): recommendation is CrossSellRecommendation => recommendation.type === 'cross_sell'
+
+export const isAlertsRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is AlertsRecommendation => recommendation.type === 'alerts'
