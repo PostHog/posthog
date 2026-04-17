@@ -126,7 +126,7 @@
         "tldts": "^6.1.57",
         "typescript": "catalog:",
         "ultimate-express": "^2.0.9",
-        "undici": "^7.8.0",
+        "undici": "^7.24.0",
         "undici-types": "^7.3.0",
         "uuid": "^10.0.0",
         "xml-js": "^1.6.11",
