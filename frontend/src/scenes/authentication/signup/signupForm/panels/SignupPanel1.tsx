@@ -94,7 +94,7 @@ export function SignupPanel1(): JSX.Element | null {
                     </Link>
                 </div>
             )}
-            <JoinExistingOrgLink />
+            {!preflight?.demo && <JoinExistingOrgLink />}
         </div>
     )
 }

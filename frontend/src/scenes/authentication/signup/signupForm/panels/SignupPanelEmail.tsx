@@ -73,7 +73,7 @@ export function SignupPanelEmail(): JSX.Element | null {
                     </Link>
                 </div>
             )}
-            <JoinExistingOrgLink />
+            {!preflight?.demo && <JoinExistingOrgLink />}
         </div>
     )
 }
