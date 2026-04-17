@@ -32,7 +32,7 @@ function SnapshotThumbnail({
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
-    const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
+    const shortName = parts[0] || snapshot.identifier
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
 
@@ -52,13 +52,13 @@ function SnapshotThumbnail({
             {isReviewed && (
                 <>
                     <span
-                        className={`absolute top-0 right-0 w-6 h-6 z-10 ${
+                        className={`absolute top-0 right-0 w-7 h-7 z-10 ${
                             snapshot.review_state === 'approved' ? 'bg-success' : 'bg-muted'
                         }`}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
                     />
-                    <span className="absolute top-[3px] right-[2px] z-10 text-white text-[9px] leading-none font-bold">
+                    <span className="absolute top-[3px] right-[3px] z-10 text-white text-[10px] leading-none font-bold">
                         {snapshot.review_state === 'approved' ? '✓' : '~'}
                     </span>
                 </>
