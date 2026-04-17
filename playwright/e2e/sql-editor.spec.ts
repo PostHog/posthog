@@ -1,7 +1,5 @@
+import { randomString } from '../utils'
 import { expect, test } from '../utils/workspace-test-base'
-import type { PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
-
-test.describe.configure({ mode: 'serial' })
 
 async function closeQuickStartPopoverIfOpen(page: import('@playwright/test').Page): Promise<void> {
     const quickStartPopover = page.getByRole('dialog', { name: 'Quick start guide' })
@@ -34,10 +32,8 @@ async function openSaveAsViewModal(page: import('@playwright/test').Page): Promi
 }
 
 async function runBasicQuery(page: import('@playwright/test').Page): Promise<void> {
-    const queryEditor = page.getByTestId('hogql-query-editor')
-    await expect(queryEditor).toBeVisible()
-    await queryEditor.click()
-    await queryEditor.pressSequentially('SELECT 1')
+    await page.goto('/sql#q=SELECT%201', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('hogql-query-editor')).toBeVisible()
     await page.getByTestId('sql-editor-run-button').click()
 
     await expect(page.getByTestId('sql-editor-output-pane-empty-state')).not.toBeVisible()
@@ -49,6 +45,7 @@ async function saveView(page: import('@playwright/test').Page, viewName: string)
     const nameInput = page.getByTestId('sql-editor-input-save-view-name')
     await nameInput.fill(viewName)
 
+    await expect(page.getByRole('button', { name: 'Submit' })).toBeEnabled()
     await page.getByRole('button', { name: 'Submit' }).click()
     await waitForSavedViewState(page)
 }
@@ -71,21 +68,17 @@ async function dismissProductSetupPopoverIfVisible(page: import('@playwright/tes
 }
 
 test.describe('SQL Editor', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        const workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
             skip_onboarding: true,
             no_demo_data: true,
         })
+        await playwrightSetup.login(page, workspace)
+        await page.goto('/sql', { waitUntil: 'domcontentloaded' })
     })
 
     test.describe('Basic flow', () => {
-        test.beforeEach(async ({ page, playwrightSetup }) => {
-            await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
-            await page.goToMenuItem('sql-editor')
-        })
-
         test('See SQL Editor', async ({ page }) => {
             await expect(page.getByTestId('editor-scene')).toBeVisible()
             await expect(page.getByPlaceholder('Search warehouse')).toBeVisible()
@@ -105,14 +98,14 @@ test.describe('SQL Editor', () => {
 
         test('Save view', async ({ page }) => {
             test.slow()
-            const uniqueViewName = `test_view_${Date.now()}`
+            const uniqueViewName = randomString('test-view')
             await runBasicQuery(page)
             await saveView(page, uniqueViewName)
         })
 
         test('Materialize view pane', async ({ page }) => {
             test.slow()
-            const uniqueViewName = `materialized_test_view_${Date.now()}`
+            const uniqueViewName = randomString('materialized-test-view')
             await runBasicQuery(page)
             await saveView(page, uniqueViewName)
 
