@@ -201,7 +201,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
 
     # Second pass: align with existing Delta table schema.
-    for delta_field in cast(Any, delta_schema):
+    for delta_field in pa.schema(delta_schema.to_arrow()):
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
                 pa.array([None] * incoming_table.num_rows, type=delta_field.type)
