@@ -486,6 +486,11 @@ export interface ActivityLogApi {
     was_impersonated?: boolean | null
     /** @nullable */
     is_system?: boolean | null
+    /**
+     * @maxLength 32
+     * @nullable
+     */
+    client?: string | null
     /** @maxLength 79 */
     activity: string
     /**

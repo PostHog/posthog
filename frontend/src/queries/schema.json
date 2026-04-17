@@ -2113,6 +2113,49 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "AssistantInsightActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into an insight to list the persons behind a specific data point. Returned rows are trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.\n\nCurrently supports trends as the source; other insight kinds will be added incrementally. Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific cell in the source insight. Omit them to get all actors for the query.",
+            "properties": {
+                "breakdown": {
+                    "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "compare": {
+                    "description": "Whether to pull from the previous period when `compare` is enabled in the source.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ],
+                    "description": "Bucket date for the data point. Accepts ISO date or integer offset."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Series index (0-based) when the source has multiple series."
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantTrendsQuery",
+                    "description": "The source insight query whose data point we are drilling into."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantInsightVizNode": {
             "additionalProperties": false,
             "properties": {

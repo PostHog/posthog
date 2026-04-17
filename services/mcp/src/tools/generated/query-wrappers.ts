@@ -1097,6 +1097,26 @@ const AssistantTraceQuery = z.object({
         .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
 })
 
+const AssistantInsightActorsQuery = z.object({
+    breakdown: z
+        .array(z.string())
+        .describe(
+            "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions."
+        )
+        .optional(),
+    compare: z
+        .enum(['current', 'previous'])
+        .describe('Whether to pull from the previous period when `compare` is enabled in the source.')
+        .optional(),
+    day: z
+        .union([z.string(), integer])
+        .describe('Bucket date for the data point. Accepts ISO date or integer offset.')
+        .optional(),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    series: integer.describe('Series index (0-based) when the source has multiple series.').optional(),
+    source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1154,6 +1174,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
         responseFormat: 'json',
+        mcpVersion: 2,
+    }),
+    'query-trends-actors': createQueryWrapper({
+        name: 'query-trends-actors',
+        schema: AssistantInsightActorsQuery,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
         mcpVersion: 2,
     }),
 }
