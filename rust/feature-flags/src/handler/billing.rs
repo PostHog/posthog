@@ -94,7 +94,6 @@ pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
     contains_billable_flags(filtered_flags)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
