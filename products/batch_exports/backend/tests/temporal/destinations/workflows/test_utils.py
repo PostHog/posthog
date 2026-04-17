@@ -1,5 +1,9 @@
+import asyncio
+
 import pytest
 from unittest.mock import MagicMock, patch
+
+from aiohttp.client_proto import ResponseHandler
 
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     RecyclingTCPConnector,
@@ -102,3 +106,9 @@ def test_recycling_connector_skips_protocol_without_tracking():
 
     super_release.assert_called_once()
     assert not hasattr(protocol, "force_close") or not protocol.force_close.called
+
+
+async def test_response_handler_can_be_tracked():
+    handler = ResponseHandler(asyncio.get_running_loop())
+    assert hasattr(handler, "__dict__"), "no longer can be monkeypatched"
+    assert not hasattr(handler, "__tracking__"), "must update tracking attribute"
