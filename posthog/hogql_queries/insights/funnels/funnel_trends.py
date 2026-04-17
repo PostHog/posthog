@@ -208,7 +208,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         if self.context.breakdown:
             breakdown_limit = self.get_breakdown_limit()
             if breakdown_limit:
-                limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
+                limit = breakdown_limit * len(self._date_range().all_values())
 
             not_in_cohort_union = ""
             extra_placeholders: dict[str, ast.Expr] = {}
