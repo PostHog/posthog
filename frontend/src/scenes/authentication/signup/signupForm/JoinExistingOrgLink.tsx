@@ -5,10 +5,9 @@ import { Link } from 'lib/lemon-ui/Link'
 
 function openJoinExistingOrgDialog(): void {
     LemonDialog.open({
-        title: '',
         width: 480,
-        description: (
-            <div className="flex flex-col items-center text-center px-2 pb-2">
+        content: (
+            <div className="flex flex-col items-center text-center px-2 pt-2 pb-4">
                 <div className="flex items-center justify-center w-14 h-14 rounded-full bg-accent-highlight-secondary mb-4">
                     <IconLetter className="text-2xl text-accent" />
                 </div>
