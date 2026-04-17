@@ -403,3 +403,33 @@ class TestTimestampBasedReconstruction(BaseTest):
         assert result["name"] == "Current"
         assert result["version"] == 2
         assert result["is_historical"] is False
+
+    def test_find_version_at_timestamp_skips_entries_without_version(self):
+        """Test that entries without version information (like bulk deletes) are skipped."""
+        flag = self._create_flag(name="V1", version=1)
+
+        # Simulate normal update with version change
+        self._simulate_update(flag, {"name": ("V1", "V2")})
+
+        # Simulate a bulk delete activity log entry without version info (like posthog/api/feature_flag.py:2844)
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(changes=[], name=flag.key),  # Empty changes, no version info
+        )
+
+        # Query for version at creation time should still return 1, not be confused by the delete entry
+        version = find_version_at_timestamp(flag, flag.created_at, self.team.id)
+        assert version == 1
+
+        # Query for version between update and delete should return 2
+        from datetime import timedelta
+
+        between_timestamp = flag.created_at + timedelta(minutes=30)
+        version = find_version_at_timestamp(flag, between_timestamp, self.team.id)
+        assert version == 2

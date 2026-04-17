@@ -188,8 +188,10 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
     if timestamp < flag.created_at:
         return None
 
-    # Get the most recent activity log entry at or before the timestamp
-    entry = (
+    # Get activity log entries at or before the timestamp, streaming with .iterator()
+    # to avoid loading all entries into memory. We need to iterate through them
+    # to find the most recent entry that contains version information.
+    entries = (
         ActivityLog.objects.filter(
             team_id=team_id,
             scope="FeatureFlag",
@@ -198,13 +200,13 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
             created_at__lte=timestamp,  # Only entries at or before the timestamp
         )
         .order_by("-created_at", "-id")  # Most recent first
-        .values_list("detail", flat=True)
-        .first()
+        .values_list("detail", flat=True)[:MAX_HISTORY_ENTRIES]
+        .iterator()
     )
 
-    # Extract version from the most recent entry
-    if entry:
-        changes = (entry or {}).get("changes") or []
+    # Iterate through entries to find the most recent one with version information
+    for detail in entries:
+        changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
 
         if version_after is not None:
