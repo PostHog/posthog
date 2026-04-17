@@ -1440,15 +1440,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             debug_params: dict[str, Any] = {}
             point_in_time_properties: dict[str, Any]
             if debug and settings.DEBUG:
-                point_in_time_properties = build_person_properties_at_time(
-                    team_id=self.team_id,
-                    timestamp=timestamp,
-                    distinct_ids=distinct_ids_queried,
-                    include_set_once=include_set_once,
+                # Debug mode requested but debug info is not available in the current implementation
+                return response.Response(
+                    {"error": "Debug mode is no longer supported for this endpoint"},
+                    status=400,
                 )
-                # Debug info not available from current function implementation
-                debug_rows = []
-                debug_query = ""
             else:
                 point_in_time_properties = cast(
                     dict[str, Any],
