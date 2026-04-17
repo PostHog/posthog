@@ -1,11 +1,23 @@
 import { expect, test } from '../utils/workspace-test-base'
 import type { PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 
+async function closeQuickStartPopoverIfOpen(page: import('@playwright/test').Page): Promise<void> {
+    const quickStartPopover = page.getByRole('dialog', { name: 'Quick start guide' })
+    if (await quickStartPopover.isVisible().catch(() => false)) {
+        const quickStartButton = page
+            .locator('[data-attr="global-product-setup-button"], [data-attr="global-product-setup-button-minimized"]')
+            .first()
+        await quickStartButton.click()
+        await expect(quickStartPopover).toBeHidden()
+    }
+}
+
 async function waitForSavedViewState(page: import('@playwright/test').Page): Promise<void> {
     await expect(page.getByTestId('sql-editor-input-save-view-name')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByTestId('sql-editor-save-options-button')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByRole('button', { name: 'Update view' })).toBeVisible({ timeout: 40000 })
     await expect(page.getByTestId('sql-editor-materialization-button')).toBeVisible({ timeout: 40000 })
+    await closeQuickStartPopoverIfOpen(page)
 }
 
 async function openSaveAsViewModal(page: import('@playwright/test').Page): Promise<void> {
