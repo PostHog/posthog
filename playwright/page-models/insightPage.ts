@@ -56,8 +56,7 @@ export class InsightPage {
 
     async goToNewInsight(type: InsightType): Promise<InsightPage> {
         await this.page.goto(urls.insightNew({ type }), { waitUntil: 'domcontentloaded' })
-        await expect(this.topBarName).toBeVisible({ timeout: 30000 })
-        await expect(this.saveButton).toBeVisible({ timeout: 30000 })
+        await this.page.getByRole('tab', { selected: true }).waitFor({ state: 'visible' })
         return this
     }
 
