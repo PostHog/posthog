@@ -14,11 +14,11 @@ import {
     IconShieldLock,
     IconShieldPeople,
 } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+import { BillingPlan, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { formatFlatRate } from './BillingProductAddon'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
@@ -35,7 +35,7 @@ const PLAN_TAGLINES: Record<string, string> = {
 
 // Core feature highlights shown as tags on each plan card.
 // These are marketing call-outs, not an exhaustive feature list — the full
-// comparison lives in the collapsible sections below.
+// comparison lives in the collapsible table below.
 type CoreFeature = { icon: JSX.Element; label: string }
 const CORE_FEATURES: Record<string, CoreFeature[]> = {
     [BillingPlan.Boost]: [
@@ -57,80 +57,17 @@ const CORE_FEATURES: Record<string, CoreFeature[]> = {
     ],
 }
 
-const OTHER_SECTION = 'Other features'
-
-// Ordered section list — features are placed in the first section whose keys match.
-// Any feature not matched falls through to OTHER_SECTION, which renders last.
-const SECTION_DEFINITIONS: { section: string; featureKeys: string[] }[] = [
-    {
-        section: 'Security & access',
-        featureKeys: [
-            'access_control',
-            'advanced_permissions',
-            'role_based_access',
-            'social_sso',
-            'saml',
-            'scim',
-            'sso_enforcement',
-            '2fa',
-            '2fa_enforcement',
-            'automatic_provisioning',
-            'organization_security_settings',
-        ],
-    },
-    {
-        section: 'Compliance & governance',
-        featureKeys: [
-            'hipaa_baa',
-            'custom_msa',
-            'security_assessment',
-            'audit_logs',
-            'approvals',
-            'terms_and_conditions',
-        ],
-    },
-    {
-        section: 'Support',
-        featureKeys: [
-            'community_support',
-            'email_support',
-            'dedicated_support',
-            'priority_support',
-            'support_response_time',
-            'account_manager',
-            'training',
-            'configuration_support',
-        ],
-    },
-    {
-        section: 'Collaboration & branding',
-        featureKeys: [
-            'organizations_projects',
-            'team_members',
-            'organization_invite_settings',
-            'white_labelling',
-            'data_color_themes',
-        ],
-    },
-]
-
-const sectionForFeature = (featureKey: string, featureCategory?: string | null): string => {
-    if (featureCategory) {
-        return featureCategory
-    }
-    const match = SECTION_DEFINITIONS.find((s) => s.featureKeys.includes(featureKey))
-    return match?.section ?? OTHER_SECTION
-}
-
 type ComparisonFeature = {
     key: string
     name: string
     description?: string | null
-    section: string
-    includedIn: Set<string>
+    // For each addon.type → either the feature object for cell content (limit, unit, note) or absent.
+    includedIn: Map<string, BillingFeatureType>
 }
 
 const buildComparisonFeatures = (addons: BillingProductV2AddonType[]): ComparisonFeature[] => {
+    // Preserve insertion order so features appear in the same order they're returned
+    // by the backend (boost first, then scale-only, then enterprise-only).
     const features = new Map<string, ComparisonFeature>()
     addons.forEach((addon) => {
         addon.features?.forEach((feature) => {
@@ -139,39 +76,18 @@ const buildComparisonFeatures = (addons: BillingProductV2AddonType[]): Compariso
             }
             const existing = features.get(feature.key)
             if (existing) {
-                existing.includedIn.add(addon.type)
+                existing.includedIn.set(addon.type, feature)
             } else {
                 features.set(feature.key, {
                     key: feature.key,
                     name: feature.name,
                     description: feature.description,
-                    section: sectionForFeature(feature.key, feature.category),
-                    includedIn: new Set([addon.type]),
+                    includedIn: new Map([[addon.type, feature]]),
                 })
             }
         })
     })
     return Array.from(features.values())
-}
-
-const SECTION_ORDER = [...SECTION_DEFINITIONS.map((s) => s.section), OTHER_SECTION]
-
-const groupBySection = (features: ComparisonFeature[]): { section: string; features: ComparisonFeature[] }[] => {
-    const sections = new Map<string, ComparisonFeature[]>()
-    features.forEach((feature) => {
-        const bucket = sections.get(feature.section) ?? []
-        bucket.push(feature)
-        sections.set(feature.section, bucket)
-    })
-    // Order known sections first, then any extras (e.g. backend-provided categories) alphabetically.
-    const knownSections = SECTION_ORDER.filter((name) => sections.has(name))
-    const extraSections = Array.from(sections.keys())
-        .filter((name) => !SECTION_ORDER.includes(name))
-        .sort()
-    return [...knownSections, ...extraSections].map((name) => ({
-        section: name,
-        features: sections.get(name) as ComparisonFeature[],
-    }))
 }
 
 const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
@@ -217,56 +133,22 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
     )
 }
 
-const FeatureCell = ({ included, note }: { included: boolean; note?: string | null }): JSX.Element => {
-    if (!included) {
+const formatCellValue = (feature: BillingFeatureType | undefined): JSX.Element => {
+    if (!feature) {
         return <IconMinus className="text-muted text-lg" />
     }
-    return (
-        <span className="flex items-center justify-center gap-1 text-success">
-            <IconCheckCircle className="text-lg" />
-            {note && <span className="text-secondary text-xs">{note}</span>}
-        </span>
-    )
-}
-
-const ComparisonSection = ({
-    features,
-    addons,
-}: {
-    features: ComparisonFeature[]
-    addons: BillingProductV2AddonType[]
-}): JSX.Element => {
-    const gridColsStyle = { gridTemplateColumns: `minmax(200px, 1.5fr) repeat(${addons.length}, 1fr)` }
-
-    return (
-        <div>
-            {features.map((feature, idx) => (
-                <div
-                    key={feature.key}
-                    className="grid items-center border-t border-primary"
-                    style={{
-                        ...gridColsStyle,
-                        backgroundColor: idx % 2 === 0 ? undefined : 'var(--bg-surface-secondary)',
-                    }}
-                >
-                    <div className="p-3 text-sm">
-                        {feature.description ? (
-                            <Tooltip title={feature.description}>
-                                <span className="font-medium">{feature.name}</span>
-                            </Tooltip>
-                        ) : (
-                            <span className="font-medium">{feature.name}</span>
-                        )}
-                    </div>
-                    {addons.map((addon) => (
-                        <div key={addon.type} className="p-3 flex items-center justify-center border-l border-primary">
-                            <FeatureCell included={feature.includedIn.has(addon.type)} />
-                        </div>
-                    ))}
-                </div>
-            ))}
-        </div>
-    )
+    if (feature.note) {
+        return <span className="text-sm">{feature.note}</span>
+    }
+    if (feature.limit != null) {
+        return (
+            <span className="text-sm">
+                {feature.limit}
+                {feature.unit ? ` ${feature.unit}` : ''}
+            </span>
+        )
+    }
+    return <IconCheckCircle className="text-success text-lg" />
 }
 
 export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -278,36 +160,49 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         [product.addons]
     )
 
-    const sections = useMemo(() => {
-        const features = buildComparisonFeatures(comparableAddons)
-        return groupBySection(features)
-    }, [comparableAddons])
+    const features = useMemo(() => buildComparisonFeatures(comparableAddons), [comparableAddons])
 
     if (comparableAddons.length === 0) {
         return null
     }
 
     const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
-    const totalFeatures = sections.reduce((acc, s) => acc + s.features.length, 0)
 
     const gridColsStyle = {
-        gridTemplateColumns: `minmax(200px, 1.5fr) repeat(${comparableAddons.length}, 1fr)`,
+        gridTemplateColumns: `minmax(240px, 1.5fr) repeat(${comparableAddons.length}, 1fr)`,
     }
 
     const comparisonTable = (
-        <div className="border-t border-primary">
-            {sections.map(({ section, features }) => (
-                <div key={section}>
-                    {/* Section separator */}
-                    <div className="grid bg-surface-secondary border-b border-primary" style={gridColsStyle}>
-                        <div className="px-3 py-2 text-xs uppercase font-semibold text-secondary tracking-wide">
-                            {section}
-                        </div>
-                        {comparableAddons.map((addon) => (
-                            <div key={addon.type} className="border-l border-primary" />
-                        ))}
+        <div>
+            {/* Header row */}
+            <div className="grid bg-surface-secondary border-t border-primary" style={gridColsStyle}>
+                <div className="px-3 py-2 text-xs uppercase font-semibold text-secondary tracking-wide">Feature</div>
+                {comparableAddons.map((addon) => (
+                    <div
+                        key={addon.type}
+                        className="px-3 py-2 text-xs uppercase font-semibold text-secondary tracking-wide text-center border-l border-primary"
+                    >
+                        {addon.name}
                     </div>
-                    <ComparisonSection features={features} addons={comparableAddons} />
+                ))}
+            </div>
+            {/* Feature rows */}
+            {features.map((feature) => (
+                <div key={feature.key} className="grid border-t border-primary" style={gridColsStyle}>
+                    <div className="px-3 py-3">
+                        <div className="text-sm font-semibold">{feature.name}</div>
+                        {feature.description && (
+                            <div className="text-xs text-secondary mt-0.5">{feature.description}</div>
+                        )}
+                    </div>
+                    {comparableAddons.map((addon) => (
+                        <div
+                            key={addon.type}
+                            className="px-3 py-3 flex items-center justify-center text-center border-l border-primary"
+                        >
+                            {formatCellValue(feature.includedIn.get(addon.type))}
+                        </div>
+                    ))}
                 </div>
             ))}
         </div>
@@ -326,7 +221,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
             </div>
 
             {/* Single collapsible comparison table */}
-            {sections.length > 0 && (
+            {features.length > 0 && (
                 <LemonCollapse
                     defaultActiveKey={hasPlatformAddon ? undefined : 'compare'}
                     panels={[
@@ -336,8 +231,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                                 <div className="flex items-center gap-2">
                                     <span className="font-semibold">Compare all features</span>
                                     <span className="text-secondary text-xs font-normal">
-                                        {totalFeatures} {totalFeatures === 1 ? 'feature' : 'features'} across{' '}
-                                        {sections.length} {sections.length === 1 ? 'section' : 'sections'}
+                                        {features.length} {features.length === 1 ? 'feature' : 'features'}
                                     </span>
                                 </div>
                             ),
