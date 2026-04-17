@@ -44,14 +44,14 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                                    pip install openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}
@@ -218,8 +218,8 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Environment',
                                 code: dedent`
-                                    OTEL_EXPORTER_OTLP_ENDPOINT="<ph_client_api_host>/i/v0/ai/otel"
-                                    OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <ph_project_token>"
+                                    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="<ph_client_api_host>/i/v0/ai/otel"
+                                    OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer <ph_project_token>"
                                 `,
                             },
                             {
@@ -228,7 +228,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 code: dedent`
                                     exporters:
                                       otlphttp/posthog:
-                                        endpoint: "<ph_client_api_host>/i/v0/ai/otel"
+                                        traces_endpoint: "<ph_client_api_host>/i/v0/ai/otel"
                                         headers:
                                           Authorization: "Bearer <ph_project_token>"
 
