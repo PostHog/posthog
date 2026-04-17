@@ -375,6 +375,12 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # Clickhouse writes ~1 GB/hour in dev json-file has no default rotation
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
         # Development performance optimizations
         mem_limit: 8g
         cpus: 2
