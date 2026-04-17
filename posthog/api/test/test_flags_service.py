@@ -270,7 +270,7 @@ class TestFlagsService(TestCase):
         from requests import HTTPError
 
         mock_response = Mock()
-        mock_response.raise_for_status.side_effect = HTTPError("Service error")
+        mock_response.raise_for_status.side_effect = HTTPError("Service error", response=mock_response)
         mock_session.post.return_value = mock_response
 
         with self.assertRaises(HTTPError):
