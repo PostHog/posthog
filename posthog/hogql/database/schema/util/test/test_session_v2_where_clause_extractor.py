@@ -563,3 +563,96 @@ WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
         assert self.generalize_sql(actual) == self.snapshot
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    """Tests for the sessionIdPushdown modifier, which pushes
+    ``session_id_v7 IN (SELECT $session_id_uuid FROM events WHERE <events-only>)``
+    into the raw_sessions subquery when a query joins events to sessions.
+    """
+
+    snapshot: Any
+
+    def print_query(self, query: str, pushdown: bool) -> str:
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionIdPushdown = pushdown
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        if prepared_ast is None:
+            return ""
+        return print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
+
+    def _assert_pushdown_contains_in_subquery(self, sql: str) -> None:
+        # The raw_sessions subquery should now have an IN predicate on session_id_v7.
+        # ClickHouse's printer emits `globalIn(...)` or `in(...)` depending on optimizer settings.
+        normalized = " ".join(sql.split())
+        assert "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized, (
+            f"Expected pushed-down IN predicate on raw_sessions.session_id_v7 in:\n{sql}"
+        )
+
+    def test_experiment_shape_with_pushdown(self):
+        """Mirrors the ExperimentQuery shape from
+        query-performance/analysis/2026-04-17-elevenlabs-experiment-sessions-oom.md:
+        events -> LEFT JOIN sessions filtered by a session-typed property."""
+        query = """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-27 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND events.session.$entry_pathname = '/signup'
+"""
+        actual = self.print_query(query, pushdown=True)
+        self._assert_pushdown_contains_in_subquery(actual)
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_experiment_shape_without_pushdown(self):
+        """Same query with pushdown disabled must not contain the IN subquery."""
+        query = """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-27 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND events.session.$entry_pathname = '/signup'
+"""
+        actual = self.print_query(query, pushdown=False)
+        normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized
+        assert "globalIn(raw_sessions.session_id_v7" not in normalized
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_pushdown_noop_for_sessions_only_query(self):
+        # A standalone sessions query has no events source to push down from — pushdown
+        # should not attempt to add anything, and the query should look identical to the
+        # pushdown-disabled version.
+        query = "SELECT session_id, $entry_pathname FROM sessions WHERE $start_timestamp >= '2026-03-27'"
+        with_pushdown = self.print_query(query, pushdown=True)
+        without_pushdown = self.print_query(query, pushdown=False)
+        assert with_pushdown == without_pushdown
+
+    def test_pushdown_drops_non_events_or_branches(self):
+        # An OR between an events predicate and a session-side predicate must not be
+        # pushed down: dropping the session-side half would change semantics. So the
+        # extracted events-only WHERE is None and pushdown is skipped.
+        query = """
+SELECT events.$session_id AS sid, events.session.$entry_pathname AS entry
+FROM events
+WHERE (events.event = '$pageview') OR (events.session.$entry_pathname = '/signup')
+"""
+        actual = self.print_query(query, pushdown=True)
+        normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized
+        assert "globalIn(raw_sessions.session_id_v7" not in normalized
