@@ -536,6 +536,9 @@ class TestClickHouseSourceConfig:
         field_names = {f.name for f in config.fields}
         assert {"host", "port", "database", "user", "password", "secure", "verify", "ssh_tunnel"} <= field_names
 
+    def test_source_is_beta(self, source):
+        assert source.get_source_config.betaSource is True
+
     def test_non_retryable_errors_present(self, source):
         errors = source.get_non_retryable_errors()
         # A few key errors that should never be retried
