@@ -79,8 +79,6 @@ pub enum FlagError {
     /// not a service availability issue.
     #[error("Failed to parse flag data: {0}")]
     DataParsingErrorWithContext(String),
-    #[error("failed to deserialize filters")]
-    DeserializeFiltersError,
     #[error("redis unavailable")]
     RedisUnavailable,
     #[error("database unavailable")]
@@ -105,10 +103,6 @@ pub enum FlagError {
     /// - `None` - Timeout occurred but specific type unknown
     #[error("Timed out while fetching data")]
     TimeoutError(Option<String>),
-    #[error("No group type mappings")]
-    NoGroupTypeMappings,
-    #[error("Failed to fetch group type mappings from database")]
-    GroupTypeMappingFetchFailed,
     #[error("Dependency of type {0} with id {1} not found")]
     DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
@@ -117,10 +111,6 @@ pub enum FlagError {
     DependencyCycle(DependencyType, i64),
     #[error("Person not found")]
     PersonNotFound,
-    #[error("Person properties not found")]
-    PropertiesNotInCache,
-    #[error("Static cohort matches not cached")]
-    StaticCohortMatchesNotCached,
     #[error("Cache miss - data not found in cache")]
     CacheMiss,
     #[error("Failed to parse data")]
@@ -168,10 +158,7 @@ impl FlagError {
 
             // Internal server errors (500)
             FlagError::Internal(_) => ("internal_error", 500),
-            FlagError::DeserializeFiltersError => ("deserialize_filters_error", 500),
             FlagError::DatabaseError(_, _) => ("database_error", 500),
-            FlagError::NoGroupTypeMappings => ("no_group_type_mappings", 500),
-            FlagError::GroupTypeMappingFetchFailed => ("group_type_mapping_fetch_failed", 500),
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
@@ -191,8 +178,6 @@ impl FlagError {
             FlagError::CacheMiss => ("cache_miss", 503),
             // Cache misses for person/cohort data - transient, data may be populated soon
             FlagError::PersonNotFound => ("person_not_found", 503),
-            FlagError::PropertiesNotInCache => ("properties_not_in_cache", 503),
-            FlagError::StaticCohortMatchesNotCached => ("static_cohort_not_cached", 503),
 
             // Cookieless errors (mixed)
             FlagError::CookielessError(err) => match err {
@@ -311,10 +296,7 @@ impl FlagError {
             }
             FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
             FlagError::Internal(_)
-            | FlagError::DeserializeFiltersError
             | FlagError::DatabaseError(_, _)
-            | FlagError::NoGroupTypeMappings
-            | FlagError::GroupTypeMappingFetchFailed
             | FlagError::RowNotFound
             | FlagError::DependencyNotFound(_, _)
             | FlagError::CohortFiltersParsingError
@@ -330,9 +312,7 @@ impl FlagError {
             | FlagError::DatabaseUnavailable
             | FlagError::TimeoutError(_)
             | FlagError::CacheMiss
-            | FlagError::PersonNotFound
-            | FlagError::PropertiesNotInCache
-            | FlagError::StaticCohortMatchesNotCached => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::PersonNotFound => StatusCode::SERVICE_UNAVAILABLE,
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -432,13 +412,6 @@ impl IntoResponse for FlagError {
                     "Failed to parse flag configuration data. This may indicate a misconfigured feature flag. Please check your flag definitions or contact support.".to_string(),
                 )
             }
-            FlagError::DeserializeFiltersError => {
-                tracing::error!("Failed to deserialize filters");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to deserialize property filters. This is likely a temporary issue. Please try again later.".to_string(),
-                )
-            }
             FlagError::RedisUnavailable => {
                 tracing::error!("Redis unavailable: {:?}", self);
                 (
@@ -472,20 +445,6 @@ impl IntoResponse for FlagError {
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
                 )
             }
-            FlagError::NoGroupTypeMappings => {
-                tracing::error!("No group type mappings: {:?}", self);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "No group type mappings found. This is likely a configuration issue. Please contact support.".to_string(),
-                )
-            }
-            FlagError::GroupTypeMappingFetchFailed => {
-                tracing::error!("Failed to fetch group type mappings: {:?}", self);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to fetch group type mappings from database.".to_string(),
-                )
-            }
             FlagError::RowNotFound => {
                 tracing::error!("Row not found in postgres: {:?}", self);
                 (
@@ -512,14 +471,6 @@ impl IntoResponse for FlagError {
             FlagError::PersonNotFound => {
                 tracing::warn!("Person not found in cache");
                 (StatusCode::SERVICE_UNAVAILABLE, "Person data not yet available. This is a temporary issue while data is being populated. Please try again.".to_string())
-            }
-            FlagError::PropertiesNotInCache => {
-                tracing::warn!("Person properties not found in cache");
-                (StatusCode::SERVICE_UNAVAILABLE, "Person properties not yet available. This is a temporary issue while data is being populated. Please try again.".to_string())
-            }
-            FlagError::StaticCohortMatchesNotCached => {
-                tracing::warn!("Static cohort matches not found in cache");
-                (StatusCode::SERVICE_UNAVAILABLE, "Cohort membership data not yet available. This is a temporary issue while data is being populated. Please try again.".to_string())
             }
             FlagError::CacheMiss => {
                 tracing::error!("Cache miss - required data not found in cache");
@@ -754,19 +705,14 @@ mod tests {
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
             FlagError::DataParsingErrorWithContext("test parse error".to_string()),
-            FlagError::DeserializeFiltersError,
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
-            FlagError::NoGroupTypeMappings,
-            FlagError::GroupTypeMappingFetchFailed,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
             FlagError::PersonNotFound,
-            FlagError::PropertiesNotInCache,
-            FlagError::StaticCohortMatchesNotCached,
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
@@ -822,8 +768,6 @@ mod tests {
         assert_eq!(FlagError::RowNotFound.status_code(), 500);
         // Cache miss errors are now 503 (transient)
         assert_eq!(FlagError::PersonNotFound.status_code(), 503);
-        assert_eq!(FlagError::PropertiesNotInCache.status_code(), 503);
-        assert_eq!(FlagError::StaticCohortMatchesNotCached.status_code(), 503);
         // Semaphore timeout is 504 (gateway timeout for ingress retry)
         assert_eq!(FlagError::RayonSemaphoreTimeout(800).status_code(), 504);
     }
@@ -848,9 +792,6 @@ mod tests {
         // Server errors should be 5xx
         let server_errors = vec![
             FlagError::Internal("".into()),
-            FlagError::DeserializeFiltersError,
-            FlagError::NoGroupTypeMappings,
-            FlagError::GroupTypeMappingFetchFailed,
             FlagError::RowNotFound,
             FlagError::CohortFiltersParsingError,
             FlagError::DataParsingError,
@@ -866,10 +807,7 @@ mod tests {
         // Verify that status_code() >= 500 matches is_5xx() for ALL 5xx errors
         let errors_5xx = vec![
             FlagError::Internal("test".to_string()),
-            FlagError::DeserializeFiltersError,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, None),
-            FlagError::NoGroupTypeMappings,
-            FlagError::GroupTypeMappingFetchFailed,
             FlagError::RowNotFound,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::CohortFiltersParsingError,
@@ -883,8 +821,6 @@ mod tests {
             FlagError::TimeoutError(None),
             FlagError::CacheMiss,
             FlagError::PersonNotFound,
-            FlagError::PropertiesNotInCache,
-            FlagError::StaticCohortMatchesNotCached,
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
         ];
 
@@ -975,18 +911,14 @@ mod tests {
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
             FlagError::DataParsingErrorWithContext("test parse error".to_string()),
-            FlagError::DeserializeFiltersError,
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
-            FlagError::NoGroupTypeMappings,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
             FlagError::PersonNotFound,
-            FlagError::PropertiesNotInCache,
-            FlagError::StaticCohortMatchesNotCached,
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
