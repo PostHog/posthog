@@ -59,7 +59,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { integer, numerical_key } from './type-utils'
+import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 
@@ -1756,7 +1756,7 @@ export type StickinessComputationMode = (typeof StickinessComputationModes)[keyo
 
 export interface StickinessCriteria {
     operator: StickinessOperator
-    value: integer
+    value: positive_integer
 }
 
 export type StickinessFilter = {
@@ -1804,7 +1804,7 @@ export interface StickinessQuery extends Omit<
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */

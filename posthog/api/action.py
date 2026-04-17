@@ -9,6 +9,7 @@ from django.db.models import Count
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action as drf_action
+from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -530,7 +531,10 @@ class ActionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "action"
-    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
+    renderer_classes = cast(
+        tuple[type[BaseRenderer], ...],
+        (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
+    )
     queryset = Action.objects.select_related("created_by").all()
     serializer_class = ActionSerializer
     ordering = ["-last_calculated_at", "name"]

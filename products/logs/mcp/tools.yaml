@@ -34,8 +34,10 @@ tools:
             idempotent: true
         title: List log attributes
         description: >
-            List available log attribute names for filtering. Use attribute_type "log" for log-level attributes or
-            "resource" for resource-level attributes (e.g. k8s labels).
+            List available log attribute names for filtering. Defaults to attribute_type "log" (log-level attributes).
+            To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass
+            attribute_type: "resource" — it will NOT return resource attributes unless you do.
+            Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
         response:
             include:
                 - results
@@ -51,8 +53,10 @@ tools:
             idempotent: true
         title: List log attribute values
         description: >
-            List values for a specific log attribute key. Use to discover what values exist for a given attribute before
-            building filters.
+            List values for a specific log attribute key. Use to discover what values exist before building filters.
+            Defaults to attribute_type "log" (log-level attributes). To get values for resource-level attributes
+            (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource".
+            Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
         response:
             include:
                 - results
@@ -131,9 +135,20 @@ tools:
     logs-services-create:
         operation: logs_services_create
         enabled: false
-    logs-sparkline-create:
+    logs-sparkline-query:
         operation: logs_sparkline_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query logs sparkline
+        description_file: ./prompts/logs-sparkline.md
+        response:
+            include:
+                - results
     logs-alerts-destinations-create:
         operation: logs_alerts_destinations_create
         enabled: false

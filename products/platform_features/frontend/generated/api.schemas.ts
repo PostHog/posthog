@@ -194,6 +194,180 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
+export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+
+export const MembershipLevelEnumApi = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+/**
+ * * `0` - none
+ * `3` - config
+ * `6` - install
+ * `9` - root
+ */
+export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+
+export const PluginsAccessLevelEnumApi = {
+    Number0: 0,
+    Number3: 3,
+    Number6: 6,
+    Number9: 9,
+} as const
+
+/**
+ * * `bayesian` - Bayesian
+ * `frequentist` - Frequentist
+ */
+export type DefaultExperimentStatsMethodEnumApi =
+    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+
+export const DefaultExperimentStatsMethodEnumApi = {
+    Bayesian: 'bayesian',
+    Frequentist: 'frequentist',
+} as const
+
+export type OrganizationApiTeamsItem = { [key: string]: unknown }
+
+export type OrganizationApiProjectsItem = { [key: string]: unknown }
+
+export type OrganizationApiMetadata = { [key: string]: string }
+
+export interface OrganizationApi {
+    readonly id: string
+    /** @maxLength 64 */
+    name: string
+    /** @pattern ^[-a-zA-Z0-9_]+$ */
+    readonly slug: string
+    /** @nullable */
+    logo_media_id?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly membership_level: MembershipLevelEnumApi | null
+    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly projects: readonly OrganizationApiProjectsItem[]
+    /** @nullable */
+    readonly available_product_features: readonly unknown[] | null
+    /** Legacy field; member-join emails are controlled per user in account notification settings. */
+    readonly is_member_join_email_enabled: boolean
+    readonly metadata: OrganizationApiMetadata
+    /** @nullable */
+    readonly customer_id: string | null
+    /** @nullable */
+    enforce_2fa?: boolean | null
+    /** @nullable */
+    members_can_invite?: boolean | null
+    members_can_use_personal_api_keys?: boolean
+    allow_publicly_shared_resources?: boolean
+    readonly member_count: number
+    /** @nullable */
+    is_ai_data_processing_approved?: boolean | null
+    /** Default statistical method for new experiments in this organization.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    /** Default setting for 'Discard client IP data' for new projects in this organization. */
+    default_anonymize_ips?: boolean
+    /**
+     * ID of the role to automatically assign to new members joining the organization
+     * @nullable
+     */
+    default_role_id?: string | null
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    readonly is_active: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @nullable
+     */
+    readonly is_not_active_reason: string | null
+    /**
+     * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
+}
+
+export interface PaginatedOrganizationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationApi[]
+}
+
+export type PatchedOrganizationApiTeamsItem = { [key: string]: unknown }
+
+export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
+
+export type PatchedOrganizationApiMetadata = { [key: string]: string }
+
+export interface PatchedOrganizationApi {
+    readonly id?: string
+    /** @maxLength 64 */
+    name?: string
+    /** @pattern ^[-a-zA-Z0-9_]+$ */
+    readonly slug?: string
+    /** @nullable */
+    logo_media_id?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly membership_level?: MembershipLevelEnumApi | null
+    readonly plugins_access_level?: PluginsAccessLevelEnumApi
+    readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
+    readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
+    /** @nullable */
+    readonly available_product_features?: readonly unknown[] | null
+    /** Legacy field; member-join emails are controlled per user in account notification settings. */
+    readonly is_member_join_email_enabled?: boolean
+    readonly metadata?: PatchedOrganizationApiMetadata
+    /** @nullable */
+    readonly customer_id?: string | null
+    /** @nullable */
+    enforce_2fa?: boolean | null
+    /** @nullable */
+    members_can_invite?: boolean | null
+    members_can_use_personal_api_keys?: boolean
+    allow_publicly_shared_resources?: boolean
+    readonly member_count?: number
+    /** @nullable */
+    is_ai_data_processing_approved?: boolean | null
+    /** Default statistical method for new experiments in this organization.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    /** Default setting for 'Discard client IP data' for new projects in this organization. */
+    default_anonymize_ips?: boolean
+    /**
+     * ID of the role to automatically assign to new members joining the organization
+     * @nullable
+     */
+    default_role_id?: string | null
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    readonly is_active?: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @nullable
+     */
+    readonly is_not_active_reason?: string | null
+    /**
+     * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion?: boolean | null
+}
+
 /**
  * * `1` - member
  * `8` - administrator
@@ -445,6 +619,17 @@ export type ChangeRequestsListParams = {
      * Multiple values may be separated by commas.
      */
     state?: string[]
+}
+
+export type ListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type MembersListParams = {

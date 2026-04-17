@@ -608,6 +608,20 @@ export namespace Schemas {
       actionId: number;
     }
 
+    /**
+     * * `add` - add
+    * `remove` - remove
+    * `set` - set
+     */
+    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
+
+
+    export const ActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -3338,6 +3352,7 @@ export namespace Schemas {
 
     export interface StickinessCriteria {
       operator: StickinessOperator;
+      /** @minimum 1 */
       value: number;
     }
 
@@ -3383,6 +3398,7 @@ export namespace Schemas {
       interval?: IntervalType | null;
       /**
        * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+       * @minimum 1
        * @nullable
        */
       intervalCount?: number | null;
@@ -6893,6 +6909,37 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkUpdateTagsError {
+      id: number;
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsItem {
+      id: number;
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsRequest {
+      /**
+       * List of object IDs to update tags on.
+       * @maxItems 500
+       */
+      ids: number[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+    * `add` - add
+    * `remove` - remove
+    * `set` - set */
+      action: ActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsResponse {
+      updated: BulkUpdateTagsItem[];
+      skipped: BulkUpdateTagsError[];
+    }
+
     /**
      * * `b2b` - B2B
     * `b2c` - B2C
@@ -7488,6 +7535,141 @@ export namespace Schemas {
       available: boolean;
     }
 
+    /**
+     * * `interactive` - interactive
+    * `background` - background
+     */
+    export type ModeA07Enum = typeof ModeA07Enum[keyof typeof ModeA07Enum];
+
+
+    export const ModeA07Enum = {
+      Interactive: 'interactive',
+      Background: 'background',
+    } as const;
+
+    /**
+     * * `user` - user
+    * `bot` - bot
+     */
+    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
+
+
+    export const PrAuthorshipModeEnum = {
+      User: 'user',
+      Bot: 'bot',
+    } as const;
+
+    /**
+     * * `manual` - manual
+    * `signal_report` - signal_report
+     */
+    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
+
+
+    export const RunSourceEnum = {
+      Manual: 'manual',
+      SignalReport: 'signal_report',
+    } as const;
+
+    /**
+     * * `claude` - claude
+     */
+    export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnum = typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnum];
+
+
+    export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnum = {
+      Claude: 'claude',
+    } as const;
+
+    /**
+     * * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max
+     */
+    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
+
+
+    export const ReasoningEffortEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Max: 'max',
+    } as const;
+
+    /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+     */
+    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
+
+
+    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+    } as const;
+
+    /**
+     * Request body for creating a new task run
+     */
+    export interface ClaudeTaskRunCreateSchema {
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+    * `interactive` - interactive
+    * `background` - background */
+      mode?: ModeA07Enum;
+      /**
+       * Git branch to checkout in the sandbox
+       * @maxLength 255
+       * @nullable
+       */
+      branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
+
+    * `claude` - claude */
+      runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnum;
+      /** LLM model identifier to run in the Claude runtime. */
+      model: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+    * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
+      /** Initial permission mode for Claude runtimes.
+
+    * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions */
+      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
+    }
+
     export type ClickhouseEventProperties = {[key: string]: unknown};
 
     /**
@@ -7701,6 +7883,86 @@ export namespace Schemas {
     export interface CodeInviteRedeemRequest {
       /** @maxLength 50 */
       code: string;
+    }
+
+    /**
+     * * `codex` - codex
+     */
+    export type CodexTaskRunCreateSchemaRuntimeAdapterEnum = typeof CodexTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnum];
+
+
+    export const CodexTaskRunCreateSchemaRuntimeAdapterEnum = {
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access
+     */
+    export type CodexTaskRunCreateSchemaInitialPermissionModeEnum = typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum];
+
+
+    export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Auto: 'auto',
+      ReadOnly: 'read-only',
+      FullAccess: 'full-access',
+    } as const;
+
+    /**
+     * Request body for creating a new task run
+     */
+    export interface CodexTaskRunCreateSchema {
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+    * `interactive` - interactive
+    * `background` - background */
+      mode?: ModeA07Enum;
+      /**
+       * Git branch to checkout in the sandbox
+       * @maxLength 255
+       * @nullable
+       */
+      branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
+
+    * `codex` - codex */
+      runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnum;
+      /** LLM model identifier to run in the Codex runtime. */
+      model: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+    * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
+      /** Initial permission mode for Codex runtimes.
+
+    * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access */
+      initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
@@ -14291,6 +14553,41 @@ export namespace Schemas {
       success: boolean;
     }
 
+    export interface ErrorTrackingIssueSplitFingerprint {
+      /** Fingerprint to split into a new issue. */
+      fingerprint: string;
+      /** Optional name for the new issue created from this fingerprint. */
+      name?: string;
+      /** Optional description for the new issue created from this fingerprint. */
+      description?: string;
+    }
+
+    export interface ErrorTrackingIssueSplitRequest {
+      /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+      fingerprints?: ErrorTrackingIssueSplitFingerprint[];
+    }
+
+    export interface ErrorTrackingIssueSplitResponse {
+      /** Whether the split completed successfully. */
+      success: boolean;
+      /** IDs of the new issues created by the split. */
+      new_issue_ids: string[];
+    }
+
+    export interface ErrorTrackingRecommendation {
+      readonly id: string;
+      readonly type: string;
+      readonly meta: unknown;
+      /** @nullable */
+      readonly computed_at: string | null;
+      /** @nullable */
+      readonly dismissed_at: string | null;
+      /** @nullable */
+      readonly next_refresh_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -15030,7 +15327,7 @@ export namespace Schemas {
       name: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 400
+       * @maxLength 3000
        * @nullable
        */
       description?: string | null;
@@ -16232,6 +16529,66 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+    }
+
+    export type FeatureFlagVersionResponseFilters = {[key: string]: unknown};
+
+    /**
+     * Feature flag state at a given version plus reconstruction metadata.
+     */
+    export interface FeatureFlagVersionResponse {
+      readonly id: number;
+      /** @maxLength 400 */
+      key: string;
+      name?: string;
+      readonly filters: FeatureFlagVersionResponseFilters;
+      active?: boolean;
+      deleted?: boolean;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      version?: number | null;
+      rollback_conditions?: unknown | null;
+      /** @nullable */
+      performed_rollback?: boolean | null;
+      /** @nullable */
+      ensure_experience_continuity?: boolean | null;
+      /** @nullable */
+      has_enriched_analytics?: boolean | null;
+      /** @nullable */
+      is_remote_configuration?: boolean | null;
+      /** @nullable */
+      has_encrypted_payloads?: boolean | null;
+      /** Specifies where this feature flag should be evaluated
+
+    * `server` - Server
+    * `client` - Client
+    * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
+      /** Identifier used for bucketing users into rollout and variants
+
+    * `distinct_id` - User ID (default)
+    * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
+      /**
+       * Last time this feature flag was called (from $feature_flag_called events)
+       * @nullable
+       */
+      last_called_at?: string | null;
+      created_at?: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** False for the current version; true for reconstructed historical versions. */
+      readonly is_historical: boolean;
+      /** @nullable */
+      readonly version_timestamp: string | null;
+      /**
+       * User from the activity log entry that produced this version.
+       * @nullable
+       */
+      readonly modified_by: number | null;
     }
 
     export interface FileSystem {
@@ -18656,22 +19013,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions
-     */
-    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
-
-
-    export const InitialPermissionModeEnum = {
-      Default: 'default',
-      AcceptEdits: 'acceptEdits',
-      Plan: 'plan',
-      BypassPermissions: 'bypassPermissions',
-    } as const;
-
-    /**
      * @nullable
      */
     export type InsightResolvedDateRange = {
@@ -19616,6 +19957,7 @@ export namespace Schemas {
 
     export interface MaxCoreMemory {
       readonly id: string;
+      /** @maxLength 10000 */
       text: string;
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
@@ -20636,6 +20978,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingIssueFull[];
+    }
+
+    export interface PaginatedErrorTrackingRecommendationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingRecommendation[];
     }
 
     export interface PaginatedErrorTrackingReleaseList {
@@ -21800,6 +22151,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `conversations` - Conversations
     * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
@@ -21811,6 +22163,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
     } as const;
 
@@ -22449,14 +22802,10 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
-    /**
-     * * `claude` - claude
-    * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+    export type TaskRunDetailRuntimeAdapterEnum = typeof TaskRunDetailRuntimeAdapterEnum[keyof typeof TaskRunDetailRuntimeAdapterEnum];
 
 
-    export const RuntimeAdapterEnum = {
+    export const TaskRunDetailRuntimeAdapterEnum = {
       Claude: 'claude',
       Codex: 'codex',
     } as const;
@@ -22467,22 +22816,6 @@ export namespace Schemas {
     export const TaskRunDetailProviderEnum = {
       Anthropic: 'anthropic',
       Openai: 'openai',
-    } as const;
-
-    /**
-     * * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `max` - max
-     */
-    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
-
-
-    export const ReasoningEffortEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Max: 'max',
     } as const;
 
     export interface TaskRunArtifactResponse {
@@ -22522,7 +22855,7 @@ export namespace Schemas {
     * `cloud` - Cloud */
       environment?: EnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
+      readonly runtime_adapter: TaskRunDetailRuntimeAdapterEnum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
       readonly provider: TaskRunDetailProviderEnum | NullEnum | null;
       /**
@@ -24333,7 +24666,7 @@ export namespace Schemas {
       name?: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 400
+       * @maxLength 3000
        * @nullable
        */
       description?: string | null;
@@ -25105,6 +25438,7 @@ export namespace Schemas {
 
     export interface PatchedMaxCoreMemory {
       readonly id?: string;
+      /** @maxLength 10000 */
       text?: string;
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
@@ -26746,6 +27080,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+      /**
+       * Custom prompt for CI fixes. If blank, a default prompt will be used.
+       * @nullable
+       */
+      ci_prompt?: string | null;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -27420,18 +27759,6 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       homepage?: PinnedSceneTab | null;
     }
-
-    /**
-     * * `user` - user
-    * `bot` - bot
-     */
-    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
-
-
-    export const PrAuthorshipModeEnum = {
-      User: 'user',
-      Bot: 'bot',
-    } as const;
 
     /**
      * Serializer for creating and updating ProductTour.
@@ -30729,18 +31056,6 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
-    /**
-     * * `manual` - manual
-    * `signal_report` - signal_report
-     */
-    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
-
-
-    export const RunSourceEnum = {
-      Manual: 'manual',
-      SignalReport: 'signal_report',
-    } as const;
-
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -30930,6 +31245,18 @@ export namespace Schemas {
       None: 'none',
       Auto: 'auto',
       Mapped: 'mapped',
+    } as const;
+
+    /**
+     * * `severity` - severity
+    * `service` - service
+     */
+    export type SparklineBreakdownByEnum = typeof SparklineBreakdownByEnum[keyof typeof SparklineBreakdownByEnum];
+
+
+    export const SparklineBreakdownByEnum = {
+      Severity: 'severity',
+      Service: 'service',
     } as const;
 
     export interface SummaryBullet {
@@ -31614,27 +31941,12 @@ export namespace Schemas {
       error?: TaskRunCommandResponseError;
     }
 
-    /**
-     * * `interactive` - interactive
-    * `background` - background
-     */
-    export type TaskRunCreateRequestModeEnum = typeof TaskRunCreateRequestModeEnum[keyof typeof TaskRunCreateRequestModeEnum];
-
-
-    export const TaskRunCreateRequestModeEnum = {
-      Interactive: 'interactive',
-      Background: 'background',
-    } as const;
-
-    /**
-     * Request body for creating a new task run
-     */
-    export interface TaskRunCreateRequest {
+    export interface TaskRunResumeRequestSchema {
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
     * `interactive` - interactive
     * `background` - background */
-      mode?: TaskRunCreateRequestModeEnum;
+      mode?: ModeA07Enum;
       /**
        * Git branch to checkout in the sandbox
        * @maxLength 255
@@ -31659,30 +31971,11 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
-      /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
-
-    * `claude` - claude
-    * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterEnum;
-      /** LLM model identifier to run in the selected runtime. */
-      model?: string;
-      /** Reasoning effort to request for models that expose an effort control.
-
-    * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
-      /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
-
-    * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions */
-      initial_permission_mode?: InitialPermissionModeEnum;
     }
+
+    export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
 
     export interface TaskRunRelayMessageRequest {
       /** @maxLength 10000 */
@@ -31951,13 +32244,6 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
-    export interface UnpauseResponse {
-      /** Always 'unpaused'. */
-      status: string;
-      /** Whether the workflow was actually paused at the time of the call. */
-      was_paused: boolean;
-    }
-
     /**
      * The release condition to evaluate
      */
@@ -32177,6 +32463,29 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
+    }
+
+    export interface _LogsSparklineBody {
+      /** Date range for the sparkline. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Break down sparkline by "severity" (default) or "service".
+
+    * `severity` - severity
+    * `service` - service */
+      sparklineBreakdownBy?: SparklineBreakdownByEnum;
+    }
+
+    export interface _LogsSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _LogsSparklineBody;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -32435,6 +32744,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateFormat = typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsDashboardsBulkUpdateTagsCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -32699,6 +33020,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+      valid?: boolean;
+      errors?: string[];
     };
 
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
@@ -33122,6 +33448,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkUpdateTagsCreateFormat = typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsInsightsCancelCreateParams = {
     format?: EnvironmentsInsightsCancelCreateFormat;
     };
@@ -33239,13 +33577,21 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -33262,6 +33608,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
@@ -33274,7 +33624,7 @@ export namespace Schemas {
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -33282,10 +33632,22 @@ export namespace Schemas {
      */
     attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -34072,6 +34434,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingRecommendationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
@@ -34827,6 +35200,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat;
+    };
+
+    export type ActionsBulkUpdateTagsCreateFormat = typeof ActionsBulkUpdateTagsCreateFormat[keyof typeof ActionsBulkUpdateTagsCreateFormat];
+
+
+    export const ActionsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type ActivityLogListParams = {
     /**
      * Filter by the ID of the affected resource.
@@ -35574,6 +35959,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type DashboardsBulkUpdateTagsCreateFormat = typeof DashboardsBulkUpdateTagsCreateFormat[keyof typeof DashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const DashboardsBulkUpdateTagsCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsCreateFromTemplateJsonCreateParams = {
     format?: DashboardsCreateFromTemplateJsonCreateFormat;
     };
@@ -35940,6 +36337,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+      valid?: boolean;
+      errors?: string[];
     };
 
     export type ExternalDataSourcesConnectionsListParams = {
@@ -36550,6 +36952,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type InsightsBulkUpdateTagsCreateParams = {
+    format?: InsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type InsightsBulkUpdateTagsCreateFormat = typeof InsightsBulkUpdateTagsCreateFormat[keyof typeof InsightsBulkUpdateTagsCreateFormat];
+
+
+    export const InsightsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type InsightsCancelCreateParams = {
     format?: InsightsCancelCreateFormat;
     };
@@ -36710,13 +37124,21 @@ export namespace Schemas {
 
     export type LogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: LogsAttributesRetrieveAttributeType;
+    /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for attributes.
+     */
+    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -36733,6 +37155,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Filter attributes to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     };
 
     export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
@@ -36745,7 +37171,7 @@ export namespace Schemas {
 
     export type LogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource"
+     * Type of attribute: "log" or "resource". Defaults to "log".
 
     * `log` - log
     * `resource` - resource
@@ -36753,10 +37179,22 @@ export namespace Schemas {
      */
     attribute_type?: LogsValuesRetrieveAttributeType;
     /**
+     * Date range to search within. Defaults to last hour.
+     */
+    dateRange?: _DateRange;
+    /**
+     * Property filters to narrow which logs are scanned for values.
+     */
+    filterGroup?: _LogPropertyFilter[];
+    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
+    /**
+     * Filter values to those appearing in logs from these services.
+     */
+    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -37454,7 +37892,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalProcessingListParams = {
+    export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
      */
@@ -37465,7 +37903,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalSourceConfigsListParams = {
+    export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */
