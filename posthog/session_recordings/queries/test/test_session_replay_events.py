@@ -147,24 +147,6 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "snapshot_library": None,
         }
 
-    def test_get_events_feeds_segment_event_history_without_error(self) -> None:
-        """HogQL event timestamps + recording metadata must be comparable for problem-signal event history."""
-        from posthog.temporal.session_replay.session_summary.activities.a6a_emit_session_problem_signals import (
-            _build_segment_event_history,
-        )
-
-        metadata = SessionReplayEvents().get_metadata(session_id="2", team=self.team)
-        assert metadata is not None
-        columns, rows = SessionReplayEvents().get_events(session_id="2", team=self.team, metadata=metadata)
-        assert columns is not None and rows is not None
-        _build_segment_event_history(
-            list(rows),
-            columns,
-            metadata["start_time"],
-            0,
-            metadata["duration"],
-        )
-
     def test_get_nonexistent_metadata(self) -> None:
         metadata = SessionReplayEvents().get_metadata(session_id="not a session", team=self.team)
         assert metadata is None

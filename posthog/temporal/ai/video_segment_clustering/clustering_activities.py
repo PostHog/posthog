@@ -110,28 +110,12 @@ _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
         operator=PropertyOperator.GTE,
         value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
     ),
-<<<<<<< HEAD
     # Ignore sessions that are too long
     RecordingPropertyFilter(
         key="active_seconds",
         operator=PropertyOperator.LTE,
         value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
     ),
-    # Only include finished sessions
-    RecordingPropertyFilter(
-        key="ongoing",
-        operator=PropertyOperator.EXACT,
-        value=0,  # The bool is represented as 0/1 in ClickHouse
-    ),
-||||||| parent of 3db6bfc4e52 (feat(signals): emit session problem signals from summarization workflow)
-    # Only include finished sessions
-    RecordingPropertyFilter(
-        key="ongoing",
-        operator=PropertyOperator.EXACT,
-        value=0,  # The bool is represented as 0/1 in ClickHouse
-    ),
-=======
->>>>>>> 3db6bfc4e52 (feat(signals): emit session problem signals from summarization workflow)
 ]
 if not settings.DEBUG:
     _BASELINE_HAVING_PREDICATES.append(
