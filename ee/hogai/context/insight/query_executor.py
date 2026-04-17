@@ -398,7 +398,7 @@ class AssistantQueryExecutor:
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
                         raise APIException(error_message)
-                    raise Exception("Query failed")
+                    raise APIException("Query execution failed with an unspecified error.")
 
                 # Use the completed query results
                 response_dict = query_status["results"]
@@ -421,12 +421,13 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
             raise MaxToolRetryableError(err_message)
-        except:
+        except Exception as exc:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution
-            if debug_timing:
-                logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
-            raise Exception("There was an unknown error running this query.")
+            logger.exception(f"{TIMING_LOG_PREFIX} Unexpected error during query execution after {elapsed:.3f}s")
+            raise MaxToolRetryableError(
+                f"There was an unexpected error running this query: {type(exc).__name__}: {exc}"
+            )
 
         total_elapsed = time.time() - start_time
         if debug_timing:

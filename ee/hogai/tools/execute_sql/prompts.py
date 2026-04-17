@@ -61,6 +61,12 @@ JOIN persons p ON e.person_id = p.id
 WHERE e.event IN (SELECT event FROM events WHERE ...)
 ```
 
+# Working with lists of values
+- VALUES clause is NOT supported. Never use `FROM (VALUES ...)`.
+- For small lists (up to ~10 items), use `arrayJoin(['val1', 'val2', ...]) AS col`.
+- For larger lists, prefer joining against the source table directly rather than inlining all values. For example, if you have survey responses with emails, join the survey data table to the events/persons table instead of copying all emails into the query.
+- Never use long chains of `SELECT ... UNION ALL SELECT ...` to inline more than ~10 values — this creates oversized queries that time out.
+
 # Other constraints
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>

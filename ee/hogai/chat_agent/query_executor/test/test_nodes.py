@@ -194,7 +194,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         msg = cast(AssistantMessage, new_state.messages[0])
         self.assertEqual(
             msg.content,
-            "There was an error running this query: Error executing query: There was an unknown error running this query.",
+            "There was an error running this query: Error executing query: There was an unexpected error running this query: ValueError: You have not glibbled the glorp before running this.",
         )
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
