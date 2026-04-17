@@ -130,7 +130,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "timezone",
                     "week_start_day",
                     "base_currency",
-                    "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
             },

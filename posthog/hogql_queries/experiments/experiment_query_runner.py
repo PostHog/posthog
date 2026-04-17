@@ -311,6 +311,7 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
             experiment_metric_uuid=self.metric.uuid,
             experiment_metric_name=metric_name,
+            experiment_metric_type=self.metric.metric_type,
         )
 
         experiment_query_ast = self._get_experiment_query()

@@ -211,6 +211,14 @@ class ClickHousePrinter(HogQLPrinter):
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
             return self.context.add_value(node.value)
 
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        # ClickHouse requires backtick-quoted column references in INTERPOLATE clauses
+        printed_expr = self.visit(node.expr)
+        quoted_expr = escape_clickhouse_identifier(printed_expr)
+        if node.value is not None:
+            return f"{quoted_expr} AS {self.visit(node.value)}"
+        return quoted_expr
+
     def visit_field(self, node: ast.Field):
         if node.type is None:
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])

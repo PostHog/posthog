@@ -6,7 +6,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
-import { LogsAlertConfigurationApi, ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertConfigurationStateEnumApi,
+    ThresholdOperatorEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
@@ -17,8 +21,9 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading } = useValues(logsAlertingLogic)
-    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled } = useActions(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
+    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, resetAlert } =
+        useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
         {
@@ -33,7 +38,9 @@ export function LogsAlertList(): JSX.Element {
         {
             title: 'Status',
             dataIndex: 'state',
-            render: (_, alert) => <LogsAlertStateIndicator state={alert.state} />,
+            render: (_, alert) => (
+                <LogsAlertStateIndicator state={alert.state} lastErrorMessage={alert.last_error_message} />
+            ),
         },
         {
             title: 'Threshold',
@@ -53,7 +60,15 @@ export function LogsAlertList(): JSX.Element {
             title: 'Enabled',
             dataIndex: 'enabled',
             render: (_, alert) => (
-                <LemonSwitch checked={alert.enabled ?? true} onChange={() => toggleAlertEnabled(alert)} />
+                <LemonSwitch
+                    checked={alert.enabled ?? true}
+                    onChange={() => toggleAlertEnabled(alert)}
+                    disabledReason={
+                        alert.state === LogsAlertConfigurationStateEnumApi.Broken
+                            ? 'Reset this alert to re-enable checks'
+                            : undefined
+                    }
+                />
             ),
         },
         {
@@ -67,6 +82,17 @@ export function LogsAlertList(): JSX.Element {
                                     label: 'Edit',
                                     onClick: () => setEditingAlert(alert),
                                 },
+                                ...(alert.state === LogsAlertConfigurationStateEnumApi.Broken
+                                    ? [
+                                          {
+                                              label: resettingAlertIds.has(alert.id) ? 'Resetting…' : 'Reset alert',
+                                              onClick: () => resetAlert(alert.id),
+                                              disabledReason: resettingAlertIds.has(alert.id)
+                                                  ? 'Reset in progress'
+                                                  : undefined,
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     label: 'Delete',
                                     status: 'danger',

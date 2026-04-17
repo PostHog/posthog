@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1100_add_subscription_summary_fields"),
+        ("posthog", "1101_activitylog_client"),
     ]
 
     operations = [

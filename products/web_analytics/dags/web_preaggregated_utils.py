@@ -189,6 +189,8 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> Optional[SkipReason]:
     # Get the schedule name from the context
     schedule_name = context._schedule_name
+    if schedule_name is None:
+        return SkipReason("Schedule name is unavailable")
 
     # Get the schedule definition from the repository to find the associated job
     schedule_def = context.repository_def.get_schedule_def(schedule_name)

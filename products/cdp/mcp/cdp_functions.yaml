@@ -25,6 +25,20 @@ tools:
             each function's name, type, enabled status, execution order, and template info. Filter by type (destination,
             site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation)
             and enabled status via query parameters.
+        response:
+            include:
+                - id
+                - type
+                - name
+                - description
+                - enabled
+                - execution_order
+                - icon_url
+                - template.id
+                - status
+                - created_at
+                - updated_at
+                - created_by
     cdp-functions-create:
         operation: hog_functions_create
         enabled: true
