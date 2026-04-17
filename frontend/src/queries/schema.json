@@ -34392,7 +34392,7 @@
         },
         "SessionReplaySegment": {
             "additionalProperties": false,
-            "deprecated": "Use {@link SessionReplaySegment } is no longer emitted.",
+            "deprecated": "No longer emitted.",
             "properties": {
                 "content": {
                     "type": "string"

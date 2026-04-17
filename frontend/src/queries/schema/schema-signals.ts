@@ -60,8 +60,6 @@ export interface SessionProblemSignalInput {
 }
 
 /** @deprecated No longer emitted. */
-
-/** @deprecated Use {@link SessionReplaySegment} is no longer emitted. */
 export interface SessionReplaySegment {
     session_id: string
     start_time: string
