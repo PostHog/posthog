@@ -21651,26 +21651,6 @@ export namespace Schemas {
     }
 
     /**
-     * Shape of each item in the GET /api/users/@me/pending_invites/ response.
-     */
-    export interface PendingInvite {
-      id: string;
-      target_email: string;
-      organization_id: string;
-      organization_name: string;
-      created_at: string;
-    }
-
-    export interface PaginatedPendingInviteList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: PendingInvite[];
-    }
-
-    /**
      * * `home` - Home
     * `pinned` - Pinned
     * `custom_products` - Custom Products
@@ -23527,6 +23507,8 @@ export namespace Schemas {
 
     export type UserNotificationSettings = {[key: string]: unknown};
 
+    export type UserPendingInvitesItem = {[key: string]: unknown};
+
     export interface User {
       readonly date_joined: string;
       readonly uuid: string;
@@ -23585,6 +23567,8 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
+      readonly pending_invites: readonly UserPendingInvitesItem[];
     }
 
     export interface PaginatedUserList {
@@ -27827,6 +27811,8 @@ export namespace Schemas {
 
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
 
+    export type PatchedUserPendingInvitesItem = {[key: string]: unknown};
+
     export interface PatchedUser {
       readonly date_joined?: string;
       readonly uuid?: string;
@@ -27885,6 +27871,8 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
+      readonly pending_invites?: readonly PatchedUserPendingInvitesItem[];
     }
 
     export interface PatchedUserInterview {
@@ -38671,19 +38659,6 @@ export namespace Schemas {
     };
 
     export type UsersListParams = {
-    email?: string;
-    is_staff?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type UsersPendingInvitesListParams = {
     email?: string;
     is_staff?: boolean;
     /**

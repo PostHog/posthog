@@ -1627,6 +1627,8 @@ export const ShortcutPositionEnumApi = {
 
 export type UserApiNotificationSettings = { [key: string]: unknown }
 
+export type UserApiPendingInvitesItem = { [key: string]: unknown }
+
 export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
@@ -1685,6 +1687,8 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
+    readonly pending_invites: readonly UserApiPendingInvitesItem[]
 }
 
 export interface PaginatedUserListApi {
@@ -1697,6 +1701,8 @@ export interface PaginatedUserListApi {
 }
 
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
+
+export type PatchedUserApiPendingInvitesItem = { [key: string]: unknown }
 
 export interface PatchedUserApi {
     readonly date_joined?: string
@@ -1756,26 +1762,8 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
-}
-
-/**
- * Shape of each item in the GET /api/users/@me/pending_invites/ response.
- */
-export interface PendingInviteApi {
-    id: string
-    target_email: string
-    organization_id: string
-    organization_name: string
-    created_at: string
-}
-
-export interface PaginatedPendingInviteListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PendingInviteApi[]
+    /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
+    readonly pending_invites?: readonly PatchedUserApiPendingInvitesItem[]
 }
 
 export type SubscriptionsDeliveriesListParams = {
@@ -2038,19 +2026,6 @@ export const SubscriptionsListTargetType = {
 } as const
 
 export type UsersListParams = {
-    email?: string
-    is_staff?: boolean
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type UsersPendingInvitesListParams = {
     email?: string
     is_staff?: boolean
     /**

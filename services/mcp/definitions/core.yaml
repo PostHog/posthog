@@ -622,6 +622,3 @@ tools:
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
         enabled: false
-    users-pending-invites-list:
-        operation: users_pending_invites_list
-        enabled: false
