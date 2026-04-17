@@ -1,0 +1,55 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for upserting or deleting a rule.\n\nSending ``access_level=null`` deletes the matching override.",
+    "properties": {
+        "access_level": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `read_write` - read_write\n* `read` - read\n* `none` - none",
+                            "enum": ["read_write", "read", "none"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The access level to set. Use null to delete an override.\n\n* `read_write` - read_write\n* `read` - read\n* `none` - none"
+        },
+        "organization_member": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The organization member UUID to set an override for."
+        },
+        "property_definition_id": {
+            "description": "The property definition ID this rule applies to.",
+            "type": "string"
+        },
+        "role": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The role UUID to set an override for."
+        }
+    },
+    "required": ["property_definition_id", "access_level"],
+    "type": "object"
+}

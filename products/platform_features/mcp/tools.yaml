@@ -423,3 +423,33 @@ tools:
     welcome-current-retrieve:
         operation: welcome_current_retrieve
         enabled: false
+    property-access-controls-list:
+        operation: property_access_controls_list
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List property access control rules for a property definition.
+        description: >
+            List all property-level access control rules for a specific property definition. Pass the property
+            definition's UUID as the `property_definition_id` query parameter. Returns the default access level, any
+            member-specific or role-specific overrides, and the available access levels (read_write, read, none). Use
+            this to understand who can read or write values for a given property.
+    property-access-controls-create:
+        operation: property_access_controls_create
+        enabled: true
+        scopes:
+            - property_definition:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Create, update, or delete a property access control rule.
+        description: >
+            Create or update a property access control rule for a property definition. Provide `property_definition_id`
+            and `access_level` (read_write, read, or none), plus optionally `organization_member` or `role` to target a
+            specific member or role — omit both to set the default rule for the property. Send `access_level=null` to
+            delete an existing override. Requires the calling user to be a project admin.

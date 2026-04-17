@@ -4150,6 +4150,36 @@
             "readOnlyHint": false
         }
     },
+    "property-access-controls-create": {
+        "description": "Create or update a property access control rule for a property definition. Provide `property_definition_id` and `access_level` (read_write, read, or none), plus optionally `organization_member` or `role` to target a specific member or role — omit both to set the default rule for the property. Send `access_level=null` to delete an existing override. Requires the calling user to be a project admin.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Create, update, or delete a property access control rule.",
+        "title": "Create, update, or delete a property access control rule.",
+        "required_scopes": ["property_definition:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "property-access-controls-list": {
+        "description": "List all property-level access control rules for a specific property definition. Pass the property definition's UUID as the `property_definition_id` query parameter. Returns the default access level, any member-specific or role-specific overrides, and the available access levels (read_write, read, none). Use this to understand who can read or write values for a given property.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List property access control rules for a property definition.",
+        "title": "List property access control rules for a property definition.",
+        "required_scopes": ["property_definition:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",

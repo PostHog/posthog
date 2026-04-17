@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -437,6 +437,54 @@ export const CommentsCountRetrieveParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Get all property access control rules for a property definition.
+ */
+export const PropertyAccessControlsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const PropertyAccessControlsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    property_definition_id: zod.string().describe('The property definition ID to fetch access control rules for.'),
+})
+
+/**
+ * Create or update a property access control rule. Send access_level=null to delete an override.
+ */
+export const PropertyAccessControlsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const PropertyAccessControlsCreateBody = /* @__PURE__ */ zod
+    .object({
+        property_definition_id: zod.string().describe('The property definition ID this rule applies to.'),
+        access_level: zod
+            .union([
+                zod
+                    .enum(['read_write', 'read', 'none'])
+                    .describe('* `read_write` - read_write\n* `read` - read\n* `none` - none'),
+                zod.null(),
+            ])
+            .describe(
+                'The access level to set. Use null to delete an override.\n\n* `read_write` - read_write\n* `read` - read\n* `none` - none'
+            ),
+        organization_member: zod.uuid().nullish().describe('The organization member UUID to set an override for.'),
+        role: zod.uuid().nullish().describe('The role UUID to set an override for.'),
+    })
+    .describe(
+        'Request body for upserting or deleting a rule.\n\nSending ``access_level=null`` deletes the matching override.'
+    )
 
 /**
  * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
