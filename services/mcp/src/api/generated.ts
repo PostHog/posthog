@@ -1153,17 +1153,6 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
-    export type MathGroupTypeIndex = typeof MathGroupTypeIndex[keyof typeof MathGroupTypeIndex];
-
-
-    export const MathGroupTypeIndex = {
-      Number0: 0,
-      Number1: 1,
-      Number2: 2,
-      Number3: 3,
-      Number4: 4,
-    } as const;
-
     export type CurrencyCode = typeof CurrencyCode[keyof typeof CurrencyCode];
 
 
@@ -1336,10 +1325,12 @@ export namespace Schemas {
        * @nullable
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** @minimum 1 */
       id: number;
       kind?: ActionsNodeKind;
       math?: typeof ActionsNodeMath[keyof typeof ActionsNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -1856,6 +1847,7 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
+      /** @minimum 0 */
       limit: number;
       /** @nullable */
       missing_actors_count?: number | null;
@@ -1941,7 +1933,10 @@ export namespace Schemas {
       breakdown_hide_other_aggregation?: boolean | null;
       /** @nullable */
       breakdown_histogram_bin_count?: number | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       breakdown_limit?: number | null;
       /** @nullable */
       breakdown_normalize_url?: boolean | null;
@@ -2024,7 +2019,10 @@ export namespace Schemas {
       min: number;
       p25: number;
       p75: number;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       series_index?: number | null;
       /** @nullable */
       series_label?: string | null;
@@ -2103,10 +2101,14 @@ export namespace Schemas {
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: EventsNodeKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       math?: typeof EventsNodeMath[keyof typeof EventsNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -2169,7 +2171,8 @@ export namespace Schemas {
       id_field: string;
       kind?: DataWarehouseNodeKind;
       math?: typeof DataWarehouseNodeMath[keyof typeof DataWarehouseNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -2216,10 +2219,14 @@ export namespace Schemas {
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: GroupNodeKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       math?: typeof GroupNodeMath[keyof typeof GroupNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -2459,7 +2466,10 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       /** @nullable */
       showValuesOnSeries?: boolean | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       smoothingIntervals?: number | null;
       yAxisScaleType?: YAxisScaleType | null;
     }
@@ -2552,13 +2562,19 @@ export namespace Schemas {
        * @nullable
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** @minimum 0 */
       funnelFromStep: number;
+      /** @minimum 0 */
       funnelToStep: number;
       kind?: FunnelExclusionEventsNodeKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       math?: typeof FunnelExclusionEventsNodeMath[keyof typeof FunnelExclusionEventsNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -2614,12 +2630,16 @@ export namespace Schemas {
        * @nullable
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** @minimum 0 */
       funnelFromStep: number;
+      /** @minimum 0 */
       funnelToStep: number;
+      /** @minimum 1 */
       id: number;
       kind?: FunnelExclusionActionsNodeKind;
       math?: typeof FunnelExclusionActionsNodeMath[keyof typeof FunnelExclusionActionsNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -2704,7 +2724,10 @@ export namespace Schemas {
       /** @nullable */
       binCount?: number | null;
       breakdownAttributionType?: BreakdownAttributionType | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       breakdownAttributionValue?: number | null;
       /**
        * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
@@ -2720,17 +2743,24 @@ export namespace Schemas {
       exclusions?: (FunnelExclusionEventsNode | FunnelExclusionActionsNode)[] | null;
       /** @nullable */
       funnelAggregateByHogQL?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       funnelFromStep?: number | null;
       funnelOrderType?: StepOrderValue | null;
       funnelStepReference?: FunnelStepReference | null;
       /**
        * To select the range of steps for trends & time to convert funnels, 0-indexed
+       * @minimum 0
        * @nullable
        */
       funnelToStep?: number | null;
       funnelVizType?: FunnelVizType | null;
-      /** @nullable */
+      /**
+       * @minimum 1
+       * @nullable
+       */
       funnelWindowInterval?: number | null;
       funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit | null;
       /**
@@ -2819,7 +2849,8 @@ export namespace Schemas {
       id_field: string;
       kind?: FunnelsDataWarehouseNodeKind;
       math?: typeof FunnelsDataWarehouseNodeMath[keyof typeof FunnelsDataWarehouseNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -3069,7 +3100,10 @@ export namespace Schemas {
       /** @nullable */
       goalLines?: GoalLine[] | null;
       meanRetentionCalculation?: MeanRetentionCalculation | null;
-      /** @nullable */
+      /**
+       * @minimum 1
+       * @nullable
+       */
       minimumOccurrences?: number | null;
       period?: RetentionPeriod | null;
       /**
@@ -3083,6 +3117,7 @@ export namespace Schemas {
       returningEntity?: RetentionEntity | null;
       /**
        * The selected interval to display across all cohorts (null = show all intervals for each cohort)
+       * @minimum 0
        * @nullable
        */
       selectedInterval?: number | null;
@@ -3091,7 +3126,10 @@ export namespace Schemas {
       targetEntity?: RetentionEntity | null;
       /** The time window mode to use for retention calculations */
       timeWindowMode?: TimeWindowMode | null;
-      /** @nullable */
+      /**
+       * @minimum 1
+       * @nullable
+       */
       totalIntervals?: number | null;
     }
 
@@ -3180,7 +3218,10 @@ export namespace Schemas {
     }
 
     export interface PathsFilter {
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       edgeLimit?: number | null;
       /** @nullable */
       endPoint?: string | null;
@@ -3219,7 +3260,10 @@ export namespace Schemas {
       showFullUrls?: boolean | null;
       /** @nullable */
       startPoint?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       stepLimit?: number | null;
     }
 
@@ -3507,7 +3551,8 @@ export namespace Schemas {
       id: string;
       kind?: LifecycleDataWarehouseNodeKind;
       math?: typeof LifecycleDataWarehouseNodeMath[keyof typeof LifecycleDataWarehouseNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -3673,7 +3718,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -3735,7 +3783,10 @@ export namespace Schemas {
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: WebStatsTableQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -4003,7 +4054,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -4162,7 +4216,8 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: ExperimentDataWarehouseNodeKind;
       math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -4688,12 +4743,18 @@ export namespace Schemas {
     } as const;
 
     export interface HogQLNotice {
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       end?: number | null;
       /** @nullable */
       fix?: string | null;
       message: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       start?: number | null;
     }
 
@@ -4750,7 +4811,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
@@ -4849,7 +4913,10 @@ export namespace Schemas {
        */
       fixedProperties?: (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
       kind?: ActorsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -8333,10 +8400,14 @@ export namespace Schemas {
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: ConversionGoalFilter1Kind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       math?: typeof ConversionGoalFilter1Math[keyof typeof ConversionGoalFilter1Math]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -8397,10 +8468,12 @@ export namespace Schemas {
        * @nullable
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** @minimum 1 */
       id: number;
       kind?: ConversionGoalFilter2Kind;
       math?: typeof ConversionGoalFilter2Math[keyof typeof ConversionGoalFilter2Math]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -8463,7 +8536,8 @@ export namespace Schemas {
       id_field: string;
       kind?: ConversionGoalFilter3Kind;
       math?: typeof ConversionGoalFilter3Math[keyof typeof ConversionGoalFilter3Math]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_group_type_index?: number | null;
       /** @nullable */
       math_hogql?: string | null;
       /** @nullable */
@@ -9225,7 +9299,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9260,6 +9337,7 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
+      /** @minimum 0 */
       limit: number;
       /** @nullable */
       missing_actors_count?: number | null;
@@ -9299,6 +9377,7 @@ export namespace Schemas {
       /** Generated HogQL query. */
       hogql: string;
       kind?: Response2Kind;
+      /** @minimum 0 */
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9344,7 +9423,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
@@ -9421,7 +9503,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9459,7 +9544,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9535,7 +9623,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9566,7 +9657,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9755,7 +9849,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9803,7 +9900,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9867,7 +9967,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10033,7 +10136,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10093,7 +10199,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10235,7 +10344,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10268,7 +10380,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10430,7 +10545,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10457,6 +10575,7 @@ export namespace Schemas {
     export interface EventsQuery {
       /**
        * Show events matching a given action
+       * @minimum 1
        * @nullable
        */
       actionId?: number | null;
@@ -10498,6 +10617,7 @@ export namespace Schemas {
       kind?: EventsQueryKind;
       /**
        * Number of rows to return
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -10564,7 +10684,10 @@ export namespace Schemas {
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: PersonsNodeKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10613,6 +10736,7 @@ export namespace Schemas {
       /** Generated HogQL query. */
       hogql: string;
       kind?: GroupsQueryResponseKind;
+      /** @minimum 0 */
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10633,7 +10757,10 @@ export namespace Schemas {
     export interface GroupsQuery {
       group_type_index: number;
       kind?: GroupsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10678,7 +10805,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10723,7 +10853,10 @@ export namespace Schemas {
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: WebExternalClicksTableQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10771,7 +10904,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10816,7 +10952,10 @@ export namespace Schemas {
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: WebGoalsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11043,7 +11182,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11067,7 +11209,10 @@ export namespace Schemas {
       filters?: Filters | null;
       groupBy: SessionAttributionGroupBy[];
       kind?: SessionAttributionExplorerQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11100,7 +11245,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11122,6 +11270,7 @@ export namespace Schemas {
     export interface SessionsQuery {
       /**
        * Filter sessions by action - sessions that contain events matching this action
+       * @minimum 1
        * @nullable
        */
       actionId?: number | null;
@@ -11158,6 +11307,7 @@ export namespace Schemas {
       kind?: SessionsQueryKind;
       /**
        * Number of rows to return
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -11499,7 +11649,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11521,7 +11674,10 @@ export namespace Schemas {
 
     export interface RevenueExampleEventsQuery {
       kind?: RevenueExampleEventsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11558,7 +11714,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11580,7 +11739,10 @@ export namespace Schemas {
 
     export interface RevenueExampleDataWarehouseTablesQuery {
       kind?: RevenueExampleDataWarehouseTablesQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11645,7 +11807,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11701,6 +11866,7 @@ export namespace Schemas {
       kind?: MarketingAnalyticsTableQueryKind;
       /**
        * Number of rows to return
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -11850,7 +12016,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11902,6 +12071,7 @@ export namespace Schemas {
       kind?: NonIntegratedConversionsTableQueryKind;
       /**
        * Number of rows to return
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -11981,7 +12151,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12019,7 +12192,10 @@ export namespace Schemas {
        */
       issueId?: string | null;
       kind?: ErrorTrackingQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12086,7 +12262,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12254,7 +12433,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12283,7 +12465,10 @@ export namespace Schemas {
       /** @nullable */
       groupTypeIndex?: number | null;
       kind?: TracesQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12337,7 +12522,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12434,7 +12622,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12464,7 +12655,10 @@ export namespace Schemas {
        */
       endpointNames?: string[] | null;
       kind?: EndpointsUsageTableQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Filter by materialization type */
       materializationType?: MaterializationType | null;
@@ -13502,7 +13696,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -13525,7 +13722,10 @@ export namespace Schemas {
       distance_func: DistanceFunc;
       document_types: string[];
       kind?: DocumentSimilarityQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       model: string;
       /** Modifiers used when performing the query */
@@ -13970,6 +14170,7 @@ export namespace Schemas {
       filters_override?: DashboardFilter | null;
       /**
        * Maximum number of results to return. If not provided, returns all results.
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -14627,7 +14828,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -14649,7 +14853,10 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       issueId: string;
       kind?: ErrorTrackingSimilarIssuesQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** @nullable */
       maxDistance?: number | null;
@@ -15004,7 +15211,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -15023,13 +15233,17 @@ export namespace Schemas {
     }
 
     export interface EventTaxonomyQuery {
-      /** @nullable */
+      /**
+       * @minimum 1
+       * @nullable
+       */
       actionId?: number | null;
       /** @nullable */
       event?: string | null;
       kind?: EventTaxonomyQueryKind;
       /**
        * Number of rows to return
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -17708,7 +17922,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -17748,7 +17965,10 @@ export namespace Schemas {
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: WebPageURLSearchQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -17843,7 +18063,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
@@ -17900,7 +18123,10 @@ export namespace Schemas {
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval: IntervalType;
       kind?: WebTrendsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       metrics: WebTrendsMetric[];
       /** Modifiers used when performing the query */
@@ -18023,7 +18249,10 @@ export namespace Schemas {
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: WebNotableChangesQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18077,7 +18306,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18129,7 +18361,10 @@ export namespace Schemas {
       dateRange: DateRange;
       filterGroup: PropertyGroupFilter;
       kind?: LogsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** @nullable */
       liveLogsCheckpoint?: string | null;
@@ -18195,7 +18430,10 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: LogAttributesQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18259,7 +18497,10 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: LogValuesQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18300,7 +18541,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18332,7 +18576,10 @@ export namespace Schemas {
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
       kind?: TraceSpansQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18687,7 +18934,10 @@ export namespace Schemas {
       /** @nullable */
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: RecordingsQueryKind;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -18981,7 +19231,10 @@ export namespace Schemas {
        * @nullable
        */
       connectionId?: string | null;
-      /** End position of the editor word */
+      /**
+       * End position of the editor word
+       * @minimum 0
+       */
       endPosition: number;
       /** Table to validate the expression against */
       filters?: HogQLFilters | null;
@@ -19000,7 +19253,10 @@ export namespace Schemas {
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
       sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
-      /** Start position of the editor word */
+      /**
+       * Start position of the editor word
+       * @minimum 0
+       */
       startPosition: number;
       tags?: QueryLogTags | null;
       /**
@@ -28400,7 +28656,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28422,6 +28681,7 @@ export namespace Schemas {
       kind?: TeamTaxonomyQueryKind;
       /**
        * Number of rows to return
+       * @minimum 0
        * @nullable
        */
       limit?: number | null;
@@ -28505,7 +28765,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28540,7 +28803,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28570,6 +28836,7 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
+      /** @minimum 0 */
       limit: number;
       /** @nullable */
       missing_actors_count?: number | null;
@@ -28609,6 +28876,7 @@ export namespace Schemas {
       /** Generated HogQL query. */
       hogql: string;
       kind?: QueryResponseAlternative4Kind;
+      /** @minimum 0 */
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28708,7 +28976,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
@@ -28779,7 +29050,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28814,7 +29088,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28845,7 +29122,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -28905,7 +29185,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29062,7 +29345,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29127,7 +29413,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29165,7 +29454,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29228,7 +29520,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29428,7 +29723,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29492,7 +29790,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29524,7 +29825,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29559,6 +29863,7 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
+      /** @minimum 0 */
       limit: number;
       /** @nullable */
       missing_actors_count?: number | null;
@@ -29598,6 +29903,7 @@ export namespace Schemas {
       /** Generated HogQL query. */
       hogql: string;
       kind?: QueryResponseAlternative41Kind;
+      /** @minimum 0 */
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29643,7 +29949,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
@@ -29720,7 +30029,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29758,7 +30070,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29823,7 +30138,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -29854,7 +30172,10 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30021,7 +30342,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30056,7 +30380,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30120,7 +30447,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30156,7 +30486,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30244,7 +30577,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30277,7 +30613,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30451,7 +30790,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30524,7 +30866,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30613,7 +30958,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30653,7 +31001,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30684,7 +31035,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30742,7 +31096,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -30878,7 +31235,10 @@ export namespace Schemas {
        * @nullable
        */
       hogql?: string | null;
-      /** @nullable */
+      /**
+       * @minimum 0
+       * @nullable
+       */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;

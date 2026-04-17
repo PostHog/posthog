@@ -208,7 +208,10 @@ export interface BreakdownFilterApi {
     breakdown_hide_other_aggregation?: boolean | null
     /** @nullable */
     breakdown_histogram_bin_count?: number | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     breakdown_limit?: number | null
     /** @nullable */
     breakdown_normalize_url?: boolean | null
@@ -924,7 +927,10 @@ export interface BoxPlotDatumApi {
     min: number
     p25: number
     p75: number
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     series_index?: number | null
     /** @nullable */
     series_label?: string | null
@@ -1105,16 +1111,6 @@ export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[key
 export const CalendarHeatmapMathTypeApi = {
     Total: 'total',
     Dau: 'dau',
-} as const
-
-export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
-
-export const MathGroupTypeIndexApi = {
-    Number0: 0,
-    Number1: 1,
-    Number2: 2,
-    Number3: 3,
-    Number4: 4,
 } as const
 
 export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
@@ -1338,10 +1334,14 @@ export interface EventsNodeApi {
           )[]
         | null
     kind?: EventsNodeApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     math?: (typeof EventsNodeApiMath)[keyof typeof EventsNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -1449,10 +1449,12 @@ export interface ActionsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** @minimum 1 */
     id: number
     kind?: ActionsNodeApiKind
     math?: (typeof ActionsNodeApiMath)[keyof typeof ActionsNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -1562,7 +1564,8 @@ export interface DataWarehouseNodeApi {
     id_field: string
     kind?: DataWarehouseNodeApiKind
     math?: (typeof DataWarehouseNodeApiMath)[keyof typeof DataWarehouseNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -1662,10 +1665,14 @@ export interface GroupNodeApi {
           )[]
         | null
     kind?: GroupNodeApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     math?: (typeof GroupNodeApiMath)[keyof typeof GroupNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -1943,7 +1950,10 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     /** @nullable */
     showValuesOnSeries?: boolean | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     smoothingIntervals?: number | null
     yAxisScaleType?: YAxisScaleTypeApi | null
 }
@@ -2089,13 +2099,19 @@ export interface FunnelExclusionEventsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** @minimum 0 */
     funnelFromStep: number
+    /** @minimum 0 */
     funnelToStep: number
     kind?: FunnelExclusionEventsNodeApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     math?: (typeof FunnelExclusionEventsNodeApiMath)[keyof typeof FunnelExclusionEventsNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -2204,12 +2220,16 @@ export interface FunnelExclusionActionsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** @minimum 0 */
     funnelFromStep: number
+    /** @minimum 0 */
     funnelToStep: number
+    /** @minimum 1 */
     id: number
     kind?: FunnelExclusionActionsNodeApiKind
     math?: (typeof FunnelExclusionActionsNodeApiMath)[keyof typeof FunnelExclusionActionsNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -2313,7 +2333,10 @@ export interface FunnelsFilterApi {
     /** @nullable */
     binCount?: number | null
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     breakdownAttributionValue?: number | null
     /**
      * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
@@ -2329,17 +2352,24 @@ export interface FunnelsFilterApi {
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
     /** @nullable */
     funnelAggregateByHogQL?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     funnelFromStep?: number | null
     funnelOrderType?: StepOrderValueApi | null
     funnelStepReference?: FunnelStepReferenceApi | null
     /**
      * To select the range of steps for trends & time to convert funnels, 0-indexed
+     * @minimum 0
      * @nullable
      */
     funnelToStep?: number | null
     funnelVizType?: FunnelVizTypeApi | null
-    /** @nullable */
+    /**
+     * @minimum 1
+     * @nullable
+     */
     funnelWindowInterval?: number | null
     funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
     /**
@@ -2457,7 +2487,8 @@ export interface FunnelsDataWarehouseNodeApi {
     id_field: string
     kind?: FunnelsDataWarehouseNodeApiKind
     math?: (typeof FunnelsDataWarehouseNodeApiMath)[keyof typeof FunnelsDataWarehouseNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -2767,7 +2798,10 @@ export interface RetentionFilterApi {
     /** @nullable */
     goalLines?: GoalLineApi[] | null
     meanRetentionCalculation?: MeanRetentionCalculationApi | null
-    /** @nullable */
+    /**
+     * @minimum 1
+     * @nullable
+     */
     minimumOccurrences?: number | null
     period?: RetentionPeriodApi | null
     /**
@@ -2781,6 +2815,7 @@ export interface RetentionFilterApi {
     returningEntity?: RetentionEntityApi | null
     /**
      * The selected interval to display across all cohorts (null = show all intervals for each cohort)
+     * @minimum 0
      * @nullable
      */
     selectedInterval?: number | null
@@ -2789,7 +2824,10 @@ export interface RetentionFilterApi {
     targetEntity?: RetentionEntityApi | null
     /** The time window mode to use for retention calculations */
     timeWindowMode?: TimeWindowModeApi | null
-    /** @nullable */
+    /**
+     * @minimum 1
+     * @nullable
+     */
     totalIntervals?: number | null
 }
 
@@ -2899,7 +2937,10 @@ export interface PathCleaningFilterApi {
 }
 
 export interface PathsFilterApi {
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     edgeLimit?: number | null
     /** @nullable */
     endPoint?: string | null
@@ -2938,7 +2979,10 @@ export interface PathsFilterApi {
     showFullUrls?: boolean | null
     /** @nullable */
     startPoint?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     stepLimit?: number | null
 }
 
@@ -3303,7 +3347,8 @@ export interface LifecycleDataWarehouseNodeApi {
     id: string
     kind?: LifecycleDataWarehouseNodeApiKind
     math?: (typeof LifecycleDataWarehouseNodeApiMath)[keyof typeof LifecycleDataWarehouseNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -3514,7 +3559,10 @@ export interface WebStatsTableQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -3579,7 +3627,10 @@ export interface WebStatsTableQueryApi {
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: WebStatsTableQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -3827,7 +3878,10 @@ export interface ResponseApi {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -3862,6 +3916,7 @@ export interface Response1Api {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
+    /** @minimum 0 */
     limit: number
     /** @nullable */
     missing_actors_count?: number | null
@@ -3900,6 +3955,7 @@ export interface Response2Api {
     /** Generated HogQL query. */
     hogql: string
     kind?: Response2ApiKind
+    /** @minimum 0 */
     limit: number
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -3918,12 +3974,18 @@ export interface Response2Api {
 }
 
 export interface HogQLNoticeApi {
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     end?: number | null
     /** @nullable */
     fix?: string | null
     message: string
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     start?: number | null
 }
 
@@ -3979,7 +4041,10 @@ export interface Response3Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Query metadata output */
     metadata?: HogQLMetadataResponseApi | null
@@ -4056,7 +4121,10 @@ export interface Response5Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4094,7 +4162,10 @@ export interface Response6Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4170,7 +4241,10 @@ export interface Response9Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4201,7 +4275,10 @@ export interface Response10Api {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4390,7 +4467,10 @@ export interface Response16Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4438,7 +4518,10 @@ export interface Response18Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4502,7 +4585,10 @@ export interface Response20Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4666,7 +4752,10 @@ export interface Response21Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4726,7 +4815,10 @@ export interface Response22Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4906,7 +4998,10 @@ export interface Response25Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4939,7 +5034,10 @@ export interface Response26Api {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -5103,7 +5201,10 @@ export interface EventsQueryResponseApi {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -5151,6 +5252,7 @@ export interface ActorsQueryResponseApi {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
+    /** @minimum 0 */
     limit: number
     /** @nullable */
     missing_actors_count?: number | null
@@ -5210,6 +5312,7 @@ export interface InsightActorsQueryApi {
 export interface EventsQueryApi {
     /**
      * Show events matching a given action
+     * @minimum 1
      * @nullable
      */
     actionId?: number | null
@@ -5276,6 +5379,7 @@ export interface EventsQueryApi {
     kind?: EventsQueryApiKind
     /**
      * Number of rows to return
+     * @minimum 0
      * @nullable
      */
     limit?: number | null
@@ -5387,7 +5491,10 @@ export interface PersonsNodeApi {
           )[]
         | null
     kind?: PersonsNodeApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -5541,7 +5648,10 @@ export interface FunnelCorrelationResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -5770,7 +5880,8 @@ export interface ExperimentDataWarehouseNodeApi {
         | null
     kind?: ExperimentDataWarehouseNodeApiKind
     math?: (typeof ExperimentDataWarehouseNodeApiMath)[keyof typeof ExperimentDataWarehouseNodeApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -6351,7 +6462,10 @@ export interface HogQLQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Query metadata output */
     metadata?: HogQLMetadataResponseApi | null
@@ -6452,7 +6566,10 @@ export interface ActorsQueryApi {
         | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
         | null
     kind?: ActorsQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6510,6 +6627,7 @@ export interface GroupsQueryResponseApi {
     /** Generated HogQL query. */
     hogql: string
     kind?: GroupsQueryResponseApiKind
+    /** @minimum 0 */
     limit: number
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6530,7 +6648,10 @@ export interface GroupsQueryResponseApi {
 export interface GroupsQueryApi {
     group_type_index: number
     kind?: GroupsQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6575,7 +6696,10 @@ export interface WebExternalClicksTableQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6623,7 +6747,10 @@ export interface WebExternalClicksTableQueryApi {
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: WebExternalClicksTableQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6677,7 +6804,10 @@ export interface WebGoalsQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6725,7 +6855,10 @@ export interface WebGoalsQueryApi {
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: WebGoalsQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6980,7 +7113,10 @@ export interface SessionAttributionExplorerQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7004,7 +7140,10 @@ export interface SessionAttributionExplorerQueryApi {
     filters?: FiltersApi | null
     groupBy: SessionAttributionGroupByApi[]
     kind?: SessionAttributionExplorerQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7036,7 +7175,10 @@ export interface SessionsQueryResponseApi {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7058,6 +7200,7 @@ export interface SessionsQueryResponseApi {
 export interface SessionsQueryApi {
     /**
      * Filter sessions by action - sessions that contain events matching this action
+     * @minimum 1
      * @nullable
      */
     actionId?: number | null
@@ -7142,6 +7285,7 @@ export interface SessionsQueryApi {
     kind?: SessionsQueryApiKind
     /**
      * Number of rows to return
+     * @minimum 0
      * @nullable
      */
     limit?: number | null
@@ -7505,7 +7649,10 @@ export interface RevenueExampleEventsQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7527,7 +7674,10 @@ export interface RevenueExampleEventsQueryResponseApi {
 
 export interface RevenueExampleEventsQueryApi {
     kind?: RevenueExampleEventsQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7564,7 +7714,10 @@ export interface RevenueExampleDataWarehouseTablesQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7586,7 +7739,10 @@ export interface RevenueExampleDataWarehouseTablesQueryResponseApi {
 
 export interface RevenueExampleDataWarehouseTablesQueryApi {
     kind?: RevenueExampleDataWarehouseTablesQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7664,10 +7820,14 @@ export interface ConversionGoalFilter1Api {
           )[]
         | null
     kind?: ConversionGoalFilter1ApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     math?: (typeof ConversionGoalFilter1ApiMath)[keyof typeof ConversionGoalFilter1ApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -7781,10 +7941,12 @@ export interface ConversionGoalFilter2Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** @minimum 1 */
     id: number
     kind?: ConversionGoalFilter2ApiKind
     math?: (typeof ConversionGoalFilter2ApiMath)[keyof typeof ConversionGoalFilter2ApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -7900,7 +8062,8 @@ export interface ConversionGoalFilter3Api {
     id_field: string
     kind?: ConversionGoalFilter3ApiKind
     math?: (typeof ConversionGoalFilter3ApiMath)[keyof typeof ConversionGoalFilter3ApiMath] | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_group_type_index?: number | null
     /** @nullable */
     math_hogql?: string | null
     /** @nullable */
@@ -8004,7 +8167,10 @@ export interface MarketingAnalyticsTableQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8060,6 +8226,7 @@ export interface MarketingAnalyticsTableQueryApi {
     kind?: MarketingAnalyticsTableQueryApiKind
     /**
      * Number of rows to return
+     * @minimum 0
      * @nullable
      */
     limit?: number | null
@@ -8219,7 +8386,10 @@ export interface NonIntegratedConversionsTableQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8271,6 +8441,7 @@ export interface NonIntegratedConversionsTableQueryApi {
     kind?: NonIntegratedConversionsTableQueryApiKind
     /**
      * Number of rows to return
+     * @minimum 0
      * @nullable
      */
     limit?: number | null
@@ -8352,7 +8523,10 @@ export interface ErrorTrackingQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8390,7 +8564,10 @@ export interface ErrorTrackingQueryApi {
      */
     issueId?: string | null
     kind?: ErrorTrackingQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8457,7 +8634,10 @@ export interface ErrorTrackingIssueCorrelationQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8624,7 +8804,10 @@ export interface TracesQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8653,7 +8836,10 @@ export interface TracesQueryApi {
     /** @nullable */
     groupTypeIndex?: number | null
     kind?: TracesQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8729,7 +8915,10 @@ export interface TraceQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8847,7 +9036,10 @@ export interface EndpointsUsageTableQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8880,7 +9072,10 @@ export interface EndpointsUsageTableQueryApi {
      */
     endpointNames?: string[] | null
     kind?: EndpointsUsageTableQueryApiKind
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     limit?: number | null
     /** Filter by materialization type */
     materializationType?: MaterializationTypeApi | null

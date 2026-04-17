@@ -193,6 +193,8 @@ export const EndpointsRunCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const endpointsRunCreateBodyDebugDefault = false
+export const endpointsRunCreateBodyFiltersOverrideBreakdownFilterBreakdownLimitMin = 0
+
 export const endpointsRunCreateBodyFiltersOverrideBreakdownFilterBreakdownsMax = 3
 
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOneTypeDefault = `event`
@@ -215,6 +217,7 @@ export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefiveTypeDefau
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnesixTypeDefault = `error_tracking_issue`
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault = `revenue_analytics`
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemTwozeroTypeDefault = `workflow_variable`
+export const endpointsRunCreateBodyLimitMin = 0
 
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
     client_query_id: zod
@@ -235,7 +238,10 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                     breakdown_group_type_index: zod.number().nullish(),
                     breakdown_hide_other_aggregation: zod.boolean().nullish(),
                     breakdown_histogram_bin_count: zod.number().nullish(),
-                    breakdown_limit: zod.number().nullish(),
+                    breakdown_limit: zod
+                        .number()
+                        .min(endpointsRunCreateBodyFiltersOverrideBreakdownFilterBreakdownLimitMin)
+                        .nullish(),
                     breakdown_normalize_url: zod.boolean().nullish(),
                     breakdown_path_cleaning: zod.boolean().nullish(),
                     breakdown_type: zod
@@ -1197,6 +1203,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
         .nullish(),
     limit: zod
         .number()
+        .min(endpointsRunCreateBodyLimitMin)
         .nullish()
         .describe('Maximum number of results to return. If not provided, returns all results.'),
     offset: zod

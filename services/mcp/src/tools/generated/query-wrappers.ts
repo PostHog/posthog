@@ -389,7 +389,7 @@ const AssistantTrendsEventsNode = z.object({
     event: z.string().nullable().describe('The event or `null` for all events.').optional(),
     kind: z.literal('EventsNode').default('EventsNode'),
     math: MathType.optional(),
-    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_group_type_index: z.coerce.number().optional(),
     math_hogql: z
         .string()
         .describe(
@@ -405,12 +405,14 @@ const AssistantTrendsEventsNode = z.object({
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
+const positive_integer = z.coerce.number().int()
+
 const AssistantTrendsActionsNode = z.object({
     custom_name: z.string().optional(),
-    id: integer,
+    id: positive_integer,
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: MathType.optional(),
-    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_group_type_index: z.coerce.number().optional(),
     math_hogql: z
         .string()
         .describe(
@@ -564,10 +566,12 @@ const AssistantFunnelsBreakdownFilter = z.object({
 
 const BreakdownAttributionType = z.enum(['first_touch', 'last_touch', 'all_events', 'step'])
 
+const non_negative_integer = z.coerce.number().int()
+
 const AssistantFunnelsExclusionEventsNode = z.object({
     event: z.string(),
-    funnelFromStep: integer,
-    funnelToStep: integer,
+    funnelFromStep: non_negative_integer,
+    funnelToStep: non_negative_integer,
     kind: z.literal('EventsNode').default('EventsNode'),
 })
 
@@ -792,7 +796,7 @@ const AssistantStickinessEventsNode = z.object({
     event: z.string().nullable().describe('The event or `null` for all events.').optional(),
     kind: z.literal('EventsNode').default('EventsNode'),
     math: MathType.optional(),
-    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_group_type_index: z.coerce.number().optional(),
     math_hogql: z
         .string()
         .describe(
@@ -808,10 +812,10 @@ const AssistantStickinessEventsNode = z.object({
 
 const AssistantStickinessActionsNode = z.object({
     custom_name: z.string().optional(),
-    id: integer,
+    id: positive_integer,
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: MathType.optional(),
-    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_group_type_index: z.coerce.number().optional(),
     math_hogql: z
         .string()
         .describe(
@@ -832,8 +836,6 @@ const StickinessComputationMode = z.enum(['non_cumulative', 'cumulative'])
 const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar', 'ActionsAreaGraph'])
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
-
-const positive_integer = z.coerce.number().int()
 
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
@@ -1022,7 +1024,7 @@ const AssistantLifecycleEventsNode = z.object({
 
 const AssistantLifecycleActionsNode = z.object({
     custom_name: z.string().optional(),
-    id: integer,
+    id: positive_integer,
     kind: z
         .literal('ActionsNode')
         .describe(

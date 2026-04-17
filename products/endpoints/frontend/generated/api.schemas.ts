@@ -496,7 +496,10 @@ export interface BreakdownFilterApi {
     breakdown_hide_other_aggregation?: boolean | null
     /** @nullable */
     breakdown_histogram_bin_count?: number | null
-    /** @nullable */
+    /**
+     * @minimum 0
+     * @nullable
+     */
     breakdown_limit?: number | null
     /** @nullable */
     breakdown_normalize_url?: boolean | null
@@ -978,6 +981,7 @@ export interface EndpointRunRequestApi {
     filters_override?: DashboardFilterApi | null
     /**
      * Maximum number of results to return. If not provided, returns all results.
+     * @minimum 0
      * @nullable
      */
     limit?: number | null
