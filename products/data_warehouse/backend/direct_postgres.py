@@ -18,6 +18,15 @@ DIRECT_POSTGRES_SCHEMA_OPTION = "direct_postgres_schema"
 DIRECT_POSTGRES_TABLE_OPTION = "direct_postgres_table"
 
 type DirectPostgresColumns = dict[str, dict[str, Any]]
+type DirectPostgresLocation = tuple[str | None, str, str]
+
+
+def _normalize_default_schema(default_schema: str | None) -> str | None:
+    if not isinstance(default_schema, str):
+        return None
+
+    normalized_default_schema = default_schema.strip()
+    return normalized_default_schema or None
 
 
 def _normalize_default_schema(default_schema: str | None) -> str | None:
@@ -96,6 +105,51 @@ def get_direct_postgres_location(
     return None, normalized_default_schema or "public", schema_name
 
 
+def get_direct_postgres_location_for_schema_model(
+    *,
+    schema_name: str,
+    sync_type_config: dict[str, Any] | None = None,
+    table_options: dict[str, Any] | None = None,
+    default_schema: str | None = None,
+) -> DirectPostgresLocation:
+    schema_metadata = (
+        sync_type_config.get("schema_metadata")
+        if isinstance(sync_type_config, dict) and isinstance(sync_type_config.get("schema_metadata"), dict)
+        else None
+    )
+
+    if schema_metadata is not None:
+        return get_direct_postgres_location(
+            schema_name=schema_name,
+            schema_metadata=schema_metadata,
+            default_schema=default_schema,
+        )
+
+    table_source_schema = table_options.get(DIRECT_POSTGRES_SCHEMA_OPTION) if isinstance(table_options, dict) else None
+    table_source_table_name = (
+        table_options.get(DIRECT_POSTGRES_TABLE_OPTION) if isinstance(table_options, dict) else None
+    )
+    table_source_catalog = (
+        table_options.get(DIRECT_POSTGRES_CATALOG_OPTION) if isinstance(table_options, dict) else None
+    )
+
+    if isinstance(table_source_schema, str) and isinstance(table_source_table_name, str):
+        return (
+            table_source_catalog if isinstance(table_source_catalog, str) else None,
+            table_source_schema,
+            table_source_table_name,
+        )
+
+    # Legacy direct-query rows may only have the schema encoded in the display name.
+    if "." in schema_name:
+        inferred_schema, inferred_table_name = schema_name.split(".", 1)
+        return None, inferred_schema, inferred_table_name
+
+    return get_direct_postgres_location(
+        schema_name=schema_name,
+        schema_metadata=None,
+        default_schema=default_schema,
+    )
 def get_direct_postgres_table_options(
     *, source_catalog: str | None = None, source_schema: str, source_table_name: str
 ) -> dict[str, str]:
@@ -167,6 +221,16 @@ def hide_direct_postgres_table(table: DataWarehouseTable | None) -> None:
         table.soft_delete()
 
 
+def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_name: str) -> None:
+    if old_name == new_name:
+        return
+
+    from products.data_warehouse.backend.models.join import DataWarehouseJoin
+
+    DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=old_name).update(source_table_name=new_name)
+    DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)
+
+
 def reconcile_direct_postgres_schemas(
     *,
     source: ExternalDataSource,
@@ -235,3 +299,62 @@ def reconcile_direct_postgres_schemas(
         stale_schema_names.append(stale_schema.name)
 
     return stale_schema_names
+
+
+def rename_direct_postgres_schemas_to_match_source_schemas(
+    *,
+    source: ExternalDataSource,
+    source_schemas: list[SourceSchema],
+    team_id: int,
+) -> None:
+    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+    default_schema = (source.job_inputs or {}).get("schema")
+    schema_models = list(
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related("table")
+    )
+    schema_models_by_name = {schema.name: schema for schema in schema_models}
+    schema_models_by_location: dict[DirectPostgresLocation, list[ExternalDataSchema]] = {}
+
+    for schema_model in schema_models:
+        location = get_direct_postgres_location_for_schema_model(
+            schema_name=schema_model.name,
+            sync_type_config=schema_model.sync_type_config,
+            table_options=schema_model.table.options if schema_model.table is not None else None,
+            default_schema=default_schema,
+        )
+        schema_models_by_location.setdefault(location, []).append(schema_model)
+
+    renamed_schema_ids: set[str] = set()
+
+    for source_schema in source_schemas:
+        if source_schema.name in schema_models_by_name:
+            continue
+
+        location = get_direct_postgres_location(
+            schema_name=source_schema.name,
+            schema_metadata={
+                "source_catalog": source_schema.source_catalog,
+                "source_schema": source_schema.source_schema,
+                "source_table_name": source_schema.source_table_name,
+            },
+            default_schema=default_schema,
+        )
+        rename_candidate = next(
+            (
+                schema_model
+                for schema_model in schema_models_by_location.get(location, [])
+                if str(schema_model.id) not in renamed_schema_ids and schema_model.name != source_schema.name
+            ),
+            None,
+        )
+        if rename_candidate is None:
+            continue
+
+        old_name = rename_candidate.name
+        rename_candidate.name = source_schema.name
+        rename_candidate.save(update_fields=["name", "updated_at"])
+        rename_direct_postgres_join_references(team_id=team_id, old_name=old_name, new_name=source_schema.name)
+        schema_models_by_name.pop(old_name, None)
+        schema_models_by_name[source_schema.name] = rename_candidate
+        renamed_schema_ids.add(str(rename_candidate.id))

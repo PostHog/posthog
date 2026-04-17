@@ -16,8 +16,21 @@ class DirectPostgresTable(FunctionCallTable):
 
     def to_printed_postgres(self, context) -> str:
         parts = []
-        if self.postgres_catalog:
-            parts.append(escape_postgres_identifier(self.postgres_catalog))
+        postgres_catalog = self.postgres_catalog
+        connection_metadata = (
+            self.connection_metadata
+            if isinstance(self.connection_metadata, dict)
+            else getattr(context, "direct_postgres_connection_metadata", None)
+        )
+
+        if not postgres_catalog and isinstance(connection_metadata, dict):
+            engine = connection_metadata.get("engine")
+            database = connection_metadata.get("database")
+            if engine == "duckdb" and isinstance(database, str) and database.strip():
+                postgres_catalog = database.strip()
+
+        if postgres_catalog:
+            parts.append(escape_postgres_identifier(postgres_catalog))
         parts.append(escape_postgres_identifier(self.postgres_schema))
         parts.append(escape_postgres_identifier(self.postgres_table_name))
         return ".".join(parts)

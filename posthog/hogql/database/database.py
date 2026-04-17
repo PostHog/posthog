@@ -985,6 +985,7 @@ class Database(BaseModel):
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
         view_names: set[str] = set()
+        sorted_view_names: list[str] = []
 
         with timings.measure("data_warehouse_saved_query"):
             if database._is_direct_query():
@@ -1015,6 +1016,7 @@ class Database(BaseModel):
                             table_conflict_mode="ignore",
                         )
                 view_names = set(views.resolve_all_table_names())
+                sorted_view_names = sorted(view_names)
 
         with timings.measure("endpoint_saved_query"):
             if not database._is_direct_query():
@@ -1072,11 +1074,21 @@ class Database(BaseModel):
                     return self.parent_table.to_printed_clickhouse(context)
 
             with timings.measure("select"):
-                tables: list[DataWarehouseTable] = list(
+                tables_query = (
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
                 )
+                if database._is_direct_query():
+                    tables_query = tables_query.filter(external_data_source_id=database._connection_id)
+                else:
+                    tables_query = tables_query.exclude(
+                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                    )
+                    if sorted_view_names:
+                        tables_query = tables_query.exclude(name__in=sorted_view_names)
+
+                tables: list[DataWarehouseTable] = list(tables_query)
                 _preload_active_external_data_schemas(tables)
                 if database._is_direct_query():
                     tables = [

@@ -196,14 +196,18 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # quirk on `information_schema` (rare but possible) only disables CDC
             # advertising for this listing instead of breaking schema discovery for
             # everyone — including non-CDC users.
+            pk_columns_by_table: dict[str, list[str]] = {}
             try:
                 table_names_by_schema: dict[str, list[str]] = {}
+                table_names_by_source_location: dict[tuple[str, str], str] = {}
                 for discovered_schema in db_schemas.values():
                     table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
                         discovered_schema.source_table_name
                     )
-
-                tables_with_pks: set[str] = set()
+                for table_name, discovered_schema in db_schemas.items():
+                    table_names_by_source_location[
+                        (discovered_schema.source_schema, discovered_schema.source_table_name)
+                    ] = table_name
                 with pg_connection(
                     host=host,
                     port=port,
@@ -211,29 +215,17 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                 ) as conn:
-                    pk_columns_by_table: dict[str, list[str]] = {}
                     for source_schema, source_table_names in table_names_by_schema.items():
                         if not source_table_names:
                             continue
 
-                        schema_pk_columns = get_primary_key_columns(conn, source_schema, source_table_names)
-                        pk_columns_by_table.update(
-                            {
-                                table_name: primary_keys
-                                for table_name, primary_keys in schema_pk_columns.items()
-                                if table_name in source_table_names
-                            }
-                        )
-                        source_table_names_with_pks = set(schema_pk_columns.keys())
-                        if not source_table_names_with_pks:
-                            continue
+                        source_pk_columns_by_table = get_primary_key_columns(conn, source_schema, source_table_names)
+                        for source_table_name, pk_columns in source_pk_columns_by_table.items():
+                            display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                            if display_name is not None:
+                                pk_columns_by_table[display_name] = pk_columns
 
-                        for table_name, discovered_schema in db_schemas.items():
-                            if (
-                                discovered_schema.source_schema == source_schema
-                                and discovered_schema.source_table_name in source_table_names_with_pks
-                            ):
-                                tables_with_pks.add(table_name)
+                tables_with_pks = set(pk_columns_by_table.keys())
             except Exception as e:
                 capture_exception(e)
                 pk_columns_by_table = {}
@@ -349,11 +341,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 require_ssl=require_ssl,
             )
             try:
+                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
                 return validate_cdc_prerequisites(
                     conn=conn,
                     management_mode=management_mode,  # type: ignore[arg-type]
                     tables=tables,
-                    schema=config.schema,
+                    schema=schema,
                     slot_name=slot_name,
                     publication_name=publication_name,
                 )

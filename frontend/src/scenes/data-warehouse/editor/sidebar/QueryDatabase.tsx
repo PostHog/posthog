@@ -40,6 +40,7 @@ import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -294,7 +295,9 @@ export const QueryDatabase = ({
                 )
             }}
             expandedItemIds={expandedItemIds}
-            onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+            onSetExpandedItemIds={
+                searchTerm ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
+            }
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
                     toggleFolderOpen(folder.id, isExpanded)
@@ -336,6 +339,7 @@ export const QueryDatabase = ({
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
                     item.record?.folderType === 'view-folder' &&
@@ -361,7 +365,7 @@ export const QueryDatabase = ({
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
                                 {hasMatches && searchTerm ? (
                                     <SearchHighlightMultiple
-                                        string={item.name}
+                                        string={itemLabel}
                                         substring={searchTerm}
                                         className={cn(isColumn && 'font-mono text-xs')}
                                     />
@@ -378,7 +382,7 @@ export const QueryDatabase = ({
                                             'truncate shrink-0'
                                         )}
                                     >
-                                        {item.name}
+                                        {item.displayName ?? item.name}
                                     </span>
                                 )}
                                 {isColumn && columnType ? (

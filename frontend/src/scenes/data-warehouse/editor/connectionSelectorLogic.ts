@@ -4,13 +4,15 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
+import { urls } from 'scenes/urls'
 
 import type { ExternalDataSourceConnectionOption } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconPostgres from 'public/services/postgres.png'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
 
@@ -28,6 +30,7 @@ export interface ConnectionSelectOption {
     label: string
     disabled?: boolean
     iconSrc?: string
+    managementUrl?: string
 }
 
 export interface ConnectionSelectOptionGroup {
@@ -43,7 +46,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     props({ selectedConnectionId: undefined } as ConnectionSelectorLogicProps),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [externalDataSourcesLogic, ['loadSourcesSuccess']],
+        actions: [sourcesDataLogic, ['loadSourcesSuccess']],
     })),
     loaders(() => ({
         connectionOptions: [
@@ -83,6 +86,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                               value: source.id,
                               label: `${source.prefix ? source.prefix : source.id} (${engine === 'duckdb' ? 'DuckDB' : 'Postgres'})`,
                               iconSrc: engine === 'duckdb' ? IconDuckDB : IconPostgres,
+                              managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                           }
                       })
 

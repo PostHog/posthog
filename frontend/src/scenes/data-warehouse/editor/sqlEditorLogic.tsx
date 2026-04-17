@@ -1726,7 +1726,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Only update the tab if it doesn't have a view (new query being saved)
                     // or if it's the same view being recreated (edge case)
                     if (oldTab && (!oldTab.view || oldTab.view.id === newView.id)) {
-                        actions.updateTab({ ...oldTab, view: newView })
+                        const nextTab = {
+                            ...oldTab,
+                            name: newView.name,
+                            view: view?.query ? { ...newView, query: view.query } : newView,
+                        }
+
+                        actions.updateTab(nextTab)
+
+                        if (!values.isEmbeddedMode) {
+                            router.actions.replace(
+                                urls.sqlEditor(),
+                                undefined,
+                                getTabHash({ ...values, activeTab: nextTab })
+                            )
+                        }
                     }
                 }
             },

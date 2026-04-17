@@ -518,6 +518,61 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('switches the active tab into the created view immediately after create success', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.createDataWarehouseSavedQuerySuccess(
+                [
+                    {
+                        id: 'created-view-id',
+                        name: 'Created view',
+                        query: {
+                            kind: NodeKind.HogQLQuery,
+                            query: 'SELECT 1',
+                        },
+                        is_materialized: false,
+                        latest_history_id: null,
+                        sync_frequency: null,
+                        status: null,
+                        last_run_at: null,
+                        latest_error: null,
+                    } as any,
+                ],
+                {
+                    name: 'Created view',
+                    query: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'SELECT 1',
+                    },
+                    types: [],
+                }
+            )
+
+            await expectLogic(logic)
+                .toDispatchActions(['createDataWarehouseSavedQuerySuccess', 'updateTab'])
+                .toMatchValues({
+                    editingView: partial({
+                        id: 'created-view-id',
+                        name: 'Created view',
+                    }),
+                    titleSectionProps: partial({
+                        name: 'Created view',
+                    }),
+                })
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.view).toEqual('created-view-id')
+        })
+
         it('keeps the results tab when opening a view directly', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

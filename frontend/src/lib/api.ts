@@ -5209,6 +5209,24 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
+        async bulkUpdateSchemas(
+            sourceId: ExternalDataSource['id'],
+            schemas: Pick<
+                ExternalDataSourceSchema,
+                | 'id'
+                | 'should_sync'
+                | 'sync_type'
+                | 'incremental_field'
+                | 'incremental_field_type'
+                | 'sync_frequency'
+                | 'sync_time_of_day'
+                | 'cdc_table_mode'
+            >[]
+        ): Promise<ExternalDataSourceSchema[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
+                data: { schemas },
+            })
+        },
         async update(
             sourceId: ExternalDataSource['id'],
             data: Partial<ExternalDataSource>
