@@ -268,7 +268,7 @@ export function VisualImageDiffViewer({
 
                         {activeOverlayUrl && (
                             <div
-                                className="absolute inset-0 overflow-hidden"
+                                className="absolute top-0 left-0 w-full h-full overflow-hidden"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     clipPath:
@@ -284,7 +284,7 @@ export function VisualImageDiffViewer({
                                 <img
                                     src={activeOverlayUrl}
                                     alt="Current snapshot"
-                                    className="w-full h-full object-contain bg-black/5"
+                                    className="h-auto bg-black/5 block w-full"
                                 />
                             </div>
                         )}
@@ -293,7 +293,7 @@ export function VisualImageDiffViewer({
                             <img
                                 src={diffUrl as string}
                                 alt="Diff overlay"
-                                className="absolute inset-0 w-full h-full object-contain mix-blend-screen pointer-events-none"
+                                className="absolute top-0 left-0 w-full h-auto mix-blend-screen pointer-events-none"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ opacity: diffOverlayOpacity / 100 }}
                             />
