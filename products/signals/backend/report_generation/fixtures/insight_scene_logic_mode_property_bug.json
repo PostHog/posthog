@@ -1,33 +1,30 @@
 {
-  "name": "insight_scene_logic_mode_property_bug",
-  "report_id": "test-insight-scene-logic-report-001",
-  "generated_at": "2026-04-14T10:25:00Z",
-  "repository": "posthog/posthog",
-  "signal_ids": ["64824815-db30-466d-a412-043050cb1f94"],
+  "name": "backups_succesful_typo",
+  "report_id": "test-backups-succesful-typo-001",
+  "generated_at": "2026-04-17T10:00:00Z",
+  "repository": "PostHog/posthog",
+  "signal_ids": ["7e000000-0000-0000-0000-000000000001"],
   "result": {
-    "title": "fix(insights): Correct property name in scene-change guard",
-    "summary": "The one-sentence tl;dr: Loading an insight can trigger an infinite setInsight loop because the scene-change guard in insightSceneLogic checks a property that does not exist.\n\n**What's happening:** The urlToAction handler in frontend/src/scenes/insights/insightSceneLogic.tsx has an early-return optimization meant to skip reprocessing when the insight scene hasn't changed. The guard reads `currentScene.activeSceneLogic?.values.mode`, but the logic exposes `insightMode`, not `mode`. Because `values.mode` is always `undefined`, the equality check never matches, the early return never fires, and any query upgrade triggers setInsight, which retriggers the handler.\n\n**Root cause:** A property-name typo introduced with the guard reads a non-existent value. The equality compares `undefined === insightMode`, so the guard can never short-circuit, and the handler re-enters itself via query upgrades.\n\n**How to resolve:** Update the guard to compare `values.insightMode` instead of `values.mode`, cast through the generated logic type, and add an explicit null check so the guard is strict. No new tests required for the loop itself, but the change should be covered by an existing urlToAction behavior test to ensure the early return fires when insight and mode match.",
+    "title": "fix(backups): correct 'succesful' typo in docstring",
+    "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring — no code behavior is affected.",
     "findings": [
       {
-        "signal_id": "64824815-db30-466d-a412-043050cb1f94",
+        "signal_id": "7e000000-0000-0000-0000-000000000001",
         "relevant_code_paths": [
-          "frontend/src/scenes/insights/insightSceneLogic.tsx",
-          "frontend/src/scenes/insights/insightSceneLogicType.ts"
+          "posthog/dags/backups.py"
         ],
-        "relevant_commit_hashes": {
-          "a469426": "Fix commit that corrected `values.mode` to `values.insightMode` in the urlToAction scene-change guard and added an explicit null check (the commit referenced in the signal description)."
-        },
-        "data_queried": "No PostHog MCP queries were run. The signal is a code-level bug in frontend logic, and the evidence is purely in the source file and git history. Inspected frontend/src/scenes/insights/insightSceneLogic.tsx — the reducer declares `insightMode` at line 130 and there is no `mode` value on the logic. The urlToAction guard at ~line 487-489 now correctly reads `values.insightMode === insightMode`, matching the fix described in the signal. `git log -- frontend/src/scenes/insights/insightSceneLogic.tsx` shows the fix commit landed on 2025-07-30.",
+        "relevant_commit_hashes": {},
+        "data_queried": "Verified via source that posthog/dags/backups.py line 346 reads 'Checks the latest succesful backup to use it as a base backup.' — the correct spelling is 'successful'.",
         "verified": true
       }
     ],
     "actionability": {
-      "explanation": "The signal pinpoints a single file, a single guard, and a single property-name typo, with the corrected line visible in the current source. A coding agent can reproduce the old buggy condition from the signal, confirm the current fix is present, and either close this as already-addressed or port the same guard pattern if any sibling scene logic (replay, experiment) inherited the same mistake.",
+      "explanation": "Single docstring typo fix in a single file. One word to change. Pure docstring, so zero test/behavior impact. An agent can perform this end to end without any human input.",
       "actionability": "immediately_actionable",
       "already_addressed": false
     },
     "priority": {
-      "explanation": "The original bug caused an infinite setInsight loop whenever a query upgrade ran on insight load — a user-visible hang in one of PostHog's core scenes. The fix is mechanical and contained to one file, with no architectural trade-offs. That combination (high user impact, low implementation risk) fits P1.",
+      "explanation": "Low-risk, low-impact, but immediately actionable and suitable for agent autonomy testing.",
       "priority": "P1"
     }
   }
