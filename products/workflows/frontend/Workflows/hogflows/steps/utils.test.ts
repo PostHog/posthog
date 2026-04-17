@@ -166,55 +166,44 @@ describe('utils', () => {
     })
 
     describe('removeBranchEdge', () => {
-        it('should remove the edge with the matching index and reindex', () => {
-            const edges = [
-                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
-                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
-                { from: 'a', to: 'd', type: 'branch' as const, index: 2 },
-            ]
-            const result = removeBranchEdge(edges, 1)
-
-            expect(result).toEqual([
-                { from: 'a', to: 'b', type: 'branch', index: 0 },
-                { from: 'a', to: 'd', type: 'branch', index: 1 },
-            ])
+        const e = (to: string, index: number): { from: string; to: string; type: 'branch'; index: number } => ({
+            from: 'a',
+            to,
+            type: 'branch',
+            index,
         })
 
-        it('should return all edges reindexed when removing index 0', () => {
-            const edges = [
-                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
-                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
-            ]
-            const result = removeBranchEdge(edges, 0)
-
-            expect(result).toEqual([{ from: 'a', to: 'c', type: 'branch', index: 0 }])
-        })
-
-        it('should return empty array when removing the only edge', () => {
-            const edges = [{ from: 'a', to: 'b', type: 'branch' as const, index: 0 }]
-            const result = removeBranchEdge(edges, 0)
-
-            expect(result).toEqual([])
-        })
-
-        it('should return all edges unchanged when index does not match', () => {
-            const edges = [
-                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
-                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
-            ]
-            const result = removeBranchEdge(edges, 5)
-
-            expect(result).toEqual([
-                { from: 'a', to: 'b', type: 'branch', index: 0 },
-                { from: 'a', to: 'c', type: 'branch', index: 1 },
-            ])
+        it.each([
+            {
+                name: 'removes the edge with the matching index and reindexes',
+                edges: [e('b', 0), e('c', 1), e('d', 2)],
+                indexToRemove: 1,
+                expected: [e('b', 0), e('d', 1)],
+            },
+            {
+                name: 'returns all edges reindexed when removing index 0',
+                edges: [e('b', 0), e('c', 1)],
+                indexToRemove: 0,
+                expected: [e('c', 0)],
+            },
+            {
+                name: 'returns empty array when removing the only edge',
+                edges: [e('b', 0)],
+                indexToRemove: 0,
+                expected: [],
+            },
+            {
+                name: 'returns all edges unchanged when index does not match',
+                edges: [e('b', 0), e('c', 1)],
+                indexToRemove: 5,
+                expected: [e('b', 0), e('c', 1)],
+            },
+        ])('$name', ({ edges, indexToRemove, expected }) => {
+            expect(removeBranchEdge(edges, indexToRemove)).toEqual(expected)
         })
 
         it('should return new array (immutability)', () => {
-            const edges = [
-                { from: 'a', to: 'b', type: 'branch' as const, index: 0 },
-                { from: 'a', to: 'c', type: 'branch' as const, index: 1 },
-            ]
+            const edges = [e('b', 0), e('c', 1)]
             const result = removeBranchEdge(edges, 1)
 
             expect(result).not.toBe(edges)
