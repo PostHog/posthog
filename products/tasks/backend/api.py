@@ -910,7 +910,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
         summary="Send command to agent server",
         description="Forward a JSON-RPC command to the agent server running in the sandbox. "
-        "Supports user_message, cancel, and close commands.",
+        "Supports user_message, cancel, close, permission_response, and set_config_option commands.",
         strict_request_validation=True,
     )
     @action(
