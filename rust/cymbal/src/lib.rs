@@ -1,7 +1,7 @@
 use error::EventError;
 
-use std::sync::LazyLock;
 use regex::Regex;
+use std::sync::LazyLock;
 
 use serde_json::Value;
 use tracing::debug;
