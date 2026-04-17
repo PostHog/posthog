@@ -58,7 +58,7 @@ Please analyze these user interview summaries from the following angle:
 {analysis_angle}
 
 <interview_summaries>
-    {interview_summaries_text}
+{interview_summaries_text}
 </interview_summaries>
 
 Provide a structured analysis with clear sections and bullet points where appropriate. Keep it very concise though. Avoid fluff, just give the facts to answer the question.

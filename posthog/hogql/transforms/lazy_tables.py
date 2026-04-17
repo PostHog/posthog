@@ -482,9 +482,9 @@ class LazyTableResolver(TraversingVisitor):
                             if property is not None:
                                 field_chain.extend(property.chain)
                                 property.joined_subquery_field_name = "___".join(str(x) for x in field_chain)
-                                new_join.fields_accessed[property.joined_subquery_field_name] = chain
+                                new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
-                                new_join.fields_accessed[field.name] = chain
+                                new_join.fields_accessed[field.name] = field_chain
                     elif isinstance(table_type.table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
