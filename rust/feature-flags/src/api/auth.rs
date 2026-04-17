@@ -23,7 +23,14 @@ const SCOPE_FEATURE_FLAG_WRITE: &str = "feature_flag:write";
 #[serde(tag = "type")]
 pub enum TokenAuthData {
     #[serde(rename = "secret")]
-    Secret { team_id: i32 },
+    Secret {
+        team_id: i32,
+        /// The team's public API token, used to look up team metadata from
+        /// HyperCache when `?token=` is omitted. `#[serde(default)]` ensures
+        /// backwards compatibility with cached entries that predate this field.
+        #[serde(default)]
+        api_token: Option<String>,
+    },
     #[serde(rename = "personal")]
     Personal {
         user_id: i32,
@@ -38,6 +45,9 @@ pub enum TokenAuthData {
         team_id: i32,
         key_id: String,
         scopes: Option<Vec<String>>,
+        /// See `Secret::api_token` for rationale.
+        #[serde(default)]
+        api_token: Option<String>,
     },
 }
 
@@ -70,16 +80,39 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
 /// prevents negative-cache poisoning when one source misses but the other would hit.
 ///
 /// Returns the matched TokenAuthData variant on success for metric labeling.
+/// Validates a phs_-prefixed token and checks it belongs to the expected team.
+/// Returns `(team_id, api_token, is_project_secret)` — same as
+/// `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(
     state: &AppState,
     token: &str,
     expected_team_id: i32,
-) -> Result<TokenAuthData, FlagError> {
-    debug!(
-        expected_team_id = expected_team_id,
-        "Validating secret API token for team"
-    );
+) -> Result<(i32, Option<String>, bool), FlagError> {
+    let result = validate_secret_api_token(state, token).await?;
 
+    if result.0 != expected_team_id {
+        warn!(
+            cached_team_id = result.0,
+            expected_team_id = expected_team_id,
+            "Token belongs to a different team"
+        );
+        return Err(FlagError::SecretApiTokenInvalid);
+    }
+
+    Ok(result)
+}
+
+/// Validates a phs_-prefixed token without checking against a specific team.
+///
+/// Used when the `?token=` query parameter is omitted and the team must be derived
+/// from the secret token itself. Returns `(team_id, api_token, is_project_secret)`.
+///
+/// Only works for Secret and ProjectSecret tokens (which are team-scoped).
+/// Personal API keys are multi-team and cannot be used to derive a team.
+pub async fn validate_secret_api_token(
+    state: &AppState,
+    token: &str,
+) -> Result<(i32, Option<String>, bool), FlagError> {
     let token_hash = hash_token_value(token);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let token_owned = token.to_string();
@@ -93,24 +126,23 @@ pub async fn validate_secret_api_token_for_team(
         .await?;
 
     match result.value {
-        Some(data @ TokenAuthData::Secret { team_id }) if team_id == expected_team_id => {
-            debug!(team_id = team_id, "Secret API token validated");
-            Ok(data)
-        }
-        Some(data @ TokenAuthData::ProjectSecret { team_id, .. })
-            if team_id == expected_team_id =>
-        {
-            debug!(team_id = team_id, "Project secret API key validated");
-            Ok(data)
-        }
-        Some(TokenAuthData::Secret { team_id })
-        | Some(TokenAuthData::ProjectSecret { team_id, .. }) => {
-            warn!(
-                cached_team_id = team_id,
-                expected_team_id = expected_team_id,
-                "Token belongs to a different team"
+        Some(TokenAuthData::Secret {
+            team_id, api_token, ..
+        }) => {
+            debug!(
+                team_id = team_id,
+                "Secret API token validated (no token param)"
             );
-            Err(FlagError::SecretApiTokenInvalid)
+            Ok((team_id, api_token, false))
+        }
+        Some(TokenAuthData::ProjectSecret {
+            team_id, api_token, ..
+        }) => {
+            debug!(
+                team_id = team_id,
+                "Project secret API key validated (no token param)"
+            );
+            Ok((team_id, api_token, true))
         }
         _ => Err(FlagError::SecretApiTokenInvalid),
     }
@@ -130,24 +162,30 @@ async fn load_token_from_pg(
     // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
     // to avoid doubling DB work during outages.
     match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
-        Ok(team) => return Ok(Some(TokenAuthData::Secret { team_id: team.id })),
+        Ok(team) => {
+            return Ok(Some(TokenAuthData::Secret {
+                team_id: team.id,
+                api_token: Some(team.api_token),
+            }))
+        }
         Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
         Err(e) => return Err(e),
     }
 
-    // Try ProjectSecretAPIKey
+    // Try ProjectSecretAPIKey (JOIN with posthog_team to get api_token for HyperCache lookups)
     let mut conn =
         get_connection_with_metrics(&pg_reader, "non_persons_reader", "fetch_project_secret_key")
             .await?;
     let query = r#"
-        SELECT id, team_id, scopes
-        FROM posthog_projectsecretapikey
-        WHERE secure_value = $1
+        SELECT k.id, k.team_id, k.scopes, t.api_token
+        FROM posthog_projectsecretapikey k
+        JOIN posthog_team t ON t.id = k.team_id
+        WHERE k.secure_value = $1
           AND (
-              scopes IS NULL
-              OR '*' = ANY(scopes)
-              OR 'feature_flag:read' = ANY(scopes)
-              OR 'feature_flag:write' = ANY(scopes)
+              k.scopes IS NULL
+              OR '*' = ANY(k.scopes)
+              OR 'feature_flag:read' = ANY(k.scopes)
+              OR 'feature_flag:write' = ANY(k.scopes)
           )
     "#;
 
@@ -161,10 +199,12 @@ async fn load_token_from_pg(
             let key_id: String = row.try_get("id")?;
             let team_id: i32 = row.try_get("team_id")?;
             let scopes: Option<Vec<String>> = row.try_get("scopes")?;
+            let api_token: String = row.try_get("api_token")?;
             Ok(Some(TokenAuthData::ProjectSecret {
                 team_id,
                 key_id,
                 scopes,
+                api_token: Some(api_token),
             }))
         }
         None => {
@@ -453,15 +493,52 @@ mod tests {
 
     #[test]
     fn test_token_auth_data_serialization_secret() {
-        let data = TokenAuthData::Secret { team_id: 42 };
+        let data = TokenAuthData::Secret {
+            team_id: 42,
+            api_token: Some("phc_test123".to_string()),
+        };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"secret\""));
         assert!(json.contains("\"team_id\":42"));
+        assert!(json.contains("\"api_token\":\"phc_test123\""));
 
         let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
         match parsed {
-            TokenAuthData::Secret { team_id } => assert_eq!(team_id, 42),
+            TokenAuthData::Secret { team_id, api_token } => {
+                assert_eq!(team_id, 42);
+                assert_eq!(api_token, Some("phc_test123".to_string()));
+            }
             _ => panic!("Expected Secret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_deserializes_old_secret_without_api_token() {
+        // Old cached entries don't have api_token — serde(default) should give None
+        let json = r#"{"type":"secret","team_id":42}"#;
+        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
+        match parsed {
+            TokenAuthData::Secret { team_id, api_token } => {
+                assert_eq!(team_id, 42);
+                assert_eq!(api_token, None);
+            }
+            _ => panic!("Expected Secret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_deserializes_old_project_secret_without_api_token() {
+        // Old cached entries don't have api_token — serde(default) should give None
+        let json = r#"{"type":"project_secret","team_id":99,"key_id":"psak_abc","scopes":["feature_flag:read"]}"#;
+        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
+        match parsed {
+            TokenAuthData::ProjectSecret {
+                team_id, api_token, ..
+            } => {
+                assert_eq!(team_id, 99);
+                assert_eq!(api_token, None);
+            }
+            _ => panic!("Expected ProjectSecret variant"),
         }
     }
 
@@ -500,11 +577,13 @@ mod tests {
             team_id: 99,
             key_id: "psak_abc123".to_string(),
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            api_token: Some("phc_proj_test".to_string()),
         };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"project_secret\""));
         assert!(json.contains("\"team_id\":99"));
         assert!(json.contains("\"key_id\":\"psak_abc123\""));
+        assert!(json.contains("\"api_token\":\"phc_proj_test\""));
 
         let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
         match parsed {
@@ -512,10 +591,12 @@ mod tests {
                 team_id,
                 key_id,
                 scopes,
+                api_token,
             } => {
                 assert_eq!(team_id, 99);
                 assert_eq!(key_id, "psak_abc123");
                 assert_eq!(scopes, Some(vec!["feature_flag:read".to_string()]));
+                assert_eq!(api_token, Some("phc_proj_test".to_string()));
             }
             _ => panic!("Expected ProjectSecret variant"),
         }
@@ -527,6 +608,7 @@ mod tests {
             team_id: 1,
             key_id: "key_id".to_string(),
             scopes: None,
+            api_token: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
@@ -722,7 +804,10 @@ mod tests {
             ..Default::default()
         };
 
-        let data = TokenAuthData::Secret { team_id: 1 };
+        let data = TokenAuthData::Secret {
+            team_id: 1,
+            api_token: None,
+        };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
     }
@@ -741,6 +826,7 @@ mod tests {
             team_id: 1,
             key_id: "psak_abc123".to_string(),
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            api_token: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());

@@ -1,4 +1,4 @@
-import { mapToTopN } from './detachedElementTracker'
+import { mapToTopN, shouldCaptureDetachedElements } from './detachedElementTracker'
 
 describe('mapToTopN', () => {
     it.each([
@@ -55,5 +55,60 @@ describe('mapToTopN', () => {
         },
     ])('$label', ({ map, limit, expected }) => {
         expect(mapToTopN(map, limit)).toEqual(expected)
+    })
+})
+
+describe('shouldCaptureDetachedElements', () => {
+    it.each([
+        {
+            label: 'skips when zero even on first scan',
+            currentCount: 0,
+            previousCount: null,
+            expected: false,
+        },
+        {
+            label: 'first scan with nonzero count always captures',
+            currentCount: 5,
+            previousCount: null,
+            expected: true,
+        },
+        {
+            label: 'skips when count is unchanged',
+            currentCount: 3,
+            previousCount: 3,
+            expected: false,
+        },
+        {
+            label: 'captures when count increases',
+            currentCount: 5,
+            previousCount: 3,
+            expected: true,
+        },
+        {
+            label: 'captures when count decreases',
+            currentCount: 2,
+            previousCount: 5,
+            expected: true,
+        },
+        {
+            label: 'skips when count stays at zero',
+            currentCount: 0,
+            previousCount: 0,
+            expected: false,
+        },
+        {
+            label: 'captures when count goes from zero to nonzero',
+            currentCount: 1,
+            previousCount: 0,
+            expected: true,
+        },
+        {
+            label: 'skips when count goes from nonzero to zero',
+            currentCount: 0,
+            previousCount: 7,
+            expected: false,
+        },
+    ])('$label', ({ currentCount, previousCount, expected }) => {
+        expect(shouldCaptureDetachedElements(currentCount, previousCount)).toBe(expected)
     })
 })

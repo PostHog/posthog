@@ -49,6 +49,9 @@ class Command(BaseCommand):
             batch_size=batch_size,
             scope="single_team" if team_id else "all_teams",
         )
+        scope = f"team {team_id}" if team_id else "all teams"
+        dry_run_label = " (dry run)" if dry_run else ""
+        self.stdout.write(f"Starting cohort resave for {scope}, batch_size={batch_size}{dry_run_label}")
 
         # Get teams to process
         teams_qs = Team.objects.all().order_by("id")
@@ -72,6 +75,7 @@ class Command(BaseCommand):
                 team_id=team.id,
                 team_progress=f"{teams_processed}/{total_teams}",
             )
+            self.stdout.write(f"Processing team {team.id} ({teams_processed}/{total_teams})")
 
             stats = self._process_team_cohorts(team, batch_size, dry_run)
 
@@ -94,8 +98,21 @@ class Command(BaseCommand):
                     validation_error_count=stats["validation_errors"],
                     dry_run=dry_run,
                 )
+                msg = f"  Team {team.id}: {stats['total']} cohorts, {stats['changed']} changed, {stats['prospective_realtime']} realtime"
+                if stats["errors"] > 0:
+                    msg += f", {stats['errors']} errors"
+                if stats["validation_errors"] > 0:
+                    msg += f", {stats['validation_errors']} validation errors"
+                style = (
+                    self.style.WARNING
+                    if (stats["errors"] > 0 or stats["validation_errors"] > 0)
+                    else self.style.SUCCESS
+                )
+                self.stdout.write(style(msg))
 
         # Log final summary
+        change_pct = round((global_changed / global_total * 100), 2) if global_total > 0 else 0
+        realtime_pct = round((global_prospective_realtime / global_total * 100), 2) if global_total > 0 else 0
         logger.info(
             "cohort_resave_completed",
             dry_run=dry_run,
@@ -105,8 +122,19 @@ class Command(BaseCommand):
             realtime_cohorts=global_prospective_realtime,
             error_count=global_errors,
             validation_error_count=global_validation_errors,
-            change_percentage=round((global_changed / global_total * 100), 2) if global_total > 0 else 0,
-            realtime_percentage=round((global_prospective_realtime / global_total * 100), 2) if global_total > 0 else 0,
+            change_percentage=change_pct,
+            realtime_percentage=realtime_pct,
+        )
+        self.stdout.write("")
+        final_style = self.style.WARNING if (global_errors > 0 or global_validation_errors > 0) else self.style.SUCCESS
+        self.stdout.write(
+            final_style(
+                f"Done{dry_run_label}. "
+                f"{teams_processed} teams, {global_total} cohorts, "
+                f"{global_changed} changed ({change_pct}%), "
+                f"{global_prospective_realtime} realtime ({realtime_pct}%), "
+                f"{global_errors} errors, {global_validation_errors} validation errors"
+            )
         )
 
     def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> dict[str, int]:

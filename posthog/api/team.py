@@ -21,7 +21,7 @@ from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action, raise_if_user_provided_url_unsafe
+from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -141,7 +141,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
 
 TEAM_CONFIG_FIELDS = (
     "app_urls",
-    "slack_incoming_webhook",
     "anonymize_ips",
     "completed_snippet_onboarding",
     "test_account_filters",
@@ -862,6 +861,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Integration state is managed only by dedicated endpoints, not user input
         for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
             value.pop(managed_key, None)
+        # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
+        if "slack_channel_ids" in value:
+            raw = value.get("slack_channel_ids")
+            if isinstance(raw, list):
+                cleaned: list[str] = []
+                seen: set[str] = set()
+                for item in raw:
+                    if isinstance(item, str) and item and item not in seen:
+                        seen.add(item)
+                        cleaned.append(item)
+                value["slack_channel_ids"] = cleaned[:50]
+            else:
+                value.pop("slack_channel_ids", None)
         icon_url = value.get("slack_bot_icon_url")
         if icon_url is not None:
             if not isinstance(icon_url, str):
@@ -879,18 +891,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if display_name and (len(display_name) > 200 or any(ord(c) < 32 for c in display_name)):
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
-                )
-        return value
-
-    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        if not settings.DEBUG:
-            try:
-                raise_if_user_provided_url_unsafe(value)
-            except ValueError:
-                raise exceptions.ValidationError(
-                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
                 )
         return value
 

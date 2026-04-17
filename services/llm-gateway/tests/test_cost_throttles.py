@@ -19,6 +19,9 @@ def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "posthog_code",
     end_user_id: str | None = None,
+    plan_key: str | None = "posthog-code-200-20260301",
+    in_trial_period: bool = True,
+    seat_created_at: str | None = None,
 ) -> ThrottleContext:
     user = user or make_user()
     if end_user_id is None and user.auth_method == "oauth_access_token":
@@ -27,6 +30,9 @@ def make_context(
         user=user,
         product=product,
         end_user_id=end_user_id,
+        plan_key=plan_key,
+        in_trial_period=in_trial_period,
+        seat_created_at=seat_created_at,
     )
 
 
@@ -296,14 +302,70 @@ class TestUserCostSustainedThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_cache_key_includes_product_and_scope(self) -> None:
+    async def test_cache_key_includes_product_scope_and_period(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code", end_user_id="42")
 
         key = throttle._get_cache_key(context)
-        assert key == "cost:user:user_cost_sustained:posthog_code:42"
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:0"
+
+    @pytest.mark.asyncio
+    async def test_cache_key_includes_period_for_free_plan(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        created = (datetime.now(tz=UTC) - timedelta(days=5)).isoformat()
+        context = make_context(
+            product="posthog_code",
+            end_user_id="42",
+            plan_key="posthog-code-free-20260301",
+            in_trial_period=True,
+            seat_created_at=created,
+        )
+
+        key = throttle._get_cache_key(context)
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:0"
+
+    @pytest.mark.asyncio
+    async def test_cache_key_period_increments_after_period_days(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        created = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        context = make_context(
+            product="posthog_code",
+            end_user_id="42",
+            plan_key="posthog-code-free-20260301",
+            in_trial_period=False,
+            seat_created_at=created,
+        )
+
+        key = throttle._get_cache_key(context)
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:1"
+
+    @pytest.mark.asyncio
+    async def test_cache_key_includes_period_for_pro_plan(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        created = (datetime.now(tz=UTC) - timedelta(days=5)).isoformat()
+        context = make_context(
+            product="posthog_code",
+            end_user_id="42",
+            plan_key="posthog-code-200-20260301",
+            seat_created_at=created,
+        )
+
+        key = throttle._get_cache_key(context)
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:0"
 
 
 class TestBurstSustainedInteraction:
@@ -959,6 +1021,107 @@ class TestRateLimitPoisoningPrevention:
         assert attacker_key != victim_key
         assert ":999" in attacker_key
         assert ":42" in victim_key
+
+
+class TestPlanAwareThrottling:
+    @pytest.mark.asyncio
+    async def test_trial_user_gets_burst_limit_of_5(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=True, seat_created_at="2026-01-01T00:00:00+00:00"
+        )
+
+        await throttle.record_cost(context, 5.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_trial_user_gets_sustained_limit_of_50(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=True, seat_created_at="2026-01-01T00:00:00+00:00"
+        )
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_expired_trial_user_gets_zero_limit(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=False, seat_created_at="2025-01-01T00:00:00+00:00"
+        )
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_expired_trial_sustained_also_zero(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        context = make_context(
+            product="posthog_code", plan_key=None, in_trial_period=False, seat_created_at="2025-01-01T00:00:00+00:00"
+        )
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_no_seat_gets_pro_limits(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", plan_key=None, in_trial_period=True, seat_created_at=None)
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_pro_plan_allows_higher_usage(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", plan_key="posthog-code-200-20260301")
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_free_plan_key_gets_trial_limits(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key="posthog-code-free-20260301",
+            in_trial_period=True,
+            seat_created_at="2026-01-01T00:00:00+00:00",
+        )
+
+        await throttle.record_cost(context, 4.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_non_code_product_ignores_plan(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="wizard", plan_key=None)
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
 
 
 class TestCostAccumulatorTTL:

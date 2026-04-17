@@ -16,6 +16,9 @@ Hog 3000 powers live event stream on PostHog: https://us.posthog.com/project/0/a
   - `eventType` - event type name,
   - `distinctId` - only events with a given distinctId,
   - `geo` - return only coordinates guessed based on IP,
+  - `property` - repeatable; each value is `key=value` for exact-match
+    filtering on top-level event properties. Multiple params with the same
+    key OR together, different keys AND together.
 - `/debug` - dummy html for SSE testing,
 - `/debug/sse/` - backend for `/debug` generating a server side events,
 - `/metrics` - exposes metrics in Prometheus format
