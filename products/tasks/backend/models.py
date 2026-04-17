@@ -262,6 +262,7 @@ class Task(DeletedMetaFields, models.Model):
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -297,7 +298,9 @@ class Task(DeletedMetaFields, models.Model):
         extra_state: dict[str, str] = {}
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
-        if slack_thread_context:
+        if interaction_origin:
+            extra_state["interaction_origin"] = interaction_origin
+        elif slack_thread_context:
             extra_state["interaction_origin"] = "slack"
 
         if sandbox_env is not None:

@@ -412,6 +412,11 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantInsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2564,11 +2569,6 @@ class InfinityValue(float, Enum):
     NUMBER__999999 = -999999
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"
@@ -3696,6 +3696,7 @@ class ProductKey(StrEnum):
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
     SUBSCRIPTIONS = "subscriptions"
+    STREAMLIT_APPS = "streamlit_apps"
     SURVEYS = "surveys"
     TASKS = "tasks"
     TEAMS = "teams"
@@ -18166,6 +18167,37 @@ class AssistantBasePropertyFilter(
         | AssistantStringOrBooleanValuePropertyFilter
         | AssistantNumericValuePropertyFilter
         | AssistantArrayPropertyFilter
+    )
+
+
+class AssistantInsightActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown values, one per dimension in the source's"
+            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
+            " the number of breakdown dimensions."
+        ),
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compare` is enabled in the source."),
+    )
+    day: str | int | None = Field(
+        default=None,
+        description=("Bucket date for the data point. Accepts ISO date or integer offset."),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description="Series index (0-based) when the source has multiple series.",
+    )
+    source: AssistantTrendsQuery = Field(
+        ...,
+        description="The source insight query whose data point we are drilling into.",
     )
 
 
