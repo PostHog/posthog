@@ -1046,6 +1046,7 @@ class TestOAuthAPI(APIBaseTest):
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
         self.assertEqual(db_token.scoped_teams, [self.team.id])
 
+    @freeze_time("2026-01-01 00:00:00")
     def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
         """scoped_teams and scoped_organizations are both nullable ArrayFields. Historically
         they could be set independently — a token scoped to a team often had
