@@ -267,7 +267,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     def _capture_domain_setting_event(self, request: Request) -> None:
         data = request.data
-        if any(f in data for f in ("saml_entity_id", "saml_acs_url", "saml_x509_cert")):
+        if any(f.startswith("saml_") for f in data):
             event_type = "saml configured"
         elif "sso_enforcement" in data:
             event_type = "sso enforcement updated"
