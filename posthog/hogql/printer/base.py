@@ -20,7 +20,7 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FunctionCallTable, Table
+from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import (
@@ -301,6 +301,11 @@ class HogQLPrinter(Visitor[str]):
             f"QUALIFY{space}" + qualify if qualify else None,
             f"WINDOW{space}" + window if window else None,
             f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
+            (
+                f"INTERPOLATE ({comma.join(self.visit(expr) for expr in node.interpolate)})"
+                if node.interpolate
+                else ("INTERPOLATE" if node.interpolate is not None else None)
+            ),
         ]
 
         limit = node.limit
@@ -667,7 +672,25 @@ class HogQLPrinter(Visitor[str]):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
-        return f"{self.visit(node.expr)} {node.order}"
+        result = f"{self.visit(node.expr)} {node.order}"
+        if node.with_fill is not None:
+            result += f" {self.visit(node.with_fill)}"
+        return result
+
+    def visit_with_fill_expr(self, node: ast.WithFillExpr):
+        parts = ["WITH FILL"]
+        if node.from_value is not None:
+            parts.append(f"FROM {self.visit(node.from_value)}")
+        if node.to_value is not None:
+            parts.append(f"TO {self.visit(node.to_value)}")
+        if node.step_value is not None:
+            parts.append(f"STEP {self.visit(node.step_value)}")
+        return " ".join(parts)
+
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        if node.value is not None:
+            return f"{self.visit(node.expr)} AS {self.visit(node.value)}"
+        return self.visit(node.expr)
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
         if op == ast.CompareOperationOp.Eq:
@@ -1204,6 +1227,8 @@ class HogQLPrinter(Visitor[str]):
                     field_sql = self._print_identifier(type.name)
                 else:
                     # resolved_field may be an ast.Alias; in both cases .name is the physical column name to emit
+                    if not isinstance(resolved_field, DatabaseField):
+                        raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.
@@ -1277,6 +1302,8 @@ class HogQLPrinter(Visitor[str]):
             table_name = self._get_table_name(table)
 
             if field is None:
+                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
+            if not isinstance(field, DatabaseField):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 

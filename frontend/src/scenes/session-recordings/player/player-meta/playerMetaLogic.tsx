@@ -30,6 +30,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
@@ -118,6 +119,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
             ['loadingBySessionId', 'progressBySessionId', 'summaryBySessionId', 'feedbackBySessionId'],
+            playerInspectorLogic(props),
+            ['allItemsByMiniFilterKey'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
@@ -167,6 +170,25 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summaryHasHadFeedback: [
             (s) => [s.feedbackBySessionId],
             (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
+        ],
+        summaryDisabledReason: [
+            (s) => [s.allItemsByMiniFilterKey],
+            (allItemsByMiniFilterKey): string | undefined => {
+                const hasAutocapture = !!allItemsByMiniFilterKey['events-autocapture']?.length
+                if (hasAutocapture) {
+                    return undefined
+                }
+                const hasAnyEvents = [
+                    'events-posthog',
+                    'events-custom',
+                    'events-pageview',
+                    'events-autocapture',
+                    'events-exceptions',
+                ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
+                return hasAnyEvents
+                    ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
+                    : 'Session events are not available yet. Try again in a few minutes.'
+            },
         ],
         loading: [
             (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],

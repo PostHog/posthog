@@ -19,11 +19,11 @@ snapshots:
     pageview-trends-insight-chromium-linux:
         hash: v1.k794b7964.dd9ca1af7e182f8a73cc7c694e64be66aba6cc48942cf4d695e424624fce3397.3iqI7YSBwQMR3PnjSt7IW4v30zrHTXOdbfDg-Bqw4Fs
     tabs-after-close-frozen-chromium-linux:
-        hash: v1.k794b7964.48d86c911fd6fd6e2a48af8db025abf65d8d60ca0401ceacf95f5b770f9b8c66.sqElwJeFc4_amLW-0G3ugDLrWN9EGsf7a3NcP6CBO7k
+        hash: v1.k794b7964.2fca90256612fb00cd9acfae8212369d7d5c55c79934d67bf585fcde88544dba.ACLl0M4x2-BDmhIal2C0rYq943n8Iw0K2RurdONJC3U
     tabs-after-mouse-leave-chromium-linux:
-        hash: v1.k794b7964.50b7128dd036845181320664b5604290f0e73745b42bf96d5c17ba4b22d2cb0d.5-pDxLIoSeNaQoZ4qlejATmC6Xv2_piNNHjVFXclcv8
+        hash: v1.k794b7964.2d65fc8d2ae1d11dbe893408f84286d6b055981a98c2cf8fae6730615c5db543.OrtKPeft24KO45UT-N9tVWWSBpeW8_aV3tcb_zK6SgM
     tabs-before-close-chromium-linux:
-        hash: v1.k794b7964.25136a84d523f6647350a1bb4aebd4c3cb3c10c2dd7c290b6165b9c4814b0473.ba25M9hU5H8e7yjGGmrpLaLPx_fQnJkF3ArFt0emtzo
+        hash: v1.k794b7964.584060413355ddfa5dc857ec9a4c91c8cb3c60996ca79c122791f73221d2c8b0.VEMozasRJQn9nJ1-VQ81_P_pmkTAVLDd-Q4J-YvkPRc
     workflow-view-editor-chromium-linux:
         hash: v1.k794b7964.26947ec4ef7ff342c9b1dad8bcd0eff4177dddacf237a78ca322a7f2b3014f42.24r2Gc9GvkMcTO3D5FNq7sb0nIlcOfCm5uCvtX0RFKs
     workflow-view-history-chromium-linux:

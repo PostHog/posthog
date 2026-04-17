@@ -54,6 +54,7 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -203,8 +204,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Prefetch runs to avoid N+1 queries when fetching latest_run
-        qs = qs.prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
+        qs = qs.select_related("created_by", "team").prefetch_related("runs")
 
         return qs
 
@@ -243,6 +244,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={

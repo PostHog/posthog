@@ -2,7 +2,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Generic, ParamSpec, TypeVar
+from typing import Any, Generic, ParamSpec, TypeVar, cast
 
 from django.utils.timezone import now
 
@@ -27,7 +27,8 @@ class CachedFunction(Generic[P, R]):
     _cache: dict[CacheKey, tuple[datetime, R]] = field(default_factory=dict, init=False, repr=False)
     _refreshing: dict[CacheKey, datetime | None] = field(default_factory=dict, init=False, repr=False)
 
-    def __call__(self, *args: P.args, use_cache: bool = not TEST, **kwargs: P.kwargs) -> R:
+    def __call__(self, *args: Any, **kwargs: Any) -> R:
+        use_cache = cast(bool, kwargs.pop("use_cache", not TEST))
         if not use_cache:
             return self._fn(*args, **kwargs)
 
