@@ -262,6 +262,9 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
 
     def __init__(self, context: HogQLContext):
         super().__init__(context)
+        if context.modifiers.sessionBufferDays is not None:
+            buffer_days = int(context.modifiers.sessionBufferDays)
+            self.time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=buffer_days)])
 
     def should_apply_default_limit_bound(self, select_query: ast.SelectQuery) -> bool:
         if (

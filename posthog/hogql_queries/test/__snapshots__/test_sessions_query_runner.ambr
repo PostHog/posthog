@@ -10,7 +10,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -57,7 +57,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -104,7 +104,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -149,7 +149,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -194,7 +194,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -246,7 +246,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -281,7 +281,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Phoenix')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Phoenix'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 07:00:05.000000', 6, 'America/Phoenix'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'America/Phoenix'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 07:00:05.000000', 6, 'America/Phoenix'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'America/Phoenix'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 07:00:05.000000', 6, 'America/Phoenix')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'America/Phoenix')), 0))
@@ -316,7 +316,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Tokyo')), max(toTimeZone(raw_sessions.max_timestamp, 'Asia/Tokyo'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 23:00:05.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 23:00:05.000000', 6, 'Asia/Tokyo'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'Asia/Tokyo'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 23:00:05.000000', 6, 'Asia/Tokyo')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'Asia/Tokyo')), 0))
@@ -342,7 +342,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(globalIn(sessions.session_id,
@@ -373,7 +373,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -418,7 +418,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -464,7 +464,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -509,7 +509,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(greaterOrEquals(sessions.`$session_duration`, 0.0), 0), ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -537,7 +537,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -586,7 +586,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -633,7 +633,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -678,7 +678,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -725,7 +725,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -772,7 +772,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -817,7 +817,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -870,7 +870,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -918,7 +918,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -947,7 +947,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -994,7 +994,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -1024,7 +1024,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
@@ -1076,7 +1076,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-03 23:59:59.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-03 23:59:59.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-03 23:59:59.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'UTC')), 0))
@@ -1111,7 +1111,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Phoenix')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Phoenix'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-03 16:59:59.000000', 6, 'America/Phoenix'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'America/Phoenix'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-03 16:59:59.000000', 6, 'America/Phoenix'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'America/Phoenix'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-03 16:59:59.000000', 6, 'America/Phoenix')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'America/Phoenix')), 0))
@@ -1146,7 +1146,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Tokyo')), max(toTimeZone(raw_sessions.max_timestamp, 'Asia/Tokyo'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-04 08:59:59.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-04 08:59:59.000000', 6, 'Asia/Tokyo'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'Asia/Tokyo'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-04 08:59:59.000000', 6, 'Asia/Tokyo')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'Asia/Tokyo')), 0))
@@ -1181,7 +1181,7 @@
             if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -1208,7 +1208,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -1236,7 +1236,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -1267,7 +1267,7 @@
             max(toTimeZone(raw_sessions.max_timestamp, 'UTC')) AS `$end_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
@@ -1295,7 +1295,7 @@
             min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
-     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(0))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(0))))
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(greater(sessions.`$session_duration`, 300), 0), ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))

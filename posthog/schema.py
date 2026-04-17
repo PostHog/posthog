@@ -6906,6 +6906,7 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionBufferDays: float | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,
         description=(

@@ -86,6 +86,11 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Disable the ±SESSION_BUFFER_DAYS expansion on the raw sessions scan.
+        # The buffer exists for event→session joins where events near boundary T
+        # can reference sessions that started earlier. SessionsQueryRunner reads
+        # sessions directly — no events join, no buffer needed.
+        self.modifiers.sessionBufferDays = 0
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
