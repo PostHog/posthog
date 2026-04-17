@@ -27,7 +27,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -100,6 +100,16 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
+
+
+class PendingInviteSerializer(serializers.Serializer):
+    """Shape of each item in UserSerializer.pending_invites."""
+
+    id = serializers.CharField()
+    target_email = serializers.EmailField()
+    organization_id = serializers.CharField()
+    organization_name = serializers.CharField()
+    created_at = serializers.DateTimeField()
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -248,6 +258,7 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    @extend_schema_field(PendingInviteSerializer(many=True))
     def get_pending_invites(self, instance: User) -> list[dict]:
         """Non-expired organization invites matching the user's email for orgs they aren't already in.
 
