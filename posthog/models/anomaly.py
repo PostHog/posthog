@@ -75,7 +75,11 @@ class AnomalyScore(UUIDTModel):
 
     @classmethod
     def clean_up_old_scores(cls) -> int:
-        retention_days = 30
+        # Retention matches the longest window the tab offers (1y). Keeping
+        # scores older than the widest dropdown option just means we're
+        # storing rows nothing can ever surface, so this ceiling is the
+        # practical cap — bump both together if a longer window is added.
+        retention_days = 365
         oldest_allowed = datetime.now(UTC) - timedelta(days=retention_days)
         count, _ = cls.objects.filter(scored_at__lt=oldest_allowed).delete()
         return count

@@ -30,5 +30,5 @@ export interface AnomalyScoreType {
     anomaly_rate: number
 }
 
-export type AnomalyWindow = '24h' | '7d' | '30d'
+export type AnomalyWindow = '24h' | '7d' | '30d' | '90d' | '180d' | '1y'
 export type AnomalyInterval = '' | 'hour' | 'day' | 'week' | 'month'

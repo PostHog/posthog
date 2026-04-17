@@ -172,6 +172,9 @@ export function Anomalies(): JSX.Element {
                         { value: '24h', label: 'Last 24 hours' },
                         { value: '7d', label: 'Last 7 days' },
                         { value: '30d', label: 'Last 30 days' },
+                        { value: '90d', label: 'Last 90 days' },
+                        { value: '180d', label: 'Last 6 months' },
+                        { value: '1y', label: 'Last year' },
                     ]}
                 />
                 <LemonSegmentedButton

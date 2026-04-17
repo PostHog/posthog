@@ -126,11 +126,20 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
                         y: { display: false, grace: '15%' },
                         // Score axis pinned to the full 0–1 range so the line's
                         // vertical position is always comparable across rows.
+                        // `weight: 0` + drawing hooks off prevents Chart.js from
+                        // reserving plot-width even when display is already off
+                        // — otherwise hourly rows with a visible score line
+                        // render ~10 px narrower than weekly rows where the
+                        // line is flat at 1.0 and invisible.
                         y2: {
                             display: false,
                             position: 'right' as const,
                             min: 0,
                             max: 1,
+                            weight: 0,
+                            grid: { display: false, drawTicks: false },
+                            ticks: { display: false },
+                            border: { display: false },
                         },
                     },
                     interaction: {
