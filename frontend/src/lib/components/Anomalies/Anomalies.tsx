@@ -10,6 +10,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -105,13 +106,21 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                         {intervalLabel(anomaly.interval)}
                     </LemonTag>
                     {anomaly.scored_count > 0 && (
-                        <LemonTag
-                            type="danger"
-                            size="small"
-                            title={`${anomaly.anomaly_count} of ${anomaly.scored_count} ticks flagged`}
+                        <Tooltip
+                            title={
+                                <div className="text-xs">
+                                    Anomaly rate —{' '}
+                                    <span className="font-mono tabular-nums">{anomaly.anomaly_count}</span> of{' '}
+                                    <span className="font-mono tabular-nums">{anomaly.scored_count}</span>{' '}
+                                    {intervalLabel(anomaly.interval).toLowerCase()} observations flagged anomalous
+                                </div>
+                            }
+                            placement="top"
                         >
-                            {ratePercent(anomaly.anomaly_rate)}%
-                        </LemonTag>
+                            <LemonTag type="danger" size="small">
+                                {ratePercent(anomaly.anomaly_rate)}%
+                            </LemonTag>
+                        </Tooltip>
                     )}
                     {anomaly.timestamp && (
                         <span className="ml-auto font-mono text-[10px] font-semibold tabular-nums text-danger">
