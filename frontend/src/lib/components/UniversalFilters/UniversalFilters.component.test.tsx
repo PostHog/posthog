@@ -92,14 +92,14 @@ describe('UniversalFilters recent selections', () => {
         await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), query)
     }
 
-    async function pickShortcutItem(tabTestId: string, searchQuery: string, itemTestId: string): Promise<void> {
+    async function pickShortcutItem(tabTestId: string, searchQuery: string, itemLabel: string): Promise<void> {
         await openAddFilter()
         await switchToTab(tabTestId)
         await searchFor(searchQuery)
         await waitFor(() => {
-            expect(screen.getByTestId(itemTestId)).toBeInTheDocument()
+            expect(screen.getByText(itemLabel)).toBeInTheDocument()
         })
-        await userEvent.click(screen.getByTestId(itemTestId))
+        await userEvent.click(screen.getByText(itemLabel))
     }
 
     function expectRecentCount(count: number): void {
@@ -115,7 +115,7 @@ describe('UniversalFilters recent selections', () => {
             },
             tabTestId: 'taxonomic-tab-pageview_urls',
             searchQuery: 'example',
-            itemTestId: 'prop-filter-pageview_urls-0',
+            itemLabel: 'https://example.com/pricing',
             expectedKey: '$current_url',
         },
         {
@@ -126,7 +126,7 @@ describe('UniversalFilters recent selections', () => {
             },
             tabTestId: 'taxonomic-tab-screens',
             searchQuery: 'Home',
-            itemTestId: 'prop-filter-screens-0',
+            itemLabel: 'HomeScreen',
             expectedKey: '$screen_name',
         },
         {
@@ -137,16 +137,16 @@ describe('UniversalFilters recent selections', () => {
             },
             tabTestId: 'taxonomic-tab-email_addresses',
             searchQuery: 'alice',
-            itemTestId: 'prop-filter-email_addresses-0',
+            itemLabel: 'alice@example.com',
             expectedKey: 'email',
         },
     ])(
         'selecting a $description records a complete property filter to recents',
-        async ({ taxonomicGroupTypes, mockOverrides, tabTestId, searchQuery, itemTestId, expectedKey }) => {
+        async ({ taxonomicGroupTypes, mockOverrides, tabTestId, searchQuery, itemLabel, expectedKey }) => {
             useSetupMocks(mockOverrides)
             renderUniversalFilters(taxonomicGroupTypes)
 
-            await pickShortcutItem(tabTestId, searchQuery, itemTestId)
+            await pickShortcutItem(tabTestId, searchQuery, itemLabel)
 
             await waitFor(() => {
                 expectRecentCount(1)
