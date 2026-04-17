@@ -111,12 +111,12 @@ Present the full cleanup prompt in a copyable format so the user can paste it di
 
 **Never disable flags without explicit user approval.** Always present the list and recommendations first, then ask which flags to act on.
 
-After the user confirms their code changes are deployed, disable each flag using `posthog:update-feature-flag` with `active: false`. Process them one at a time and confirm each action. This makes it easy to stop if something goes wrong.
-
 Present the user with both options and their tradeoffs:
 
 - **Disable** (`active: false`) via `posthog:update-feature-flag`: The flag stops being evaluated but the configuration is preserved. If something was missed in the code cleanup, re-enabling is instant. Recommended as the default.
 - **Delete** via `posthog:delete-feature-flag`: A soft-delete — the flag is marked as deleted but not physically removed. Keeps the flag list clean, but re-enabling requires recreating the flag. Better for flags the user is confident they'll never need again.
+
+Once the user has chosen and confirms their code changes are deployed, apply the chosen action one flag at a time. Confirm each action so it's easy to stop if something goes wrong.
 
 ## Example interaction
 
@@ -165,10 +165,12 @@ Agent steps:
    After cleanup, remove any dead code branches and unused imports.
    ---
 
-   Once you've cleaned up your code and deployed, let me know
-   and I'll disable these flags in PostHog."
+   Once you've cleaned up your code and deployed, let me know.
+   Would you like to disable or delete these flags?
+   - Disable (recommended): keeps the config, re-enabling is instant
+   - Delete: removes from the list, but you'd need to recreate if needed"
 
-- User confirms code is deployed: "Done, code is deployed"
+- User confirms: "Disable them, code is deployed"
 - Disable each flag using posthog:update-feature-flag (active: false)
 - Confirm: "Both flags are now disabled in PostHog."
 ```
