@@ -176,9 +176,11 @@ export class MCP extends McpAgent<Env> {
     }
 
     async api(): Promise<ApiClient> {
-        // The mcp-session-id can stay the same across requests while the inbound OAuth token rotates,
-        // so we must rebuild the cached client whenever the token changes.
-        if (!this._api || this._api.config.apiToken !== this.requestProperties.apiToken) {
+        // Token rotation on warm DOs is handled by setName(), which mutates
+        // this._api.config.apiToken in place. That keeps references captured
+        // during init() — e.g. the `context.api` passed to every tool handler
+        // in getContext() — seeing the latest token on subsequent fetches.
+        if (!this._api) {
             const baseUrl = await this.getBaseUrl()
             await this.resolveClientInfo()
             this._api = new ApiClient({
@@ -192,6 +194,45 @@ export class MCP extends McpAgent<Env> {
         }
 
         return this._api
+    }
+
+    /**
+     * partyserver's `setName` only re-runs `onStart` (and therefore
+     * `updateProps`) on cold-start DOs. On warm DOs it updates the private
+     * `#_props` and returns early, leaving our cached `_api.config.apiToken`
+     * stale across token rotations for the same `mcp-session-id`. Rotate
+     * just the cached token here — leave `this.props` and storage alone.
+     */
+    async setName(name: string, props?: RequestProperties): Promise<void> {
+        this.rotateCachedApiToken(props?.apiToken)
+        await super.setName(name, props)
+    }
+
+    /**
+     * Called by the `agents` SDK on cold start / hibernation wake to persist
+     * and hydrate props. Apply the token + `this.props` synchronously BEFORE
+     * awaiting storage: the SDK fires `updateProps` without awaiting and then
+     * calls `fetch()`, so yielding first would let a tool handler read stale
+     * state off `context.api.config.apiToken`.
+     */
+    async updateProps(props?: RequestProperties): Promise<void> {
+        this.props = props as RequestProperties
+        this.rotateCachedApiToken(props?.apiToken)
+        await super.updateProps(props)
+    }
+
+    /**
+     * Rotate the cached ApiClient's auth token in place. Tool handlers read
+     * the token off `context.api.config.apiToken` — the captured ApiClient
+     * from init() — so replacing the instance would leave those references
+     * stale. Mutating in place keeps them pointing at the latest token.
+     * No-op when there's no cached client, no incoming token, or the token
+     * already matches.
+     */
+    private rotateCachedApiToken(apiToken: string | undefined): void {
+        if (this._api && apiToken && this._api.config.apiToken !== apiToken) {
+            this._api.config.apiToken = apiToken
+        }
     }
 
     async getDistinctId(): Promise<string> {

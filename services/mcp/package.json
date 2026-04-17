@@ -38,7 +38,7 @@
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@posthog/mosaic": "workspace:*",
         "@toon-format/toon": "^2.1.0",
-        "agents": "^0.3.6",
+        "agents": "0.10.2",
         "ai": "^6.0.0",
         "fflate": "^0.8.2",
         "mcpcat": "0.1.15",

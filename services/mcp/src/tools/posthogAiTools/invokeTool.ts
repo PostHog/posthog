@@ -22,10 +22,12 @@ export async function invokeMcpTool(
 
     const url = `${context.api.baseUrl}/api/environments/${projectId}/mcp_tools/${toolName}/`
 
+    const token = context.api.config.apiToken
+
     const response = await fetch(url, {
         method: 'POST',
         headers: {
-            Authorization: `Bearer ${context.api.config.apiToken}`,
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({ args }),
