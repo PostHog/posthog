@@ -312,7 +312,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
             pass  # Keep existing name if new one is invalid
 
     app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    app.logo_uri = metadata.get("logo_uri") if metadata.get("logo_uri") is not None else app.logo_uri
+    app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
     try:
