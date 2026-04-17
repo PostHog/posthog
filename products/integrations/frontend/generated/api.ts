@@ -112,12 +112,16 @@ Creation is handled by the integration installation flows
 (e.g., Vercel marketplace installation). Users can disconnect integrations
 via the DELETE endpoint.
  */
-export const getIntegrationsDestroyUrl = (organizationId: string, id: string) => {
+export const getOrganizationIntegrationsDestroyUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/`
 }
 
-export const integrationsDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDestroyUrl(organizationId, id), {
+export const organizationIntegrationsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getOrganizationIntegrationsDestroyUrl(organizationId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -213,12 +217,12 @@ export const integrationsRetrieve2 = async (
     })
 }
 
-export const getIntegrationsDestroy2Url = (projectId: string, id: number) => {
+export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsDestroy2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDestroy2Url(projectId, id), {
+export const integrationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
