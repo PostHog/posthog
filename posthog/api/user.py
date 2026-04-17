@@ -249,14 +249,19 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
     def get_pending_invites(self, instance: User) -> list[dict]:
-        """Non-expired organization invites matching the user's email for orgs they aren't already in."""
+        """Non-expired organization invites matching the user's email for orgs they aren't already in.
+
+        Only returned when the serialized user is the requesting user — staff retrieving
+        another account should not see that user's private invites.
+        """
         from django.utils import timezone as django_timezone
 
         from posthog.constants import INVITE_DAYS_VALIDITY
         from posthog.helpers.email_utils import EmailNormalizer
         from posthog.models import OrganizationInvite, OrganizationMembership
 
-        if not instance.email:
+        request = self.context.get("request")
+        if not request or request.user.id != instance.id or not instance.email:
             return []
 
         normalized_email = EmailNormalizer.normalize(instance.email)
