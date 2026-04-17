@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonTable, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumn } from '@posthog/lemon-ui'
 
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
@@ -10,8 +10,39 @@ import { formatDate } from 'lib/utils'
 
 import type { AlertCheck, AlertType } from '../types'
 
+function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
+    const status = check.investigation_status
+    const shortId = check.investigation_notebook_short_id
+    if (status === 'done' && shortId) {
+        return <Link to={`/notebooks/${shortId}`}>View notebook</Link>
+    }
+    if (status === 'running' || status === 'pending') {
+        return (
+            <span className="inline-flex items-center gap-1 text-secondary">
+                <Spinner textColored /> Running
+            </span>
+        )
+    }
+    if (status === 'failed') {
+        return (
+            <Tooltip title="The investigation agent could not complete. See server logs for details.">
+                <span className="text-danger">Failed</span>
+            </Tooltip>
+        )
+    }
+    if (status === 'skipped') {
+        return (
+            <Tooltip title="Skipped because another investigation ran for this alert within the last hour.">
+                <span className="text-secondary">Skipped</span>
+            </Tooltip>
+        )
+    }
+    return <span className="text-secondary">—</span>
+}
+
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
     const isAnomalyDetection = !!alert.detector_config
+    const investigationAgentEnabled = isAnomalyDetection && !!alert.investigation_agent_enabled
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
@@ -44,6 +75,13 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
                 },
             })
         }
+        if (investigationAgentEnabled) {
+            columns.push({
+                title: 'Investigation',
+                align: 'right',
+                render: (_value, check) => <InvestigationCell check={check} />,
+            })
+        }
         columns.push({
             title: 'Targets notified',
             key: 'targets_notified',
@@ -51,7 +89,7 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
             render: (_value, check) => (check.targets_notified ? 'Yes' : 'No'),
         })
         return columns
-    }, [isAnomalyDetection])
+    }, [isAnomalyDetection, investigationAgentEnabled])
 
     if (!alert.checks || alert.checks.length === 0) {
         return null

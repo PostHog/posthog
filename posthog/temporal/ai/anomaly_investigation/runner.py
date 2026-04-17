@@ -1,0 +1,202 @@
+"""Single-pass anomaly investigation agent loop.
+
+Kept small on purpose: we don't need LangGraph's conditional routing or the
+streaming machinery from Max — just a tool-calling loop that terminates with a
+structured report.
+
+Budget: at most MAX_TOOL_CALLS tool invocations. After that the agent is told
+to finalize with what it has. The loop exits either on a final assistant
+message with no tool calls, or on budget exhaustion.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
+
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+
+from posthog.models import Team, User
+from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
+from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
+from posthog.temporal.ai.anomaly_investigation.tools import (
+    InvestigationToolkit,
+    RecentEventsArgs,
+    RunHogQLQueryArgs,
+    TopBreakdownArgs,
+)
+
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_CALLS = 10
+AGENT_MODEL = "claude-sonnet-4-5"
+
+
+ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
+
+
+@dataclass
+class InvestigationRunResult:
+    report: InvestigationReport
+    tool_calls_used: int
+    model: str
+
+
+async def run_investigation(
+    *,
+    team: Team,
+    user: User,
+    anomaly_context: str,
+    heartbeat: Callable[[], None] | None = None,
+) -> InvestigationRunResult:
+    """Drive the agent loop to completion and return the structured report.
+
+    `heartbeat` is an optional callable invoked once per iteration so the
+    enclosing Temporal activity stays alive during long LLM calls.
+    """
+    # Imported here so the workflow module does not require the ee package at import time
+    # (Temporal workflow sandbox restrictions).
+    from ee.hogai.llm import MaxChatAnthropic
+
+    toolkit = InvestigationToolkit(team=team)
+    handlers: dict[str, ToolHandler] = {
+        "run_hogql_query": lambda raw: toolkit.run_hogql_query(RunHogQLQueryArgs.model_validate(raw)),
+        "top_breakdowns": lambda raw: toolkit.top_breakdowns(TopBreakdownArgs.model_validate(raw)),
+        "recent_events": lambda raw: toolkit.recent_events(RecentEventsArgs.model_validate(raw)),
+    }
+
+    tools_spec = [
+        {
+            "name": "run_hogql_query",
+            "description": "Run a read-only HogQL SELECT query against the team's event data. Use sparingly and keep queries narrow.",
+            "args_schema": RunHogQLQueryArgs,
+        },
+        {
+            "name": "top_breakdowns",
+            "description": "Fetch the top values of a property for an event in a time window.",
+            "args_schema": TopBreakdownArgs,
+        },
+        {
+            "name": "recent_events",
+            "description": "Fetch a handful of recent events in a time window, optionally filtered by event name.",
+            "args_schema": RecentEventsArgs,
+        },
+    ]
+
+    llm = MaxChatAnthropic(
+        model=AGENT_MODEL,
+        team=team,
+        user=user,
+        billable=True,
+        inject_context=True,
+        max_retries=2,
+        temperature=0,
+    )
+    llm_with_tools = llm.bind_tools(
+        [{"name": t["name"], "description": t["description"], "args_schema": t["args_schema"]} for t in tools_spec]
+    )
+
+    messages: list[Any] = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content=anomaly_context),
+    ]
+
+    tool_calls_used = 0
+
+    for _ in range(MAX_TOOL_CALLS + 1):
+        if heartbeat is not None:
+            heartbeat()
+
+        response = await llm_with_tools.ainvoke(messages)
+        messages.append(response)
+
+        tool_calls = getattr(response, "tool_calls", None) or []
+        if not tool_calls:
+            break
+
+        if tool_calls_used >= MAX_TOOL_CALLS:
+            messages.append(
+                HumanMessage(
+                    content=(
+                        "Tool call budget exhausted. Emit the final InvestigationReport JSON "
+                        "now using whatever evidence you have."
+                    )
+                )
+            )
+            # One more turn so the model can produce the final message.
+            if heartbeat is not None:
+                heartbeat()
+            final = await llm.ainvoke(messages)
+            messages.append(final)
+            response = final
+            break
+
+        for call in tool_calls:
+            tool_calls_used += 1
+            name = call.get("name")
+            args = call.get("args") or {}
+            tool_call_id = call.get("id") or call.get("tool_call_id") or ""
+            handler = handlers.get(name)
+            if handler is None:
+                content = f"Unknown tool: {name}"
+            else:
+                try:
+                    content = await handler(args)
+                except Exception as err:
+                    logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
+                    content = f"Tool {name} failed: {err}"
+            messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
+
+    final_message = messages[-1]
+    report = _parse_report(getattr(final_message, "content", ""))
+    report.tool_calls_used = tool_calls_used
+    return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+
+
+def _parse_report(content: Any) -> InvestigationReport:
+    text = _stringify(content).strip()
+    if not text:
+        return _fallback_report("Agent returned no final message.")
+    # Try direct JSON; else find first/last brace.
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+            return InvestigationReport.model_validate(parsed)
+        except (ValueError, TypeError):
+            continue
+    return _fallback_report("Agent final message was not valid InvestigationReport JSON.")
+
+
+def _json_candidates(text: str) -> list[str]:
+    candidates: list[str] = [text]
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last > first:
+        candidates.append(text[first : last + 1])
+    return candidates
+
+
+def _stringify(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text" and "text" in item:
+                chunks.append(item["text"])
+            elif isinstance(item, str):
+                chunks.append(item)
+        return "".join(chunks)
+    return str(content)
+
+
+def _fallback_report(reason: str) -> InvestigationReport:
+    return InvestigationReport(
+        verdict="inconclusive",
+        summary=reason,
+        hypotheses=[],
+        recommendations=["Review the insight manually — the agent could not produce a structured report."],
+    )

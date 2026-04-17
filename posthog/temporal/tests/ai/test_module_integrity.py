@@ -23,6 +23,7 @@ class TestAITemporalModuleIntegrity:
             "SlackConversationRunnerWorkflow",
             "PostHogCodeSlackMentionWorkflow",
             "PostHogCodeSlackTerminateTaskWorkflow",
+            "AnomalyInvestigationWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -62,6 +63,7 @@ class TestAITemporalModuleIntegrity:
             "post_posthog_code_picker_timeout_activity",
             "post_posthog_code_internal_error_activity",
             "process_posthog_code_terminate_task_activity",
+            "investigate_anomaly_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

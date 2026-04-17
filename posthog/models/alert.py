@@ -27,6 +27,14 @@ ALERT_STATE_CHOICES = [
 ]
 
 
+class InvestigationStatus(models.TextChoices):
+    PENDING = "pending", "pending"
+    RUNNING = "running", "running"
+    DONE = "done", "done"
+    FAILED = "failed", "failed"
+    SKIPPED = "skipped", "skipped"
+
+
 def derive_detector_event_fields(detector_config: dict | None) -> dict:
     """Shared derivation of alert_mode/detector_type/ensemble_operator from a detector config.
 
@@ -131,6 +139,11 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+
+    # When enabled and the alert transitions to FIRING, an investigation agent runs
+    # and writes its findings to a linked Notebook. Only effective for detector-based
+    # (anomaly) alerts. See posthog/tasks/alerts/checks.py for the trigger logic.
+    investigation_agent_enabled = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
@@ -260,6 +273,19 @@ class AlertCheck(UUIDTModel):
     triggered_metadata = models.JSONField(
         null=True, blank=True
     )  # Additional trigger context (e.g. series_index, breakdown_value)
+
+    # Investigation agent linkage — populated when the alert transitions to FIRING and
+    # investigation_agent_enabled is true. Lives on the check record so the notebook is
+    # surfaced inline with the specific firing event it investigated.
+    investigation_status = models.CharField(max_length=10, choices=InvestigationStatus.choices, null=True, blank=True)
+    investigation_notebook = models.ForeignKey(
+        "notebooks.Notebook",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    investigation_error = models.JSONField(null=True, blank=True)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

@@ -161,6 +161,7 @@ export function EditAlertModal({
     const anomalyDetectionEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_ANOMALY_DETECTION]
     const inlineNotificationsEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS]
     const quietHoursEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_QUIET_HOURS]
+    const investigationAgentEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_INVESTIGATION_AGENT]
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -476,6 +477,31 @@ export function EditAlertModal({
                                             calculationInterval={alertForm.calculation_interval}
                                         />
                                     )}
+
+                                    {alertMode === 'detector' &&
+                                        alertForm.detector_config &&
+                                        investigationAgentEnabled && (
+                                            <div className="flex gap-3 items-start p-3 border rounded bg-surface-secondary">
+                                                <LemonCheckbox
+                                                    data-attr="alertForm-investigation-agent-enabled"
+                                                    checked={!!alertForm.investigation_agent_enabled}
+                                                    onChange={(checked) =>
+                                                        setAlertFormValue('investigation_agent_enabled', checked)
+                                                    }
+                                                />
+                                                <div className="flex-1">
+                                                    <div className="font-semibold">
+                                                        Run investigation agent when this alert fires
+                                                    </div>
+                                                    <div className="text-sm text-secondary">
+                                                        When the alert transitions to firing, an agent validates the
+                                                        anomaly, investigates likely causes using read-only queries, and
+                                                        writes its findings to a notebook linked from the alert history.
+                                                        Runs once per transition.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
 
                                     {alertMode === 'detector' && alertForm.detector_config && (
                                         <div className="deprecated-space-y-2">

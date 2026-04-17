@@ -64,6 +64,7 @@ export interface AlertTypeBase {
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
     detector_config?: DetectorConfig | null
+    investigation_agent_enabled?: boolean
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -71,7 +72,10 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     insight: number
     snoozed_until?: string | null
     detector_config?: DetectorConfig | null
+    investigation_agent_enabled?: boolean
 }
+
+export type InvestigationStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
 
 export interface AlertCheck {
     id: string
@@ -84,6 +88,8 @@ export interface AlertCheck {
     triggered_dates?: string[] | null
     interval?: string | null
     triggered_metadata?: Record<string, unknown> | null
+    investigation_status?: InvestigationStatus | null
+    investigation_notebook_short_id?: string | null
 }
 
 export interface AlertType extends AlertTypeBase {

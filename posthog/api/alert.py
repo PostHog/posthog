@@ -95,6 +95,9 @@ class ThresholdSerializer(serializers.ModelSerializer):
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
+    investigation_notebook_short_id = serializers.SerializerMethodField(
+        help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
+    )
 
     class Meta:
         model = AlertCheck
@@ -109,11 +112,18 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "triggered_dates",
             "interval",
             "triggered_metadata",
+            "investigation_status",
+            "investigation_notebook_short_id",
         ]
         read_only_fields = fields
 
     def get_targets_notified(self, instance: AlertCheck) -> bool:
         return instance.targets_notified != {}
+
+    def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
+        if instance.investigation_notebook_id is None:
+            return None
+        return instance.investigation_notebook.short_id
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -210,6 +220,10 @@ class AlertSerializer(serializers.ModelSerializer):
         help_text="Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): "
         "start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.",
     )
+    investigation_agent_enabled = serializers.BooleanField(
+        required=False,
+        help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+    )
     state = serializers.CharField(
         read_only=True,
         help_text="Current alert state: Firing, Not firing, Errored, or Snoozed.",
@@ -244,6 +258,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "skip_weekend",
             "schedule_restriction",
             "last_value",
+            "investigation_agent_enabled",
         ]
         read_only_fields = [
             "id",
@@ -475,6 +490,25 @@ class AlertSerializer(serializers.ModelSerializer):
             validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         except ValueError as e:
             raise ValidationError(str(e))
+
+        # Investigation agent is only supported for detector-based alerts.
+        investigation_enabled = attrs.get(
+            "investigation_agent_enabled",
+            self.instance.investigation_agent_enabled if self.instance else False,
+        )
+        if investigation_enabled:
+            detector_config = attrs.get(
+                "detector_config",
+                self.instance.detector_config if self.instance else None,
+            )
+            if not detector_config:
+                raise ValidationError(
+                    {
+                        "investigation_agent_enabled": [
+                            "Investigation agent is only supported for anomaly detection alerts."
+                        ]
+                    }
+                )
 
         # only validate alert count when creating a new alert
         if self.context["request"].method != "POST":

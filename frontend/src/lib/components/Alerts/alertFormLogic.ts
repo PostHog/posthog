@@ -37,6 +37,7 @@ export type AlertFormType = Pick<
     | 'skip_weekend'
     | 'schedule_restriction'
     | 'detector_config'
+    | 'investigation_agent_enabled'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -181,6 +182,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     skip_weekend: false,
                     schedule_restriction: null,
                     detector_config: null,
+                    investigation_agent_enabled: false,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: (alert: AlertType | AlertFormType) =>
@@ -204,6 +206,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                     detector_config: alert.detector_config ?? null,
+                    // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
+                    investigation_agent_enabled: alert.detector_config
+                        ? (alert.investigation_agent_enabled ?? false)
+                        : false,
                     schedule_restriction:
                         (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
                             ? alert.schedule_restriction

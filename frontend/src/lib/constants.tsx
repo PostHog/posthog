@@ -230,6 +230,7 @@ export const FEATURE_FLAGS = {
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
+    ALERTS_INVESTIGATION_AGENT: 'alerts-investigation-agent', // owner: @andrewm4894, anomaly alerts — investigation agent on firing
     ALERTS_QUIET_HOURS: 'alerts-quiet-hours', // owner: @mattp, #team-analytics-platform, Insight alert quiet hours (schedule restriction UI; backend field is always honored when set).
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
