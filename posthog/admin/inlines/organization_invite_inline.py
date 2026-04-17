@@ -8,7 +8,14 @@ class OrganizationInviteInline(TabularInlinePaginated):
     model = OrganizationInvite
     per_page = 20
     pagination_key = "page-invite"
-    readonly_fields = ("created_at", "updated_at", "emailing_attempt_made", "private_project_access")
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "emailing_attempt_made",
+        "private_project_access",
+        "is_guest",
+        "bypass_sso_enforcement",
+    )
     autocomplete_fields = ("organization",)
 
     can_delete = False

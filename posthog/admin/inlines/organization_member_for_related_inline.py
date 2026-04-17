@@ -75,8 +75,8 @@ class OrganizationMemberForRelatedInline(TabularInlinePaginated):
     verbose_name = "organization member"
     verbose_name_plural = "organization members"
 
-    fields = ("user_link", "role", "joined_at")
-    readonly_fields = ("user_link", "role", "joined_at")
+    fields = ("user_link", "role", "guest_badge", "joined_at")
+    readonly_fields = ("user_link", "role", "guest_badge", "joined_at")
 
     can_delete = False
     max_num = 0
@@ -89,6 +89,10 @@ class OrganizationMemberForRelatedInline(TabularInlinePaginated):
     @admin.display(description="Role")
     def role(self, membership: OrganizationMembership) -> str:
         return membership.get_level_display()
+
+    @admin.display(description="Guest", boolean=True)
+    def guest_badge(self, membership: OrganizationMembership) -> bool:
+        return membership.is_guest
 
     def has_add_permission(self, request, obj=None):
         return False
