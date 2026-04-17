@@ -457,6 +457,11 @@ export interface HogQLQueryModifiersApi {
     s3TableUseInvalidColumns?: boolean | null
     /** @nullable */
     sessionBufferDays?: number | null
+    /**
+     * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
+     * @nullable
+     */
+    sessionIdPushdown?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -9264,7 +9269,11 @@ export interface ChartSettingsApi {
     /** @nullable */
     showNullsAsZero?: boolean | null
     /** @nullable */
+    showPieTotal?: boolean | null
+    /** @nullable */
     showTotalRow?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
     /** @nullable */
     showXAxisBorder?: boolean | null
     /** @nullable */
