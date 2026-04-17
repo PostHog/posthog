@@ -102,6 +102,16 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
         fields = ["scene", "dashboard"]
 
 
+class PendingInviteSerializer(serializers.Serializer):
+    """Shape of each item in the GET /api/users/@me/pending_invites/ response."""
+
+    id = serializers.CharField()
+    target_email = serializers.EmailField()
+    organization_id = serializers.CharField()
+    organization_name = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -563,6 +573,7 @@ class UserViewSet(
         user = self.get_object()
         return Response({"github_login": user.get_github_login()})
 
+    @extend_schema(responses={200: PendingInviteSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="pending_invites")
     def pending_invites(self, request, **kwargs):
         """List pending organization invites for the current user, matched by email.
