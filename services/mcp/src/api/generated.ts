@@ -1689,11 +1689,8 @@ export namespace Schemas {
       propertyGroupsMode?: PropertyGroupsMode | null;
       /** @nullable */
       s3TableUseInvalidColumns?: boolean | null;
-      /**
-       * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
-       * @nullable
-       */
-      sessionIdPushdown?: boolean | null;
+      /** @nullable */
+      sessionBufferDays?: number | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -7517,11 +7514,7 @@ export namespace Schemas {
       /** @nullable */
       showNullsAsZero?: boolean | null;
       /** @nullable */
-      showPieTotal?: boolean | null;
-      /** @nullable */
       showTotalRow?: boolean | null;
-      /** @nullable */
-      showValuesOnSeries?: boolean | null;
       /** @nullable */
       showXAxisBorder?: boolean | null;
       /** @nullable */
@@ -14412,42 +14405,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    /**
-     * * `user` - user
-    * `role` - role
-     */
-    export type ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum = typeof ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum[keyof typeof ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum];
-
-
-    export const ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum = {
-      User: 'user',
-      Role: 'role',
-    } as const;
-
-    export interface ErrorTrackingAssignmentRuleAssigneeRequest {
-      /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
-
-    * `user` - user
-    * `role` - role */
-      type: ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum;
-      /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
-      id: number | string;
-    }
-
-    export interface ErrorTrackingAssignmentRuleCreateRequest {
-      /** Property-group filters that define when this rule matches incoming error events. */
-      filters: PropertyGroupFilterValue;
-      /** User or role to assign matching issues to. */
-      assignee: ErrorTrackingAssignmentRuleAssigneeRequest;
-    }
-
-    export interface ErrorTrackingAssignmentRuleUpdateRequest {
-      /** Property-group filters that define when this rule matches incoming error events. */
-      filters?: PropertyGroupFilterValue | null;
-      /** User or role to assign matching issues to. */
-      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
-    }
-
     export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
 
 
@@ -16018,8 +15975,7 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine: EngineEnum | NullEnum | null;
-      /** @nullable */
-      readonly last_run_at: string | null;
+      readonly last_run_at: string;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
@@ -20623,7 +20579,6 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
     * `eval_clusters` - Eval Clusters
     * `user_created` - User Created
-    * `automation` - Automation
     * `slack` - Slack
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
@@ -20636,7 +20591,6 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
-      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -22830,48 +22784,6 @@ export namespace Schemas {
       results: TaggedItem[];
     }
 
-    export interface TaskAutomation {
-      readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      prompt: string;
-      /** @maxLength 255 */
-      repository: string;
-      /** @nullable */
-      github_integration?: number | null;
-      /** @maxLength 100 */
-      cron_expression: string;
-      /** @maxLength 128 */
-      timezone?: string;
-      /**
-       * @maxLength 255
-       * @nullable
-       */
-      template_id?: string | null;
-      enabled?: boolean;
-      /** @nullable */
-      readonly last_run_at: string | null;
-      /** @nullable */
-      readonly last_run_status: string | null;
-      /** @nullable */
-      readonly last_task_id: string | null;
-      /** @nullable */
-      readonly last_task_run_id: string | null;
-      /** @nullable */
-      readonly last_error: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedTaskAutomationList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskAutomation[];
-    }
-
     export interface PaginatedTaskList {
       count: number;
       /** @nullable */
@@ -24611,13 +24523,6 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
-    export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
-      /** Property-group filters that define when this rule matches incoming error events. */
-      filters?: PropertyGroupFilterValue | null;
-      /** User or role to assign matching issues to. */
-      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
-    }
-
     export interface PatchedErrorTrackingExternalReference {
       readonly id?: string;
       readonly integration?: ErrorTrackingExternalReferenceIntegration;
@@ -24959,8 +24864,7 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine?: EngineEnum | NullEnum | null;
-      /** @nullable */
-      readonly last_run_at?: string | null;
+      readonly last_run_at?: string;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
@@ -27192,39 +27096,6 @@ export namespace Schemas {
        * @nullable
        */
       ci_prompt?: string | null;
-    }
-
-    export interface PatchedTaskAutomation {
-      readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      prompt?: string;
-      /** @maxLength 255 */
-      repository?: string;
-      /** @nullable */
-      github_integration?: number | null;
-      /** @maxLength 100 */
-      cron_expression?: string;
-      /** @maxLength 128 */
-      timezone?: string;
-      /**
-       * @maxLength 255
-       * @nullable
-       */
-      template_id?: string | null;
-      enabled?: boolean;
-      /** @nullable */
-      readonly last_run_at?: string | null;
-      /** @nullable */
-      readonly last_run_status?: string | null;
-      /** @nullable */
-      readonly last_task_id?: string | null;
-      /** @nullable */
-      readonly last_task_run_id?: string | null;
-      /** @nullable */
-      readonly last_error?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -38132,17 +38003,6 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */
