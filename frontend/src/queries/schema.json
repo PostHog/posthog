@@ -8723,7 +8723,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -30273,7 +30273,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "boxplot_data": {
-                            "description": "Box plot data when display type is BoxPlot",
+                            "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
                                 "$ref": "#/definitions/BoxPlotDatum"
                             },
@@ -35201,7 +35201,7 @@
                     "$ref": "#/definitions/StickinessOperator"
                 },
                 "value": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 }
             },
             "required": ["operator", "value"],
@@ -35330,7 +35330,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1."
                 },
                 "kind": {
@@ -37083,7 +37083,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -39693,6 +39693,10 @@
                 }
             },
             "type": "object"
+        },
+        "positive_integer": {
+            "minimum": 1,
+            "type": "integer"
         }
     }
 }

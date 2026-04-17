@@ -60,6 +60,7 @@ import {
     AvailableFeature,
     BaseMathType,
     Breadcrumb,
+    BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
     InsightLogicProps,
@@ -78,6 +79,7 @@ import {
 
 import {
     ActiveHoursTab,
+    BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
     DeviceType,
@@ -210,6 +212,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
+        setBotTrendsTab: (tab: string) => ({ tab }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -423,6 +427,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 clearFilters: () => false,
             },
         ],
+        botTrafficFilter: [
+            'regular' as BotTrafficFilter,
+            persistConfig,
+            {
+                setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
+                clearFilters: () => 'regular' as BotTrafficFilter,
+            },
+        ],
+        _botTrendsTab: [
+            null as string | null,
+            persistConfig,
+            {
+                setBotTrendsTab: (_, { tab }) => tab,
+            },
+        ],
         shouldStripQueryParams: [
             false as boolean,
             persistConfig,
@@ -602,14 +621,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.selectedHost, s.deviceTypeFilter],
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.isPathCleaningEnabled,
+                s.selectedHost,
+                s.deviceTypeFilter,
+                s.botTrafficFilter,
+                s.featureFlags,
+            ],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 selectedHost: string | null,
-                deviceTypeFilter: DeviceType | null
+                deviceTypeFilter: DeviceType | null,
+                botTrafficFilter: BotTrafficFilter,
+                featureFlags: Record<string, boolean | string | undefined>
             ) => {
                 let filters = rawWebAnalyticsFilters
+
+                // Add bot traffic filter (only when feature flag is enabled)
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+                    if (botTrafficFilter === 'regular') {
+                        filters = [
+                            ...filters,
+                            {
+                                key: '$virt_is_bot',
+                                value: ['false'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]
+                    } else if (botTrafficFilter === 'bot') {
+                        filters = [
+                            ...filters,
+                            {
+                                key: '$virt_is_bot',
+                                value: ['true'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]
+                    }
+                }
 
                 if (selectedHost) {
                     filters = [
@@ -673,6 +726,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return filters
             },
         ],
+        botTrendsTab: [(s) => [s._botTrendsTab], (botTrendsTab: string | null) => botTrendsTab || 'crawler'],
         tabs: [
             (s) => [
                 s.graphsTab,
@@ -872,6 +926,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
                 s.hiddenTiles,
+                s.botTrendsTab,
             ],
             (
                 productTab,
@@ -891,7 +946,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 tileVisualizations,
                 preAggregatedEnabled,
-                hiddenTiles
+                hiddenTiles,
+                botTrendsTab
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -2207,6 +2263,255 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                 ]
+
+                // Bot analytics tab — dedicated tiles for bot traffic analysis
+                if (productTab === ProductTab.BOT_ANALYTICS) {
+                    // Force bot traffic filter regardless of the global toggle
+                    const botFilters: WebAnalyticsPropertyFilters = [
+                        ...webAnalyticsFilters.filter((f) => 'key' in f && f.key !== '$virt_is_bot'),
+                        {
+                            key: '$virt_is_bot',
+                            value: ['true'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
+
+                    const AI_REFERRER_DOMAINS = [
+                        'chatgpt.com',
+                        'openai.com',
+                        'perplexity.ai',
+                        'claude.ai',
+                        'anthropic.com',
+                        'you.com',
+                        'phind.com',
+                        'gemini.google.com',
+                    ]
+
+                    const botTiles: (WebAnalyticsTile | null)[] = [
+                        {
+                            kind: 'query',
+                            tileId: TileId.BOT_OVERVIEW,
+                            title: 'Bot traffic overview',
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                            },
+                            query: {
+                                kind: NodeKind.WebOverviewQuery,
+                                properties: botFilters,
+                                dateRange,
+                                compareFilter,
+                                sampling,
+                                filterTestAccounts,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            },
+                            insightProps: createInsightProps(TileId.BOT_OVERVIEW),
+                            canOpenInsight: false,
+                        },
+                        (() => {
+                            const botTrendsSeries = [
+                                {
+                                    event: '$pageview',
+                                    kind: NodeKind.EventsNode as const,
+                                    math: BaseMathType.TotalCount,
+                                    name: 'Pageview',
+                                    custom_name: 'Requests',
+                                },
+                            ]
+                            const createBotTrendsTab = (
+                                id: string,
+                                title: string,
+                                breakdown: string,
+                                breakdownType: BreakdownType
+                            ): TabsTileTab => ({
+                                id,
+                                title,
+                                linkText: title,
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval,
+                                        series: botTrendsSeries,
+                                        trendsFilter: {
+                                            display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        breakdownFilter: {
+                                            breakdown,
+                                            breakdown_type: breakdownType,
+                                        },
+                                        properties: botFilters,
+                                        filterTestAccounts,
+                                        compareFilter,
+                                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                    },
+                                    hidePersonsModal: true,
+                                    embedded: true,
+                                },
+                                insightProps: createInsightProps(TileId.BOT_TRENDS, id),
+                                canOpenInsight: true,
+                            })
+                            return {
+                                kind: 'tabs' as const,
+                                tileId: TileId.BOT_TRENDS,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full' as const,
+                                },
+                                activeTabId: botTrendsTab,
+                                setTabId: actions.setBotTrendsTab,
+                                tabs: [
+                                    createBotTrendsTab('crawler', 'Crawler', '$virt_bot_name', 'event'),
+                                    createBotTrendsTab('category', 'Category', '$virt_traffic_category', 'event'),
+                                    createBotTrendsTab('host', 'Host', '$host', 'event'),
+                                ],
+                            }
+                        })(),
+                        {
+                            kind: 'query',
+                            tileId: TileId.BOT_PATHS,
+                            title: 'Most crawled paths',
+                            layout: {
+                                colSpanClassName: 'md:col-span-1',
+                            },
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebStatsTableQuery,
+                                    breakdownBy: WebStatsBreakdown.Page,
+                                    properties: botFilters,
+                                    dateRange,
+                                    compareFilter,
+                                    sampling,
+                                    limit: 10,
+                                    orderBy: tablesOrderBy ?? undefined,
+                                    filterTestAccounts,
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                embedded: true,
+                                showActions: true,
+                            },
+                            insightProps: createInsightProps(TileId.BOT_PATHS, 'table'),
+                            canOpenModal: true,
+                            canOpenInsight: true,
+                        },
+                        {
+                            kind: 'query',
+                            tileId: TileId.BOT_SOURCES,
+                            title: 'Bot referrer domains',
+                            layout: {
+                                colSpanClassName: 'md:col-span-1',
+                            },
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebStatsTableQuery,
+                                    breakdownBy: WebStatsBreakdown.InitialReferringDomain,
+                                    properties: botFilters,
+                                    dateRange,
+                                    compareFilter,
+                                    sampling,
+                                    limit: 10,
+                                    orderBy: tablesOrderBy ?? undefined,
+                                    filterTestAccounts,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                embedded: true,
+                                showActions: true,
+                            },
+                            insightProps: createInsightProps(TileId.BOT_SOURCES, 'table'),
+                            canOpenModal: true,
+                            canOpenInsight: true,
+                        },
+                        {
+                            kind: 'query',
+                            tileId: TileId.BOT_AI_REFERRALS,
+                            title: 'AI referral traffic',
+                            layout: {
+                                colSpanClassName: 'md:col-span-1',
+                            },
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebStatsTableQuery,
+                                    breakdownBy: WebStatsBreakdown.InitialReferringDomain,
+                                    properties: [
+                                        {
+                                            key: '$initial_referring_domain',
+                                            value: AI_REFERRER_DOMAINS,
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Session,
+                                        },
+                                    ],
+                                    dateRange,
+                                    compareFilter,
+                                    sampling,
+                                    limit: 10,
+                                    filterTestAccounts,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                embedded: true,
+                                showActions: true,
+                            },
+                            insightProps: createInsightProps(TileId.BOT_AI_REFERRALS, 'table'),
+                            canOpenModal: true,
+                            canOpenInsight: true,
+                        },
+                        {
+                            kind: 'query',
+                            tileId: TileId.BOT_AI_ENGAGEMENT,
+                            title: 'AI referral engagement',
+                            layout: {
+                                colSpanClassName: 'md:col-span-1',
+                            },
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange,
+                                    interval,
+                                    series: [
+                                        {
+                                            event: '$pageview',
+                                            kind: NodeKind.EventsNode,
+                                            math: BaseMathType.UniqueUsers,
+                                            name: 'Pageview',
+                                            custom_name: 'AI-referred visitors',
+                                        },
+                                    ],
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsLineGraph,
+                                    },
+                                    breakdownFilter: {
+                                        breakdown: '$initial_referring_domain',
+                                        breakdown_type: 'session',
+                                    },
+                                    properties: [
+                                        {
+                                            key: '$initial_referring_domain',
+                                            value: AI_REFERRER_DOMAINS,
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Session,
+                                        },
+                                    ],
+                                    filterTestAccounts,
+                                    compareFilter,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                hidePersonsModal: true,
+                                embedded: true,
+                            },
+                            insightProps: createInsightProps(TileId.BOT_AI_ENGAGEMENT),
+                            canOpenInsight: true,
+                        },
+                    ]
+                    return botTiles.filter(isNotNil)
+                }
+
                 return allTiles
                     .filter(isNotNil)
                     .filter((tile) =>
@@ -2328,6 +2633,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
+            } else if (productTab === ProductTab.BOT_ANALYTICS) {
+                basePath = '/web/bot-analytics'
             }
 
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2389,8 +2696,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.PAGE_REPORTS,
                     ProductTab.HEALTH,
                     ProductTab.LIVE,
+                    ProductTab.BOT_ANALYTICS,
                 ].includes(productTab)
             ) {
+                return
+            }
+
+            // Redirect away from bot analytics tab if the feature flag is disabled
+            if (
+                productTab === ProductTab.BOT_ANALYTICS &&
+                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
+            ) {
+                router.actions.replace(urls.webAnalytics())
                 return
             }
 

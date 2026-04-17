@@ -768,6 +768,66 @@ export interface FeatureFlagStatusResponseApi {
     reason: string
 }
 
+export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
+
+/**
+ * Feature flag state at a given version plus reconstruction metadata.
+ */
+export interface FeatureFlagVersionResponseApi {
+    readonly id: number
+    /** @maxLength 400 */
+    key: string
+    name?: string
+    readonly filters: FeatureFlagVersionResponseApiFilters
+    active?: boolean
+    deleted?: boolean
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    rollback_conditions?: unknown | null
+    /** @nullable */
+    performed_rollback?: boolean | null
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /** @nullable */
+    has_enriched_analytics?: boolean | null
+    /** @nullable */
+    is_remote_configuration?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    /**
+     * Last time this feature flag was called (from $feature_flag_called events)
+     * @nullable
+     */
+    last_called_at?: string | null
+    created_at?: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** False for the current version; true for reconstructed historical versions. */
+    readonly is_historical: boolean
+    /** @nullable */
+    readonly version_timestamp: string | null
+    /**
+     * User from the activity log entry that produced this version.
+     * @nullable
+     */
+    readonly modified_by: number | null
+}
+
 /**
  * * `add` - add
  * `remove` - remove
