@@ -279,7 +279,7 @@ const errorTrackingSuppressionRulesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedErrorTrackingSuppressionRuleList>({
             method: 'GET',
-            path: `/api/environments/${projectId}/error_tracking/suppression_rules/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/suppression_rules/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
