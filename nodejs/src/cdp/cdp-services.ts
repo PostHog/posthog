@@ -1,5 +1,3 @@
-import { Pool } from 'pg'
-
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import type { CommonConfig } from '../common/config'
@@ -14,7 +12,6 @@ import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
-import { EventSubscriptionsService } from './services/hogflows/event-subscriptions.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
@@ -46,7 +43,6 @@ export interface CdpCoreServices {
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
     recipientTokensService: RecipientTokensService
-    eventSubscriptionsService?: EventSubscriptionsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -176,24 +172,7 @@ export function createCdpCoreServices(
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
-    // Build the EventSubscriptionsService against the cyclotron-v2 database, if configured.
-    // Used by the wait_until_event handler to create subscriptions and by the cdp-events
-    // consumer to wake matched workflows.
-    let eventSubscriptionsService: EventSubscriptionsService | undefined
-    if (config.CYCLOTRON_NODE_DATABASE_URL) {
-        const subscriptionsPool = new Pool({
-            connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
-            max: 5,
-        })
-        eventSubscriptionsService = new EventSubscriptionsService(subscriptionsPool)
-    }
-
-    const hogFlowExecutor = new HogFlowExecutorService(
-        hogFlowFunctionsService,
-        recipientPreferencesService,
-        redis,
-        eventSubscriptionsService
-    )
+    const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService, redis)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         new IngestionOutputs({
@@ -232,6 +211,5 @@ export function createCdpCoreServices(
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,
         recipientTokensService,
-        eventSubscriptionsService,
     }
 }

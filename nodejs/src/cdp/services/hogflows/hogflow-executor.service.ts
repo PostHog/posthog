@@ -31,7 +31,6 @@ import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilEventHandler } from './actions/wait_until_event'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { EventSubscriptionsService } from './event-subscriptions.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
     actionIdForLogging,
@@ -87,16 +86,13 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly redis: RedisV2 | null
-    private readonly eventSubscriptionsService: EventSubscriptionsService | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
-        redis?: RedisV2,
-        eventSubscriptionsService?: EventSubscriptionsService
+        redis?: RedisV2
     ) {
         this.redis = redis ?? null
-        this.eventSubscriptionsService = eventSubscriptionsService ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -110,7 +106,7 @@ export class HogFlowExecutorService {
             wait_until_condition: new ConditionalBranchHandler(),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
-            wait_until_event: new WaitUntilEventHandler(eventSubscriptionsService ?? null),
+            wait_until_event: new WaitUntilEventHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
@@ -289,22 +285,6 @@ export class HogFlowExecutorService {
             }
         }
 
-        // Event-based conversion: if the workflow has conversion events configured
-        // and the job is resuming from a park, the absence of its conversion
-        // subscriptions means the consumer deleted them on a match. We only check
-        // on re-entry (currentAction set) because on the first run no subs exist yet.
-        if (
-            !conversionMatch &&
-            hogFlow.conversion?.events?.length &&
-            this.eventSubscriptionsService &&
-            invocation.state.currentAction
-        ) {
-            const conversionSubs = await this.eventSubscriptionsService.getForJob(invocation.id, 'conversion')
-            if (conversionSubs.length === 0) {
-                conversionMatch = true
-            }
-        }
-
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
                 if (triggerMatch === false) {
@@ -413,7 +393,7 @@ export class HogFlowExecutorService {
                 }
 
                 if (handlerResult.scheduledAt) {
-                    await this.scheduleInvocation(result, handlerResult.scheduledAt)
+                    this.scheduleInvocation(result, handlerResult.scheduledAt)
                 }
 
                 if (handlerResult.nextAction) {
@@ -567,13 +547,11 @@ export class HogFlowExecutorService {
 
     /**
      * Updates the scheduledAt field on the result to indicate that the invocation should be scheduled for the future.
-     * If the workflow has event-based conversion goals configured, also creates conversion subscriptions
-     * so the cdp-events consumer can wake the job early when a conversion event arrives.
      */
-    private async scheduleInvocation(
+    private scheduleInvocation(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         scheduledAt: DateTime
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
         // If the result has scheduled for the future then we return that triggering a push back to the queue
         result.invocation.queueScheduledAt = scheduledAt
         result.finished = false
@@ -583,60 +561,7 @@ export class HogFlowExecutorService {
             message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
-        // If the workflow has event-based conversion goals, create conversion
-        // subscriptions alongside whatever step-specific subscriptions the
-        // handler already created. This lets the consumer wake the job when
-        // a conversion event arrives, and shouldExitEarly will detect it.
-        await this.createConversionSubscriptions(result.invocation, scheduledAt)
-
         return result
-    }
-
-    /**
-     * Creates conversion event subscriptions if the hogflow has conversion.events configured.
-     * Conversion subscriptions are rebuilt from scratch on every park so they do not
-     * accumulate across park/wake cycles as the workflow moves through successive steps.
-     */
-    private async createConversionSubscriptions(
-        invocation: CyclotronJobInvocationHogFlow,
-        expiresAt: DateTime
-    ): Promise<void> {
-        if (!this.eventSubscriptionsService) {
-            return
-        }
-
-        await this.eventSubscriptionsService.deleteForJob(invocation.id, 'conversion')
-
-        const conversionEvents = invocation.hogFlow.conversion?.events
-        if (!conversionEvents?.length) {
-            return
-        }
-
-        const personId = invocation.state?.personId ?? invocation.person?.id
-        if (!personId) {
-            return
-        }
-
-        const subs = conversionEvents.flatMap((eventConfig: any) => {
-            const eventNames = extractConversionEventNames(eventConfig.filters)
-            const bytecode = eventConfig.filters?.bytecode ?? eventConfig.bytecode ?? null
-            return eventNames.map((eventName: string) => ({
-                jobId: invocation.id,
-                teamId: invocation.teamId,
-                personId: String(personId),
-                hogflowId: invocation.hogFlow.id,
-                actionId: 'conversion',
-                eventName,
-                type: 'conversion' as const,
-                filters: eventConfig.filters ?? null,
-                bytecode: Array.isArray(bytecode) && bytecode.length > 0 ? bytecode : null,
-                expiresAt: expiresAt.toJSDate(),
-            }))
-        })
-
-        if (subs.length > 0) {
-            await this.eventSubscriptionsService.createMany(subs)
-        }
     }
 
     private logAction(
@@ -801,21 +726,4 @@ export class HogFlowExecutorService {
 
         return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
-}
-
-/**
- * Extract event names from conversion event filter config.
- * Same shape as the trigger/wait_until_event filters: `{ events: [{ id, name }] }`.
- */
-function extractConversionEventNames(filters: any): string[] {
-    if (!filters || typeof filters !== 'object') {
-        return []
-    }
-    const events = filters.events
-    if (!Array.isArray(events) || events.length === 0) {
-        return []
-    }
-    return events
-        .map((e: any) => (e && typeof e === 'object' ? (e.id ?? e.name ?? '') : ''))
-        .filter((name: string) => name !== '')
 }

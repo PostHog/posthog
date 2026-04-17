@@ -11,7 +11,6 @@ import { PersonRepository } from '../../worker/ingestion/persons/repositories/pe
 import { CdpCoreServicesConfig, CdpCoreServicesDeps, createCdpCoreServices } from '../cdp-services'
 import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
-import { EventSubscriptionsService } from '../services/hogflows/event-subscriptions.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -66,7 +65,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     pluginDestinationExecutorService: LegacyPluginExecutorService
     recipientPreferencesService: RecipientPreferencesService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
-    eventSubscriptionsService?: EventSubscriptionsService
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected warehouseKafkaProducer?: KafkaProducerWrapper
@@ -93,7 +91,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
-        this.eventSubscriptionsService = services.eventSubscriptionsService
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis)
