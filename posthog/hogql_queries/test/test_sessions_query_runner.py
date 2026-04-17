@@ -1237,3 +1237,18 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedSessionsQueryResponse)
             assert len(response.results) == 3
+
+    def test_default_after_is_one_hour(self):
+        # High-volume teams OOM on larger default windows because SESSION_BUFFER_DAYS
+        # further expands the raw_sessions scan. Guard against accidental widening.
+        from posthog.hogql.printer import to_printed_hogql
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(kind="SessionsQuery", select=["session_id"])
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            printed = to_printed_hogql(runner.to_query(), team=self.team)
+
+            # With no explicit `after`, the lower bound must be one hour before `now`
+            # (13:00:00), not 24h earlier. The exact printed format depends on timezone
+            # conversion; asserting the hour is enough to catch regressions.
+            assert "13:00:00" in printed
