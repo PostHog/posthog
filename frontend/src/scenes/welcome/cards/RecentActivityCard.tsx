@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { welcomeSceneLogic } from '../welcomeSceneLogic'
+import { welcomeDialogLogic } from '../welcomeDialogLogic'
 
 const ACTIVITY_VERBS: Record<string, string> = {
     Insight: 'created an insight',
@@ -20,8 +20,8 @@ function activityDescription(type: string): string {
 }
 
 export function RecentActivityCard(): JSX.Element | null {
-    const { recentActivity } = useValues(welcomeSceneLogic)
-    const { trackCardClick } = useActions(welcomeSceneLogic)
+    const { recentActivity } = useValues(welcomeDialogLogic)
+    const { trackCardClick } = useActions(welcomeDialogLogic)
 
     if (recentActivity.length === 0) {
         return null

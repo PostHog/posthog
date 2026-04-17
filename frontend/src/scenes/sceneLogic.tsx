@@ -49,7 +49,6 @@ import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
-import { welcomeSceneLogic } from './welcome/welcomeSceneLogic'
 
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
@@ -280,16 +279,6 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.oauthAuthorize(),
     '/startups',
     '/coupons',
-]
-
-const pathPrefixesWelcomeNotRequiredFor = [
-    urls.welcome(),
-    '/settings',
-    '/logout',
-    urls.organizationBilling(),
-    urls.billingAuthorizationStatus(),
-    '/instance',
-    urls.oauthAuthorize(),
 ]
 
 const DelayedLoadingSpinner = (): JSX.Element => {
@@ -1210,22 +1199,6 @@ export const sceneLogic = kea<sceneLogicType>([
                                 return
                             }
                         }
-                    } else if (
-                        // Redirect invited users who haven't seen the welcome screen yet.
-                        // Must AND-check is_organization_first_user=false so org creators still get the
-                        // setup onboarding, and must check the path allow-list to avoid a redirect loop.
-                        // dismissedLocally short-circuits the window between the dismiss POST
-                        // and the user refetch landing, otherwise we'd bounce the user back to /welcome.
-                        user.organization &&
-                        user.is_organization_first_user === false &&
-                        !user.welcome_screen_seen_at &&
-                        !welcomeSceneLogic.findMounted()?.values.dismissedLocally &&
-                        !pathPrefixesWelcomeNotRequiredFor.some((path) =>
-                            removeProjectIdIfPresent(location.pathname).startsWith(path)
-                        )
-                    ) {
-                        router.actions.replace(urls.welcome())
-                        return
                     } else if (
                         // Or redirect to onboarding in case we detect people have to do onboarding for their first project
                         user.organization?.teams.length === 1 &&

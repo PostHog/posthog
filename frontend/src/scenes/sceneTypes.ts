@@ -194,7 +194,6 @@ export enum Scene {
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
-    Welcome = 'Welcome',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null

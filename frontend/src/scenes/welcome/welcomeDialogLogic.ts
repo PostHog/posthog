@@ -1,13 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { welcomeSceneLogicType } from './welcomeSceneLogicType'
+import type { welcomeDialogLogicType } from './welcomeDialogLogicType'
 
 export interface WelcomeInviter {
     name: string
@@ -68,8 +66,8 @@ const EMPTY_PAYLOAD: WelcomePayload = {
 
 export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
 
-export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
-    path(['scenes', 'welcome', 'welcomeSceneLogic']),
+export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
+    path(['scenes', 'welcome', 'welcomeDialogLogic']),
 
     connect(() => ({
         values: [userLogic, ['user']],
@@ -78,6 +76,7 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
 
     actions({
         dismissWelcome: true,
+        closeDialog: true,
         trackCardClick: (card: WelcomeCardKind, targetHref: string) => ({ card, targetHref }),
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
@@ -96,12 +95,13 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
                 markCardInteracted: (state, { card }) => ({ ...state, [card]: true }),
             },
         ],
-        // Local flag so sceneLogic stops redirecting back to /welcome during the
-        // window between the dismiss POST and the user refetch landing.
-        dismissedLocally: [
+        // Close the dialog optimistically so it doesn't flash back while the
+        // loadUser refetch is in flight.
+        locallyClosed: [
             false,
             {
                 dismissWelcome: () => true,
+                closeDialog: () => true,
             },
         ],
     }),
@@ -114,7 +114,7 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
                     try {
                         return await api.get<WelcomePayload>('api/organizations/@current/welcome/')
                     } catch (error) {
-                        // Fail-soft — the scene should always render a minimal welcome even if the aggregation endpoint errors.
+                        // Fail-soft — render a minimal welcome if the aggregation endpoint errors.
                         console.warn('Failed to load welcome data', error)
                         return EMPTY_PAYLOAD
                     }
@@ -134,21 +134,19 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
             (s) => [s.welcomeData, s.user],
             (data, user): string => data.organization_name || user?.organization?.name || '',
         ],
-        primaryCtaHref: [
-            (s) => [s.popularDashboards],
-            (popularDashboards): string => popularDashboards[0]?.url ?? urls.default(),
-        ],
-        primaryCtaLabel: [
-            (s) => [s.popularDashboards],
-            (popularDashboards): string =>
-                popularDashboards.length > 0
-                    ? `Take me to ${popularDashboards[0].name}`
-                    : 'Take me to the project home',
+        // Only open for invitees (not the org creator) who haven't already dismissed it.
+        shouldShowDialog: [
+            (s) => [s.user, s.locallyClosed],
+            (user, locallyClosed): boolean =>
+                !!user && user.is_organization_first_user === false && !user.welcome_screen_seen_at && !locallyClosed,
         ],
     }),
 
     listeners(({ actions, values }) => ({
         loadWelcomeDataSuccess: ({ welcomeData }) => {
+            if (!values.shouldShowDialog) {
+                return
+            }
             actions.markShown()
             posthog.capture('welcome_screen_shown', {
                 org_id: values.user?.organization?.id,
@@ -170,9 +168,8 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
             } catch (error) {
                 console.warn('Failed to dismiss welcome screen', error)
             }
-            // Refresh the user so welcome_screen_seen_at reflects the new state.
+            // Refresh user so welcome_screen_seen_at persists for future sessions.
             actions.loadUser()
-            router.actions.push(values.primaryCtaHref)
         },
         trackCardClick: ({ card, targetHref }) => {
             actions.markCardInteracted(card)
@@ -183,7 +180,11 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadWelcomeData()
+    afterMount(({ actions, values }) => {
+        // Only fetch the welcome payload when we're actually going to show the dialog;
+        // for the org creator and returning invitees this is a no-op.
+        if (values.shouldShowDialog) {
+            actions.loadWelcomeData()
+        }
     }),
 ])

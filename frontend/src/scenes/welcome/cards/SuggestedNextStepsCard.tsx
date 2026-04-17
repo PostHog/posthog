@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { welcomeSceneLogic } from '../welcomeSceneLogic'
+import { welcomeDialogLogic } from '../welcomeDialogLogic'
 
 export function SuggestedNextStepsCard(): JSX.Element | null {
-    const { suggestedNextSteps } = useValues(welcomeSceneLogic)
-    const { trackCardClick } = useActions(welcomeSceneLogic)
+    const { suggestedNextSteps } = useValues(welcomeDialogLogic)
+    const { trackCardClick } = useActions(welcomeDialogLogic)
 
     if (suggestedNextSteps.length === 0) {
         return null

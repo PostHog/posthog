@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { welcomeSceneLogic } from '../welcomeSceneLogic'
+import { welcomeDialogLogic } from '../welcomeDialogLogic'
 
 const PRODUCT_LABELS: Record<string, { label: string; href: string }> = {
     product_analytics: { label: 'Product analytics', href: '/insights' },
@@ -18,8 +18,8 @@ const PRODUCT_LABELS: Record<string, { label: string; href: string }> = {
 }
 
 export function ProductsInUseCard(): JSX.Element | null {
-    const { productsInUse } = useValues(welcomeSceneLogic)
-    const { trackCardClick } = useActions(welcomeSceneLogic)
+    const { productsInUse } = useValues(welcomeDialogLogic)
+    const { trackCardClick } = useActions(welcomeDialogLogic)
 
     if (productsInUse.length === 0) {
         return null

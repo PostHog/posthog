@@ -364,7 +364,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
-    [Scene.Welcome]: { projectBased: true, name: 'Welcome', layout: 'plain' },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
         defaultDocsPath: '/docs/data/organizations-and-projects',
@@ -923,7 +922,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
     [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
-    [urls.welcome()]: [Scene.Welcome, 'welcome'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
     [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],

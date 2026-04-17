@@ -18,6 +18,7 @@ import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLog
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
+import { WelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -111,6 +112,7 @@ export function ProjectHomepage(): JSX.Element {
         return (
             <div className="flex-1 min-h-0">
                 <AiFirstHomepage />
+                <WelcomeDialog />
             </div>
         )
     }
@@ -118,12 +120,18 @@ export function ProjectHomepage(): JSX.Element {
     // if there is no numeric dashboard id, the dashboard logic will throw...
     // so we check it here first
     if (dashboardLogicProps?.id) {
-        return <HomePageContent />
+        return (
+            <>
+                <HomePageContent />
+                <WelcomeDialog />
+            </>
+        )
     }
     // Negative margin to counter-act the scene configs default padding
     return (
         <div className="-m-4">
             <NewTabScene />
+            <WelcomeDialog />
         </div>
     )
 }

@@ -5,7 +5,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
-import { welcomeSceneLogic } from '../welcomeSceneLogic'
+import { welcomeDialogLogic } from '../welcomeDialogLogic'
 
 const LAST_ACTIVE_COPY: Record<string, string> = {
     today: 'Active today',
@@ -14,8 +14,8 @@ const LAST_ACTIVE_COPY: Record<string, string> = {
 }
 
 export function TeamMembersCard(): JSX.Element | null {
-    const { teamMembers } = useValues(welcomeSceneLogic)
-    const { trackCardClick } = useActions(welcomeSceneLogic)
+    const { teamMembers } = useValues(welcomeDialogLogic)
+    const { trackCardClick } = useActions(welcomeDialogLogic)
 
     if (teamMembers.length === 0) {
         return null
