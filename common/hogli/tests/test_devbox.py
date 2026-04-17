@@ -1001,7 +1001,7 @@ class TestDevboxShare:
         assert "Shared" in result.output
         assert "alice" in result.output
 
-    def test_share_remove_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1017,12 +1017,34 @@ class TestDevboxShare:
             lambda name, users: captured.update({"name": name, "users": users}),
         )
 
-        result = runner.invoke(cli, ["devbox:share", "--remove", "--user", "alice"])
+        result = runner.invoke(cli, ["devbox:unshare", "--user", "alice"])
 
         assert result.exit_code == 0
         assert captured == {"name": "devbox-test-user", "users": ["alice"]}
         assert "Revoked" in result.output
         assert "Restart" in result.output
+
+    def test_unshare_without_user_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+
+        result = runner.invoke(cli, ["devbox:unshare"])
+
+        assert result.exit_code != 0
+        assert "--user" in result.output
+
+    def test_unshare_with_positional_username_hints_to_use_user_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+
+        result = runner.invoke(cli, ["devbox:unshare", "georgesa"])
+
+        assert result.exit_code != 0
+        assert "--user georgesa" in result.output
 
     def test_share_list_shows_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1057,6 +1079,14 @@ class TestDevboxShare:
 
         assert result.exit_code != 0
         assert "--user" in result.output
+
+    def test_share_with_positional_username_hints_to_use_user_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+
+        result = runner.invoke(cli, ["devbox:share", "georgesa"])
+
+        assert result.exit_code != 0
+        assert "--user georgesa" in result.output
 
 
 class TestSharingFunctions:

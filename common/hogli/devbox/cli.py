@@ -517,21 +517,37 @@ def devbox_users() -> None:
         click.echo(f"  {username:<16} {name_col} {email}")
 
 
+def _hint_if_positional_looks_like_username(
+    command: str, workspace: str | None, users: tuple[str, ...], list_sharing: bool = False
+) -> None:
+    """Warn when the positional arg is almost certainly meant as a target username.
+
+    The positional slot on every `devbox:*` command selects a workspace label,
+    not a user. Share/unshare take `--user` for the target, so this case is a
+    common footgun.
+    """
+    if workspace and not users and not list_sharing:
+        raise click.UsageError(
+            f"Pass the target user with --user (e.g. `hogli {command} --user {workspace}`).\n"
+            "The positional argument selects one of YOUR workspaces. Run 'hogli devbox:users' to find usernames."
+        )
+
+
 @cli.command(name="devbox:share", help="Share your devbox with other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
 @click.option("--role", type=click.Choice(["use", "admin"]), default="use", help="Access role to grant")
-@click.option("--remove", is_flag=True, help="Revoke access instead of granting")
 @click.option("--list", "list_sharing", is_flag=True, help="Show who has access")
 def devbox_share(
     workspace: str | None,
     users: tuple[str, ...],
     role: str,
-    remove: bool,
     list_sharing: bool,
 ) -> None:
     """Share your devbox with other Coder users."""
     ensure_runtime_ready()
+    _hint_if_positional_looks_like_username("devbox:share", workspace, users, list_sharing)
+
     name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
 
@@ -545,15 +561,28 @@ def devbox_share(
     if not users:
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
-    user_list = list(users)
+    share_workspace(name, list(users), role)
+    click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 
-    if remove:
-        unshare_workspace(name, user_list)
-        click.echo(f"Revoked access for: {', '.join(user_list)}")
-        click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
-    else:
-        share_workspace(name, user_list, role)
-        click.echo(f"Shared '{name}' with {', '.join(user_list)} (role: {role}).")
+
+@cli.command(name="devbox:unshare", help="Revoke access to your devbox from other users")
+@workspace_argument
+@click.option("--user", "users", multiple=True, help="Coder username(s) to revoke access from")
+def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
+    """Revoke access to your devbox from one or more Coder users."""
+    ensure_runtime_ready()
+    _hint_if_positional_looks_like_username("devbox:unshare", workspace, users)
+
+    name, workspaces = resolve_workspace_name(workspace)
+    _get_workspace_or_fail(name, workspaces)
+
+    if not users:
+        raise click.UsageError("Specify at least one --user. Run 'hogli devbox:share --list' to see current access.")
+
+    user_list = list(users)
+    unshare_workspace(name, user_list)
+    click.echo(f"Revoked access for: {', '.join(user_list)}")
+    click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
 
 
 @cli.command(name="devbox:start", help="Start or create your remote devbox")
