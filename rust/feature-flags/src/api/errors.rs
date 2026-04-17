@@ -165,7 +165,9 @@ impl FlagError {
             FlagError::NoTokenError => ("missing_token", 401),
             FlagError::TokenValidationError => ("invalid_token", 401),
             FlagError::PersonalApiKeyInvalid => ("personal_api_key_invalid", 401),
-            FlagError::PersonalApiKeyInsufficientScopes => ("personal_api_key_insufficient_scopes", 403),
+            FlagError::PersonalApiKeyInsufficientScopes => {
+                ("personal_api_key_insufficient_scopes", 403)
+            }
             FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
             FlagError::NoAuthenticationProvided => ("no_authentication", 401),
 

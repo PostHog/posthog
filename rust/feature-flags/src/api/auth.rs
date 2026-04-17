@@ -312,9 +312,7 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
             // Check scopes — return 403 (not 401) when the key is valid but lacks permissions
             if let Some(scope_list) = scopes {
                 if scope_list.is_empty() {
-                    debug!(
-                        "Personal API key has an explicit empty scopes list; no access"
-                    );
+                    debug!("Personal API key has an explicit empty scopes list; no access");
                     return Err(FlagError::PersonalApiKeyInsufficientScopes);
                 }
 
