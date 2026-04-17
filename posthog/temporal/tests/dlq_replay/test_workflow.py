@@ -138,6 +138,7 @@ async def test_dlq_replay_workflow_passes_correct_inputs(activity_call_tracker):
     assert activity_inputs.start_timestamp_ms == int(start_time.timestamp() * 1000)
     assert activity_inputs.end_timestamp_ms == int(end_time.timestamp() * 1000)
     assert activity_inputs.batch_size == 250
+    assert activity_inputs.token_allowlist is None
 
 
 @pytest.mark.asyncio
@@ -260,3 +261,47 @@ async def test_dlq_replay_workflow_aggregates_partition_results(activity_call_tr
 
     assert result.total_messages_replayed == 350
     assert result.partition_results == {0: 100, 1: 200, 2: 50}
+
+
+@pytest.mark.asyncio
+async def test_dlq_replay_workflow_passes_token_allowlist_to_activity(activity_call_tracker):
+    replay_partition_calls = activity_call_tracker["replay_partition_calls"]
+
+    @activity.defn(name="get_topic_partitions")
+    async def mock_get_topic_partitions(inputs: GetTopicPartitionsInputs) -> list[int]:
+        return [0, 1]
+
+    @activity.defn(name="replay_partition")
+    async def mock_replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResult:
+        replay_partition_calls.append(inputs)
+        return ReplayPartitionResult(partition=inputs.partition, messages_replayed=10, messages_skipped=3)
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DLQReplayWorkflow],
+            activities=[mock_get_topic_partitions, mock_replay_partition],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            start_time = datetime.now(UTC) - timedelta(hours=1)
+
+            result = await env.client.execute_workflow(
+                DLQReplayWorkflow.run,
+                DLQReplayWorkflowInputs(
+                    source_topic="events_dlq",
+                    target_topic="events",
+                    start_timestamp=start_time.isoformat(),
+                    token_allowlist=["token_a", "token_b"],
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert len(replay_partition_calls) == 2
+    for call in replay_partition_calls:
+        assert call.token_allowlist == ["token_a", "token_b"]
+
+    assert result.total_messages_replayed == 20
+    assert result.total_messages_skipped == 6

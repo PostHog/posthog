@@ -29,6 +29,8 @@ class DLQReplayWorkflowInputs:
         end_timestamp: ISO format datetime string for the end of the replay window.
             If None, defaults to current UTC time when the workflow starts.
         batch_size: Number of messages to process in each batch.
+        token_allowlist: Optional list of token values. When set, only messages whose
+            `token` Kafka header matches one of these values are replayed.
     """
 
     source_topic: str
@@ -36,6 +38,7 @@ class DLQReplayWorkflowInputs:
     start_timestamp: str
     end_timestamp: str | None = None
     batch_size: int = 1000
+    token_allowlist: list[str] | None = None
 
 
 @dataclasses.dataclass
@@ -44,10 +47,12 @@ class DLQReplayWorkflowResult:
 
     Attributes:
         total_messages_replayed: Total number of messages replayed across all partitions.
+        total_messages_skipped: Total number of messages read but skipped by the token allowlist.
         partition_results: Messages replayed per partition.
     """
 
     total_messages_replayed: int
+    total_messages_skipped: int
     partition_results: dict[int, int]
 
 
@@ -94,7 +99,11 @@ class DLQReplayWorkflow(PostHogWorkflow):
         )
 
         if not partitions:
-            return DLQReplayWorkflowResult(total_messages_replayed=0, partition_results={})
+            return DLQReplayWorkflowResult(
+                total_messages_replayed=0,
+                total_messages_skipped=0,
+                partition_results={},
+            )
 
         # Step 2: Replay each partition in parallel
         partition_tasks = []
@@ -108,6 +117,7 @@ class DLQReplayWorkflow(PostHogWorkflow):
                     start_timestamp_ms=start_timestamp_ms,
                     end_timestamp_ms=end_timestamp_ms,
                     batch_size=inputs.batch_size,
+                    token_allowlist=inputs.token_allowlist,
                 ),
                 start_to_close_timeout=dt.timedelta(hours=4),
                 heartbeat_timeout=dt.timedelta(minutes=2),
@@ -124,13 +134,16 @@ class DLQReplayWorkflow(PostHogWorkflow):
 
         # Step 3: Aggregate results
         total_messages_replayed = 0
+        total_messages_skipped = 0
         partition_results: dict[int, int] = {}
 
         for result in results:
             partition_results[result.partition] = result.messages_replayed
             total_messages_replayed += result.messages_replayed
+            total_messages_skipped += result.messages_skipped
 
         return DLQReplayWorkflowResult(
             total_messages_replayed=total_messages_replayed,
+            total_messages_skipped=total_messages_skipped,
             partition_results=partition_results,
         )

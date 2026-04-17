@@ -32,6 +32,9 @@ class ReplayPartitionInputs:
         start_timestamp_ms: The timestamp (in milliseconds) to start reading from.
         end_timestamp_ms: The timestamp (in milliseconds) to stop reading at.
         batch_size: Number of messages to process in each batch before flushing.
+        token_allowlist: Optional list of token values. When set, only messages whose
+            `token` Kafka header matches one of these values are replayed; all others
+            are skipped (including messages without a `token` header).
     """
 
     source_topic: str
@@ -40,6 +43,7 @@ class ReplayPartitionInputs:
     start_timestamp_ms: int
     end_timestamp_ms: int
     batch_size: int = 1000
+    token_allowlist: list[str] | None = None
 
 
 @dataclasses.dataclass
@@ -49,10 +53,12 @@ class ReplayPartitionResult:
     Attributes:
         partition: The partition that was replayed.
         messages_replayed: Number of messages replayed from this partition.
+        messages_skipped: Number of messages read but skipped by the token allowlist.
     """
 
     partition: int
     messages_replayed: int
+    messages_skipped: int = 0
 
 
 def configure_ssl_context() -> ssl.SSLContext | None:
@@ -141,6 +147,10 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
     )
 
     messages_replayed = 0
+    messages_skipped = 0
+    token_allowlist_bytes: set[bytes] | None = (
+        {token.encode() for token in inputs.token_allowlist} if inputs.token_allowlist is not None else None
+    )
 
     async with Heartbeater():
         await consumer.start()
@@ -166,7 +176,11 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                 records = await consumer.getmany(tp, timeout_ms=5000, max_records=inputs.batch_size)
 
                 if not records or tp not in records or len(records[tp]) == 0:
-                    logger.info("No more messages available", messages_replayed=messages_replayed)
+                    logger.info(
+                        "No more messages available",
+                        messages_replayed=messages_replayed,
+                        messages_skipped=messages_skipped,
+                    )
                     break
 
                 batch = records[tp]
@@ -184,9 +198,16 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                         reached_end = True
                         break
 
-                    # Produce the message to the target topic, preserving key, value, and headers
-                    # Convert headers to list as aiokafka producer expects list, not tuple
                     headers = list(record.headers) if record.headers else []
+
+                    if token_allowlist_bytes is not None:
+                        token = next((v for k, v in headers if k == "token"), None)
+                        if token not in token_allowlist_bytes:
+                            messages_skipped += 1
+                            continue
+
+                    # Produce the message to the target topic, preserving key, value, and headers.
+                    # aiokafka producer expects a list of header tuples, not the tuple-of-tuples the consumer returns.
                     future = await producer.send(
                         inputs.target_topic,
                         value=record.value,
@@ -206,10 +227,11 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                     "Batch processed",
                     batch_size=len(batch),
                     messages_replayed=messages_replayed,
+                    messages_skipped=messages_skipped,
                 )
 
                 # Heartbeat for progress tracking
-                activity.heartbeat({"messages_replayed": messages_replayed})
+                activity.heartbeat({"messages_replayed": messages_replayed, "messages_skipped": messages_skipped})
 
                 if reached_end:
                     break
@@ -218,6 +240,14 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
             await consumer.stop()
             await producer.stop()
 
-    logger.info("Partition replay completed", messages_replayed=messages_replayed)
+    logger.info(
+        "Partition replay completed",
+        messages_replayed=messages_replayed,
+        messages_skipped=messages_skipped,
+    )
 
-    return ReplayPartitionResult(partition=inputs.partition, messages_replayed=messages_replayed)
+    return ReplayPartitionResult(
+        partition=inputs.partition,
+        messages_replayed=messages_replayed,
+        messages_skipped=messages_skipped,
+    )

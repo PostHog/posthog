@@ -265,6 +265,61 @@ async def test_replay_partition_respects_end_timestamp(
         assert record.value.decode().startswith("early_message_")
 
 
+async def test_replay_partition_filters_by_token_header(
+    activity_environment,
+    kafka_producer,
+    kafka_consumer,
+    test_topics,
+):
+    """Only messages whose `token` header matches the allowlist are replayed."""
+    source_topic = test_topics["source"]
+    target_topic = test_topics["target"]
+
+    base_time = dt.datetime.now(dt.UTC)
+    for i, token in enumerate([b"keep-1", b"drop", b"keep-2", None, b"keep-1"]):
+        headers = [("token", token)] if token is not None else []
+        await kafka_producer.send(
+            source_topic,
+            value=f"message_{i}".encode(),
+            key=f"key_{i}".encode(),
+            headers=headers,
+            partition=0,
+        )
+    await kafka_producer.flush()
+    await asyncio.sleep(1)
+
+    start_timestamp_ms = int((base_time - dt.timedelta(minutes=1)).timestamp() * 1000)
+    end_timestamp_ms = int((base_time + dt.timedelta(minutes=1)).timestamp() * 1000)
+
+    result = await activity_environment.run(
+        replay_partition,
+        ReplayPartitionInputs(
+            source_topic=source_topic,
+            target_topic=target_topic,
+            partition=0,
+            start_timestamp_ms=start_timestamp_ms,
+            end_timestamp_ms=end_timestamp_ms,
+            batch_size=100,
+            token_allowlist=["keep-1", "keep-2"],
+        ),
+    )
+
+    assert result.messages_replayed == 3
+    assert result.messages_skipped == 2
+
+    tp = TopicPartition(target_topic, 0)
+    kafka_consumer.assign([tp])
+    await kafka_consumer.seek_to_beginning(tp)
+
+    records = await kafka_consumer.getmany(tp, timeout_ms=5000, max_records=10)
+    replayed = records.get(tp, [])
+
+    assert [r.value for r in replayed] == [b"message_0", b"message_2", b"message_4"]
+    for record in replayed:
+        token_value = dict(record.headers).get("token")
+        assert token_value in (b"keep-1", b"keep-2")
+
+
 async def test_replay_partition_handles_empty_partition(
     activity_environment,
     test_topics,
