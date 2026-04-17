@@ -1,18 +1,20 @@
 import os
 import json
 import uuid
-import asyncio
 import logging
 import traceback
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import cast
+
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import F
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
+
 import requests as http_requests
+import jsonschema
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -21,7 +23,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
@@ -31,40 +33,11 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
-from posthog.temporal.common.client import sync_connect
+
 from ee.hogai.utils.aio import async_to_sync
+
 from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from .repository_readiness import compute_repository_readiness
-from .serializers import (
-    CodeInviteRedeemRequestSerializer,
-    ConnectionTokenResponseSerializer,
-    ErrorResponseSerializer,
-    RepositoryReadinessQuerySerializer,
-    RepositoryReadinessResponseSerializer,
-    SandboxEnvironmentListSerializer,
-    SandboxEnvironmentSerializer,
-    TaskListQuerySerializer,
-    TaskRunAppendLogRequestSerializer,
-    TaskRunArtifactPresignRequestSerializer,
-    TaskRunArtifactPresignResponseSerializer,
-    TaskRunArtifactsUploadRequestSerializer,
-    TaskRunArtifactsUploadResponseSerializer,
-    TaskRunCommandRequestSerializer,
-    TaskRunCommandResponseSerializer,
-    TaskRunCreateRequestSerializer,
-    TaskRunDetailSerializer,
-    TaskRunRelayMessageRequestSerializer,
-    TaskRunRelayMessageResponseSerializer,
-    TaskRunSessionLogsQuerySerializer,
-    TaskRunUpdateSerializer,
-    TaskSerializer,
-)
-from .services.connection_token import create_sandbox_connection_token
-from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
-from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
-from .temporal.process_task.workflow import ProcessTaskInput
-import jsonschema
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -90,6 +63,13 @@ from .serializers import (
     TaskRunSetOutputRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
+)
+from .services.connection_token import create_sandbox_connection_token
+from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
+from .temporal.client import (
+    execute_posthog_code_agent_relay_workflow,
+    execute_task_processing_workflow,
+    resume_task_in_cloud_workflow,
 )
 from .temporal.process_task.utils import (
     PrAuthorshipMode,
@@ -1204,18 +1184,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def resume_in_cloud(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
 
-        is_cloud_active = task_run.environment == TaskRun.Environment.CLOUD and task_run.status in (
-            TaskRun.Status.QUEUED,
-            TaskRun.Status.IN_PROGRESS,
-        )
-        if is_cloud_active:
-            return Response(
-                ErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
+        with transaction.atomic():
+            task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+
+            is_cloud_active = task_run.environment == TaskRun.Environment.CLOUD and task_run.status in (
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
             )
+            if is_cloud_active:
+                return Response(
+                    ErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            task_run.prepare_for_cloud_handoff()
 
         self._signal_workflow_completion(task_run, "cancelled", "handoff")
-        task_run.prepare_for_cloud_handoff()
 
         logger.info(
             "Resuming task run in cloud",
@@ -1226,21 +1210,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         try:
-            client = sync_connect()
-            asyncio.run(
-                client.start_workflow(
-                    "process-task",
-                    ProcessTaskInput(run_id=str(task_run.id)),
-                    id=task_run.workflow_id,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-            )
+            resume_task_in_cloud_workflow(str(task_run.id), task_run.workflow_id)
         except Exception as e:
             logger.exception(
                 "Failed to trigger handoff workflow",
                 extra={"task_run_id": str(task_run.id), "error": str(e)},
+            )
+            TaskRun.objects.filter(pk=task_run.pk).update(
+                status=TaskRun.Status.FAILED,
+                error_message="Failed to start cloud workflow",
+                updated_at=timezone.now(),
             )
             return Response(
                 ErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,

@@ -156,9 +156,9 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
     environment = serializers.ChoiceField(
-        choices=["local", "cloud"],
+        choices=["local"],
         required=False,
-        help_text="Execution environment",
+        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
     )
 
 
