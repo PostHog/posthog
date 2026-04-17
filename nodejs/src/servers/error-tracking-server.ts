@@ -12,8 +12,10 @@ import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
+    KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
@@ -64,6 +66,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
     ErrorTrackingOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -94,6 +97,7 @@ export class ErrorTrackingServer implements NodeServer {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
             ...config,
         }

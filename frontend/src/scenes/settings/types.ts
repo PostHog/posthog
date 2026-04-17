@@ -210,6 +210,7 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'logs'
     | 'logs-json-parse'
+    | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
     | 'organization-ip-anonymization-default'

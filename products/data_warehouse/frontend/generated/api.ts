@@ -20,6 +20,7 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
@@ -888,6 +889,29 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+
+Used by the source wizard to surface ✅/❌ checks before source creation,
+and by the self-managed setup popup to verify user-created publications.
+ */
+export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/check_cdc_prerequisites/`
+}
+
+export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
+    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
+        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 /**

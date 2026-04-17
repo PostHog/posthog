@@ -1,6 +1,6 @@
 metadata:
     devbox:
-        coder_url: https://coder.hedgehog-kitefin.ts.net
+        coder_url: https://coder.dev.posthog.dev
     categories:
         - key: devenv
           title: Intent-based dev environment
@@ -109,6 +109,8 @@ devbox:
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:users: null
+    devbox:share: null
     devbox:cleanup:disk: null
 devenv:
     dev:setup: null
@@ -696,6 +698,10 @@ tools:
     ci:wait:for:docker:
         bin_script: ci-wait-for-docker
         description: Launch Docker Compose services in CI and later wait for readiness
+        hidden: true
+    ci:find_affected_stories:
+        bin_script: find-affected-stories
+        description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
 utilities:
     nuke:
