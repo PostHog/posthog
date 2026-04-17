@@ -250,6 +250,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "scope",
             "item_id",
             "detail",
+            "client",
             "created_at",
         ]
 

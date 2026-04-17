@@ -85,8 +85,9 @@ class AdvancedActivityLogFieldDiscovery:
         return [{"value": activity} for activity in sorted(activities) if activity]
 
     def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.values_list("client", flat=True).distinct()
-        return [{"value": client} for client in sorted(c for c in clients_query if c)]
+        clients_query = queryset.values_list("client", flat=True)
+        clients = set(clients_query)
+        return [{"value": client} for client in sorted(c for c in clients if c)]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)

@@ -83,7 +83,7 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     page: 1,
 }
 
-const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_filters'] as const
+const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'clients', 'detail_filters'] as const
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
@@ -286,6 +286,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     count++
                 }
                 if (filters.item_ids && filters.item_ids.length > 0) {
+                    count++
+                }
+                if (filters.clients && filters.clients.length > 0) {
                     count++
                 }
                 if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
