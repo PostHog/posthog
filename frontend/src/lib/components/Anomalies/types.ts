@@ -18,6 +18,8 @@ export interface AnomalyScoreType {
         anomaly_indices: number[]
         /** Legacy — the last entry of `anomaly_indices`. Kept for back-compat. */
         anomaly_index: number | null
+        /** Per-sparkline-point anomaly score (0–1) or null when no tick scored that point. */
+        scores?: (number | null)[]
     }
     scored_at: string
     /** How many anomalies this series had in the window. */

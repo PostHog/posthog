@@ -94,13 +94,20 @@ def _build_series_rows(scores: list[AnomalyScore]) -> list[dict[str, Any]]:
         dates: list[str] = snapshot.get("dates") or []
         date_index = {d: i for i, d in enumerate(dates)}
         anomaly_indices: list[int] = []
-        for s in anomalous:
+        # Align each score record to a sparkline index so the chart can draw
+        # a per-point score line on a secondary axis.
+        scores_by_index: list[float | None] = [None] * len(dates)
+        for s in group:
             key = _timestamp_to_date_key(s.timestamp, s.interval or latest.interval)
             idx = date_index.get(key)
-            if idx is not None and idx not in anomaly_indices:
+            if idx is None:
+                continue
+            scores_by_index[idx] = s.score
+            if s.is_anomalous and idx not in anomaly_indices:
                 anomaly_indices.append(idx)
         anomaly_indices.sort()
         snapshot["anomaly_indices"] = anomaly_indices
+        snapshot["scores"] = scores_by_index
         # Keep the legacy singular key pointing at the most recent mark so
         # older clients keep rendering a dot.
         snapshot["anomaly_index"] = anomaly_indices[-1] if anomaly_indices else None
