@@ -519,6 +519,35 @@ class UserAccessControl:
         if not resource or not org_membership:
             return None
 
+        if org_membership.is_guest:
+            from posthog.models import GuestResourceGrant
+
+            from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
+            direct = GuestResourceGrant.objects.filter(
+                organization_membership=org_membership,
+                team=self._team,
+                resource=resource,
+                resource_id=obj.id,
+                is_pending=False,
+            ).exists()
+            if direct:
+                return "viewer"
+            if resource == "insight":
+                dashboard_ids = DashboardTile.objects.filter(insight_id=obj.id).values_list("dashboard_id", flat=True)
+                if (
+                    dashboard_ids
+                    and GuestResourceGrant.objects.filter(
+                        organization_membership=org_membership,
+                        team=self._team,
+                        resource="dashboard",
+                        resource_id__in=list(dashboard_ids),
+                        is_pending=False,
+                    ).exists()
+                ):
+                    return "viewer"
+            return None
+
         # Creators always have highest access
         if getattr(obj, "created_by", None) == self._user:
             return highest_access_level(resource)
@@ -697,6 +726,9 @@ class UserAccessControl:
         if not resource or not org_membership:
             # In any of these cases, we can't determine the access level
             return None
+
+        if org_membership.is_guest:
+            return "none"
 
         # Org admins always have resource level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
