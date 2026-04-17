@@ -139,7 +139,24 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        user.join(organization=self.organization, level=self.level)
+
+        if self.is_guest:
+            membership = OrganizationMembership.objects.create(
+                organization=self.organization,
+                user=user,
+                level=OrganizationMembership.Level.MEMBER,
+                is_guest=True,
+                bypass_sso_enforcement=self.bypass_sso_enforcement,
+            )
+            from posthog.models import GuestResourceGrant
+
+            for grant in GuestResourceGrant.objects.filter(invite=self):
+                grant.organization_membership = membership
+                grant.invite = None
+                grant.is_pending = False
+                grant.save()
+        else:
+            user.join(organization=self.organization, level=self.level)
 
         for item in self.private_project_access or []:
             try:
