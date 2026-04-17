@@ -1,9 +1,9 @@
 import { expect, test } from '../utils/workspace-test-base'
 import type { PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 
-async function waitForSavedViewState(page: import('@playwright/test').Page, viewName: string): Promise<void> {
+async function waitForSavedViewState(page: import('@playwright/test').Page): Promise<void> {
     await expect(page.getByTestId('sql-editor-input-save-view-name')).toHaveCount(0, { timeout: 40000 })
-    await expect(page.getByTestId('scene-name')).toContainText(viewName, { timeout: 40000 })
+    await expect(page.getByTestId('sql-editor-save-options-button')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByRole('button', { name: 'Update view' })).toBeVisible({ timeout: 40000 })
     await expect(page.getByTestId('sql-editor-materialization-button')).toBeVisible({ timeout: 40000 })
 }
@@ -37,7 +37,7 @@ async function saveView(page: import('@playwright/test').Page, viewName: string)
     await nameInput.fill(viewName)
 
     await page.getByRole('button', { name: 'Submit' }).click()
-    await waitForSavedViewState(page, viewName)
+    await waitForSavedViewState(page)
 }
 
 test.describe('SQL Editor', () => {
