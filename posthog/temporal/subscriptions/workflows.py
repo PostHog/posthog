@@ -267,6 +267,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             subscription_id=inputs.subscription_id,
                             team_id=inputs.team_id,
                             delivery_id=str(delivery_id),
+                            exported_asset_ids=list(successful_asset_ids),
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         heartbeat_timeout=dt.timedelta(seconds=60),
