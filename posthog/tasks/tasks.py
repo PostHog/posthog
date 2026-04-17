@@ -11,7 +11,7 @@ from django.db import connection
 from django.utils import timezone
 
 import requests
-from celery import shared_task
+from celery import current_task, shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
 from structlog import get_logger
@@ -125,6 +125,16 @@ def process_query_task(
     if is_query_service:
         tag_queries(chargeable=1)
 
+    # Determine whether another retry will actually be scheduled if we re-raise a retryable
+    # error. Celery's autoretry_for calls self.retry() which raises MaxRetriesExceededError
+    # once retries >= max_retries; from this side, that means the current attempt is terminal.
+    is_final_attempt = True
+    task_request = getattr(current_task, "request", None) if current_task is not None else None
+    if task_request is not None:
+        retries = task_request.retries or 0
+        max_retries = getattr(current_task, "max_retries", 0) or 0
+        is_final_attempt = retries >= max_retries
+
     execute_process_query(
         team_id=team_id,
         user_id=user_id,
@@ -133,6 +143,7 @@ def process_query_task(
         limit_context=limit_context,
         is_query_service=is_query_service,
         analytics_props=analytics_props,
+        is_final_attempt=is_final_attempt,
     )
 
 

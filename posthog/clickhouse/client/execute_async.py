@@ -182,6 +182,7 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    is_final_attempt: bool = True,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -217,10 +218,13 @@ def execute_process_query(
         wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
-    # When we re-raise an error for Celery to retry (via the task's autoretry_for), the finally
-    # block must NOT persist the pre-emptive complete=True/error=True defaults set above.
-    # Otherwise the next retry would read complete=True from Redis and short-circuit at the
-    # early-return at the top of this function, silently turning retries into no-ops.
+    # When we re-raise an error and another Celery retry will actually be scheduled, the
+    # finally block must NOT persist the pre-emptive complete=True/error=True defaults set
+    # above — the next retry would read complete=True and short-circuit at the early-return
+    # at the top of this function, silently turning retries into no-ops.
+    # On the FINAL attempt (retries exhausted) we must still persist a terminal status so
+    # pollers and cache-key deduplication see a real failure rather than an in-flight entry
+    # that only clears when its TTL expires.
     persist_final_status = True
 
     try:
@@ -245,7 +249,17 @@ def execute_process_query(
         )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except CHQueryErrorTooManySimultaneousQueries:
-        persist_final_status = False
+        if is_final_attempt:
+            # Retries exhausted — persist a terminal error so clients see a real failure.
+            # The pre-emptive complete=True/error=True set above is what we want here; we
+            # only need a user-facing message since the raw CH error is not safe to expose.
+            query_status.results = None
+            query_status.error_message = (
+                "ClickHouse is at capacity and could not schedule this query after several "
+                f"retries. Please retry in a few seconds. Query id: {query_id}"
+            )
+        else:
+            persist_final_status = False
         raise
     except Exception as err:
         from posthog.rbac.user_access_control import UserAccessControlError

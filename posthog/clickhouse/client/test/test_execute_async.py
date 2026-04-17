@@ -138,7 +138,7 @@ class TestExecuteProcessQuery(TestCase):
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
-    def test_transient_error_does_not_persist_complete_true(self, mock_process_query_dict, mock_redis_client):
+    def test_transient_error_skips_persistence_when_retry_scheduled(self, mock_process_query_dict, mock_redis_client):
         # Regression test: the finally block used to always call store_query_status with the
         # pre-emptive complete=True/error=True defaults, including when we re-raise for retry.
         # This turned Celery's autoretry_for into a silent no-op because the retry would read
@@ -151,13 +151,53 @@ class TestExecuteProcessQuery(TestCase):
         mock_process_query_dict.side_effect = CHQueryErrorTooManySimultaneousQueries("busy", code=202)
 
         with self.assertRaises(CHQueryErrorTooManySimultaneousQueries):
-            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+            execute_process_query(
+                self.team.id,
+                self.user.id,
+                self.query_id,
+                self.query_json,
+                self.limit_context,
+                is_final_attempt=False,
+            )
 
         # Only one write: the pickup-time write with complete=False. No completion write.
         self.assertEqual(mock_redis.set.call_count, 1)
         payload = json.loads(mock_redis.set.call_args_list[0].args[1])
         self.assertFalse(payload["complete"])
         self.assertFalse(payload["error"])
+
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_transient_error_persists_terminal_status_on_final_attempt(
+        self, mock_process_query_dict, mock_redis_client
+    ):
+        # When retries are exhausted, we must persist a terminal error status — otherwise
+        # pollers and cache-key deduplication treat the query as still in flight until the
+        # 20-minute Redis TTL expires.
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.side_effect = CHQueryErrorTooManySimultaneousQueries("busy", code=202)
+
+        with self.assertRaises(CHQueryErrorTooManySimultaneousQueries):
+            execute_process_query(
+                self.team.id,
+                self.user.id,
+                self.query_id,
+                self.query_json,
+                self.limit_context,
+                is_final_attempt=True,
+            )
+
+        # Two writes: pickup (complete=False), then final terminal status (complete=True).
+        self.assertEqual(mock_redis.set.call_count, 2)
+        final_payload = json.loads(mock_redis.set.call_args_list[-1].args[1])
+        self.assertTrue(final_payload["complete"])
+        self.assertTrue(final_payload["error"])
+        assert final_payload["error_message"]
+        self.assertIn(self.query_id, final_payload["error_message"])
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
@@ -242,9 +282,10 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             except Exception:
                 pass
 
-        # The error re-raises for Celery to retry. Redis must stay in "in-flight" shape
-        # (complete=False, error=False) — otherwise the retry would read complete=True
-        # and short-circuit at the early-return in execute_process_query.
+        # _test_only_bypass_celery goes through the task wrapper, so current_task is set
+        # with retries=0 < max_retries — process_query_task treats this as a non-final
+        # attempt and re-raises without persisting, leaving the in-flight state for the
+        # (hypothetical) retry to pick up.
         result = client.get_query_status(self.team.id, query_id)
         self.assertFalse(result.complete)
         self.assertFalse(result.error)
@@ -252,6 +293,45 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.start_time)
         self.assertIsNotNone(result.pickup_time)
         self.assertIsNone(result.end_time)
+
+    def test_async_query_server_errors_persist_terminal_status_on_final_retry(self):
+        # Simulate Celery having exhausted its retries for a capacity error — the task's
+        # request.retries has reached max_retries. process_query_task must then persist a
+        # terminal error status so pollers see a real failure instead of an in-flight
+        # entry that only clears at TTL.
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        from posthog.tasks.tasks import process_query_task
+
+        # Patch current_task inside tasks module to report retries == max_retries.
+        class _FakeRequest:
+            retries = process_query_task.max_retries
+
+        class _FakeTask:
+            request = _FakeRequest()
+            max_retries = process_query_task.max_retries
+
+        with (
+            patch(
+                "posthog.api.services.query.process_query_dict",
+                side_effect=CHQueryErrorTooManySimultaneousQueries("bla"),
+            ),
+            patch("posthog.tasks.tasks.current_task", _FakeTask()),
+        ):
+            try:
+                client.enqueue_process_query_task(
+                    self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+                )
+            except Exception:
+                pass
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.complete)
+        self.assertTrue(result.error)
+        assert result.error_message
+        self.assertIn(query_id, result.error_message)
+        self.assertIsNotNone(result.end_time)
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
