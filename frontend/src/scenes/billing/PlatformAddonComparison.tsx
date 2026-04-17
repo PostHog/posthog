@@ -99,8 +99,8 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
     return (
         <div
             className={
-                'flex flex-col gap-3 p-4 rounded border bg-surface-primary ' +
-                (addon.subscribed ? 'border-accent' : 'border-primary')
+                'flex flex-col gap-3 p-4 rounded bg-surface-secondary ' +
+                (addon.subscribed ? 'ring-2 ring-accent' : '')
             }
         >
             <div className="flex items-center gap-2">
