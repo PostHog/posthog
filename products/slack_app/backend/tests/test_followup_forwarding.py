@@ -235,7 +235,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
+    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_unauthorized_user_returns_true_with_error(self, mock_slack_cls, mock_resolve):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -296,7 +296,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert mapping.task_run_id == self.task_run.id
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
+    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
     def test_unauthorized_actor_no_team_access_returns_true_with_message(self, mock_slack_cls, mock_resolve):
         self._create_mapping(mentioning_user="U_ALICE")
@@ -326,7 +326,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_send.return_value = _command_result(success=True, status_code=200)
 
         with patch(
-            "posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user",
+            "products.slack_app.backend.api.resolve_slack_user",
             return_value=SlackUserContext(user=bob, slack_email="bob@test.com"),
         ):
             inputs = _make_inputs(self.integration.id)
