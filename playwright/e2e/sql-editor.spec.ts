@@ -6,8 +6,8 @@ test.describe.configure({ mode: 'serial' })
 async function waitForSavedViewState(page: import('@playwright/test').Page): Promise<void> {
     await expect(page.getByTestId('sql-editor-input-save-view-name')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByTestId('sql-editor-save-options-button')).toHaveCount(0, { timeout: 40000 })
-    await expect(page.getByRole('button', { name: 'Update view' })).toBeVisible({ timeout: 40000 })
     await expect(page.getByTestId('sql-editor-materialization-button')).toBeVisible({ timeout: 40000 })
+    await expect(page.getByTestId('scene-name')).not.toContainText('New SQL query', { timeout: 40000 })
 }
 
 async function openSaveAsViewModal(page: import('@playwright/test').Page): Promise<void> {
