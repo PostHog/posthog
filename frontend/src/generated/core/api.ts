@@ -1761,6 +1761,24 @@ export const usersHedgehogConfigPartialUpdate = async (
     })
 }
 
+/**
+ * List pending organization invites for the current user, matched by email.
+
+Returned invites are non-expired and target organizations the user is not yet a member of.
+Used to surface invites a user received by email but never accepted — for example,
+when they signed up and created their own org before clicking the email link.
+ */
+export const getUsersPendingInvitesRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/pending_invites/`
+}
+
+export const usersPendingInvitesRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersPendingInvitesRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getUsersScenePersonalisationCreateUrl = (uuid: string) => {
     return `/api/users/${uuid}/scene_personalisation/`
 }
