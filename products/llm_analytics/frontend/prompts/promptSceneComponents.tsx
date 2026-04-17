@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronRight, IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
@@ -179,8 +179,9 @@ function PromptOutline({
             const target = container.querySelector(`#${CSS.escape(slug)}`)
             if (target) {
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                // Update URL hash so the current section can be deep-linked / shared
-                window.history.replaceState(null, '', `#${slug}`)
+                // Update URL hash via kea-router so its location state stays in sync
+                // (direct history.replaceState would leave router.values.location.hash stale)
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, `#${slug}`)
             }
         },
         [containerRef]
