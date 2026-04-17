@@ -496,49 +496,42 @@ describe('hogFlowEditorLogic', () => {
                 .filter((n) => n.data.isBranchJoinDropzone)
                 .map((n) => ({ id: n.id, targetId: n.data.edge.target as string }))
 
-        it('shows a branch-join dropzone at Exit when branches are empty (regression)', () => {
-            logic.actions.setNodesRaw([makeNode('trigger'), makeNode('cond'), makeNode('exit')])
-            logic.actions.setEdges([
-                makeEdge('trigger', 'cond', 'continue'),
-                makeEdge('cond', 'exit', 'branch', 0),
-                makeEdge('cond', 'exit', 'branch', 1),
-                makeEdge('cond', 'exit', 'continue'),
-            ])
-
+        it.each([
+            {
+                name: 'branches are empty (regression)',
+                nodes: ['trigger', 'cond', 'exit'],
+                edges: [
+                    makeEdge('trigger', 'cond', 'continue'),
+                    makeEdge('cond', 'exit', 'branch', 0),
+                    makeEdge('cond', 'exit', 'branch', 1),
+                    makeEdge('cond', 'exit', 'continue'),
+                ],
+                expected: [{ id: 'dropzone_target_exit_branch_join', targetId: 'exit' }],
+            },
+            {
+                name: 'branches are populated',
+                nodes: ['trigger', 'cond', 'email1', 'email2', 'exit'],
+                edges: [
+                    makeEdge('trigger', 'cond', 'continue'),
+                    makeEdge('cond', 'email1', 'branch', 0),
+                    makeEdge('cond', 'email2', 'branch', 1),
+                    makeEdge('cond', 'exit', 'continue'),
+                    makeEdge('email1', 'exit', 'continue'),
+                    makeEdge('email2', 'exit', 'continue'),
+                ],
+                expected: [{ id: 'dropzone_target_exit_branch_join', targetId: 'exit' }],
+            },
+            {
+                name: 'purely linear chain - no dropzone',
+                nodes: ['trigger', 'a', 'exit'],
+                edges: [makeEdge('trigger', 'a', 'continue'), makeEdge('a', 'exit', 'continue')],
+                expected: [],
+            },
+        ])('shows correct branch-join dropzones when $name', ({ nodes, edges, expected }) => {
+            logic.actions.setNodesRaw(nodes.map(makeNode))
+            logic.actions.setEdges(edges)
             logic.actions.showDropzones()
-
-            expect(branchJoinDropzones()).toEqual([{ id: 'dropzone_target_exit_branch_join', targetId: 'exit' }])
-        })
-
-        it('shows a branch-join dropzone at the convergence point when branches are populated', () => {
-            logic.actions.setNodesRaw([
-                makeNode('trigger'),
-                makeNode('cond'),
-                makeNode('email1'),
-                makeNode('email2'),
-                makeNode('exit'),
-            ])
-            logic.actions.setEdges([
-                makeEdge('trigger', 'cond', 'continue'),
-                makeEdge('cond', 'email1', 'branch', 0),
-                makeEdge('cond', 'email2', 'branch', 1),
-                makeEdge('cond', 'exit', 'continue'),
-                makeEdge('email1', 'exit', 'continue'),
-                makeEdge('email2', 'exit', 'continue'),
-            ])
-
-            logic.actions.showDropzones()
-
-            expect(branchJoinDropzones()).toEqual([{ id: 'dropzone_target_exit_branch_join', targetId: 'exit' }])
-        })
-
-        it('does not show a branch-join dropzone in a purely linear chain', () => {
-            logic.actions.setNodesRaw([makeNode('trigger'), makeNode('a'), makeNode('exit')])
-            logic.actions.setEdges([makeEdge('trigger', 'a', 'continue'), makeEdge('a', 'exit', 'continue')])
-
-            logic.actions.showDropzones()
-
-            expect(branchJoinDropzones()).toEqual([])
+            expect(branchJoinDropzones()).toEqual(expected)
         })
     })
 })
