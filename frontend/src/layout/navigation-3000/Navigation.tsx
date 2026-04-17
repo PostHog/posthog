@@ -8,6 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -20,6 +21,7 @@ import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { SceneTabs } from '../scenes/SceneTabs'
 import { MinimalNavigation } from './components/MinimalNavigation'
+import { GuestMinimalLayout } from './GuestMinimalLayout'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
@@ -33,6 +35,7 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(maxGlobalLogic)
+    const { user } = useValues(userLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
@@ -73,6 +76,10 @@ export function Navigation({
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
+
+    if (user?.is_guest_in_current_project) {
+        return <GuestMinimalLayout>{children}</GuestMinimalLayout>
+    }
 
     if (mode !== 'full') {
         return (
