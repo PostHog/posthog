@@ -89,4 +89,12 @@ def _fetch_export_progress(plugin_config_id: int, job_id: str) -> Optional[float
     if coordination_entry is None:
         return None
 
-    return json.loads(coordination_entry.value).get("progress")
+    if coordination_entry.value is None:
+        return None
+
+    coordination_value = json.loads(coordination_entry.value)
+    if not isinstance(coordination_value, dict):
+        return None
+
+    progress = coordination_value.get("progress")
+    return progress if isinstance(progress, int | float) else None
