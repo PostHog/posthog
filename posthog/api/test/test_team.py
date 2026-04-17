@@ -421,6 +421,7 @@ def team_api_test_factory():
                         "short_id": None,
                         "trigger": None,
                     },
+                    "client": None,
                     "created_at": ANY,
                 },
                 {
@@ -443,6 +444,7 @@ def team_api_test_factory():
                     "scope": "Team",
                     "user_id": self.user.pk,
                     "was_impersonated": False,
+                    "client": None,
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -468,6 +470,7 @@ def team_api_test_factory():
                         "scope": "Project",
                         "user_id": self.user.pk,
                         "was_impersonated": False,
+                        "client": None,
                     },
                 )
             assert activity == expected_activity

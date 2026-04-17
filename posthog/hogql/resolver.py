@@ -730,6 +730,8 @@ class Resolver(CloningVisitor):
         new_node.group_by_mode = node.group_by_mode
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
+        if node.interpolate is not None:
+            new_node.interpolate = [self.visit(expr) for expr in node.interpolate]
         new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
