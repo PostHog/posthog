@@ -412,7 +412,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
     try {
         const response = await Promise.race([timeout, callback()])
         return response as T
-    } catch (error) {
+    } catch {
         captureException(`Had to run twice: ${errorMessage}`)
         // try one more time
         return await callback()
