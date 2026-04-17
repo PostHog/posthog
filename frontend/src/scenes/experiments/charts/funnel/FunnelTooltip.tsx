@@ -92,8 +92,12 @@ function FunnelTooltipContent({
                     )}
                 </tbody>
             </table>
-            <LemonDivider className="my-2" />
-            {hasSessionData && <ClickToInspectActors groupTypeLabel="persons" />}
+            {hasSessionData && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <ClickToInspectActors groupTypeLabel="persons" />
+                </>
+            )}
         </div>
     )
 }
