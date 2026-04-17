@@ -830,7 +830,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
-        if not request.data.get("key"):
+        if request.data.get("key") is None:
             return Response(
                 {
                     "attr": "key",

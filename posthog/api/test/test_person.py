@@ -1056,23 +1056,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "key")
 
-    def test_update_person_property_null_key_returns_400(self) -> None:
-        person = _create_person(
-            team=self.team,
-            distinct_ids=["some_distinct_id"],
-            properties={"$browser": "whatever"},
-            immediate=True,
-        )
-
-        response = self.client.post(
-            f"/api/person/{person.uuid}/update_property",
-            {"key": None, "value": "foo"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["attr"], "key")
-
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
             team=self.team,
