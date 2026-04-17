@@ -145,7 +145,7 @@ export function ActionFilterGroup({
                     {/* Row 1: letter + title + inline math (when small) | menu button */}
                     <div className="flex items-center gap-x-2 min-w-0">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0 flex-1">
-                            <div className="flex items-center gap-x-2 min-w-0 flex-1 min-w-[45%]">
+                            <div className="flex items-center gap-x-2 flex-1 min-w-[45%]">
                                 {sortable && filterCount > 1 && (
                                     <span className="ActionFilterRowDragHandle" {...listeners}>
                                         <SortableDragIcon />
