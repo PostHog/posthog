@@ -15,13 +15,14 @@ import {
     AnyResponseType,
     ProductIntentContext,
     ProductKey,
+    WebVitalsMetric,
     WebVitalsQuery,
     WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getMetric } from './definitions'
+import { LONG_METRIC_NAME, getMetric } from './definitions'
 import { WebVitalsContent } from './WebVitalsContent'
 import { WebVitalsTab } from './WebVitalsTab'
 
@@ -49,6 +50,8 @@ export function WebVitals(props: {
     const { webVitalsPercentile, webVitalsTab, webVitalsMetricQuery } = useValues(webAnalyticsLogic)
     const { setWebVitalsTab } = useActions(webAnalyticsLogic)
     const { response, responseLoading } = useValues(logic)
+
+    const metricLongName = LONG_METRIC_NAME[webVitalsTab as WebVitalsMetric]
 
     // Manually handle loading state when loading to avoid showing stale data while refreshing
     const webVitalsQueryResponse = responseLoading ? undefined : (response as WebVitalsQueryResponse | undefined)
@@ -111,33 +114,40 @@ export function WebVitals(props: {
                 </span>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2">
-                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
-                <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
-                    <Query
-                        key={webVitalsTab}
-                        query={webVitalsMetricQuery}
-                        readOnly
-                        embedded
-                        context={{ renderEmptyStateAsSkeleton: true }}
-                    />
-
-                    <div className="flex w-full justify-end">
-                        <LemonButton
-                            to={urls.insightNew({ query: webVitalsMetricQuery })}
-                            icon={<IconOpenInNew />}
-                            size="small"
-                            type="secondary"
-                            onClick={() => {
-                                void addProductIntentForCrossSell({
-                                    from: ProductKey.WEB_ANALYTICS,
-                                    to: ProductKey.PRODUCT_ANALYTICS,
-                                    intent_context: ProductIntentContext.WEB_VITALS_INSIGHT,
-                                })
+            <div className="flex flex-col bg-surface-primary rounded border">
+                <div className="flex flex-row items-center justify-between gap-2 p-4 border-b">
+                    <h3 className="text-base font-semibold m-0">{metricLongName}</h3>
+                    <LemonButton
+                        to={urls.insightNew({ query: webVitalsMetricQuery })}
+                        icon={<IconOpenInNew />}
+                        size="small"
+                        type="secondary"
+                        onClick={() => {
+                            void addProductIntentForCrossSell({
+                                from: ProductKey.WEB_ANALYTICS,
+                                to: ProductKey.PRODUCT_ANALYTICS,
+                                intent_context: ProductIntentContext.WEB_VITALS_INSIGHT,
+                            })
+                        }}
+                    >
+                        Open as new Insight
+                    </LemonButton>
+                </div>
+                <div className="flex flex-col sm:flex-row">
+                    <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
+                    <div className="flex flex-col flex-1 p-4">
+                        <Query
+                            key={webVitalsTab}
+                            query={webVitalsMetricQuery}
+                            readOnly
+                            embedded
+                            context={{
+                                renderEmptyStateAsSkeleton: true,
+                                emptyStateHeading: `No ${metricLongName} data to plot for this range`,
+                                emptyStateDetail:
+                                    'The tiles above show the latest recorded value. Try widening the date range or removing filters to populate the chart.',
                             }}
-                        >
-                            Open as new Insight
-                        </LemonButton>
+                        />
                     </div>
                 </div>
             </div>

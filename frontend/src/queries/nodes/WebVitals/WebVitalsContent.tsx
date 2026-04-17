@@ -12,7 +12,6 @@ import {
     EXPERIENCE_PER_BAND,
     GRADE_PER_BAND,
     ICON_PER_BAND,
-    LONG_METRIC_NAME,
     METRIC_DESCRIPTION,
     POSITIONING_PER_BAND,
     QUANTIFIER_PER_BAND,
@@ -44,13 +43,17 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
 
     // Show skeleton only when loading
     if (isLoading) {
-        return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
+        return (
+            <div className="w-full p-4 sm:w-[30%] border-b sm:border-b-0 sm:border-r">
+                <LemonSkeleton fade className="w-full h-full" />
+            </div>
+        )
     }
 
     // Show no data message when not loading and value is undefined
     if (value === undefined || band === 'none') {
         return (
-            <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border items-center justify-center">
+            <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 border-b sm:border-b-0 sm:border-r items-center justify-center">
                 <span className="text-sm text-text-tertiary">No data for the selected date range</span>
             </div>
         )
@@ -69,11 +72,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
-            <span className="text-lg">
-                <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
-            </span>
-
+        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 border-b sm:border-b-0 sm:border-r">
             <div className="flex flex-col">
                 <Tooltip
                     title={
