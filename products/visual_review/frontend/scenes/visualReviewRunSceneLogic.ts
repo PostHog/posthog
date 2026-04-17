@@ -141,18 +141,29 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
         breadcrumbs: [
-            (s) => [s.run],
-            (run): Breadcrumb[] => [
-                {
-                    key: 'visual_review',
-                    name: 'Visual review',
-                    path: '/visual_review',
-                },
-                {
-                    key: 'visual_review_run',
-                    name: run?.branch || 'Run',
-                },
-            ],
+            (s) => [s.run, s.selectedSnapshot],
+            (run, selectedSnapshot): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = [
+                    {
+                        key: 'visual_review',
+                        name: 'Visual review',
+                        path: '/visual_review',
+                    },
+                    {
+                        key: 'visual_review_run',
+                        name: run?.branch || 'Run',
+                    },
+                ]
+                if (selectedSnapshot) {
+                    const parts = selectedSnapshot.identifier.split('--')
+                    const snapshotName = parts[0]?.replace(/-/g, ' ') || selectedSnapshot.identifier
+                    crumbs.push({
+                        key: 'visual_review_snapshot',
+                        name: snapshotName,
+                    })
+                }
+                return crumbs
+            },
         ],
     }),
     listeners(({ actions, values, props }) => ({

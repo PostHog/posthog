@@ -149,6 +149,7 @@ export function SnapshotDiffViewer({
                     diffUrl={snapshot.diff_artifact?.download_url || null}
                     diffPercentage={snapshot.diff_percentage ?? null}
                     result={(snapshot.result || 'unchanged') as VisualDiffResult}
+                    imageWidth={width ?? undefined}
                 />
             </div>
 
