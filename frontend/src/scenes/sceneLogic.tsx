@@ -1136,7 +1136,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 cache.lastTrackedSceneByTab[trackingKey] = { sceneId, sceneKey }
             }
         },
-        openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
+        openScene: async ({ tabId, sceneId, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[sceneId] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
@@ -1165,6 +1165,15 @@ export const sceneLogic = kea<sceneLogicType>([
                         router.actions.replace(urls.default())
                     }
                     return
+                }
+
+                // Guest scene gate: restrict navigation to the guest allowlist
+                if (user.is_guest_in_current_project) {
+                    const { GUEST_ALLOWED_SCENES } = await import('scenes/guest/guestSceneAllowlist')
+                    if (!GUEST_ALLOWED_SCENES.has(sceneId)) {
+                        router.actions.push(urls.guest())
+                        return
+                    }
                 }
 
                 if (sceneId !== Scene.InviteSignup) {
