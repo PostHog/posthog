@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { LemonCheckbox } from '@posthog/lemon-ui'
+
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 const meta: Meta<typeof ImpersonationReasonModal> = {
@@ -15,6 +17,8 @@ type Story = StoryObj<typeof ImpersonationReasonModal>
 
 const noop = (): void => {}
 
+const IMPERSONATED_EMAIL = 'customer@example.com'
+
 function ModalShell({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="bg-default p-4">{children}</div>
 }
@@ -26,26 +30,28 @@ export const SessionExpiredReImpersonation: Story = {
                 isOpen
                 onConfirm={noop}
                 title="Impersonation session expired"
-                description="Your impersonation session has expired. Provide a reason to continue impersonating this user, or end the session."
+                description={`Your session impersonating ${IMPERSONATED_EMAIL} has expired.`}
                 confirmText="Re-impersonate"
                 closable={false}
-                cancelButton={{ label: 'End impersonation', status: 'danger', onClick: noop }}
+                cancelButton={{ label: 'Return to admin', status: 'danger', onClick: noop }}
                 inline
-            />
+            >
+                <LemonCheckbox checked onChange={noop} label="Read-only mode (recommended)" />
+            </ImpersonationReasonModal>
         </ModalShell>
     ),
 }
 
-export const StandardReason: Story = {
+export const UpgradeToReadWrite: Story = {
     render: () => (
         <ModalShell>
             <ImpersonationReasonModal
                 isOpen
                 onClose={noop}
                 onConfirm={noop}
-                title="Impersonate user"
-                description="Provide a reason for impersonating this user."
-                confirmText="Impersonate"
+                title="Upgrade to read-write impersonation"
+                description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
+                confirmText="Upgrade"
                 inline
             />
         </ModalShell>
@@ -63,9 +69,9 @@ export const Loading: Story = {
                 isOpen
                 onClose={noop}
                 onConfirm={noop}
-                title="Impersonate user"
-                description="Provide a reason for impersonating this user."
-                confirmText="Impersonate"
+                title="Upgrade to read-write impersonation"
+                description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
+                confirmText="Upgrade"
                 loading
                 inline
             />
