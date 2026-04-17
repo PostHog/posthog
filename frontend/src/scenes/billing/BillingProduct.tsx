@@ -33,6 +33,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
+import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -566,11 +567,26 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </div>
                                 </LemonBanner>
                             )}
-                            <div className="gap-y-4 flex flex-col">
-                                {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
-                                    return <BillingProductAddon key={i} addon={addon} />
-                                })}
-                            </div>
+                            {product.type === 'platform_and_support' ? (
+                                <div className="flex flex-col gap-y-4">
+                                    <PlatformAddonComparison product={product} />
+                                    {visibleAddons
+                                        .filter(
+                                            (addon: BillingProductV2AddonType) =>
+                                                !['boost', 'scale', 'enterprise'].includes(addon.type) ||
+                                                addon.legacy_product
+                                        )
+                                        .map((addon: BillingProductV2AddonType, i: number) => (
+                                            <BillingProductAddon key={i} addon={addon} />
+                                        ))}
+                                </div>
+                            ) : (
+                                <div className="gap-y-4 flex flex-col">
+                                    {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
+                                        return <BillingProductAddon key={i} addon={addon} />
+                                    })}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
