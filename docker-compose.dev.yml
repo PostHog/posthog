@@ -375,7 +375,7 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
-        # Clickhouse writes ~1 GB/hour in dev json-file has no default rotation
+        # ClickHouse writes ~1 GB/hour in dev and json-file driver has no default rotation
         logging:
             driver: json-file
             options:
