@@ -28,7 +28,7 @@
         "start-docker": "pnpm start-http --host 0.0.0.0",
         "openapi:types": "node ./bin/generate-openapi-types.mjs",
         "typegen:check": "cd .. && NODE_OPTIONS=--max-old-space-size=8192 kea-typegen check",
-        "typegen:clean": "cd .. && find frontend/src products common -type f -name '*Type.ts' -delete",
+        "typegen:clean": "cd .. && find frontend/src products common -type f -name '*Type.ts' ! -path 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/assignmentRuleModalLogicType.ts' ! -path 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/groupingRuleModalLogicType.ts' ! -path 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/suppressionRuleModalLogicType.ts' -delete",
         "typegen:watch": "cd .. && NODE_OPTIONS=--max-old-space-size=8192 kea-typegen watch --delete --show-ts-errors --use-cache",
         "typegen:write": "cd .. && NODE_OPTIONS=--max-old-space-size=8192 kea-typegen write --delete --show-ts-errors --use-cache",
         "typegen:write:no-cache": "cd .. && NODE_OPTIONS=--max-old-space-size=8192 kea-typegen write --delete --show-ts-errors",
