@@ -1054,13 +1054,13 @@ def provisioning_resources_create(request: Request) -> Response:
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     _set_provisioning_service_id(team, resolved_service_id)
 
-    has_spt = bool(_extract_spt(request))
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
         _capture_provisioning_event(
             "resource_created",
             "error",
-            error_code="billing_activation_failed",
+            error_code="requires_payment_credentials",
             service_id=resolved_service_id,
             team_id=team.id,
             has_spt=has_spt,
@@ -1231,8 +1231,8 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     if service_id not in VALID_SERVICE_IDS:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
-    has_spt = bool(_extract_spt(request))
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
         _capture_provisioning_event(
             "update_service",
