@@ -1,4 +1,5 @@
 import re
+import json as _json
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
@@ -22,6 +23,21 @@ ALWAYS_ALLOWED_PATTERNS: list[re.Pattern] = [
 ]
 
 
+RESOURCE_PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^/api/(?:environments|projects)/(?P<team_id>\d+)/dashboards/(?P<resource_id>\d+)/?"), "dashboard"),
+    (
+        re.compile(r"^/api/(?:environments|projects)/(?P<team_id>\d+)/insights/(?P<resource_id>[A-Za-z0-9]+)/?"),
+        "insight",
+    ),
+    (
+        re.compile(r"^/api/(?:environments|projects)/(?P<team_id>\d+)/notebooks/(?P<resource_id>[A-Za-z0-9-]+)/?"),
+        "notebook",
+    ),
+]
+
+QUERY_PATH_PATTERN = re.compile(r"^/api/(?:environments|projects)/(?P<team_id>\d+)/query/?")
+
+
 class GuestDeflectionMiddleware:
     """
     Deflects guest users from every endpoint not on an explicit allowlist.
@@ -43,8 +59,12 @@ class GuestDeflectionMiddleware:
         if self._is_always_allowed(request.path):
             return self.get_response(request)
 
-        # Conditionally-allowed (grant-bound) paths land in Task 2. For the scaffold,
-        # unknown paths deflect.
+        if self._is_grant_bound_allowed(request):
+            return self.get_response(request)
+
+        if self._is_query_bound_to_grant(request):
+            return self.get_response(request)
+
         return self._deflect(request)
 
     def _user_is_guest(self, request: HttpRequest) -> bool:
@@ -55,6 +75,87 @@ class GuestDeflectionMiddleware:
 
     def _is_always_allowed(self, path: str) -> bool:
         return any(p.match(path) for p in ALWAYS_ALLOWED_PATTERNS)
+
+    def _is_grant_bound_allowed(self, request: HttpRequest) -> bool:
+        from posthog.models import GuestResourceGrant
+
+        for pattern, resource in RESOURCE_PATH_PATTERNS:
+            match = pattern.match(request.path)
+            if not match:
+                continue
+            team_id = int(match.group("team_id"))
+            resource_id_str = match.group("resource_id")
+            if resource == "notebook":
+                return self._notebook_granted(request, team_id, resource_id_str)
+            try:
+                resource_id = int(resource_id_str)
+            except ValueError:
+                return False
+            return GuestResourceGrant.objects.filter(
+                organization_membership__user=request.user,
+                organization_membership__is_guest=True,
+                team_id=team_id,
+                resource=resource,
+                resource_id=resource_id,
+                is_pending=False,
+            ).exists()
+        return False
+
+    def _notebook_granted(self, request: HttpRequest, team_id: int, short_id: str) -> bool:
+        from posthog.models import GuestResourceGrant
+        from posthog.models.notebook.notebook import Notebook
+
+        notebook_id = Notebook.objects.filter(team_id=team_id, short_id=short_id).values_list("id", flat=True).first()
+        if notebook_id is None:
+            return False
+        return GuestResourceGrant.objects.filter(
+            organization_membership__user=request.user,
+            organization_membership__is_guest=True,
+            team_id=team_id,
+            resource="notebook",
+            resource_id=notebook_id,
+            is_pending=False,
+        ).exists()
+
+    def _is_query_bound_to_grant(self, request: HttpRequest) -> bool:
+        match = QUERY_PATH_PATTERN.match(request.path)
+        if not match:
+            return False
+        if request.method not in {"POST", "GET"}:
+            return False
+
+        team_id = int(match.group("team_id"))
+        try:
+            body = _json.loads(request.body or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            return False
+        if not isinstance(body, dict):
+            return False
+
+        insight_id = body.get("insight_id")
+        dashboard_id = body.get("dashboard_id")
+        if insight_id is None and dashboard_id is None:
+            return False
+
+        from posthog.models import GuestResourceGrant
+
+        qs = GuestResourceGrant.objects.filter(
+            organization_membership__user=request.user,
+            organization_membership__is_guest=True,
+            team_id=team_id,
+            is_pending=False,
+        )
+        if insight_id is not None:
+            if qs.filter(resource="insight", resource_id=insight_id).exists():
+                return True
+            from posthog.models import DashboardTile
+
+            dashboard_ids = DashboardTile.objects.filter(insight_id=insight_id).values_list("dashboard_id", flat=True)
+            if dashboard_ids and qs.filter(resource="dashboard", resource_id__in=list(dashboard_ids)).exists():
+                return True
+        if dashboard_id is not None and qs.filter(resource="dashboard", resource_id=dashboard_id).exists():
+            return True
+        return False
 
     def _deflect(self, request: HttpRequest) -> HttpResponse:
         if request.path.startswith("/api/"):
