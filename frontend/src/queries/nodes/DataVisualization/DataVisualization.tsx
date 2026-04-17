@@ -250,6 +250,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        // Pie charts can consume breakdown series totals directly, even when there isn't
+        // a matching breakdown x-axis to swap in like the line/bar path expects.
         const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
 
         component = (
