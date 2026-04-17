@@ -127,7 +127,7 @@ export const WithSettingsLink: Story = {
     },
 }
 
-export const WeekStartsMonday: Story = {
+export const WeekStartsThursday: Story = {
     args: baseArgs,
     render: () => {
         const [value, setValue] = React.useState<DateTimeValue>(initialValue)

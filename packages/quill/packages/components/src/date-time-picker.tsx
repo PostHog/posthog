@@ -82,7 +82,9 @@ interface DayItemProps {
 
 function DayItem({ day, startDate, endDate, viewing, maxDate, onClick }: DayItemProps): React.ReactElement {
     const outOfMonth = !isSameMonth(day, viewing)
-    const afterMax = isAfter(day, maxDate)
+    const dayDate = new Date(day.getFullYear(), day.getMonth(), day.getDate())
+    const maxDay = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate())
+    const afterMax = dayDate.getTime() > maxDay.getTime()
     const disabled = outOfMonth || afterMax
 
     const isStart = !disabled && isSameDay(startDate, day)
@@ -251,13 +253,14 @@ function Calendar({
 
 interface DateTimeInputProps {
     date: Date
+    maxDate: Date
     onChange: (date: Date) => void
     dateFormat: DateFormatOrder
 }
 
 const PAD_2 = { minimumIntegerDigits: 2 } as const
 
-function DateTimeInput({ date, onChange, dateFormat }: DateTimeInputProps): React.ReactElement {
+function DateTimeInput({ date, maxDate, onChange, dateFormat }: DateTimeInputProps): React.ReactElement {
     const [month, setMonth] = React.useState(getMonth(date) + 1)
     const [day, setDay] = React.useState(getDate(date))
     const [year, setYear] = React.useState(getYear(date) % 100)
@@ -332,7 +335,7 @@ function DateTimeInput({ date, onChange, dateFormat }: DateTimeInputProps): Reac
             value={year}
             onValueChange={set(setYear)}
             min={0}
-            max={new Date().getFullYear() % 100}
+            max={getYear(maxDate) % 100}
             format={PAD_2}
             className={segmentClass}
         />
@@ -527,9 +530,9 @@ export function DateTimePicker({
                                         <SettingsIcon className="w-4 h-4" />
                                     </Button>
                                 )}
-                                <DateTimeInput date={start} onChange={handleStartChange} dateFormat={dateFormat} />
+                                <DateTimeInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <DateTimeInput date={end} onChange={handleEndChange} dateFormat={dateFormat} />
+                                <DateTimeInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} />
                                 <Button
                                     variant="link"
                                     size="sm"
@@ -615,7 +618,7 @@ export function DateTimePicker({
 
             {/* Actions */}
             <div className="flex justify-end p-4 items-center gap-4 bg-muted/30">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <span className="text-xs text-muted-foreground flex items-center gap-1 tabular-nums">
                     {range.name === 'Custom' ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
                 </span>
                 {onCancel ? (
