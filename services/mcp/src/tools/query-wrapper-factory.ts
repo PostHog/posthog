@@ -50,9 +50,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             return {
-                results: data.formatted_results ?? data.results,
+                results: data.results,
                 _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
-                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results,
+                ...(data.formattedResults ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },
         _meta: {
