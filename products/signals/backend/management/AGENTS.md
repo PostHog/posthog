@@ -58,7 +58,7 @@ Use `ingest_report_json` to short-circuit the research flow and drop a fully-res
 # 2. Ingest a research-output fixture — creates a SignalReport, persists artefacts,
 #    triggers `_maybe_autostart_task_for_report`, then marks the report READY.
 python manage.py ingest_report_json \
-    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
+    products/signals/backend/report_generation/fixtures/backups_succesful_typo.json \
     --team-id 1
 ```
 
