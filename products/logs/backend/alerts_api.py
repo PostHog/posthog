@@ -100,7 +100,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # Subquery annotation yields either the error_message string or None.
             return cast(str | None, annotated)
         return (
-            LogsAlertEvent.objects.filter(alert=obj, error_message__isnull=False)
+            LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
             .order_by("-created_at")
             .values_list("error_message", flat=True)
             .first()
@@ -464,7 +468,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (
-            LogsAlertEvent.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
+            LogsAlertEvent.objects.filter(
+                alert=OuterRef("pk"),
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
             .order_by("-created_at")
             .values("error_message")[:1]
         )

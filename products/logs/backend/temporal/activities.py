@@ -235,6 +235,7 @@ def _evaluate_single_alert(
         prunable_ids = list(
             LogsAlertEvent.objects.filter(
                 alert=alert,
+                kind=LogsAlertEvent.Kind.CHECK,
                 error_message__isnull=True,
                 state_before=F("state_after"),
             )
