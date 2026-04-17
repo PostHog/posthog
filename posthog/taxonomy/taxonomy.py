@@ -103,6 +103,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     "$host",
     "$pathname",
     "$referrer",
+    "$search_engine",
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
@@ -1406,11 +1407,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$search_engine": {
             "label": "Search engine",
             "description": "The search engine the user came in from (if any).",
-            "examples": ["Google", "DuckDuckGo"],
-        },
-        "$session_entry_search_engine": {
-            "label": "Session entry search engine",
-            "description": "The search engine the user came from at the start of the session.",
             "examples": ["Google", "DuckDuckGo"],
         },
         "$active_feature_flags": {

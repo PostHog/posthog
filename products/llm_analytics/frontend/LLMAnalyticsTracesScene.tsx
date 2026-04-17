@@ -27,6 +27,7 @@ import {
     formatLLMLatency,
     formatLLMUsage,
     getTraceTimestamp,
+    LLM_TRACES_PAGE_SIZE,
     normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -72,6 +73,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
+        dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
         columns: {
             id: {
                 title: 'ID',

@@ -487,6 +487,29 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     ]
 }
 
+const botAnalyticsTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.BOT_ANALYTICS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Bot analytics
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsBotAnalytics(),
+        },
+    ]
+}
+
 const WebAnalyticsSurveyModal = (): JSX.Element | null => {
     const { surveyModalPath } = useValues(webAnalyticsLogic)
     const { closeSurveyModal } = useActions(webAnalyticsLogic)
@@ -603,6 +626,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 },
                 ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
+                ...botAnalyticsTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

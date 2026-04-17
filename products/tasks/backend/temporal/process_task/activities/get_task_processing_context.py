@@ -2,11 +2,13 @@ from dataclasses import dataclass
 
 from django.core.exceptions import ObjectDoesNotExist
 
+import posthoganalytics
 from temporalio import activity
 
+from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxEnvironment, TaskRun
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
@@ -34,11 +36,13 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     create_pr: bool = True
+    pr_loop_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
     json_schema: dict | None = None
+    ci_prompt: str | None = None
 
     @property
     def mode(self) -> str:
@@ -122,8 +126,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     emit_agent_log(run_id, "info", "Fetching task details")
 
-    task = task_run.task
-
+    task: Task = task_run.task
+    team: Team = task.team
+    organization_id = str(team.organization_id)
     if not task.created_by:
         raise TaskInvalidStateError(
             f"Task {task.id} has no created_by user",
@@ -174,7 +179,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
-
+    pr_loop_enabled = (
+        posthoganalytics.feature_enabled(
+            "tasks-pr-loop",
+            distinct_id=distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+        )
+        or False
+    )  # Ensure we get a boolean value even if the flag is missing
+    emit_agent_log(run_id, "info", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
@@ -185,9 +199,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
+        pr_loop_enabled=pr_loop_enabled,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
         json_schema=task.json_schema,
+        ci_prompt=task.ci_prompt,
     )
