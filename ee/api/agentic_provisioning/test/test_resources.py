@@ -118,7 +118,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
 
-    def test_create_resource_pat_label_contains_stripe_projects(self):
+    def test_create_resource_pat_label_contains_provisioning_prefix(self):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -127,7 +127,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.label.startswith("Stripe Projects")
+        assert pat.label.startswith("Provisioning")
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
@@ -136,7 +136,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Provisioning").first()
         assert first_pat is not None
 
         self._post_signed_with_bearer(
@@ -144,8 +144,8 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        stripe_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
-        assert stripe_pats.count() == 2
+        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Provisioning")
+        assert provisioning_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
 
     def test_create_resource_with_project_id_creates_new_team(self):
