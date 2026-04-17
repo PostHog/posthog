@@ -44,6 +44,10 @@ import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
+export function shouldShowAddJoinForSidebarItem(recordType?: string): boolean {
+    return recordType === 'view'
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
 }: {
@@ -683,6 +687,17 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {shouldShowAddJoinForSidebarItem(item.record.type) ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        selectSourceTable(item.name)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                             {item.record.type === 'view' ? (
                                 <DropdownMenuItem
                                     asChild
