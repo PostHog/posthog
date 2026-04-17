@@ -12,7 +12,7 @@ use crate::{
         linking::LinkingStage,
         post_processing::{PostProcessingHandler, PostProcessingStage},
         pre_processing::{PreProcessingContext, PreProcessingStage},
-        resolution::ResolutionStage,
+        resolution::{DistributedResolutionStage, LocalResolutionStage},
     },
     types::{
         batch::Batch,
@@ -45,10 +45,19 @@ impl Stage for ExceptionEventPipeline {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
+        let batch = if self.app_context.config.distributed_resolution_enabled {
+            batch
+                // Resolve stack traces with distributed routing
+                .apply_stage(DistributedResolutionStage::from(&self.app_context))
+                .await?
+        } else {
+            batch
+                // Resolve stack traces locally
+                .apply_stage(LocalResolutionStage::from(&self.app_context))
+                .await?
+        };
+
         batch
-            // Resolve stack traces
-            .apply_stage(ResolutionStage::from(&self.app_context))
-            .await?
             // Group events by fingerprint
             .apply_stage(GroupingStage::from(&self.app_context))
             .await?

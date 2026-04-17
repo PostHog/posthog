@@ -1,7 +1,7 @@
 use crate::{
     error::UnhandledError,
     metric_consts::PROPERTIES_RESOLVER_OPERATOR,
-    stages::{pipeline::HandledError, resolution::ResolutionStage},
+    stages::{pipeline::HandledError, resolution::LocalResolutionStage},
     types::{
         exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
@@ -13,7 +13,7 @@ pub struct PropertiesResolver;
 
 impl ValueOperator for PropertiesResolver {
     type Item = ExceptionProperties;
-    type Context = ResolutionStage;
+    type Context = LocalResolutionStage;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
@@ -24,7 +24,7 @@ impl ValueOperator for PropertiesResolver {
     async fn execute_value(
         &self,
         mut event: ExceptionProperties,
-        _: ResolutionStage,
+        _: LocalResolutionStage,
     ) -> OperatorResult<Self> {
         // Implement property resolution logic here
         event.exception_functions = Some(event.exception_list.get_unique_functions());

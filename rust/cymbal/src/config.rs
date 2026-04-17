@@ -118,6 +118,22 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub process_slow_log_threshold_ms: u64,
 
+    // Enables distributed symbol resolution fanout from /process using headless service DNS.
+    #[envconfig(default = "false")]
+    pub distributed_resolution_enabled: bool,
+
+    // Headless service host used to discover Cymbal pod IPs for distributed routing.
+    #[envconfig(default = "")]
+    pub distributed_headless_host: String,
+
+    // Timeout for internal distributed resolution HTTP calls.
+    #[envconfig(default = "60000")]
+    pub distributed_remote_timeout_ms: u64,
+
+    // Current pod IP for local-vs-remote routing decisions.
+    #[envconfig(default = "")]
+    pub pod_ip: String,
+
     #[envconfig(default = "300")]
     pub team_cache_ttl_secs: u64,
 

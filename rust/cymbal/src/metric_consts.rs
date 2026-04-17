@@ -55,6 +55,13 @@ pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_durat
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
+// Distributed resolution metrics (strict minimum set)
+pub const DISTRIBUTED_TASKS_TOTAL: &str = "cymbal_distributed_tasks_total";
+pub const DISTRIBUTED_REMOTE_REQUEST_DURATION_SECONDS: &str =
+    "cymbal_distributed_remote_request_duration_seconds";
+pub const DISTRIBUTED_FALLBACK_TOTAL: &str = "cymbal_distributed_fallback_total";
+pub const INTERNAL_RESOLVE_TASKS_TOTAL: &str = "cymbal_internal_resolve_tasks_total";
+
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";

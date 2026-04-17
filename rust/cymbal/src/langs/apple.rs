@@ -274,6 +274,25 @@ impl RawAppleFrame {
         Err(AppleError::NoMatchingDebugImage)
     }
 
+    pub fn matching_debug_image(
+        &self,
+        debug_images: &[AppleDebugImage],
+    ) -> Option<AppleDebugImage> {
+        let instruction_addr = self
+            .instruction_addr
+            .as_ref()
+            .and_then(|addr| parse_hex_address(addr).ok())?;
+
+        self.find_debug_image(instruction_addr, debug_images)
+            .ok()
+            .cloned()
+    }
+
+    pub fn symbol_set_ref(&self, debug_images: &[AppleDebugImage]) -> Option<String> {
+        self.matching_debug_image(debug_images)
+            .map(|image| image.debug_id)
+    }
+
     fn calculate_relative_addr(
         &self,
         instruction_addr: u64,

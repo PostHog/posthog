@@ -1,9 +1,11 @@
 mod event;
+mod internal;
 
 use axum::routing::{get, post};
 use axum::{extract::State, response::IntoResponse, Router};
 
 pub use event::*;
+pub use internal::*;
 
 use health::HealthStatus;
 use reqwest::StatusCode;
@@ -28,6 +30,7 @@ pub fn get_router(context: Arc<AppContext>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/process", post(process_events))
+        .route("/_internal/resolve-batch", post(resolve_batch_internal))
         .route("/_readiness", get(index))
         .route("/_liveness", get(liveness))
         .fallback(not_found)

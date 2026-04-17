@@ -5,7 +5,7 @@ use crate::{
     frames::{Frame, RawFrame},
     langs::apple::AppleDebugImage,
     metric_consts::FRAME_RESOLVER_OPERATOR,
-    stages::{pipeline::HandledError, resolution::ResolutionStage},
+    stages::{pipeline::HandledError, resolution::LocalResolutionStage},
     types::{
         batch::Batch,
         exception_properties::ExceptionProperties,
@@ -22,7 +22,7 @@ impl FrameResolver {
         team_id: i32,
         list: ExceptionList,
         debug_images: Arc<Vec<AppleDebugImage>>,
-        ctx: ResolutionStage,
+        ctx: LocalResolutionStage,
     ) -> Result<ExceptionList, UnhandledError> {
         let res = Batch::from(list.0)
             .apply_func(
@@ -43,7 +43,7 @@ impl FrameResolver {
         team_id: i32,
         mut exc: Exception,
         debug_images: &[AppleDebugImage],
-        ctx: ResolutionStage,
+        ctx: LocalResolutionStage,
     ) -> Result<Exception, UnhandledError> {
         exc.stack = match exc.stack {
             Some(Stacktrace::Raw { frames }) => {
@@ -73,7 +73,7 @@ impl FrameResolver {
         team_id: i32,
         frame: &RawFrame,
         debug_images: &[AppleDebugImage],
-        ctx: ResolutionStage,
+        ctx: LocalResolutionStage,
     ) -> Result<Vec<Frame>, UnhandledError> {
         let _permit = ctx.acquire_symbol_resolution_permit().await?;
 
@@ -84,7 +84,7 @@ impl FrameResolver {
 }
 
 impl ValueOperator for FrameResolver {
-    type Context = ResolutionStage;
+    type Context = LocalResolutionStage;
     type Item = ExceptionProperties;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
@@ -96,7 +96,7 @@ impl ValueOperator for FrameResolver {
     async fn execute_value(
         &self,
         mut evt: ExceptionProperties,
-        ctx: ResolutionStage,
+        ctx: LocalResolutionStage,
     ) -> OperatorResult<Self> {
         let debug_images = Arc::new(evt.debug_images.clone());
         evt.exception_list = FrameResolver::resolve_exception_list_frames(

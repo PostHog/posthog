@@ -2,42 +2,36 @@ use std::sync::Arc;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+pub mod distributed;
 pub mod exception;
 pub mod frame;
+mod local;
 pub mod properties;
 pub mod symbol;
 
-use crate::{
-    app_context::AppContext,
-    error::UnhandledError,
-    metric_consts::RESOLUTION_STAGE,
-    stages::pipeline::ExceptionEventPipelineItem,
-    stages::resolution::{
-        exception::ExceptionResolver, frame::FrameResolver, properties::PropertiesResolver,
-        symbol::SymbolResolver,
-    },
-    types::{
-        batch::Batch,
-        stage::{Stage, StageResult},
-    },
-};
+use crate::{app_context::AppContext, error::UnhandledError};
+
+pub use distributed::DistributedResolutionStage;
+
+use symbol::SymbolResolver;
 
 #[derive(Clone)]
-pub struct ResolutionStage {
+pub struct LocalResolutionStage {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
 }
 
-impl From<&Arc<AppContext>> for ResolutionStage {
-    fn from(app_context: &Arc<AppContext>) -> Self {
+impl LocalResolutionStage {
+    pub fn from_parts(
+        symbol_resolver: Arc<dyn SymbolResolver>,
+        symbol_resolution_limiter: Arc<Semaphore>,
+    ) -> Self {
         Self {
-            symbol_resolver: app_context.as_ref().symbol_resolver.clone(),
-            symbol_resolution_limiter: app_context.as_ref().symbol_resolution_limiter.clone(),
+            symbol_resolver,
+            symbol_resolution_limiter,
         }
     }
-}
 
-impl ResolutionStage {
     pub async fn acquire_symbol_resolution_permit(
         &self,
     ) -> Result<OwnedSemaphorePermit, UnhandledError> {
@@ -49,21 +43,11 @@ impl ResolutionStage {
     }
 }
 
-impl Stage for ResolutionStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
-
-    fn name(&self) -> &'static str {
-        RESOLUTION_STAGE
-    }
-
-    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        batch
-            .apply_operator(ExceptionResolver, self.clone())
-            .await?
-            .apply_operator(FrameResolver, self.clone())
-            .await?
-            .apply_operator(PropertiesResolver, self.clone())
-            .await
+impl From<&Arc<AppContext>> for LocalResolutionStage {
+    fn from(app_context: &Arc<AppContext>) -> Self {
+        Self::from_parts(
+            app_context.as_ref().symbol_resolver.clone(),
+            app_context.as_ref().symbol_resolution_limiter.clone(),
+        )
     }
 }

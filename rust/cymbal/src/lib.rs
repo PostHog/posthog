@@ -10,6 +10,7 @@ use uuid::Uuid;
 pub mod app_context;
 pub mod assignment_rules;
 pub mod config;
+pub mod distributed;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;

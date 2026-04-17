@@ -51,8 +51,40 @@ pub enum UnhandledError {
     SerdeError(#[from] serde_json::Error),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
+    #[error("Distributed resolution error: {0}")]
+    DistributedError(#[from] RemoteError),
     #[error("Unhandled error: {0}")]
     Other(String),
+}
+
+#[derive(Debug, Error)]
+pub enum RemoteError {
+    #[error("request timed out")]
+    Timeout,
+    #[error("request failed: {0}")]
+    RequestFailed(reqwest::Error),
+    #[error("unexpected status {0}")]
+    BadStatus(reqwest::StatusCode),
+    #[error("invalid response body: {0}")]
+    InvalidResponse(reqwest::Error),
+}
+
+impl RemoteError {
+    pub fn histogram_label(&self) -> &'static str {
+        match self {
+            RemoteError::Timeout => "timeout",
+            _ => "error",
+        }
+    }
+
+    pub fn fallback_label(&self) -> &'static str {
+        match self {
+            RemoteError::Timeout => "timeout",
+            RemoteError::RequestFailed(_) => "request_error",
+            RemoteError::BadStatus(_) => "bad_status",
+            RemoteError::InvalidResponse(_) => "invalid_response",
+        }
+    }
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
