@@ -39,7 +39,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 # net_write_timeout before the first rows are ready. Used for both the
 # client-side PyMySQL read_timeout and the server-side SET SESSION
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
-SYNC_TIMEOUT_SECONDS = 600  # 10 mins
+STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
@@ -693,7 +693,7 @@ def mysql_source(
                 user=user,
                 password=password,
                 connect_timeout=10,
-                read_timeout=SYNC_TIMEOUT_SECONDS,
+                read_timeout=STATEMENT_TIMEOUT_SECONDS,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,
@@ -705,7 +705,7 @@ def mysql_source(
                 try:
                     with connection.cursor() as setup_cursor:
                         setup_cursor.execute(
-                            f"SET SESSION net_write_timeout = {SYNC_TIMEOUT_SECONDS}, net_read_timeout = {SYNC_TIMEOUT_SECONDS}"
+                            f"SET SESSION net_write_timeout = {STATEMENT_TIMEOUT_SECONDS}, net_read_timeout = {STATEMENT_TIMEOUT_SECONDS}"
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
