@@ -351,7 +351,9 @@ impl ServerHandle {
                 session_replay_billing_limiter,
                 cookieless_manager,
                 flags_hypercache_reader,
-                Arc::new(feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled()),
+                Arc::new(
+                    feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
+                ),
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,

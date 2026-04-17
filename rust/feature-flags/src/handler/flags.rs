@@ -161,7 +161,10 @@ pub async fn fetch_and_filter(
             .unwrap_or(false),
     ));
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
-    filtered_out_flag_ids.extend(collect_excluded_by_runtime(&prepared.flags, current_runtime));
+    filtered_out_flag_ids.extend(collect_excluded_by_runtime(
+        &prepared.flags,
+        current_runtime,
+    ));
     filtered_out_flag_ids.extend(collect_excluded_by_tags(&prepared.flags, environment_tags));
 
     if tracing::enabled!(tracing::Level::DEBUG) {

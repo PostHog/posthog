@@ -8,9 +8,7 @@ use moka::future::Cache;
 use sha2::{Digest, Sha256};
 
 use crate::api::errors::FlagError;
-use crate::flags::flag_models::{
-    FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions,
-};
+use crate::flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions};
 use crate::metrics::consts::{
     FLAG_DEFINITIONS_HASH_DURATION_US, FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE,
     FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER,
@@ -35,10 +33,9 @@ impl FlagDefinitionsCache {
     const DEFAULT_TTL_SECONDS: u64 = 90;
 
     pub fn new(capacity_bytes: Option<u64>, ttl_seconds: Option<u64>) -> Self {
-        let weigher =
-            |_key: &(TeamId, [u8; 32]), value: &Arc<PreparedFlagDefinitions>| -> u32 {
-                u32::try_from(value.estimated_size_bytes()).unwrap_or(u32::MAX)
-            };
+        let weigher = |_key: &(TeamId, [u8; 32]), value: &Arc<PreparedFlagDefinitions>| -> u32 {
+            u32::try_from(value.estimated_size_bytes()).unwrap_or(u32::MAX)
+        };
 
         let cache = Cache::builder()
             .time_to_live(Duration::from_secs(
@@ -329,7 +326,9 @@ mod tests {
             .compiled_regex;
         assert!(matches!(
             regex_1,
-            Some(crate::properties::property_models::CompiledRegex::Compiled(_))
+            Some(crate::properties::property_models::CompiledRegex::Compiled(
+                _
+            ))
         ));
 
         // Invalid regex should be marked as InvalidPattern

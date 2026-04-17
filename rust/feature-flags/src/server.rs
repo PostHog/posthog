@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
     RealtimeCohortMembershipProvider,
@@ -13,6 +12,7 @@ use crate::cohorts::membership::{
 use crate::config::{Config, TeamIdCollection};
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
 use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
