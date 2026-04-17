@@ -33,13 +33,15 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
+import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -50,14 +52,16 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getSelectionState, listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { isNonEmptyObject } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -682,8 +686,6 @@ export function InsightIcon({
 
 export function NewInsightButton(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useInsightOptionsPage = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'test')
-    const useDropdownOnly = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'dropdown')
 
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
@@ -737,29 +739,9 @@ export function NewInsightButton(): JSX.Element {
                 scope={Scene.SavedInsights}
                 priority={100}
             >
-                {useDropdownOnly ? (
-                    <LemonMenu items={menuItems} placement="bottom-end">
-                        <LemonButton
-                            type="primary"
-                            data-attr="saved-insights-new-insight-button"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            tooltip="New insight"
-                        >
-                            New
-                        </LemonButton>
-                    </LemonMenu>
-                ) : (
+                <LemonMenu items={menuItems} placement="bottom-end">
                     <LemonButton
                         type="primary"
-                        to={useInsightOptionsPage ? urls.insightOptions() : urls.insightNew()}
-                        sideAction={{
-                            dropdown: {
-                                placement: 'bottom-end',
-                                overlay: <LemonMenuOverlay items={menuItems} />,
-                            },
-                            'data-attr': 'saved-insights-new-insight-dropdown',
-                        }}
                         data-attr="saved-insights-new-insight-button"
                         size="small"
                         icon={<IconPlusSmall />}
@@ -767,7 +749,7 @@ export function NewInsightButton(): JSX.Element {
                     >
                         New
                     </LemonButton>
-                )}
+                </LemonMenu>
             </AppShortcut>
         </AccessControlAction>
     )
@@ -779,6 +761,10 @@ export function SavedInsights(): JSX.Element {
     const { insights, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
 
+    const insightSelection = listSelectionLogic({ resource: 'insights' })
+    const { selectedIds } = useValues(insightSelection)
+    const { selectAllOnPage } = useActions(insightSelection)
+
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
     const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
@@ -786,7 +772,47 @@ export function SavedInsights(): JSX.Element {
 
     const { tab } = filters
 
+    const allPageItems = insights.results.map((insight) => ({
+        id: insight.id,
+        isEditable: accessLevelSatisfied(
+            AccessControlResourceType.Insight,
+            insight.user_access_level,
+            AccessControlLevel.Editor
+        ),
+    }))
+    const editableIds = allPageItems.filter((item) => item.isEditable).map((item) => item.id)
+
+    const { isAllSelected, isSomeSelected } = getSelectionState(selectedIds, editableIds)
+
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
+        {
+            key: 'selection',
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
+                    onChange={() => selectAllOnPage(allPageItems)}
+                    aria-label="Select all insights on this page"
+                />
+            ),
+            render: function Render(_: unknown, insight: QueryBasedInsightModel, index: number) {
+                const canEdit = accessLevelSatisfied(
+                    AccessControlResourceType.Insight,
+                    insight.user_access_level,
+                    AccessControlLevel.Editor
+                )
+                return (
+                    <SelectionCheckbox
+                        resource="insights"
+                        id={insight.id}
+                        index={index}
+                        allPageItems={allPageItems}
+                        disabledReason={!canEdit ? "You don't have permission to edit this insight." : undefined}
+                        ariaLabel={`Select insight ${insight.name || 'Untitled'}`}
+                    />
+                )
+            },
+        },
         {
             key: 'id',
             width: 32,
@@ -1045,8 +1071,12 @@ export function SavedInsights(): JSX.Element {
                                 : undefined
                         }
                     />
-
                     <ReloadInsight />
+                    {selectedIds.length > 0 && (
+                        <div className="flex items-center justify-end min-h-9">
+                            <BulkActionToolbar resource="insights" />
+                        </div>
+                    )}
                     <LemonTable
                         loading={insightsLoading}
                         columns={columns}

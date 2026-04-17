@@ -90,6 +90,9 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     async BACKUP threads don't inherit session-level settings.
     """
 
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str = settings.CLICKHOUSE_CLUSTER
+
     client_settings: dict[str, str] = {
         "max_execution_time": "0",
         "max_memory_usage": "0",
@@ -109,6 +112,8 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             )
         return get_cluster(
             context.log,
+            host=self.host,
+            cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,

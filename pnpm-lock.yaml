@@ -12,6 +12,9 @@ catalogs:
     '@parcel/transformer-typescript-types':
       specifier: 2.13.3
       version: 2.13.3
+    '@posthog/react':
+      specifier: ^1.9.0
+      version: 1.9.0
     '@storybook/addon-actions':
       specifier: ^7.6.4
       version: 7.6.4
@@ -79,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.368.2
-      version: 1.368.2
+      specifier: ^1.369.2
+      version: 1.369.2
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -89,6 +92,7 @@ catalogs:
       version: 9.0.3
 
 overrides:
+  axios: ^1.15.0
   '@modelcontextprotocol/sdk': ^1.26.0
   '@types/react': 18.3.27
   '@types/react-dom': 18.3.7
@@ -104,6 +108,8 @@ overrides:
   sha.js: '>=2.4.12'
   typescript: 5.8.3
   uWebSockets.js: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
+  fast-xml-parser@^4: '>=4.5.4'
+  fast-xml-parser@^5: '>=5.3.5'
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -620,6 +626,9 @@ importers:
       '@posthog/products-data-modeling':
         specifier: workspace:*
         version: link:../products/data_modeling
+      '@posthog/products-data-warehouse':
+        specifier: workspace:*
+        version: link:../products/data_warehouse
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
@@ -710,6 +719,9 @@ importers:
       '@posthog/products-workflows':
         specifier: workspace:*
         version: link:../products/workflows
+      '@posthog/react':
+        specifier: 'catalog:'
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.369.2)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1048,7 +1060,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
@@ -1758,15 +1770,6 @@ importers:
         specifier: ^4.7.0
         version: 4.20.5
 
-  nodejs/src/scripts:
-    dependencies:
-      puppeteer:
-        specifier: 19.0.0
-        version: 19.0.0(encoding@0.1.13)
-      puppeteer-screen-recorder:
-        specifier: 3.0.6
-        version: 3.0.6(puppeteer@19.0.0(encoding@0.1.13))
-
   packages/quill:
     devDependencies:
       typescript:
@@ -2175,7 +2178,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2219,7 +2222,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2278,7 +2281,41 @@ importers:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
 
-  products/data_warehouse: {}
+  products/data_warehouse:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.369.2
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/desktop_recordings: {}
 
@@ -2412,7 +2449,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2487,7 +2524,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2674,7 +2711,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2756,7 +2793,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3172,7 +3209,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3265,7 +3302,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.368.2
+        version: 1.369.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -6114,49 +6151,6 @@ packages:
   '@fal-works/esbuild-plugin-global-externals@2.1.2':
     resolution: {integrity: sha512-cEee/Z+I12mZcFJshKcCqC8tuX5hG3s+d+9nZ3LabqKF1vKdF41B92pJVCBggjAGORAeOzyyDDKrZwIkLffeOQ==}
 
-  '@ffmpeg-installer/darwin-arm64@4.1.5':
-    resolution: {integrity: sha512-hYqTiP63mXz7wSQfuqfFwfLOfwwFChUedeCVKkBtl/cliaTM7/ePI9bVzfZ2c+dWu3TqCwLDRWNSJ5pqZl8otA==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@ffmpeg-installer/darwin-x64@4.1.0':
-    resolution: {integrity: sha512-Z4EyG3cIFjdhlY8wI9aLUXuH8nVt7E9SlMVZtWvSPnm2sm37/yC2CwjUzyCQbJbySnef1tQwGG2Sx+uWhd9IAw==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@ffmpeg-installer/ffmpeg@1.1.0':
-    resolution: {integrity: sha512-Uq4rmwkdGxIa9A6Bd/VqqYbT7zqh1GrT5/rFwCwKM70b42W5gIjWeVETq6SdcL0zXqDtY081Ws/iJWhr1+xvQg==}
-
-  '@ffmpeg-installer/linux-arm64@4.1.4':
-    resolution: {integrity: sha512-dljEqAOD0oIM6O6DxBW9US/FkvqvQwgJ2lGHOwHDDwu/pX8+V0YsDL1xqHbj1DMX/+nP9rxw7G7gcUvGspSoKg==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@ffmpeg-installer/linux-arm@4.1.3':
-    resolution: {integrity: sha512-NDf5V6l8AfzZ8WzUGZ5mV8O/xMzRag2ETR6+TlGIsMHp81agx51cqpPItXPib/nAZYmo55Bl2L6/WOMI3A5YRg==}
-    cpu: [arm]
-    os: [linux]
-
-  '@ffmpeg-installer/linux-ia32@4.1.0':
-    resolution: {integrity: sha512-0LWyFQnPf+Ij9GQGD034hS6A90URNu9HCtQ5cTqo5MxOEc7Rd8gLXrJvn++UmxhU0J5RyRE9KRYstdCVUjkNOQ==}
-    cpu: [ia32]
-    os: [linux]
-
-  '@ffmpeg-installer/linux-x64@4.1.0':
-    resolution: {integrity: sha512-Y5BWhGLU/WpQjOArNIgXD3z5mxxdV8c41C+U15nsE5yF8tVcdCGet5zPs5Zy3Ta6bU7haGpIzryutqCGQA/W8A==}
-    cpu: [x64]
-    os: [linux]
-
-  '@ffmpeg-installer/win32-ia32@4.1.0':
-    resolution: {integrity: sha512-FV2D7RlaZv/lrtdhaQ4oETwoFUsUjlUiasiZLDxhEUPdNDWcH1OU9K1xTvqz+OXLdsmYelUDuBS/zkMOTtlUAw==}
-    cpu: [ia32]
-    os: [win32]
-
-  '@ffmpeg-installer/win32-x64@4.1.0':
-    resolution: {integrity: sha512-Drt5u2vzDnIONf4ZEkKtFlbvwj6rI3kxw1Ck9fpudmtgaZIHD4ucsWB2lCZBXRxJgXR+2IMSti+4rtM4C4rXgg==}
-    cpu: [x64]
-    os: [win32]
-
   '@floating-ui/core@1.7.5':
     resolution: {integrity: sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==}
 
@@ -8629,6 +8623,16 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
+  '@posthog/react@1.9.0':
+    resolution: {integrity: sha512-lVdTsWT5+PtHBu44gSQ7QohbLjAYqHkFAIGAQ+HV8Eh9yj+OcnQ7mXCmyhaMlTBD3z7D0H1eWMp4vQaFnsIyWQ==}
+    peerDependencies:
+      '@types/react': 18.3.27
+      posthog-js: '>=1.257.2'
+      react: 18.3.1
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
 
@@ -8653,8 +8657,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.368.2':
-    resolution: {integrity: sha512-QOukv/OCFdiOJmsr8GQ/Y/20vpkcS4JuGd5Hsh8/qP6mhWwUMtEKAiGEgfyLZKeuFm7zc6rqZpCXTJYL9AW1tQ==}
+  '@posthog/types@1.369.2':
+    resolution: {integrity: sha512-PJqkqPCFnnbCZslH2jHSvXlasRqvke6YAsYPhPALy4zy2hldor8A0O2wIlpAefEJ7fVz6wR5ZbRJzQP6nwujyw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -12890,8 +12894,8 @@ packages:
     resolution: {integrity: sha512-1exVbW0X1O/HSr/WMwnaweyqcWOgZgLiVxdLG34pvSQk4NlYQr9OUy0JLwuhFfuVNQzzqgH57eYzkFBCb3bIsQ==}
     engines: {node: '>=4'}
 
-  axios@1.9.0:
-    resolution: {integrity: sha512-re4CqKTJaURpzbLHtIi6XpDv20/CnpXOtjRY5/CU32L8gU8ek9UIivcfvSWvmKEngmVbrUtPpdDwWDWL7DNHvg==}
+  axios@1.15.0:
+    resolution: {integrity: sha512-wWyJDlAatxk30ZJer+GeCWS209sA42X+N5jU2jy6oHTp7ufw8uzUTVFBX9+wTfAlhiJXGS0Bq7X6efruWjuK9Q==}
 
   b4a@1.8.0:
     resolution: {integrity: sha512-qRuSmNSkGQaHwNbM7J78Wwy+ghLEYF1zNrSeMxj4Kgw6y33O3mXcQ6Ie9fRvfU/YnxWkOchPXbaLb73TkIsfdg==}
@@ -15161,16 +15165,15 @@ packages:
   fast-uri@3.1.0:
     resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
 
-  fast-xml-parser@4.4.1:
-    resolution: {integrity: sha512-xkjOecfnKGkSsOwtZ5Pz7Us/T6mrbPQrq0nh+aCO5V9nk5NLWmasAHumTKjiPJPWANe+kAZ84Jc8ooJkzZ88Sw==}
+  fast-xml-builder@1.1.4:
+    resolution: {integrity: sha512-f2jhpN4Eccy0/Uz9csxh3Nu6q4ErKxf0XIsasomfOihuSUa3/xw6w8dnOtCDgEItQFJG8KyXPzQXzcODDrrbOg==}
+
+  fast-xml-parser@4.5.5:
+    resolution: {integrity: sha512-cK9c5I/DwIOI7/Q7AlGN3DuTdwN61gwSfL8rvuVPK+0mcCNHHGxRrpiFtaZZRfRMJL3Gl8B2AFlBG6qXf03w9A==}
     hasBin: true
 
-  fast-xml-parser@5.2.5:
-    resolution: {integrity: sha512-pfX9uG9Ki0yekDHx2SiuRIyFdyAr1kMIMitPvb0YBo8SUfKvia7w7FIyd/l6av85pFYRhZscS75MwMnbvY+hcQ==}
-    hasBin: true
-
-  fast-xml-parser@5.3.4:
-    resolution: {integrity: sha512-EFd6afGmXlCx8H8WTZHhAoDaWaGyuIBoZJ2mknrNxug+aZKjkp0a0dlars9Izl+jF+7Gu1/5f/2h68cQpe0IiA==}
+  fast-xml-parser@5.5.6:
+    resolution: {integrity: sha512-3+fdZyBRVg29n4rXP0joHthhcHdPUHaIC16cuyyd1iLsuaO6Vea36MPrxgAzbZna8lhvZeRL8Bc9GP56/J9xEw==}
     hasBin: true
 
   fast-zlib@2.0.1:
@@ -15320,8 +15323,8 @@ packages:
     engines: {node: '>=18'}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
-  follow-redirects@1.15.9:
-    resolution: {integrity: sha512-gew4GsXizNgdoRyqmyfMHyAmXsZDk6mHkSxZFCzW9gwlbtOW44CDtYavM+y+72qD/Vq2l550kMF52DT8fOLJqQ==}
+  follow-redirects@1.15.11:
+    resolution: {integrity: sha512-deG2P0JfjrTxl50XGCDyfI97ZGVCxIpfKYmfyrQ54n5FO/0gfIES8C/Psl6kWVDolizcaaxZJnTS0QSMxvnsBQ==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -18976,6 +18979,10 @@ packages:
     resolution: {integrity: sha512-RjhtfwJOxzcFmNOi6ltcbcu4Iu+FL3zEj83dk4kAS+fVpTxXLO1b38RvJgT/0QwvV/L3aY9TAnyv0EOqW4GoMQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
+  path-expression-matcher@1.5.0:
+    resolution: {integrity: sha512-cbrerZV+6rvdQrrD+iGMcZFEiiSrbv9Tfdkvnusy6y0x0GKBXREFg/Y65GhIfm0tnLntThhzCnfKwp1WRjeCyQ==}
+    engines: {node: '>=14.0.0'}
+
   path-is-absolute@1.0.1:
     resolution: {integrity: sha512-AVbw3UJ2e9bq64vSaS9Am0fje1Pa8pbGqTTsmXfaIiMpnr5DlDhfJOuLj9Sf95ZPVDAUerDfEk88MPmPe7UCQg==}
     engines: {node: '>=0.10.0'}
@@ -19629,8 +19636,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.368.2:
-    resolution: {integrity: sha512-0gfMmZWA9Z2IGtgc2b9uRGap6+9ib5iNhyjtq4qRqtVKF6JKlhqEaml3p+c+cOIWi1Ym/gJ55VngKil9TGYJhQ==}
+  posthog-js@1.369.2:
+    resolution: {integrity: sha512-pY+SvNvRp3C2XW80h/jwVLTgoruK15C6klo9bYYoO6DCK9EbcwS6YzjgxBHx1dIN0XBZM3KWJPmuaSimU65HQQ==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -19838,6 +19845,10 @@ packages:
   proxy-from-env@1.1.0:
     resolution: {integrity: sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg==}
 
+  proxy-from-env@2.1.0:
+    resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
+    engines: {node: '>=10'}
+
   prr@1.0.1:
     resolution: {integrity: sha512-yPw4Sng1gWghHQWj0B3ZggWUm4qVbPwPFcRG8KyxiU7J2OHFSoEHKS+EZ3fv5l1t9CyCiop6l/ZYeWbrgoQejw==}
 
@@ -19893,12 +19904,6 @@ packages:
   puppeteer-core@24.40.0:
     resolution: {integrity: sha512-MWL3XbUCfVgGR0gRsidzT6oKJT2QydPLhMITU6HoVWiiv4gkb6gJi3pcdAa8q4HwjBTbqISOWVP4aJiiyUJvag==}
     engines: {node: '>=18'}
-
-  puppeteer-screen-recorder@3.0.6:
-    resolution: {integrity: sha512-yzWlXWGi/FjsAe0fVr/zYlKFKsH1PGc6Pm7t58wlzVbs/jdLimjdO5VaTIqDJIkWuXFfD4WuDFptdU6AG3ls/Q==}
-    engines: {node: '>=16'}
-    peerDependencies:
-      puppeteer: 19.0.0
 
   puppeteer@19.0.0:
     resolution: {integrity: sha512-3Ga5IVerQQ2hKU9q7T28RmcUsd8F2kL6cYuPcPCzeclSjmHhGydPBZL/KJKC02sG6J6Wfry85uiWpbkjQ5qBiw==}
@@ -22401,8 +22406,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.399.0:
-    resolution: {integrity: sha512-VbqOnzfc2iOlgW9kmZsK93/f9IqH8jq5UgTemvSbAFrrxVSQgnqH87cThEHxO1GeMoAv5PyH4VIrh2ULlK5o7Q==}
+  unlayer-types@1.400.0:
+    resolution: {integrity: sha512-3x/DFE0UYvwNZ/S+8OZYjPKjEHscSFOwnnRNZNTRkLTRCugOkSS9owg1+7uinBdhwB+xYbAKIfxU9vS2dLLyFg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -23891,7 +23896,7 @@ snapshots:
       '@smithy/smithy-client': 4.10.12
       '@smithy/types': 4.12.0
       '@smithy/util-middleware': 4.2.8
-      fast-xml-parser: 4.4.1
+      fast-xml-parser: 4.5.5
       tslib: 2.8.1
 
   '@aws-sdk/core@3.972.0':
@@ -24828,25 +24833,25 @@ snapshots:
   '@aws-sdk/xml-builder@3.972.0':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.2.5
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.1':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.2.5
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.2':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.2.5
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.4':
     dependencies:
       '@smithy/types': 4.12.0
-      fast-xml-parser: 5.3.4
+      fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.2.3': {}
@@ -28247,42 +28252,6 @@ snapshots:
 
   '@fal-works/esbuild-plugin-global-externals@2.1.2': {}
 
-  '@ffmpeg-installer/darwin-arm64@4.1.5':
-    optional: true
-
-  '@ffmpeg-installer/darwin-x64@4.1.0':
-    optional: true
-
-  '@ffmpeg-installer/ffmpeg@1.1.0':
-    optionalDependencies:
-      '@ffmpeg-installer/darwin-arm64': 4.1.5
-      '@ffmpeg-installer/darwin-x64': 4.1.0
-      '@ffmpeg-installer/linux-arm': 4.1.3
-      '@ffmpeg-installer/linux-arm64': 4.1.4
-      '@ffmpeg-installer/linux-ia32': 4.1.0
-      '@ffmpeg-installer/linux-x64': 4.1.0
-      '@ffmpeg-installer/win32-ia32': 4.1.0
-      '@ffmpeg-installer/win32-x64': 4.1.0
-    optional: true
-
-  '@ffmpeg-installer/linux-arm64@4.1.4':
-    optional: true
-
-  '@ffmpeg-installer/linux-arm@4.1.3':
-    optional: true
-
-  '@ffmpeg-installer/linux-ia32@4.1.0':
-    optional: true
-
-  '@ffmpeg-installer/linux-x64@4.1.0':
-    optional: true
-
-  '@ffmpeg-installer/win32-ia32@4.1.0':
-    optional: true
-
-  '@ffmpeg-installer/win32-x64@4.1.0':
-    optional: true
-
   '@floating-ui/core@1.7.5':
     dependencies:
       '@floating-ui/utils': 0.2.11
@@ -31457,6 +31426,13 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.369.2)(react@18.3.1)':
+    dependencies:
+      posthog-js: 1.369.2
+      react: 18.3.1
+    optionalDependencies:
+      '@types/react': 18.3.27
+
   '@posthog/rrdom@0.0.4':
     dependencies:
       '@posthog/rrweb-snapshot': 0.0.4
@@ -31487,7 +31463,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.368.2': {}
+  '@posthog/types@1.369.2': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -36902,11 +36878,11 @@ snapshots:
 
   axe-core@4.5.1: {}
 
-  axios@1.9.0:
+  axios@1.15.0:
     dependencies:
-      follow-redirects: 1.15.9
+      follow-redirects: 1.15.11
       form-data: 4.0.5
-      proxy-from-env: 1.1.0
+      proxy-from-env: 2.1.0
     transitivePeerDependencies:
       - debug
 
@@ -39878,16 +39854,18 @@ snapshots:
 
   fast-uri@3.1.0: {}
 
-  fast-xml-parser@4.4.1:
+  fast-xml-builder@1.1.4:
+    dependencies:
+      path-expression-matcher: 1.5.0
+
+  fast-xml-parser@4.5.5:
     dependencies:
       strnum: 1.0.5
 
-  fast-xml-parser@5.2.5:
+  fast-xml-parser@5.5.6:
     dependencies:
-      strnum: 2.1.2
-
-  fast-xml-parser@5.3.4:
-    dependencies:
+      fast-xml-builder: 1.1.4
+      path-expression-matcher: 1.5.0
       strnum: 2.1.2
 
   fast-zlib@2.0.1: {}
@@ -40063,7 +40041,7 @@ snapshots:
       async: 0.2.10
       which: 1.3.1
 
-  follow-redirects@1.15.9: {}
+  follow-redirects@1.15.11: {}
 
   for-each@0.3.5:
     dependencies:
@@ -44998,6 +44976,8 @@ snapshots:
 
   path-exists@5.0.0: {}
 
+  path-expression-matcher@1.5.0: {}
+
   path-is-absolute@1.0.1: {}
 
   path-key@3.1.1: {}
@@ -45886,7 +45866,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.368.2:
+  posthog-js@1.369.2:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -45894,7 +45874,7 @@ snapshots:
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.25.2
-      '@posthog/types': 1.368.2
+      '@posthog/types': 1.369.2
       core-js: 3.40.0
       dompurify: 3.3.2
       fflate: 0.4.8
@@ -46164,6 +46144,8 @@ snapshots:
 
   proxy-from-env@1.1.0: {}
 
+  proxy-from-env@2.1.0: {}
+
   prr@1.0.1:
     optional: true
 
@@ -46275,13 +46257,6 @@ snapshots:
       - react-native-b4a
       - supports-color
       - utf-8-validate
-
-  puppeteer-screen-recorder@3.0.6(puppeteer@19.0.0(encoding@0.1.13)):
-    dependencies:
-      fluent-ffmpeg: 2.1.3
-      puppeteer: 19.0.0(encoding@0.1.13)
-    optionalDependencies:
-      '@ffmpeg-installer/ffmpeg': 1.1.0
 
   puppeteer@19.0.0(encoding@0.1.13):
     dependencies:
@@ -46789,7 +46764,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.399.0
+      unlayer-types: 1.400.0
 
   react-error-overlay@6.0.9: {}
 
@@ -49247,7 +49222,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.399.0: {}
+  unlayer-types@1.400.0: {}
 
   unpipe@1.0.0: {}
 
@@ -49664,7 +49639,7 @@ snapshots:
 
   wait-on@7.2.0:
     dependencies:
-      axios: 1.9.0
+      axios: 1.15.0
       joi: 17.11.0
       lodash: 4.18.1
       minimist: 1.2.8

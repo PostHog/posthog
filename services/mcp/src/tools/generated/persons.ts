@@ -25,7 +25,7 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedPersonList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {
                 distinct_id: params.distinct_id,
                 email: params.email,
@@ -37,7 +37,17 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'uuid', 'name', 'distinct_ids', 'created_at', 'last_seen_at'])
+                pickResponseFields(item, [
+                    'id',
+                    'uuid',
+                    'name',
+                    'distinct_ids',
+                    'properties.email',
+                    'properties.$email',
+                    'properties.$geoip_country_code',
+                    'created_at',
+                    'last_seen_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/persons')
@@ -53,7 +63,7 @@ const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUr
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Person>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = pickResponseFields(result, [
             'id',
@@ -84,7 +94,7 @@ const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, u
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/persons/${params.id}/delete_property/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/delete_property/`,
             body,
         })
         return result
@@ -109,7 +119,7 @@ const personsPropertySet = (): ToolBase<typeof PersonsPropertySetSchema, unknown
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/persons/${params.id}/update_property/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/update_property/`,
             body,
         })
         return result
@@ -141,7 +151,7 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/persons/bulk_delete/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/bulk_delete/`,
             body,
         })
         return result
@@ -157,7 +167,7 @@ const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/cohorts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/cohorts/`,
             query: {
                 person_id: params.person_id,
             },
@@ -175,7 +185,7 @@ const personsValuesRetrieve = (): ToolBase<typeof PersonsValuesRetrieveSchema, u
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/values/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/values/`,
             query: {
                 key: params.key,
                 value: params.value,

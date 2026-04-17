@@ -6,9 +6,6 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { InlineSourceSetup } from 'scenes/data-warehouse/new/InlineSourceSetup'
-import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -20,6 +17,10 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
+import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/components/InlineSourceSetup'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
@@ -138,7 +139,7 @@ const QUERY_STYLES = `
 `
 
 export function DataWarehouseQueryVariant(): JSX.Element {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <DataWarehouseOnboardingLoadingPlaceholder />
@@ -154,7 +155,7 @@ export function DataWarehouseQueryVariant(): JSX.Element {
 function DataWarehouseQueryInner(): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
-    const { availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const { connectors } = useValues(sourceWizardLogic)
     const [phase, setPhase] = useState<'value-prop' | 'setup'>('value-prop')
     const [sceneIndex, setSceneIndex] = useState(0)

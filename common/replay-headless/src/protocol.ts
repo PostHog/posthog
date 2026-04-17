@@ -26,8 +26,8 @@ export interface PlayerConfig {
     playbackSpeed: number
     blockCount: number
     skipInactivity?: boolean
-    startTimestamp?: number
-    endTimestamp?: number
+    startOffsetS?: number
+    endOffsetS?: number
     mouseTail?: boolean
     showMetadataFooter?: boolean
     viewportEvents?: ViewportEvent[]

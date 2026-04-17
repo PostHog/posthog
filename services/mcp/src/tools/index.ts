@@ -20,8 +20,6 @@ import evaluationTestHog from './llmAnalytics/evaluations/testHog'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
@@ -47,9 +45,7 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,

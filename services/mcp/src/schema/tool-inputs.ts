@@ -246,7 +246,7 @@ export const InsightGenerateHogQLFromQuestionSchema = z.object({
 
 export const InsightQueryInputSchema = z.object({
     insightId: z.string().describe('The insight ID or short_id to run.'),
-    format: z
+    output_format: z
         .enum(['optimized', 'json'])
         .optional()
         .default('optimized')
@@ -259,10 +259,6 @@ export const LLMAnalyticsGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
-
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
 
 export const OrganizationSetActiveSchema = z.object({
     orgId: z.string(),

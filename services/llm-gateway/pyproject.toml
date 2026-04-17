@@ -15,7 +15,7 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "asyncpg>=0.30.0",
     "redis==5.3.1",
-    "litellm==1.81.13",
+    "litellm==1.83.4",
     "orjson>=3.10.0",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",

@@ -121,6 +121,8 @@ export function formatLLMUsage(
     return null
 }
 
+export const LLM_TRACES_PAGE_SIZE = 50
+
 export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
 
 export function formatLLMLatency(latency: number, showMinutes?: boolean): string {
@@ -130,6 +132,51 @@ export function formatLLMLatency(latency: number, showMinutes?: boolean): string
         return `${roundedLatency} s (${minutes} m)`
     }
     return `${roundedLatency} s`
+}
+
+export interface CostContext {
+    inputCost?: number
+    outputCost?: number
+    requestCost?: number
+    webSearchCost?: number
+    totalCost: number
+}
+
+export function costContextFromProperties(props: Record<string, any>): CostContext | undefined {
+    if (typeof props.$ai_total_cost_usd !== 'number') {
+        return undefined
+    }
+    return {
+        inputCost: props.$ai_input_cost_usd,
+        outputCost: props.$ai_output_cost_usd,
+        requestCost: props.$ai_request_cost_usd,
+        webSearchCost: props.$ai_web_search_cost_usd,
+        totalCost: props.$ai_total_cost_usd,
+    }
+}
+
+export function costContextFromTrace(
+    trace: Pick<LLMTrace, 'inputCost' | 'outputCost' | 'requestCost' | 'webSearchCost' | 'totalCost'>
+): CostContext | undefined {
+    if (typeof trace.totalCost !== 'number') {
+        return undefined
+    }
+    return {
+        inputCost: trace.inputCost,
+        outputCost: trace.outputCost,
+        requestCost: trace.requestCost,
+        webSearchCost: trace.webSearchCost,
+        totalCost: trace.totalCost,
+    }
+}
+
+export function hasCostBreakdown(ctx: CostContext): boolean {
+    return (
+        typeof ctx.inputCost === 'number' ||
+        typeof ctx.outputCost === 'number' ||
+        (typeof ctx.requestCost === 'number' && ctx.requestCost > 0) ||
+        (typeof ctx.webSearchCost === 'number' && ctx.webSearchCost > 0)
+    )
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
