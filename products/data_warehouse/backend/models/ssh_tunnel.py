@@ -64,11 +64,17 @@ class SSHTunnelAuthConfig(config.Config):
 
 
 @config.config
+class SSHTunnelRequireTlsConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=True)
+
+
+@config.config
 class SSHTunnelConfig(config.Config):
     host: str | None
     port: int | None = config.value(converter=config.str_to_optional_int)
     auth: SSHTunnelAuthConfig = config.value(alias="auth_type", default_factory=SSHTunnelAuthConfig)
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    require_tls: SSHTunnelRequireTlsConfig = config.value(default_factory=SSHTunnelRequireTlsConfig)
 
 
 @dataclasses.dataclass

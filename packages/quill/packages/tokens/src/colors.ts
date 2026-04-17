@@ -2,9 +2,9 @@
  * PostHog Design System — Color Tokens (hue-based theming)
  *
  * Surface/neutral colors are derived from a shared theme hue + tint.
- * Consumers can override `--theme-hue`, `--primary-hue` (and optionally
- * `--theme-dark-hue`, `--theme-tint`) on `:root` to shift the palette
- * at runtime — no rebuild required.
+ * Consumers can override `--theme-hue`, `--primary-light`,
+ * `--primary-dark` (and optionally `--theme-dark-hue`, `--theme-tint`)
+ * on `:root` to shift the palette at runtime — no rebuild required.
  *
  * Status colors (destructive, success, warning, info) are independent
  * of the theme hue.
@@ -24,16 +24,24 @@ export interface ThemeConfig {
     darkHue: number
     /** Base OKLCH chroma for neutral surface tinting (0 = pure grey) */
     tint: number
-    /** OKLCH hue angle for the primary/brand color */
-    primaryHue: number
+    /**
+     * Full brand color for light mode — any valid CSS color expression.
+     * Consumers typically pass `oklch(L C H)` so L, C, and H are all
+     * tunable per mode (not just hue). Override at runtime by setting
+     * `--primary-light` on `:root` or any subtree.
+     */
+    primaryLight: string
+    /** Full brand color for dark mode. See `primaryLight`. */
+    primaryDark: string
 }
 
-/** PostHog's warm yellowish-grey default */
+/** PostHog default — warm yellowish-grey surfaces + orange/amber brand */
 export const DEFAULT_THEME: ThemeConfig = {
     hue: 90,
     darkHue: 264,
     tint: 0.006,
-    primaryHue: 37.89,
+    primaryLight: 'oklch(0.65 0.21 37.41)',
+    primaryDark: 'oklch(0.83 0.16 84.71)',
 }
 
 // ── Types ─────────────────────────────────────────────
@@ -50,7 +58,7 @@ export type ColorTuple = readonly [light: string, dark: string, tailwindClass: s
  * When chromaScale is 1, emits `var(--theme-tint)` directly.
  * Otherwise wraps in `calc(var(--theme-tint) * scale)`.
  */
-function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark'): string {
+function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark', alpha?: number): string {
     const hueVar = mode === 'light' ? 'var(--theme-hue)' : 'var(--theme-dark-hue)'
     const chromaExpr =
         chromaScale === 1
@@ -58,7 +66,8 @@ function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark')
             : chromaScale === 0
               ? '0'
               : `calc(var(--theme-tint) * ${chromaScale})`
-    return `oklch(${lightness} ${chromaExpr} ${hueVar})`
+    const alphaSuffix = alpha !== undefined ? ` / ${alpha * 100}%` : ''
+    return `oklch(${lightness} ${chromaExpr} ${hueVar}${alphaSuffix})`
 }
 
 /** Static oklch value (not theme-derived). `alpha` is a fraction in [0, 1]. */
@@ -81,24 +90,20 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         background: [surface(0.97, 1, 'light'), surface(0.145, 1.5, 'dark'), 'bg-background'],
         foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
 
-        card: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-card'],
+        card: [surface(0.995, 0.3, 'light'), surface(0.2, 1.2, 'dark'), 'bg-card'],
         'card-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-card-foreground'],
 
         popover: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-popover'],
         'popover-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-popover-foreground'],
 
-        muted: [surface(0.94, 1.5, 'light'), surface(0.17, 1.5, 'dark'), 'bg-muted'],
+        muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
 
-        accent: [surface(0.923, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'bg-accent'],
+        accent: [surface(0.87, 0.8, 'light'), surface(0.35, 1.2, 'dark'), 'bg-accent'],
         'accent-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-accent-foreground'],
 
-        // ── Brand (driven by --primary-hue) ─────────
-        primary: [
-            'oklch(0.6514 0.2137 var(--primary-hue))',
-            'oklch(0.8325 0.1611 var(--primary-hue))',
-            'bg-primary',
-        ],
+        // ── Brand (driven by --primary-light / --primary-dark) ─
+        primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
 
         secondary: [oklch(0.31, 0, 0), oklch(0.86, 0, 0), 'bg-secondary'],
@@ -132,15 +137,14 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
 
         // ── Interactive fills (reference other tokens) ─
         'fill-hover': [
-            'color-mix(in oklch, var(--accent) 40%, transparent)',
-            'color-mix(in oklch, var(--accent) 40%, transparent)',
+            'oklch(0.87 0 0 / 40%)',
+            'oklch(0.55 0 0 / 25%)',
             'bg-fill-hover',
         ],
-        'fill-active': ['var(--accent)', 'var(--accent)', 'bg-fill-active'],
         'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
         'fill-selected': [
-            'color-mix(in oklch, var(--fill-hover) 50%, transparent)',
-            'color-mix(in oklch, var(--accent) 50%, transparent)',
+            'oklch(0.87 0 0 / 20%)',
+            'oklch(0.55 0 0 / 15%)',
             'bg-fill-selected',
         ],
     } as const
@@ -168,8 +172,8 @@ export function resolveTheme(mode: 'light' | 'dark'): Record<string, string> {
  * `:root`) so local `[--theme-hue:X]` overrides re-evaluate per-element.
  *
  * Direct references to `--theme-hue`, `--theme-dark-hue`, `--theme-tint`,
- * or `--primary-hue` are validated at module load (see `assertThemeDerivedSyncedWithColors`
- * below). The `fill-*` tokens are transitive — they reference
+ * or `--primary-light` / `--primary-dark` are validated at module load
+ * (see `assertThemeDerivedSyncedWithColors` below). The `fill-*` tokens are transitive — they reference
  * `var(--accent)` / `var(--muted)` rather than a theme var directly, so
  * they can't be auto-detected and must be listed explicitly.
  */
@@ -205,7 +209,8 @@ function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>):
         'var(--theme-hue)',
         'var(--theme-dark-hue)',
         'var(--theme-tint)',
-        'var(--primary-hue)',
+        'var(--primary-light)',
+        'var(--primary-dark)',
     ]
     for (const [key, [light, dark]] of Object.entries(colors)) {
         const refsThemeVar = DIRECT_THEME_VARS.some((v) => light.includes(v) || dark.includes(v))
@@ -228,7 +233,8 @@ export function generateColorSystemCSS(theme: ThemeConfig = DEFAULT_THEME): stri
             `${indent}--theme-hue: ${theme.hue};`,
             `${indent}--theme-dark-hue: ${theme.darkHue};`,
             `${indent}--theme-tint: ${theme.tint};`,
-            `${indent}--primary-hue: ${theme.primaryHue};`,
+            `${indent}--primary-light: ${theme.primaryLight};`,
+            `${indent}--primary-dark: ${theme.primaryDark};`,
         ].join('\n')
 
     // Split colors into static (safe on :root) vs theme-derived (need * for local overrides)
@@ -275,7 +281,7 @@ ${cssVarsFlat(dark.staticVars)}
 
 /*
  * Theme-derived colors — set on * so each element resolves
- * var(--theme-hue) / var(--primary-hue) from its own scope.
+ * var(--theme-hue) / var(--primary-light) from its own scope.
  * This enables local overrides like [--theme-hue:200] on a container.
  */
 * {

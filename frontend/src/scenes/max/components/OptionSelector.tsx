@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { cn } from 'lib/utils/css-classes'
 
 export interface Option {
@@ -14,7 +13,7 @@ export interface Option {
 
 interface OptionSelectorProps {
     options: Option[]
-    onSelect: (value: string) => void
+    onSelect: (value: string | null) => void
     allowCustom?: boolean
     customPlaceholder?: string
     onCustomSubmit?: (value: string) => void
@@ -27,6 +26,8 @@ interface OptionSelectorProps {
     selectedValue?: string
     /** Label for the submit button (default: "Next") */
     submitLabel?: string
+    /** Called when the user clicks "Skip question" */
+    onSkip?: () => void
 }
 
 export function OptionSelector({
@@ -41,14 +42,14 @@ export function OptionSelector({
     initialCustomValue,
     selectedValue,
     submitLabel = 'Next',
+    onSkip,
 }: OptionSelectorProps): JSX.Element {
-    const isInitialCustomAnswer = useMemo(() => {
-        const valueToCheck = selectedValue ?? initialCustomValue
-        return valueToCheck !== undefined && !options.some((o) => o.value === valueToCheck)
-    }, [selectedValue, initialCustomValue, options])
-    const [showCustomInput, setShowCustomInput] = useState(isInitialCustomAnswer)
+    const isCustomValue = selectedValue !== undefined && !options.some((o) => o.value === selectedValue)
+    const [userWantsCustomMode, setUserWantsCustomMode] = useState(isCustomValue)
+    const showCustomInput = userWantsCustomMode || isCustomValue
     const [customInput, setCustomInput] = useState(initialCustomValue ?? '')
-    const [selectedOption, setSelectedOption] = useState(selectedValue)
+    const selectedValueRef = useRef(selectedValue)
+    selectedValueRef.current = selectedValue
 
     useEffect(() => {
         if (disabled || loading) {
@@ -58,7 +59,7 @@ export function OptionSelector({
         function handleKeyDown(event: KeyboardEvent): void {
             if (showCustomInput && event.key === 'Escape') {
                 event.preventDefault()
-                setShowCustomInput(false)
+                setUserWantsCustomMode(false)
                 setCustomInput('')
                 return
             }
@@ -71,14 +72,19 @@ export function OptionSelector({
             for (const [index, option] of options.entries()) {
                 if (event.key === String(index + 1)) {
                     event.preventDefault()
-                    onSelect(option.value)
+                    if (selectedValueRef.current === option.value) {
+                        onSelect(null)
+                    } else {
+                        setUserWantsCustomMode(false)
+                        onSelect(option.value)
+                    }
                     return
                 }
             }
 
             if (allowCustom && event.key === String(options.length + 1)) {
                 event.preventDefault()
-                setShowCustomInput(true)
+                setUserWantsCustomMode(true)
             }
         }
 
@@ -93,10 +99,11 @@ export function OptionSelector({
     const handleCustomSubmit = (): void => {
         if (!customInput.trim()) {
             // When not choosing a custom input, hide the input and show button again
-            setShowCustomInput(false)
+            setUserWantsCustomMode(false)
 
             return
         }
+        setUserWantsCustomMode(false)
         onCustomSubmit?.(customInput.trim())
     }
 
@@ -116,19 +123,36 @@ export function OptionSelector({
                 'gap-0.5': noDescriptions,
             })}
         >
-            <LemonRadio
-                value={selectedOption}
-                onChange={(value) => {
-                    setSelectedOption(String(value))
-                    setShowCustomInput(false)
-                    onSelect(String(value))
-                }}
-                options={options.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                    description: o.description,
-                }))}
-            />
+            <div className="flex flex-col gap-2 font-medium">
+                {options.map((o) => (
+                    <label
+                        key={o.value}
+                        className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm cursor-pointer"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            if (selectedValue === o.value) {
+                                onSelect(null)
+                            } else {
+                                setUserWantsCustomMode(false)
+                                onSelect(o.value)
+                            }
+                        }}
+                    >
+                        <input
+                            type="radio"
+                            className="cursor-pointer"
+                            checked={selectedValue === o.value && !showCustomInput}
+                            onChange={() => {}}
+                        />
+                        <span>{o.label}</span>
+                        {o.description && (
+                            <div className="text-secondary font-normal row-start-2 col-start-2 text-pretty text-xs">
+                                {o.description}
+                            </div>
+                        )}
+                    </label>
+                ))}
+            </div>
 
             {allowCustom && (
                 <label className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm font-medium cursor-pointer">
@@ -137,39 +161,44 @@ export function OptionSelector({
                         className="cursor-pointer"
                         checked={showCustomInput}
                         onChange={() => {
-                            setShowCustomInput(true)
-                            setSelectedOption('custom')
+                            setUserWantsCustomMode(true)
                         }}
                         value="custom"
                     />
                     {showCustomInput ? (
-                        <div className="flex gap-2 items-center">
-                            <LemonInput
-                                placeholder={customPlaceholder}
-                                fullWidth
-                                size="small"
-                                value={customInput}
-                                onChange={(newValue) => {
-                                    setCustomInput(newValue)
-                                    setSelectedOption('custom')
-                                }}
-                                onPressEnter={handleCustomSubmit}
-                                autoFocus={true}
-                                className="flex-grow"
-                            />
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                disabledReason={!customInput.trim() ? 'Please type a response' : undefined}
-                                onClick={handleCustomSubmit}
-                            >
-                                {submitLabel}
-                            </LemonButton>
-                        </div>
+                        <LemonInput
+                            placeholder={customPlaceholder}
+                            fullWidth
+                            size="small"
+                            value={customInput}
+                            onChange={setCustomInput}
+                            onPressEnter={handleCustomSubmit}
+                            autoFocus={true}
+                        />
                     ) : (
                         <span className="my-1.5">Explain what you'd like instead..</span>
                     )}
                 </label>
+            )}
+            {(onSkip || showCustomInput) && (
+                <div className="flex items-center justify-between gap-2 pt-2">
+                    {onSkip && (
+                        <LemonButton type="secondary" size="small" onClick={onSkip}>
+                            Skip question
+                        </LemonButton>
+                    )}
+                    {showCustomInput && (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={!customInput.trim() ? 'Please type a response' : undefined}
+                            onClick={handleCustomSubmit}
+                            className="ml-auto"
+                        >
+                            {submitLabel}
+                        </LemonButton>
+                    )}
+                </div>
             )}
         </div>
     )

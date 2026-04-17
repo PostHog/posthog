@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
@@ -90,10 +91,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+    const showAlerting = useFeatureFlag('LOGS_ALERTING')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
+        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
         { key: 'configuration', label: 'Configuration' },
     ]
 
@@ -138,6 +141,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     <LogsViewerModal />
                 </>
             )}
+            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
             )}

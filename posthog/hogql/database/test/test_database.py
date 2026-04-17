@@ -2173,6 +2173,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "web_pre_aggregated_bounces",
             "preaggregation_results",
             "experiment_exposures_preaggregated",
+            "experiment_metric_events_preaggregated",
             "persons_revenue_analytics",
             "groups_revenue_analytics",
             "raw_session_replay_events",

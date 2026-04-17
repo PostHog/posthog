@@ -39,6 +39,8 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
@@ -81,7 +83,7 @@ export const QueryDatabase = ({
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
+    const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
         useActions(sqlEditorLogic)
@@ -316,9 +318,11 @@ export const QueryDatabase = ({
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     const currentQueryInput = builtTabLogic.values.queryInput
-                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName).then(
-                        setQueryInput
-                    )
+                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                        .then(setQueryInput)
+                        .catch(() => {
+                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
+                        })
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {

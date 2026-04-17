@@ -62,6 +62,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     sync_time_of_day = serializers.SerializerMethodField(read_only=True)
+    primary_key_columns = serializers.SerializerMethodField(read_only=True)
     cdc_table_mode = serializers.SerializerMethodField(read_only=False)
 
     class Meta:
@@ -83,6 +84,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_frequency",
             "sync_time_of_day",
             "description",
+            "primary_key_columns",
             "cdc_table_mode",
         ]
 
@@ -117,6 +119,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
     def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
         return schema.sync_type
+
+    def get_primary_key_columns(self, schema: ExternalDataSchema) -> list[str] | None:
+        return schema.primary_key_columns
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.api.table import SimpleTableSerializer
@@ -175,16 +180,35 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             ExternalDataSchema.SyncType.APPEND,
             ExternalDataSchema.SyncType.WEBHOOK,
         ):
-            incremental_field_changed = (
-                instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
-                or instance.sync_type_config.get("incremental_field_last_value") is None
-            )
-
             payload = instance.sync_type_config
-            payload["incremental_field"] = data.get("incremental_field")
-            payload["incremental_field_type"] = data.get("incremental_field_type")
 
-            # If the incremental field has changed
+            if "primary_key_columns" in data:
+                new_pk = data.get("primary_key_columns")
+                old_pk = instance.sync_type_config.get("primary_key_columns")
+                if (
+                    sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    and new_pk != old_pk
+                    and instance.table is not None
+                ):
+                    raise ValidationError(
+                        "Primary key cannot be changed after data has been synced. "
+                        "Delete the synced data first, then change the primary key."
+                    )
+                payload["primary_key_columns"] = new_pk
+
+            # Detect incremental field changes before mutating payload
+            incremental_field_changed = False
+            if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+                incremental_field_changed = (
+                    payload.get("incremental_field") != data.get("incremental_field")
+                    or payload.get("incremental_field_last_value") is None
+                )
+
+            if "incremental_field" in data:
+                payload["incremental_field"] = data.get("incremental_field")
+            if "incremental_field_type" in data:
+                payload["incremental_field_type"] = data.get("incremental_field_type")
+
             if incremental_field_changed:
                 if instance.table is not None:
                     # Get the max_value and set it on incremental_field_last_value
@@ -461,9 +485,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
-    def _is_cdc_enabled(self) -> bool:
-        return is_cdc_enabled_for_team(self.team)
-
     def safely_get_queryset(self, queryset):
         return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
 
@@ -625,9 +646,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
-            "cdc_available": schema.supports_cdc if self._is_cdc_enabled() else None,
+            "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
             "full_refresh_available": True,
             "supports_webhooks": schema.supports_webhooks,
+            "available_columns": [
+                {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                for col_name, col_type, nullable in schema.columns
+            ],
+            "detected_primary_keys": schema.detected_primary_keys,
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

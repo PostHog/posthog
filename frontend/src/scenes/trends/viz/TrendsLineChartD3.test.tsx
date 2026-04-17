@@ -17,6 +17,7 @@ import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -73,8 +74,11 @@ describe('TrendsLineChartD3', () => {
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
-            const tooltip = await chart.hoverTooltip(2)
+            // Breakdown data produces multiple series, so the chart requires a
+            // click to pin the tooltip (hover alone won't render it).
+            await chart.clickAtIndex(2)
 
+            const tooltip = createTooltipAccessor(chart.getTooltip()!)
             expect(tooltip.row('Spike')).toContain('3')
         })
 

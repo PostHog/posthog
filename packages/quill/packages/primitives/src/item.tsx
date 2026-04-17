@@ -35,7 +35,7 @@ function ItemSeparator({ className, ...props }: React.ComponentProps<typeof Sepa
 }
 
 const itemVariants = cva(
-    'item group/item flex w-full flex-wrap items-center rounded-md border text-xs/relaxed transition-colors duration-100 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 in-data-[combined]:rounded-none in-data-[combined]:first:rounded-t-md in-data-[combined]:last:rounded-b-md in-data-[combined]:not-last:border-b-0 focus-visible:z-1 -outline-offset-2',
+    'item group/item flex w-full flex-wrap items-center rounded-md border text-xs/relaxed transition-colors duration-100 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 in-data-[combined]:rounded-none in-data-[combined]:first:rounded-t-md in-data-[combined]:last:rounded-b-md in-data-[combined]:not-last:border-b-0 focus-visible:z-1 -outline-offset-2 in-data-[slot=combobox-item]:border-none',
     {
         variants: {
             variant: {
@@ -134,7 +134,7 @@ const ItemCheckbox = React.forwardRef<
         element,
         {},
         <ItemMedia variant="checkbox" className="-mr-2">
-            <CheckboxIndicator checked={checked} />
+            <CheckboxIndicator checked={checked} size="sm"/>
         </ItemMedia>,
         children
     )
@@ -166,7 +166,7 @@ const ItemRadio = React.forwardRef<
         element,
         {},
         <ItemMedia variant="checkbox" className="-mr-2">
-            <RadioIndicator checked={checked} />
+            <RadioIndicator checked={checked} size="sm"/>
         </ItemMedia>,
         children
     )
@@ -211,7 +211,13 @@ const itemContentVariants = cva(
         variants: {
             variant: {
                 default: '',
-                menuItem: 'w-full py-1 px-1.5 has-data-[slot=item-media]:pl-0',
+                menuItem: `
+                    w-full py-1 px-1.5 
+                    group-data-[slot=combobox-item]/button:px-0 
+                    group-data-[slot=select-trigger]/button:px-0 
+                    group-data-[slot=select-item]/select-item:px-0 
+                    group-has-data-[slot=item-media]/item:pl-0
+                `,
             },
         },
         defaultVariants: {

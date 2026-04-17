@@ -1,18 +1,10 @@
-import { LOGS_ALERT_FIRING_EVENT_ID, LOGS_ALERT_RESOLVED_EVENT_ID } from 'lib/constants'
+import { HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
-
-import {
-    buildLogsAlertFilterConfig,
-    buildLogsAlertHogFunctionPayload,
-    LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
-    LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
-    PendingLogsAlertNotification,
-} from '../logsAlertUtils'
+import { buildLogsAlertFilterConfig, groupLogsAlertDestinations } from '../logsAlertUtils'
 
 describe('logsAlertUtils', () => {
     describe('buildLogsAlertFilterConfig', () => {
-        it('includes alert_id property filter with exact operator', () => {
+        it('filters by alert_id property only so it matches every per-event HogFunction', () => {
             const config = buildLogsAlertFilterConfig('alert-123')
 
             expect(config.properties).toEqual([
@@ -23,129 +15,114 @@ describe('logsAlertUtils', () => {
                     type: PropertyFilterType.Event,
                 },
             ])
-        })
-
-        it('includes both firing and resolved event filters', () => {
-            const config = buildLogsAlertFilterConfig('alert-123')
-
-            expect(config.events).toEqual([
-                {
-                    id: LOGS_ALERT_FIRING_EVENT_ID,
-                    type: 'events',
-                },
-                {
-                    id: LOGS_ALERT_RESOLVED_EVENT_ID,
-                    type: 'events',
-                },
-            ])
+            // Deliberately no events array — see comment on buildLogsAlertFilterConfig.
+            expect(config.events).toBeUndefined()
         })
     })
 
-    describe('buildLogsAlertHogFunctionPayload', () => {
-        it('builds slack payload with conditional blocks and both-event filter', () => {
-            const notification: PendingLogsAlertNotification = {
-                type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
-                slackWorkspaceId: 42,
-                slackChannelId: 'C123',
-                slackChannelName: 'alerts',
-            }
+    describe('groupLogsAlertDestinations', () => {
+        const slackHf = (id: string, channel: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name: `slack-${id}`,
+                enabled,
+                inputs: { channel: { value: channel } },
+                filters: {},
+            }) as unknown as HogFunctionType
 
-            const payload = buildLogsAlertHogFunctionPayload('alert-1', 'API errors', notification)
+        const webhookHf = (id: string, url: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name: `webhook-${id}`,
+                enabled,
+                inputs: { url: { value: url } },
+                filters: {},
+            }) as unknown as HogFunctionType
 
-            expect(payload).toMatchObject({
-                type: 'internal_destination',
+        const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
+
+        it('collapses multiple HogFunctions for the same slack channel into one group', () => {
+            const firing = slackHf('hf-1', 'C123')
+            const resolved = slackHf('hf-2', 'C123')
+
+            const groups = groupLogsAlertDestinations([firing, resolved], resolveSlack)
+
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({
+                key: 'slack:C123',
+                type: 'slack',
+                label: 'Slack #channel-for-C123',
                 enabled: true,
-                masking: null,
-                name: 'API errors: Slack #alerts',
-                template_id: 'template-slack',
             })
-            expect(payload.inputs?.slack_workspace).toEqual({ value: 42 })
-            expect(payload.inputs?.channel).toEqual({ value: 'C123' })
-            expect(payload.filters?.events).toHaveLength(2)
-            expect(payload.filters?.events?.[0].id).toBe(LOGS_ALERT_FIRING_EVENT_ID)
-            expect(payload.filters?.events?.[1].id).toBe(LOGS_ALERT_RESOLVED_EVENT_ID)
-
-            // Slack blocks use if() conditionals for firing vs resolved copy
-            const headerText = payload.inputs?.blocks?.value?.[0]?.text?.text
-            expect(headerText).toContain("if(event.event == '$logs_alert_resolved'")
-            expect(headerText).toContain('has resolved')
-            expect(headerText).toContain('is firing')
-
-            // Context block includes services/severities element
-            const contextBlock = payload.inputs?.blocks?.value?.[2]
-            expect(contextBlock?.type).toBe('context')
-            expect(contextBlock?.elements).toHaveLength(2)
-            const filterContext = contextBlock?.elements?.[0]?.text
-            expect(filterContext).toContain('severity_levels')
-            expect(filterContext).toContain('service_names')
+            expect(groups[0].hogFunctions).toHaveLength(2)
         })
 
-        it('uses fallback name when alertName is undefined for slack', () => {
-            const notification: PendingLogsAlertNotification = {
-                type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
-                slackWorkspaceId: 1,
-                slackChannelId: 'C456',
-                slackChannelName: 'general',
-            }
+        it('collapses multiple HogFunctions for the same webhook url into one group', () => {
+            const a = webhookHf('hf-1', 'https://example.com/hook')
+            const b = webhookHf('hf-2', 'https://example.com/hook')
 
-            const payload = buildLogsAlertHogFunctionPayload('alert-2', undefined, notification)
+            const groups = groupLogsAlertDestinations([a, b], resolveSlack)
 
-            expect(payload.name).toBe('Alert: Slack #general')
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({
+                key: 'webhook:https://example.com/hook',
+                type: 'webhook',
+                label: 'Webhook https://example.com/hook',
+            })
+            expect(groups[0].hogFunctions).toHaveLength(2)
         })
 
-        it('uses fallback channel name when slackChannelName is undefined', () => {
-            const notification: PendingLogsAlertNotification = {
-                type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
-                slackWorkspaceId: 1,
-                slackChannelId: 'C789',
-            }
+        it('keeps distinct slack channels and webhook urls as separate groups', () => {
+            const groups = groupLogsAlertDestinations(
+                [
+                    slackHf('a', 'C123'),
+                    slackHf('b', 'C456'),
+                    webhookHf('c', 'https://one.example'),
+                    webhookHf('d', 'https://two.example'),
+                ],
+                resolveSlack
+            )
 
-            const payload = buildLogsAlertHogFunctionPayload('alert-3', 'My Alert', notification)
-
-            expect(payload.name).toBe('My Alert: Slack #channel')
+            expect(groups.map((g) => g.key).sort()).toEqual([
+                'slack:C123',
+                'slack:C456',
+                'webhook:https://one.example',
+                'webhook:https://two.example',
+            ])
         })
 
-        it('builds webhook payload with conditional event discriminator', () => {
-            const notification: PendingLogsAlertNotification = {
-                type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
-                webhookUrl: 'https://example.com/hook',
-            }
+        it('marks a group as disabled when any HogFunction in it is disabled (AND semantics)', () => {
+            const firing = slackHf('hf-1', 'C123', true)
+            const resolved = slackHf('hf-2', 'C123', false)
 
-            const payload = buildLogsAlertHogFunctionPayload('alert-4', 'DB errors', notification)
+            const groups = groupLogsAlertDestinations([firing, resolved], resolveSlack)
 
-            expect(payload).toMatchObject({
-                type: 'internal_destination',
+            expect(groups).toHaveLength(1)
+            expect(groups[0].enabled).toBe(false)
+        })
+
+        it('falls back to a bare Slack label when the channel name cannot be resolved', () => {
+            const hf = slackHf('hf-1', 'C_UNKNOWN')
+
+            const groups = groupLogsAlertDestinations([hf], () => null)
+
+            expect(groups[0].label).toBe('Slack')
+        })
+
+        it('produces an isolated per-HogFunction group for unrecognised inputs', () => {
+            const unknown = {
+                id: 'hf-x',
+                name: 'Weird destination',
                 enabled: true,
-                masking: null,
-                name: 'DB errors: Webhook https://example.com/hook',
-                template_id: 'template-webhook',
-            })
-            expect(payload.inputs?.url).toEqual({ value: 'https://example.com/hook' })
-            expect(payload.inputs?.body?.value).toMatchObject({
-                event: "{if(event.event == '$logs_alert_resolved', 'resolved', 'firing')}",
-                alert_id: '{event.properties.alert_id}',
-                alert_name: '{event.properties.alert_name}',
-                result_count: '{event.properties.result_count}',
-                threshold_count: '{event.properties.threshold_count}',
-                threshold_operator: '{event.properties.threshold_operator}',
-                window_minutes: '{event.properties.window_minutes}',
-                service_names: '{event.properties.service_names}',
-                severity_levels: '{event.properties.severity_levels}',
-                logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
-                triggered_at: '{event.properties.triggered_at}',
-            })
-            expect(payload.filters?.events).toHaveLength(2)
-        })
+                inputs: {},
+                filters: {},
+            } as unknown as HogFunctionType
 
-        it('uses fallback name when alertName is undefined for webhook', () => {
-            const notification: PendingLogsAlertNotification = {
-                type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
-                webhookUrl: 'https://example.com/hook',
-            }
+            const groups = groupLogsAlertDestinations([unknown], resolveSlack)
 
-            const payload = buildLogsAlertHogFunctionPayload('alert-5', undefined, notification)
-
-            expect(payload.name).toBe('Alert: Webhook https://example.com/hook')
+            expect(groups).toHaveLength(1)
+            expect(groups[0].key).toBe('unknown:hf-x')
+            expect(groups[0].label).toBe('Weird destination')
         })
     })
 })

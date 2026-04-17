@@ -1054,7 +1054,7 @@ def _resume_task_with_new_run(
         return True
 
     extra_state: dict[str, Any] = {
-        "interaction_origin": "slack",
+        "interaction_origin": "slack",  # Makes the agent auto-push and open a draft PR
     }
 
     previous_state = previous_run.state or {}
@@ -1331,6 +1331,18 @@ def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
+    # If another workflow already created a task for this thread (e.g. the user
+    # sent a follow-up message instead of using the picker), skip the expired
+    # message — the thread is already being handled.
+    if SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).exists():
+        return
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,

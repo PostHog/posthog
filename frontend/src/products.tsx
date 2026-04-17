@@ -20,15 +20,17 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { ActivityScope } from '~/types'
 
+import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
-    ActivityScope,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -58,6 +60,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
+    Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
+    DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
+    DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -67,8 +72,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
     ErrorTrackingIssueFingerprints: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
-    ErrorTrackingConfiguration: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
@@ -131,12 +134,14 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/data-management/sources': ['Sources', 'sources'],
+    '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
+    '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
-    '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -208,6 +213,16 @@ export const productRedirects: Record<
     '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) =>
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
+        const { tab, ...restSearchParams } = searchParams
+        return combineUrl(
+            '/error_tracking',
+            { ...restSearchParams, activeTab: 'configuration' },
+            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
+        ).url
+    },
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-analytics/settings': (_params, searchParams) =>
@@ -308,6 +323,37 @@ export const productConfiguration: Record<string, any> = {
         hideProjectNotice: true,
         description: 'Write and execute SQL queries against your data warehouse',
     },
+    Sources: {
+        projectBased: true,
+        name: 'Sources',
+        description:
+            'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/data-warehouse',
+        iconType: 'data_pipeline',
+    },
+    DataWarehouseSource: { projectBased: true, name: 'Data warehouse source', defaultDocsPath: '/docs/cdp/sources' },
+    DataWarehouseSourceNew: {
+        projectBased: true,
+        name: 'New data warehouse source',
+        defaultDocsPath: async () => {
+            try {
+                const { sourceWizardLogic } =
+                    await import('products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic')
+                const logic = sourceWizardLogic.findMounted()
+                if (logic) {
+                    const { selectedConnector } = logic.values
+                    if (selectedConnector?.docsUrl) {
+                        const parsedUrl = new URL(selectedConnector.docsUrl)
+                        return parsedUrl.pathname
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get default docs path for new data warehouse source', error)
+            }
+            return '/docs/cdp/sources'
+        },
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -339,7 +385,6 @@ export const productConfiguration: Record<string, any> = {
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
-    ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
     FeatureFlagTemplates: {
         projectBased: true,
         name: 'Feature flag templates',
@@ -586,6 +631,31 @@ export const productUrls = {
     dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
     models: (): string => '/models',
     nodeDetail: (id: string): string => `/models/${id}`,
+    sources: (): string => '/data-management/sources',
+    dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
+        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (
+        kind?: string,
+        returnUrl?: string,
+        returnLabel?: string,
+        accessMethod?: 'warehouse' | 'direct'
+    ): string => {
+        const params = new URLSearchParams()
+        if (kind) {
+            params.set('kind', kind)
+        }
+        if (returnUrl) {
+            params.set('returnUrl', returnUrl)
+        }
+        if (returnLabel) {
+            params.set('returnLabel', returnLabel)
+        }
+        if (accessMethod) {
+            params.set('access_method', accessMethod)
+        }
+        const queryString = params.toString()
+        return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
+    },
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -629,7 +699,8 @@ export const productUrls = {
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-    errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
+    errorTrackingConfiguration: (params = {}): string =>
+        combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
     errorTrackingIssue: (
         id: string,
         params: {
@@ -821,7 +892,7 @@ export const productUrls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
     alerts: (): string => `/insights?tab=alerts`,
-    insightOptions: (): string => '/insights/options',
+    insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     replay: (
@@ -877,6 +948,7 @@ export const productUrls = {
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
+    webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -1186,7 +1258,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_clusters',
         iconType: 'llm_clusters' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
@@ -1212,7 +1284,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         iconType: 'cohort',
         href: urls.customerAnalytics(),
         tags: ['beta'],
@@ -1223,7 +1295,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Dashboards',
         intents: [ProductKey.PRODUCT_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         type: 'dashboard',
         iconType: 'dashboard',
         iconColor: ['var(--color-product-dashboards-light)'],
@@ -1232,36 +1304,29 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Dashboard', 'Dashboards'],
     },
     {
-        path: `Data pipelines`,
-        intents: [
-            ProductKey.PIPELINE_BATCH_EXPORTS,
-            ProductKey.PIPELINE_DESTINATIONS,
-            ProductKey.PIPELINE_TRANSFORMATIONS,
-            ProductKey.SITE_APPS,
-        ],
-        category: 'Tools',
-        type: 'hog_function',
-        iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-pipeline-light)'],
-        flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
-        sceneKeys: ['Transformations'],
-    },
-    {
         path: 'Data warehouse',
         displayLabel: 'Data ops',
         intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         href: urls.dataOps(),
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataOps',
-        sceneKeys: ['DataOps', 'Models', 'NodeDetail', 'SQLEditor'],
+        sceneKeys: [
+            'DataOps',
+            'Models',
+            'NodeDetail',
+            'SQLEditor',
+            'Sources',
+            'DataWarehouseSource',
+            'DataWarehouseSourceNew',
+        ],
     },
     {
         path: 'Datasets',
         intents: [ProductKey.LLM_DATASETS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_datasets',
         iconType: 'llm_datasets' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
@@ -1289,7 +1354,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Early access features',
         intents: [ProductKey.EARLY_ACCESS_FEATURES],
-        category: 'Features',
+        category: ProductItemCategory.FEATURES,
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
         iconType: 'early_access_feature' as FileSystemIconType,
@@ -1303,7 +1368,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Endpoints',
         intents: [ProductKey.ENDPOINTS],
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
@@ -1316,7 +1381,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Error tracking',
         intents: [ProductKey.ERROR_TRACKING],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         type: 'error_tracking',
         iconType: 'error_tracking' as FileSystemIconType,
         iconColor: [
@@ -1325,17 +1390,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: [
-            'ErrorTracking',
-            'ErrorTrackingIssue',
-            'ErrorTrackingIssueFingerprints',
-            'ErrorTrackingConfiguration',
-        ],
+        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingIssueFingerprints'],
     },
     {
         path: 'Evaluations',
         intents: [ProductKey.LLM_EVALUATIONS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_evaluations',
         iconType: 'llm_evaluations' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
@@ -1362,7 +1422,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: `Experiments`,
         intents: [ProductKey.EXPERIMENTS],
-        category: 'Features',
+        category: ProductItemCategory.FEATURES,
         type: 'experiment',
         href: urls.experiments(),
         iconType: 'experiment',
@@ -1373,7 +1433,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: `Feature flags`,
         intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
-        category: 'Features',
+        category: ProductItemCategory.FEATURES,
         type: 'feature_flag',
         href: urls.featureFlags(),
         sceneKey: 'FeatureFlags',
@@ -1382,7 +1442,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Heatmaps',
         intents: [ProductKey.HEATMAPS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         iconType: 'heatmap',
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
         href: urls.heatmaps(),
@@ -1399,7 +1459,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             ProductKey.LLM_PROMPTS,
             ProductKey.LLM_CLUSTERS,
         ],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         visualOrder: 1,
         type: 'llm_analytics',
         iconType: 'llm_analytics' as FileSystemIconType,
@@ -1426,7 +1486,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Links',
         intents: [ProductKey.LINKS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         type: 'link',
         href: urls.links(),
         flag: FEATURE_FLAGS.LINKS,
@@ -1437,7 +1497,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Live Debugger',
         intents: [ProductKey.LIVE_DEBUGGER],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         type: 'live_debugger',
         href: urls.liveDebugger(),
         flag: FEATURE_FLAGS.LIVE_DEBUGGER,
@@ -1449,7 +1509,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
@@ -1459,7 +1519,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         href: urls.marketingAnalyticsApp(),
         iconType: 'marketing_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
@@ -1471,7 +1531,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Metrics',
         intents: [ProductKey.METRICS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         iconType: 'metrics',
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
@@ -1483,7 +1543,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Notebooks',
         intents: [ProductKey.NOTEBOOKS],
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         type: 'notebook',
         iconType: 'notebook',
         href: urls.notebooks(),
@@ -1493,7 +1553,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Playground',
         intents: [ProductKey.LLM_ANALYTICS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_playground',
         iconType: 'llm_playground' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
@@ -1519,7 +1579,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Product analytics',
         intents: [ProductKey.PRODUCT_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         type: 'insight',
         href: urls.insights(),
         iconType: 'product_analytics',
@@ -1530,7 +1590,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Product tours',
         intents: [ProductKey.PRODUCT_TOURS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         type: 'product_tour',
         href: urls.productTours(),
         iconType: 'product_tour',
@@ -1542,7 +1602,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Prompts',
         intents: [ProductKey.LLM_PROMPTS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_prompts',
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
@@ -1570,7 +1630,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Revenue analytics',
         intents: [ProductKey.REVENUE_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         href: urls.revenueAnalytics(),
         type: 'revenue',
         flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
@@ -1581,7 +1641,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'SQL editor',
         intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         type: 'sql',
         iconType: 'sql_editor',
         iconColor: ['var(--color-product-data-warehouse-light)'],
@@ -1592,7 +1652,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Session replay',
         intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         href: urls.replay(ReplayTabs.Home),
         type: 'session_recording_playlist',
         iconType: 'session_replay',
@@ -1603,7 +1663,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
@@ -1616,7 +1676,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Surveys',
         intents: [ProductKey.SURVEYS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         type: 'survey',
         href: urls.surveys(),
         iconType: 'survey',
@@ -1627,7 +1687,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tasks',
         intents: [ProductKey.TASKS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         type: 'task',
         href: urls.taskTracker(),
         flag: FEATURE_FLAGS.TASKS,
@@ -1642,7 +1702,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.TOOLBAR],
         href: urls.toolbarLaunch(),
         type: 'toolbar',
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         iconType: 'toolbar',
         sceneKey: 'Toolbar',
         sceneKeys: ['Toolbar'],
@@ -1650,7 +1710,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tracing',
         intents: [ProductKey.TRACING],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
@@ -1662,7 +1722,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'User interviews',
         intents: [ProductKey.USER_INTERVIEWS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         href: urls.userInterviews(),
         type: 'user_interview',
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
@@ -1675,7 +1735,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Visual review',
         intents: [ProductKey.VISUAL_REVIEW],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
         flag: FEATURE_FLAGS.VISUAL_REVIEW,
@@ -1686,7 +1746,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Web analytics',
         intents: [ProductKey.WEB_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         iconType: 'web_analytics',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
         href: urls.webAnalytics(),
@@ -1696,7 +1756,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Web scripts',
         intents: [ProductKey.SITE_APPS],
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         type: 'hog_function',
         iconType: 'data_pipeline',
         iconColor: ['var(--color-product-data-pipeline-light)'],
@@ -1709,7 +1769,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
         type: 'workflows',
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
@@ -1799,7 +1859,15 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataOps', 'Models', 'NodeDetail', 'SQLEditor'],
+        sceneKeys: [
+            'DataOps',
+            'Models',
+            'NodeDetail',
+            'SQLEditor',
+            'Sources',
+            'DataWarehouseSource',
+            'DataWarehouseSourceNew',
+        ],
     },
     {
         path: 'Models',

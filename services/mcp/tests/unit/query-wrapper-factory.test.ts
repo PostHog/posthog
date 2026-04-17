@@ -43,7 +43,15 @@ describe('createQueryWrapper _posthogUrl', () => {
     function createMockContext(projectId = '1', baseUrl = 'http://localhost:8010'): Context {
         return {
             api: {
-                request: vi.fn().mockResolvedValue({ results: [] }),
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({ results: [] }),
+                    trendsActors: vi.fn().mockResolvedValue({
+                        query: {},
+                        results: { columns: [], results: [] },
+                        hasMore: false,
+                        offset: 0,
+                    }),
+                }),
                 getProjectBaseUrl: vi.fn().mockReturnValue(`${baseUrl}/project/${projectId}`),
             },
             stateManager: {

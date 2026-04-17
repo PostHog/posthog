@@ -392,6 +392,107 @@ def test_satellite_cluster_hosts_have_no_shard_info() -> None:
         assert times_called["aux"] == 1
 
 
+def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
+    """DATA nodes should come from data_cluster (posthog), not migrations cluster (posthog_migrations)."""
+    # posthog_migrations has incomplete DATA — only 1 shard
+    migrations_cluster_hosts = [
+        ("data-partial", "9000", "1", "1", "online", "data"),
+        ("coordinator-1", "9000", "1", "2", "online", "coordinator"),
+    ]
+    # posthog has the full topology — 3 shards
+    data_cluster_hosts = [
+        ("data-1a", "9000", "1", "1", "online", "data"),
+        ("data-1b", "9000", "1", "2", "online", "data"),
+        ("data-2a", "9000", "2", "1", "online", "data"),
+        ("data-3a", "9000", "3", "1", "offline", "data"),
+        ("ingestion-1", "9000", "1", "1", "ingestion", "events"),
+    ]
+
+    bootstrap_client_mock = Mock()
+
+    def mock_execute(query, params):
+        if params.get("name") == "posthog_migrations":
+            return migrations_cluster_hosts
+        return data_cluster_hosts
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+
+    cluster = ClickhouseCluster(
+        bootstrap_client_mock,
+        cluster="posthog_migrations",
+        data_cluster="posthog",
+    )
+
+    # Should have 3 shards from posthog, not 1 from posthog_migrations
+    assert cluster.num_shards == 3
+
+    # Coordinator from posthog_migrations should still be in extra_hosts
+    executed_roles: list[str] = []
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        executed_roles.append(host.host_cluster_role or "unknown")
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA).result()
+        assert executed_roles.count("data") == 4  # all 4 DATA nodes from posthog
+        executed_roles.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
+        assert executed_roles.count("coordinator") == 1  # still from posthog_migrations
+
+
+def test_data_cluster_same_as_migrations_cluster_is_noop() -> None:
+    """When data_cluster equals migrations cluster, no extra discovery happens."""
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+
+    cluster = ClickhouseCluster(
+        bootstrap_client_mock,
+        cluster="posthog",
+        data_cluster="posthog",
+    )
+
+    # Only one call — no second discovery
+    assert bootstrap_client_mock.execute.call_count == 1
+    assert cluster.num_shards == 1
+
+
+def test_map_hosts_with_combined_roles() -> None:
+    """A migration targeting [NodeRole.AUX, NodeRole.DATA] must execute on both."""
+    main_cluster_hosts = [
+        ("data-host-1", "9000", "1", "1", "online", "data"),
+        ("data-host-2", "9000", "2", "1", "online", "data"),
+    ]
+    aux_cluster_hosts = [
+        ("aux-host-1", "9000", "1", "1", "offline", "aux"),
+    ]
+
+    bootstrap_client_mock = Mock()
+
+    def mock_execute(query, params):
+        if "satellite_name" not in params:
+            return main_cluster_hosts
+        return aux_cluster_hosts
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+    cluster = ClickhouseCluster(bootstrap_client_mock, satellite_clusters=["aux"])
+
+    executed_hosts: list[str] = []
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        executed_hosts.append(host.connection_info.host)
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_hosts_by_roles(lambda _: (), node_roles=[NodeRole.AUX, NodeRole.DATA]).result()
+        assert sorted(executed_hosts) == ["aux-host-1", "data-host-1", "data-host-2"]
+
+
 def test_satellite_dedup_same_physical_host() -> None:
     """In local dev, satellite clusters point to the same ClickHouse node as the main cluster.
     NodeRole.ALL should not execute on the same physical host twice."""

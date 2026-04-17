@@ -18,6 +18,8 @@ from posthog.dags.common import JobOwners
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
+from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
+
 OWNER_TAG = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
 
 
@@ -67,6 +69,38 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
         "events": ctx.events,
         **_property_filter_params(ctx.properties),
     }
+
+
+def _get_affected_mat_columns(client: Client, table: str, properties: list[str]) -> list[tuple[str, bool]]:
+    """Query a specific shard for DEFAULT materialized columns matching deleted properties.
+
+    Returns ``(column_name, is_nullable)`` for DEFAULT columns whose comment follows
+    the ``column_materializer::properties::<prop>`` convention.  Only DEFAULT columns
+    are returned because they are included in ``SELECT *`` (so stale values propagate
+    on re-insert) and can be reset via ``ALTER TABLE UPDATE``.  MATERIALIZED columns
+    are excluded — ClickHouse recomputes them automatically at insert time.
+    """
+    database = django_settings.CLICKHOUSE_DATABASE
+    rows = client.execute(
+        """
+        SELECT name, comment, type LIKE 'Nullable(%%)'
+        FROM system.columns
+        WHERE database = %(database)s
+          AND table = %(table)s
+          AND default_kind = 'DEFAULT'
+          AND comment LIKE '%%column_materializer::%%'
+          AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
+        """,
+        {"database": database, "table": table},
+    )
+
+    target_props = set(properties)
+    result: list[tuple[str, bool]] = []
+    for col_name, comment, is_nullable in rows:
+        details = MaterializedColumnDetails.from_column_comment(comment)
+        if details.table_column == "properties" and details.property_name in target_props:
+            result.append((col_name, bool(is_nullable)))
+    return result
 
 
 def _create_local_staging_table(client: Client, source_table: str, staging_table: str) -> None:
@@ -305,10 +339,22 @@ def prepare_and_insert_modified_events(
         )
         copied = client.execute(f"SELECT count() FROM {db}.{temp}")[0][0]
 
-        # 3. Mutate properties
+        # 3. Mutate properties and reset affected DEFAULT materialized columns.
+        # Query the distributed table (events) for column comments — sharded_events
+        # may not carry them. Queried per-shard to handle schema drift.
+        affected_mat_cols = _get_affected_mat_columns(client, "events", keys)
+
+        update_parts = [
+            "properties = JSONDropKeys(%(keys)s)(properties)",
+            "inserted_at = now()",
+        ]
+        for col_name, is_nullable in affected_mat_cols:
+            default = "NULL" if is_nullable else "''"
+            update_parts.append(f"`{col_name}` = {default}")
+
         runner = AlterTableMutationRunner(
             table=temp,
-            commands={"UPDATE properties = JSONDropKeys(%(keys)s)(properties), inserted_at = now() WHERE 1=1"},
+            commands={f"UPDATE {', '.join(update_parts)} WHERE 1=1"},
             parameters={"keys": keys},
         )
         waiter = runner(client)

@@ -573,6 +573,57 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
 
+    @parameterized.expand(
+        [
+            ("numeric_id", lambda insight: insight.id),
+            ("short_id", lambda insight: insight.short_id),
+        ]
+    )
+    def test_retrieve_insight_by_id_or_short_id(self, _name, lookup) -> None:
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="abcd1234",
+            name="dual-lookup",
+        )
+
+        # Another insight in a different team sharing the same short_id — must not be returned.
+        other_team = Team.objects.create(organization=self.organization)
+        Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=other_team,
+            short_id="abcd1234",
+            name="other-team",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{lookup(insight)}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], insight.id)
+        self.assertEqual(response.json()["short_id"], "abcd1234")
+        self.assertEqual(response.json()["name"], "dual-lookup")
+
+    def test_retrieve_insight_by_unknown_short_id_returns_404(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/notthere/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_insight_by_numeric_short_id_falls_back_to_short_id(self) -> None:
+        # A small number of legacy insights have numeric-only short_ids — they must remain retrievable
+        # when no insight matches the value as a primary key.
+        numeric_short_id = "99999999999"
+        assert not Insight.objects.filter(pk=int(numeric_short_id)).exists()
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id=numeric_short_id,
+            name="numeric-short-id",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{numeric_short_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], insight.id)
+        self.assertEqual(response.json()["short_id"], numeric_short_id)
+        self.assertEqual(response.json()["name"], "numeric-short-id")
+
     def test_basic_results(self) -> None:
         """
         The `skip_results` query parameter can be passed so that only a list of objects is returned, without
@@ -2982,15 +3033,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 response_placeholder.status_code,
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status.HTTP_400_BAD_REQUEST,
                 response_placeholder.json(),
             )
-            # With the new HogQL query runner this legacy endpoint now returns 500 instead of a proper 400.
-            # We don't really care, since this endpoint should eventually be removed altogether.
-            # self.assertEqual(
-            #     response_placeholder.json(),
-            #     self.validation_error_response("Unresolved placeholder: {team_id}"),
-            # )
+            self.assertEqual(
+                response_placeholder.json(),
+                self.validation_error_response("Unresolved placeholder: {team_id}"),
+            )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
@@ -3556,7 +3605,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights",
-            data={"short_id": insight.short_id, "refresh": True},
+            data={"short_id": insight.short_id, "refresh": "true"},
         ).json()
 
         self.assertNotIn("code", response)
@@ -3592,7 +3641,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights",
-            data={"short_id": insight.short_id, "refresh": True},
+            data={"short_id": insight.short_id, "refresh": "true"},
         ).json()
 
         self.assertNotIn("code", response)
@@ -3631,7 +3680,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
             data={
-                "from_dashboard": dashboard.pk,
+                "from_dashboard": str(dashboard.pk),
                 "variables_override": json.dumps(
                     {
                         str(variable.id): {
@@ -4033,7 +4082,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Initial query metadata should not be empty
         self.assertIsNotNone(insight.query_metadata)
-        initial_metadata = insight.query_metadata.copy()
+        initial_metadata = insight.query_metadata.copy() if insight.query_metadata is not None else None
 
         # update the query for the insight
         new_query = {
@@ -4088,7 +4137,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Initial query metadata should not be empty
         self.assertIsNotNone(insight.query_metadata)
-        initial_metadata = insight.query_metadata.copy()
+        initial_metadata = insight.query_metadata.copy() if insight.query_metadata is not None else None
 
         # update the name for the insight without changing the query
         insight.name = "Updated Insight Name"

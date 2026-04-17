@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -73,6 +73,44 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["id"] == created["id"]
+
+    def test_last_error_message_null_when_no_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertCheck.objects.create(
+            alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] is None
+
+    def test_last_error_message_returns_most_recent_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Earlier timeout",
+        )
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Latest ClickHouse timeout",
+        )
+        LogsAlertCheck.objects.create(
+            alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Latest ClickHouse timeout"
 
     def test_update(self):
         created = self._create_via_api()
@@ -483,6 +521,246 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["state"] == "snoozed"
         assert data["snooze_until"] is not None
         assert data["threshold_count"] == 200
+
+    # --- Destinations ---
+
+    def _destinations_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/"
+
+    def _destinations_delete_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/delete/"
+
+    def _sync_destination_templates(self) -> None:
+        # Destination creation goes through the full HogFunctionSerializer pipeline,
+        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
+        from posthog.cdp.templates.hog_function_template import sync_template_to_db
+        from posthog.cdp.templates.slack.template_slack import template as template_slack
+        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        sync_template_to_db(template_slack)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "description": "Generic webhook template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
+        self._sync_destination_templates()
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "alerts",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 3  # firing + resolved + broken
+
+        hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
+        event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
+        assert event_ids == ["$logs_alert_auto_disabled", "$logs_alert_firing", "$logs_alert_resolved"]
+        for hf in hog_functions:
+            assert hf.template_id == "template-slack"
+            inputs = hf.inputs or {}
+            assert inputs["channel"]["value"] == "C123"
+            assert inputs["slack_workspace"]["value"] == 42
+            text_value = inputs["text"]["value"]
+            assert "{if(" not in text_value
+            alert_id_filter = (hf.filters or {})["properties"][0]
+            assert alert_id_filter == {
+                "key": "alert_id",
+                "value": created["id"],
+                "operator": "exact",
+                "type": "event",
+            }
+
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
+        assert len(reset_calls) == 1
+
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 3
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-webhook"
+            inputs = hf.inputs or {}
+            assert inputs["url"]["value"] == "https://example.com/hook"
+            body = inputs["body"]["value"]
+            assert body["event"] in ("firing", "resolved", "broken")
+
+    @parameterized.expand(
+        [
+            ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
+            ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
+            ("webhook_missing_url", {"type": "webhook"}),
+            ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+        ]
+    )
+    def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
+        created = self._create_via_api()
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_destination_on_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team, name="Other", threshold_count=10, filters={"severityLevels": ["error"]}
+        )
+        response = self.client.post(
+            self._destinations_url(str(other_alert.id)),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_destination_removes_hog_functions(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        ids = create_response.json()["hog_function_ids"]
+
+        delete_response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": ids},
+            format="json",
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+
+    def test_delete_destination_rejects_foreign_hog_function_ids(self):
+        self._sync_destination_templates()
+        created_a = self._create_via_api()
+        created_b = self._create_via_api(name="Another alert")
+
+        a_ids = self.client.post(
+            self._destinations_url(created_a["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/a"},
+            format="json",
+        ).json()["hog_function_ids"]
+        b_ids = self.client.post(
+            self._destinations_url(created_b["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/b"},
+            format="json",
+        ).json()["hog_function_ids"]
+
+        # Trying to delete alert A's HogFunctions via alert B's endpoint should fail.
+        response = self.client.post(
+            self._destinations_delete_url(created_b["id"]),
+            {"hog_function_ids": a_ids + b_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- Reset ---
+
+    def _reset_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/reset/"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_reset_broken_alert(self, mock_report):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+            next_check_at=datetime.now(UTC) + timedelta(minutes=10),
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["state"] == "not_firing"
+        assert data["consecutive_failures"] == 0
+        assert data["next_check_at"] is None
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert reset"]
+        assert len(reset_calls) == 1
+
+    @parameterized.expand(
+        [
+            ("not_firing", LogsAlertConfiguration.State.NOT_FIRING),
+            ("firing", LogsAlertConfiguration.State.FIRING),
+            ("errored", LogsAlertConfiguration.State.ERRORED),
+            ("snoozed", LogsAlertConfiguration.State.SNOOZED),
+            ("pending_resolve", LogsAlertConfiguration.State.PENDING_RESOLVE),
+        ]
+    )
+    def test_reset_rejects_non_broken_alert(self, _name: str, state: str) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state=state)
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only broken alerts can be reset." in str(response.json())
+
+    def test_reset_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reset_writes_activity_log(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+        ActivityLog.objects.filter(item_id=str(created["id"])).delete()
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        entries = list(ActivityLog.objects.filter(item_id=str(created["id"])))
+        assert len(entries) >= 1, [e.activity for e in ActivityLog.objects.all()]
+        changed_fields = {c["field"] for entry in entries for c in (entry.detail or {}).get("changes", [])}
+        assert "state" in changed_fields
+        assert "consecutive_failures" in changed_fields
 
     # --- Simulate ---
 

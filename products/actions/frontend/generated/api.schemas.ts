@@ -641,6 +641,50 @@ export interface ActionReferenceApi {
     created_by: UserBasicApi | null
 }
 
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
 export type ActionsListParams = {
     format?: ActionsListFormat
     /**
@@ -722,6 +766,18 @@ export type ActionsReferencesListParams = {
 export type ActionsReferencesListFormat = (typeof ActionsReferencesListFormat)[keyof typeof ActionsReferencesListFormat]
 
 export const ActionsReferencesListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat
+}
+
+export type ActionsBulkUpdateTagsCreateFormat =
+    (typeof ActionsBulkUpdateTagsCreateFormat)[keyof typeof ActionsBulkUpdateTagsCreateFormat]
+
+export const ActionsBulkUpdateTagsCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

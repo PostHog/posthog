@@ -22,12 +22,25 @@ import yaml
 import click
 from hogli.core.manifest import load_manifest
 
+_MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
+DOTFILES_URI_PARAMETER = "dotfiles_uri"
+DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
+JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
+
+# Default values for all optional template parameters. Passing these explicitly
+# prevents the Coder CLI from prompting interactively for missing values.
+# Update this dict when new optional parameters are added to the template.
+_TEMPLATE_PARAMETER_DEFAULTS: dict[str, str] = {
+    DOTFILES_URI_PARAMETER: "",
+    DOTFILES_BRANCH_PARAMETER: "",
+    JETBRAINS_IDES_PARAMETER: "[]",
+}
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -100,10 +113,10 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
         def _spin() -> None:
             while not stop_event.is_set():
                 if is_tty:
-                    click.echo(f"\r  {next(frames)} {status}...", nl=False, err=True)
+                    click.echo(f"\r  {next(frames)} {status}...\033[K", nl=False, err=True)
                 stop_event.wait(0.08)
             if is_tty:
-                click.echo(f"\r  {status}   ", err=True)
+                click.echo(f"\r  {status}\033[K", err=True)
 
         spinner = threading.Thread(target=_spin, daemon=True)
         spinner.start()
@@ -150,12 +163,34 @@ def _run_with_rich_parameters(
         file_path.unlink(missing_ok=True)
 
 
+def _resolve_tailscale() -> str | None:
+    """Return path to the tailscale CLI, checking PATH then the macOS app bundle."""
+    if path := shutil.which("tailscale"):
+        return path
+    if sys.platform == "darwin" and os.path.isfile(_MACOS_TAILSCALE_CLI):
+        return _MACOS_TAILSCALE_CLI
+    return None
+
+
+def _tailscale_env(tailscale_path: str) -> dict[str, str] | None:
+    """Return extra env vars needed when invoking the macOS app bundle CLI."""
+    if tailscale_path == _MACOS_TAILSCALE_CLI:
+        return {**os.environ, "TAILSCALE_BE_CLI": "1"}
+    return None
+
+
 def _tailscale_status() -> dict[str, Any] | None:
     """Return parsed `tailscale status --json` output when available."""
-    if not shutil.which("tailscale"):
+    tailscale_path = _resolve_tailscale()
+    if not tailscale_path:
         return None
 
-    result = _run(["tailscale", "status", "--json"], capture_output=True)
+    result = subprocess.run(
+        [tailscale_path, "status", "--json"],
+        capture_output=True,
+        text=True,
+        env=_tailscale_env(tailscale_path),
+    )
     if result.returncode != 0:
         return None
 
@@ -176,10 +211,10 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     if tailscale_connected():
         return
 
-    if shutil.which("tailscale"):
+    if _resolve_tailscale():
         _fail(f"Tailscale is not connected. Connect to the PostHog tailnet, then {setup_hint}")
 
-    _fail(f"`tailscale` is not available. Start or install Tailscale, then {setup_hint}")
+    _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
 
 
 def _ssh_config_needs_update() -> bool:
@@ -260,32 +295,33 @@ def ensure_runtime_ready() -> None:
 
 
 def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
-    """Optionally install Coder SSH config in an explicit setup step."""
+    """Install Coder SSH config, skipping only when explicitly opted out."""
     if not _ssh_config_needs_update():
         click.echo("Coder SSH config is up to date.")
         return
 
-    if configure_ssh is None:
-        configure_ssh = click.confirm(
-            "Configure SSH access for editors and local SSH clients?",
-            default=True,
-        )
-
-    if not configure_ssh:
+    if configure_ssh is False:
         click.echo("Skipping SSH config.")
         click.echo("Run `coder config-ssh` later if you want local SSH host entries.")
         return
 
-    click.echo("Configuring SSH access...")
+    click.echo("Adding Coder workspace entries to ~/.ssh/config...")
     result = _run(["coder", "config-ssh", "--yes"])
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+    click.echo("Run `coder config-ssh --remove` to revert.")
 
 
 def print_setup_summary() -> None:
     """Print a short summary after setup completes."""
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
+    click.echo()
+    click.echo("To reconfigure later:")
+    click.echo("  hogli devbox:setup --configure-git-identity")
+    click.echo("  hogli devbox:setup --configure-dotfiles")
+    click.echo("  hogli devbox:setup --configure-claude")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -420,9 +456,9 @@ def list_user_workspaces() -> list[dict[str, Any]]:
     return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
-def get_workspace(name: str) -> dict[str, Any] | None:
+def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
     """Get workspace info by name, or None if it does not exist."""
-    for workspace in _list_workspaces():
+    for workspace in workspaces if workspaces is not None else _list_workspaces():
         if workspace.get("name") == name:
             return workspace
 
@@ -440,12 +476,14 @@ def create_workspace(
     claude_oauth_token: str | None = None,
     git_name: str | None = None,
     git_email: str | None = None,
+    dotfiles_uri: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace."""
     parameters = {
+        **_TEMPLATE_PARAMETER_DEFAULTS,
         "disk_size": str(disk_size),
         "repo": repo,
         CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
@@ -454,6 +492,8 @@ def create_workspace(
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
         parameters[GIT_EMAIL_PARAMETER] = git_email
+    if dotfiles_uri:
+        parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
     args = [
         "coder",
@@ -478,6 +518,27 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
 def stop_workspace(name: str, *, verbose: bool = False) -> None:
     """Stop a running workspace."""
     result = _run_build(["coder", "stop", name, "--yes"], verbose=verbose)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def restart_workspace(name: str, *, verbose: bool = False) -> None:
+    """Restart a running workspace."""
+    result = _run_build(["coder", "restart", name, "--yes"], verbose=verbose)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def update_workspace(
+    name: str,
+    parameters: dict[str, str] | None = None,
+    *,
+    verbose: bool = False,
+) -> None:
+    """Update a workspace to the latest template version."""
+    merged = {**_TEMPLATE_PARAMETER_DEFAULTS, **(parameters or {})}
+    args = ["coder", "update", name]
+    result = _run_with_rich_parameters(args, merged, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -537,6 +598,15 @@ def open_in_browser(name: str) -> None:
 def open_vscode(name: str) -> None:
     """Open the workspace in VS Code Desktop via Coder."""
     _run_or_exit(["coder", "open", "vscode", name])
+
+
+def open_cursor(name: str) -> None:
+    """Open the workspace in Cursor via SSH remote."""
+    cursor = shutil.which("cursor")
+    if not cursor:
+        _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
+    ssh_host = f"coder.{name}"
+    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{ssh_host}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:

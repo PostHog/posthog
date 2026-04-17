@@ -13,7 +13,10 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error, UserError},
+    error::{
+        extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
+        UserError,
+    },
     job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
@@ -48,7 +51,17 @@ fn decide_on_error(
         if let Some(ra) = extract_retry_after_from_error(err) {
             delay = std::cmp::min(ra, policy.max_delay);
         }
-        let (status_msg, display_msg) = format_backoff_messages(current_date_range, delay);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Rate limited (429)");
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else if is_timeout_error(err) {
+        let delay = policy.next_delay(current_attempt);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Request timed out");
         ErrorHandlingDecision::Backoff {
             delay,
             status_msg,
@@ -277,7 +290,7 @@ impl Job {
                                     self.context.clone(),
                                     msg,
                                     Some(
-                                        "Rate limit persisted. Job paused after maximum retries."
+                                        "Transient error persisted. Job paused after maximum retries."
                                             .to_string(),
                                     ),
                                 )
@@ -289,7 +302,8 @@ impl Job {
                             job_id = %self.model.lock().await.id,
                             attempt = next_attempt,
                             delay_secs = delay.as_secs(),
-                            "rate limited (429): scheduling retry"
+                            "transient error, scheduling retry: {:#}",
+                            e
                         );
                         metric_emit::backoff_event(delay.as_secs_f64());
 
@@ -841,6 +855,60 @@ mod tests {
             display_message,
             "Connection failed (Date range: 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_timeout() {
+        // Create a TCP listener that accepts but never responds, triggering a client timeout
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap();
+
+        let err = client
+            .get(format!("http://{addr}/export"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+
+        let decision = decide_on_error(
+            &err,
+            Some("2026-01-01 10:00 UTC to 2026-01-01 11:00 UTC"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Request timed out",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Backoff {
+                delay,
+                status_msg,
+                display_msg,
+            } => {
+                assert_eq!(delay.as_secs(), 60);
+                assert!(
+                    status_msg.contains("Request timed out"),
+                    "status_msg should mention timeout: {status_msg}"
+                );
+                assert!(
+                    display_msg.contains("Date range"),
+                    "display_msg should include date range: {display_msg}"
+                );
+                assert!(
+                    display_msg.contains("Request timed out"),
+                    "display_msg should mention timeout: {display_msg}"
+                );
+            }
+            _ => panic!("expected backoff for timeout error"),
+        }
     }
 
     #[test]

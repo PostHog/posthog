@@ -127,7 +127,7 @@ export function StepConditionalBranchConfiguration({
                 </div>
             ))}
 
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()}>
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()} className="mt-2">
                 Add condition
             </LemonButton>
         </>

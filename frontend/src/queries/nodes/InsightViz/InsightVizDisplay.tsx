@@ -26,6 +26,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
@@ -39,7 +40,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -137,7 +138,6 @@ export function InsightVizDisplay({
         hasDetailedResultsTable,
         showLegend,
         hasFormula,
-        funnelsFilter,
         supportsDisplay,
         samplingFactor,
         insightDataLoading,
@@ -149,14 +149,13 @@ export function InsightVizDisplay({
         display,
         series,
         insightData,
-        isFunnelWithEnoughSteps,
-        isFunnelWithIncompleteDataWarehouseStep,
         validationError,
         theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+        useValues(funnelDataLogic(insightProps))
 
     const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -175,9 +174,13 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+        if (
+            display === ChartDisplayType.BoxPlot &&
+            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)
+        ) {
             return <BoxPlotMissingPropertyState />
         }
+
         if (activeView === InsightType.FUNNELS && !isFlowViz) {
             if (isFunnelWithIncompleteDataWarehouseStep) {
                 return <FunnelDataWarehouseStepIncompleteState />

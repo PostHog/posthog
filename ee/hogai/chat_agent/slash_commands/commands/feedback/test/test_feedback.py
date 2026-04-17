@@ -61,5 +61,6 @@ class TestFeedbackCommand(BaseTest):
                 "$ai_feedback_text": "This is awesome!",
                 "$ai_session_id": "test-conversation-id",
                 "$ai_trace_id": "test-trace-id",
+                "ai_product": "posthog_ai",
             },
         )

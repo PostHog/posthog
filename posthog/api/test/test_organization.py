@@ -351,7 +351,8 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_delete_organizations_and_verify_list(self):
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    def test_delete_organizations_and_verify_list(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
 
@@ -367,34 +368,28 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 3)
 
-        # Delete first organization and verify list
+        # Delete first org — it stays in the list but marked as pending deletion
         response = self.client.delete(f"/api/organizations/{org2.id}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(len(response.json()["results"]), 2)
-        org_ids = {org["id"] for org in response.json()["results"]}
-        self.assertEqual(org_ids, {str(self.organization.id), str(org3.id)})
+        org2.refresh_from_db()
+        self.assertTrue(org2.is_pending_deletion)
 
-        # Delete second organization and verify list
+        # Delete second org
         response = self.client.delete(f"/api/organizations/{org3.id}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(self.organization.id))
+        org3.refresh_from_db()
+        self.assertTrue(org3.is_pending_deletion)
 
-        # Verify we can't delete the last organization
+        # All orgs still in the list (pending deletion ones included)
+        response = self.client.get("/api/organizations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
+
+        # Delete last org
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "invalid_request",
-                "code": "not_found",
-                "detail": "You need to belong to an organization.",
-                "attr": None,
-            },
-        )
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
@@ -427,6 +422,64 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Organization.objects.filter(id=org_id).exists())
+
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    def test_delete_organization_sets_pending_deletion_flag(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
+        mock_delete_task.delay.assert_called_once()
+
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    def test_delete_organization_preserves_memberships(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertTrue(OrganizationMembership.objects.filter(organization=self.organization, user=self.user).exists())
+
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    def test_delete_organization_returns_pending_deletion_in_api(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        self.client.delete(f"/api/organizations/{self.organization.id}")
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_pending_deletion"])
+
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        self.organization.is_pending_deletion = True
+        self.organization.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        mock_delete_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_delete_organization_fires_initiated_event(self, mock_capture, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        event_names = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertIn("organization deletion initiated", event_names)
 
 
 def create_organization(name: str) -> Organization:

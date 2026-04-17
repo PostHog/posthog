@@ -21,6 +21,10 @@ use crate::{
     organization::apply_ai_opt_in,
 };
 
+static CL100K_ENCODER: std::sync::LazyLock<tiktoken_rs::CoreBPE> = std::sync::LazyLock::new(|| {
+    tiktoken_rs::cl100k_base().expect("Failed to initialize cl100k_base encoder")
+});
+
 const MAX_RETRY_ATTEMPTS: usize = 4; // 1 initial + 3 retries
 const RETRY_BASE_SECS: u64 = 2;
 const RETRY_JITTER_RANGE: std::ops::RangeInclusive<i64> = -1000..=1000;
@@ -193,7 +197,7 @@ pub fn generate_embedding_text<'a>(
     let content = model.escape_input(content);
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-            let encoder = tiktoken_rs::cl100k_base()?;
+            let encoder = &*CL100K_ENCODER;
             let mut tokens: Vec<_> = encoder
                 .encode_with_special_tokens(&content)
                 .into_iter()

@@ -199,6 +199,52 @@ describe('hog-charts interaction', () => {
             const result = buildTooltipContext(0, series, ['a'], xConst, yConst, fakeCanvasBounds, customResolve)
             expect(result?.seriesData[0].value).toBe(999)
         })
+
+        it('resolves each series y-pixel through its own axis scale when yAxes is provided', () => {
+            // Two series on different axes with the same value, but each axis maps that
+            // value to a different pixel — the tooltip's y-position should reflect the
+            // min of the per-axis resolutions (not of calling the single yScale twice).
+            const leftSeries = makeSeries({ key: 'l', data: [50], yAxisId: 'left' })
+            const rightSeries = makeSeries({ key: 'r', data: [50], yAxisId: 'y1' })
+            const leftScale = (): number => 200
+            const rightScale = (): number => 80
+            const yAxes = {
+                left: { scale: leftScale, ticks: () => [0, 50, 100], position: 'left' as const },
+                y1: { scale: rightScale, ticks: () => [0, 50, 100], position: 'right' as const },
+            }
+            const fallbackY = (): number => 999 // should never be used when yAxes resolves
+            const result = buildTooltipContext(
+                0,
+                [leftSeries, rightSeries],
+                ['a'],
+                xConst,
+                fallbackY,
+                fakeCanvasBounds,
+                defaultResolveValue,
+                yAxes
+            )
+            // min of (200, 80) = 80
+            expect(result?.position.y).toBe(80)
+        })
+
+        it('falls back to the default yScale for series on an axis id that is not in yAxes', () => {
+            const series = [makeSeries({ key: 's', data: [10], yAxisId: 'unknown' })]
+            const fallbackY = (): number => 42
+            const yAxes = {
+                left: { scale: () => 999, ticks: () => [0, 10], position: 'left' as const },
+            }
+            const result = buildTooltipContext(
+                0,
+                series,
+                ['a'],
+                xConst,
+                fallbackY,
+                fakeCanvasBounds,
+                defaultResolveValue,
+                yAxes
+            )
+            expect(result?.position.y).toBe(42)
+        })
     })
 
     describe('buildPointClickData', () => {

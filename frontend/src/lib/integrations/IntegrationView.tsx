@@ -99,7 +99,7 @@ export function IntegrationView({
                             </div>
                         ) : null}
                         {isGitHub &&
-                            (githubRepositoriesLoading ? (
+                            (githubRepositoriesLoading && repositories.length === 0 ? (
                                 <div className="flex items-center gap-1 text-xs text-muted mr-4 min-h-5">
                                     <Spinner className="text-sm" />
                                     Loading repositories...

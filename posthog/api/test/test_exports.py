@@ -764,7 +764,6 @@ class TestExports(APIBaseTest):
             payload = {
                 "export_format": export_format,
                 "export_context": {
-                    "mode": "screenshot",
                     "session_recording_id": "test_session_123",
                     "timestamp": 100,
                     "duration": 5,
@@ -795,7 +794,7 @@ class TestExports(APIBaseTest):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
-                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                export_context={"session_recording_id": f"session_{i}"},
                 created_by=self.user,
             )
 
@@ -805,7 +804,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_10",
                 },
             },
@@ -818,7 +816,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_11",
                 },
             },
@@ -831,57 +828,46 @@ class TestExports(APIBaseTest):
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    def test_video_export_limit_only_applies_to_full_videos(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that the limit only applies to full video exports (mode=video), not clips"""
-        # Create 10 video exports this month (at the limit)
-        for i in range(10):
+    def test_video_export_limit_applies_to_all_video_formats(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that the limit applies to both MP4 and WebM session recording exports"""
+        # Create 5 MP4 and 5 WebM exports this month (at the limit)
+        for i in range(5):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
-                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                export_context={"session_recording_id": f"session_mp4_{i}"},
+                created_by=self.user,
+            )
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/webm",
+                export_context={"session_recording_id": f"session_webm_{i}"},
                 created_by=self.user,
             )
 
-        # Full video export should fail
+        # MP4 video export should fail
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
-                    "session_recording_id": "session_full",
+                    "session_recording_id": "session_over_limit",
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        # But clip export (screenshot mode) should succeed
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "video/mp4",
-                "export_context": {
-                    "mode": "screenshot",
-                    "session_recording_id": "session_clip",
-                    "timestamp": 100,
-                    "duration": 5,
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Other video formats should also succeed
+        # WebM video export should also fail (shared limit)
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/webm",
                 "export_context": {
-                    "mode": "video",
-                    "session_recording_id": "session_webm",
+                    "session_recording_id": "session_webm_over_limit",
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
@@ -894,7 +880,7 @@ class TestExports(APIBaseTest):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
-                export_context={"mode": "video", "session_recording_id": f"session_jan_{i}"},
+                export_context={"session_recording_id": f"session_jan_{i}"},
                 created_by=self.user,
             )
 
@@ -904,7 +890,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_jan_fail",
                 },
             },
@@ -919,7 +904,6 @@ class TestExports(APIBaseTest):
                 {
                     "export_format": "video/mp4",
                     "export_context": {
-                        "mode": "video",
                         "session_recording_id": "session_feb_success",
                     },
                 },
@@ -941,7 +925,6 @@ class TestExports(APIBaseTest):
                 {
                     "export_format": "video/mp4",
                     "export_context": {
-                        "mode": "video",
                         "session_recording_id": f"session_{i}",
                     },
                 },
@@ -954,7 +937,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_3",
                 },
             },
@@ -967,7 +949,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_4",
                 },
             },

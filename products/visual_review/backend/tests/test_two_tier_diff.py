@@ -6,8 +6,8 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from products.visual_review.backend.diff import compute_diff
+from products.visual_review.backend.diffing import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
 from products.visual_review.backend.ssim import compute_ssim
-from products.visual_review.backend.tasks.tasks import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:

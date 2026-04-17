@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     EmailIntegration,
+    GitHubIntegration,
     Integration,
     SlackIntegration,
     StripeIntegration,
@@ -613,12 +614,15 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
-        mock_list_repos.return_value = [
-            {"id": 1, "name": "repo1", "full_name": "org/repo1"},
-            {"id": 2, "name": "repo2", "full_name": "org/repo2"},
-        ]
+        mock_list_repos.return_value = (
+            [
+                {"id": 1, "name": "repo1", "full_name": "org/repo1"},
+                {"id": 2, "name": "repo2", "full_name": "org/repo2"},
+            ],
+            False,
+        )
 
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -634,10 +638,83 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        repos = response.json()["repositories"]
-        assert len(repos) == 2
-        assert repos[0]["name"] == "repo1"
-        assert repos[1]["name"] == "repo2"
+        data = response.json()
+        assert len(data["repositories"]) == 2
+        assert data["repositories"][0]["name"] == "repo1"
+        assert data["repositories"][1]["name"] == "repo2"
+        assert data["has_more"] is False
+        mock_list_repos.assert_called_once_with(limit=100, offset=0)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_pagination(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": i, "name": f"repo{i}", "full_name": f"org/repo{i}"} for i in range(100)]
+        mock_list_repos.return_value = (repos, True)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/?limit=100&offset=100",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["repositories"]) == 100
+        assert data["has_more"] is True
+        mock_list_repos.assert_called_once_with(limit=100, offset=100)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_has_more_false_when_partial_page(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": i, "name": f"repo{i}", "full_name": f"org/repo{i}"} for i in range(50)]
+        mock_list_repos.return_value = (repos, False)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["repositories"]) == 50
+        assert data["has_more"] is False
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_passes_limit_offset(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": i, "name": f"repo{i}", "full_name": f"org/repo{i}"} for i in range(10)]
+        mock_list_repos.return_value = (repos, True)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/?limit=10&offset=50",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["repositories"]) == 10
+        assert data["has_more"] is True
+        mock_list_repos.assert_called_once_with(limit=10, offset=50)
 
     def test_github_repos_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
@@ -1085,3 +1162,203 @@ class TestStripeIntegrationOAuthTokens:
         for call in calls:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_789"}
+
+
+def _make_github_branches_response(names: list[str], has_next: bool = False) -> MagicMock:
+    """Build a mock requests.Response for the GitHub branches API."""
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = [{"name": n} for n in names]
+    link = '<https://api.github.com/next>; rel="next"' if has_next else ""
+    response.headers = {"Link": link}
+    return response
+
+
+class TestGitHubBranches:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"installation_id": "12345", "refreshed_at": 0, "expires_in": 999999},
+            sensitive_config={"access_token": "test-token"},
+        )
+        self.github = GitHubIntegration(self.integration)
+
+    @patch("posthog.models.integration.requests.get")
+    def test_list_branches_returns_first_page(self, mock_get):
+        names = [f"branch-{i}" for i in range(100)]
+        mock_get.return_value = _make_github_branches_response(names, has_next=True)
+
+        branches, has_more = self.github.list_branches("org/repo", limit=100, offset=0)
+
+        assert branches == names
+        assert has_more is True
+        mock_get.assert_called_once()
+        assert "page=1" in mock_get.call_args[0][0]
+
+    @patch("posthog.models.integration.requests.get")
+    def test_list_branches_offset_skips_pages(self, mock_get):
+        """Requesting offset=200 should start fetching from GitHub page 3."""
+        page3_names = [f"branch-{i}" for i in range(200, 300)]
+        mock_get.return_value = _make_github_branches_response(page3_names, has_next=True)
+
+        branches, has_more = self.github.list_branches("org/repo", limit=100, offset=200)
+
+        assert branches == page3_names
+        assert has_more is True
+        assert mock_get.call_count == 1
+        assert "page=3" in mock_get.call_args[0][0]
+
+    @patch("posthog.models.integration.requests.get")
+    def test_list_branches_last_page_no_more(self, mock_get):
+        names = [f"branch-{i}" for i in range(50)]
+        mock_get.return_value = _make_github_branches_response(names, has_next=False)
+
+        branches, has_more = self.github.list_branches("org/repo", limit=100, offset=0)
+
+        assert branches == names
+        assert has_more is False
+
+    @patch("posthog.models.integration.requests.get")
+    def test_list_branches_spans_two_github_pages(self, mock_get):
+        """An offset that doesn't align with per_page=100 requires fetching two GitHub pages."""
+        page1_names = [f"branch-{i}" for i in range(100)]
+        page2_names = [f"branch-{i}" for i in range(100, 200)]
+
+        mock_get.side_effect = [
+            _make_github_branches_response(page1_names, has_next=True),
+            _make_github_branches_response(page2_names, has_next=False),
+        ]
+
+        branches, has_more = self.github.list_branches("org/repo", limit=100, offset=50)
+
+        assert len(branches) == 100
+        assert branches == [f"branch-{i}" for i in range(50, 150)]
+        # There are still branches 150-199 beyond this window
+        assert has_more is True
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.requests.get")
+    def test_list_branches_empty_repo(self, mock_get):
+        mock_get.return_value = _make_github_branches_response([], has_next=False)
+
+        branches, has_more = self.github.list_branches("org/repo")
+
+        assert branches == []
+        assert has_more is False
+
+    @patch("posthog.models.integration.requests.get")
+    def test_list_branches_401_triggers_refresh_and_retry(self, mock_get):
+        unauthorized = MagicMock()
+        unauthorized.status_code = 401
+
+        names = ["main", "develop"]
+        success = _make_github_branches_response(names, has_next=False)
+
+        mock_get.side_effect = [unauthorized, success]
+
+        with patch.object(self.github, "refresh_access_token"):
+            branches, has_more = self.github.list_branches("org/repo")
+
+        assert branches == names
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.GitHubIntegration.list_branches")
+    def test_api_endpoint_passes_limit_offset(self, mock_list, mock_default, client: HttpClient):
+        mock_list.return_value = ([f"branch-{i}" for i in range(10)], True)
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo", "limit": "10", "offset": "50"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["branches"]) == 10
+        assert data["has_more"] is True
+        mock_list.assert_called_once_with("org/repo", limit=10, offset=50)
+
+    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.GitHubIntegration.list_branches")
+    def test_api_endpoint_default_branch_first_on_page_one(self, mock_list, mock_default, client: HttpClient):
+        mock_list.return_value = (["alpha", "main", "zebra"], False)
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo"},
+        )
+
+        data = response.json()
+        assert data["branches"][0] == "main"
+        assert data["default_branch"] == "main"
+
+    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.GitHubIntegration.list_branches")
+    def test_api_endpoint_removes_default_branch_on_subsequent_pages(self, mock_list, mock_default, client: HttpClient):
+        mock_list.return_value = (["main", "other"], False)
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo", "offset": "100"},
+        )
+
+        data = response.json()
+        assert data["branches"] == ["other"]
+
+    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.GitHubIntegration.list_branches")
+    def test_api_endpoint_prepends_default_branch_even_when_not_in_list(
+        self, mock_list, mock_default, client: HttpClient
+    ):
+        """Default branch is prepended on page 1 even if it isn't in the alphabetical window."""
+        mock_list.return_value = (["alpha", "beta"], False)
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo"},
+        )
+
+        data = response.json()
+        assert data["branches"] == ["main", "alpha", "beta"]
+
+    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.GitHubIntegration.list_branches")
+    def test_api_endpoint_validates_limit_max(self, mock_list, mock_default, client: HttpClient):
+        mock_list.return_value = ([], False)
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo", "limit": "1001"},
+        )
+
+        assert response.status_code == 400
+
+    @patch("posthog.models.integration.requests.get")
+    def test_get_default_branch_is_cached(self, mock_get):
+        from django.core.cache import cache
+
+        cache.clear()
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"default_branch": "develop"}
+        mock_get.return_value = response
+
+        first = self.github.get_default_branch("org/repo-cache-test")
+        second = self.github.get_default_branch("org/repo-cache-test")
+
+        assert first == "develop"
+        assert second == "develop"
+        assert mock_get.call_count == 1

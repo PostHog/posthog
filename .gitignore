@@ -194,6 +194,7 @@ services/mcp/public/ui-apps
 
 # Test output
 junit.xml
+.test_dependency_map
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/

@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -46,6 +47,8 @@ export const productSetupLogic = kea<productSetupLogicType>([
             ['hasReverseProxy'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
+            preflightLogic,
+            ['isCloudOrDev'],
             globalSetupLogic,
             ['optimisticTaskStatuses'],
         ],
@@ -108,7 +111,16 @@ export const productSetupLogic = kea<productSetupLogicType>([
     })),
     selectors({
         productConfig: [(_, p) => [p.productKey], (productKey) => getProductSetupConfig(productKey)],
-        allTasks: [(_, p) => [p.productKey], (productKey) => getTasksForProduct(productKey)],
+        allTasks: [
+            (s, p) => [p.productKey, s.isCloudOrDev],
+            (productKey, isCloudOrDev) => {
+                const tasks = getTasksForProduct(productKey)
+                if (!isCloudOrDev) {
+                    return tasks.filter((task) => task.id !== SetupTaskId.SetUpReverseProxy)
+                }
+                return tasks
+            },
+        ],
         // Merge server-saved tasks with optimistic updates (optimistic takes priority for instant feedback)
         // null in optimistic means "unmarked" - takes priority over saved status
         savedOnboardingTasks: [

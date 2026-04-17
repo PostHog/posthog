@@ -1,18 +1,24 @@
 mod common;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use common::{
-    create_leader_client, seed_person, start_coordinator, start_leader_pod,
-    start_leader_pod_with_lease_ttl, start_router, test_cached_person, test_store,
-    wait_for_condition, NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
+    create_leader_client, create_local_kafka_producer, create_test_kafka, seed_person,
+    start_coordinator, start_leader_pod, start_leader_pod_with_lease_ttl, start_router,
+    test_cached_person, test_store, wait_for_condition, CHANGELOG_TOPIC, KAFKA_BOOTSTRAP,
+    NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::strategy::StickyBalancedStrategy;
-use personhog_leader::cache::PartitionedCache;
+use personhog_leader::cache::{CacheLookup, PartitionedCache};
 use personhog_leader::service::PersonHogLeaderService;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
-use personhog_proto::personhog::types::v1::UpdatePersonPropertiesRequest;
+use personhog_proto::personhog::types::v1::{Person, UpdatePersonPropertiesRequest};
+use prost::Message;
+use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
+use rdkafka::{ClientConfig, Message as KafkaMessage, TopicPartitionList};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
@@ -132,7 +138,12 @@ async fn service_accepts_requests_after_coordination_warmup() {
 async fn unowned_partition_returns_failed_precondition() {
     // Create service + cache directly, no coordination
     let cache = Arc::new(PartitionedCache::new(100));
-    let service = PersonHogLeaderService::new(Arc::clone(&cache));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+    );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -405,6 +416,295 @@ async fn rewarm_after_pod_crash() {
         .await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 5: Successful update produces person state to Kafka
+// (no etcd needed)
+// ============================================================
+
+#[tokio::test]
+async fn update_produces_person_state_to_kafka() {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+    );
+
+    cache.create_partition(0);
+    let person = test_cached_person();
+    seed_person(&cache, 0, person);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let mut client = create_leader_client(addr).await;
+
+    // Perform an update
+    let response = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Kafka Test"})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            partition: 0,
+        })
+        .await
+        .unwrap();
+
+    let result = response.into_inner();
+    assert!(result.updated);
+    assert_eq!(result.person.unwrap().version, 2);
+
+    // Consume the message from the mock Kafka cluster
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "test-consumer")
+        .create()
+        .expect("failed to create consumer");
+
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(CHANGELOG_TOPIC, 0, rdkafka::Offset::Beginning)
+        .unwrap();
+    consumer.assign(&tpl).unwrap();
+
+    let msg = consumer
+        .poll(Duration::from_secs(5))
+        .expect("no message received")
+        .expect("kafka error");
+
+    // Verify message key
+    let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
+    assert_eq!(key, "1:42");
+
+    // Verify payload is a valid Person proto with updated state
+    let person = Person::decode(msg.payload().unwrap()).unwrap();
+    assert_eq!(person.id, 42);
+    assert_eq!(person.team_id, 1);
+    assert_eq!(person.version, 2);
+
+    let props: serde_json::Value = serde_json::from_slice(&person.properties).unwrap();
+    assert_eq!(props["name"], "Kafka Test");
+    assert_eq!(props["email"], "test@example.com");
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 6: Kafka produce failure leaves cache unchanged and returns error
+// (no etcd needed)
+// ============================================================
+
+#[tokio::test]
+async fn kafka_produce_failure_leaves_cache_unchanged() {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+    );
+
+    cache.create_partition(0);
+    let person = test_cached_person();
+    seed_person(&cache, 0, person);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Inject a Kafka produce error
+    let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR__BAD_MSG; 1];
+    mock_cluster.request_errors(RDKafkaApiKey::Produce, &err);
+
+    let mut client = create_leader_client(addr).await;
+
+    // Update should fail because Kafka produce fails
+    let result = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Should Rollback"}))
+                .unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            partition: 0,
+        })
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::Internal);
+
+    // Cache was never updated since the produce failed before the cache write
+    let cache_key = personhog_leader::cache::PersonCacheKey {
+        team_id: 1,
+        person_id: 42,
+    };
+    let CacheLookup::Found(cached) = cache.get(0, &cache_key) else {
+        panic!("expected original person in cache");
+    };
+    assert_eq!(cached.version, 1);
+    assert_eq!(cached.properties["email"], "test@example.com");
+    assert!(cached.properties.get("name").is_none());
+
+    // Clear errors and verify the service recovers
+    mock_cluster.clear_request_errors(RDKafkaApiKey::Produce);
+
+    let response = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"name": "After Recovery"}))
+                .unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            partition: 0,
+        })
+        .await
+        .unwrap();
+
+    let result = response.into_inner();
+    assert!(result.updated);
+    assert_eq!(result.person.unwrap().version, 2);
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 7: E2E - update produces to local Kafka and is consumable
+// Requires local Kafka (localhost:9092) and etcd running.
+// ============================================================
+
+#[tokio::test]
+async fn e2e_update_produces_to_local_kafka() {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let kafka_producer = create_local_kafka_producer().await;
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+    );
+
+    cache.create_partition(0);
+    let person = test_cached_person();
+    seed_person(&cache, 0, person);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let mut client = create_leader_client(addr).await;
+
+    // Perform an update via gRPC
+    let response = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"name": "E2E Test"})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            partition: 0,
+        })
+        .await
+        .unwrap();
+
+    let result = response.into_inner();
+    assert!(result.updated);
+    assert_eq!(result.person.unwrap().version, 2);
+
+    // Consume from local Kafka and verify the message
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("group.id", format!("e2e-test-{}", uuid::Uuid::new_v4()))
+        .create()
+        .expect("failed to create local Kafka consumer");
+
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(CHANGELOG_TOPIC, 0, rdkafka::Offset::End)
+        .unwrap();
+    consumer.assign(&tpl).unwrap();
+
+    // Seek back one message from the end to read what we just produced.
+    // End offset points past the last message, so we query it and subtract 1.
+    let (_, high_watermark) = consumer
+        .fetch_watermarks(CHANGELOG_TOPIC, 0, Duration::from_secs(5))
+        .expect("failed to fetch watermarks");
+    let target_offset = (high_watermark - 1).max(0);
+
+    let mut seek_tpl = TopicPartitionList::new();
+    seek_tpl
+        .add_partition_offset(CHANGELOG_TOPIC, 0, rdkafka::Offset::Offset(target_offset))
+        .unwrap();
+    consumer.assign(&seek_tpl).unwrap();
+
+    let msg = consumer
+        .poll(Duration::from_secs(5))
+        .expect("no message received from local Kafka")
+        .expect("kafka error");
+
+    let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
+    assert_eq!(key, "1:42");
+
+    let person = Person::decode(msg.payload().unwrap()).unwrap();
+    assert_eq!(person.id, 42);
+    assert_eq!(person.team_id, 1);
+    assert_eq!(person.version, 2);
+
+    let props: serde_json::Value = serde_json::from_slice(&person.properties).unwrap();
+    assert_eq!(props["name"], "E2E Test");
+    assert_eq!(props["email"], "test@example.com");
 
     cancel.cancel();
 }

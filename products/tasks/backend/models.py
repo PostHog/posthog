@@ -6,6 +6,11 @@ import string
 import secrets
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
 
@@ -33,6 +38,12 @@ from products.tasks.backend.stream.redis_stream import publish_task_run_stream_e
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+
+
+def resolve_schema(schema: type[BaseModel] | dict) -> dict:
+    if isinstance(schema, dict):
+        return schema
+    return schema.model_json_schema()
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -70,6 +81,7 @@ class Task(DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
         on_delete=models.SET_NULL,
@@ -93,6 +105,11 @@ class Task(DeletedMetaFields, models.Model):
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    ci_prompt = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
+    )
 
     class Meta:
         db_table = "posthog_task"
@@ -244,15 +261,19 @@ class Task(DeletedMetaFields, models.Model):
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
+        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+
         github_integration = None
         if repository:
             github_integration = Integration.objects.filter(team=team, kind="github").first()
-            if not github_integration:
+            if not github_integration and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -270,22 +291,22 @@ class Task(DeletedMetaFields, models.Model):
             github_integration=github_integration,
             repository=repository,
             internal=internal,
+            json_schema=resolve_schema(output_schema) if output_schema else None,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] | None = None
-        if slack_thread_url or slack_thread_context:
-            extra_state = {}
-            if slack_thread_url:
-                extra_state["slack_thread_url"] = slack_thread_url
-            if slack_thread_context:
-                extra_state["interaction_origin"] = "slack"
+        extra_state: dict[str, str] = {}
+        if slack_thread_url:
+            extra_state["slack_thread_url"] = slack_thread_url
+        if interaction_origin:
+            extra_state["interaction_origin"] = interaction_origin
+        elif slack_thread_context:
+            extra_state["interaction_origin"] = "slack"
 
         if sandbox_env is not None:
-            extra_state = extra_state or {}
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -491,6 +512,9 @@ class TaskRun(models.Model):
                 "run_id": str(self.id),
                 "team_id": self.team_id,
                 "repository": self.task.repository,
+                "origin_product": self.task.origin_product,
+                "title": self.task.title,
+                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
                 "mode": self.mode,
             }
@@ -520,6 +544,20 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
+
+    def track_structured_result(self):
+        """Track a structured result event with properties from the run output."""
+        if not self.output:
+            return
+
+        try:
+            self.capture_event("task_run_structured_result", {"result": self.output})
+        except Exception as e:
+            logger.warning(
+                "task_run.track_structured_result_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def mark_failed(self, error: str):
         """Mark the progress as failed with an error message."""
@@ -756,6 +794,11 @@ class SandboxEnvironment(UUIDModel):
         help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
     )
 
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -852,3 +895,21 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+@receiver(post_save, sender=TaskRun)
+def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs):
+    try:
+        if (
+            not created
+            and instance.status == TaskRun.Status.COMPLETED
+            and instance.output
+            and instance.task.json_schema
+        ):
+            instance.track_structured_result()
+    except Exception as e:
+        logger.warning(
+            "task_run.track_task_run_completion_failed",
+            task_run_id=str(instance.id),
+            error=str(e),
+        )

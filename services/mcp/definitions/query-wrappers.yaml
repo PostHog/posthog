@@ -149,3 +149,21 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+
+    query-trends-actors:
+        schema_ref: AssistantInsightActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: List persons behind a trends data point
+        description_file: ./prompts/query-trends-actors.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers

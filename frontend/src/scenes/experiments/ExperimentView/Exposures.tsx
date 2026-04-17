@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
-import { IconCheckCircle, IconCorrelationAnalysis, IconPencil, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
@@ -261,7 +261,12 @@ export function Exposures(): JSX.Element {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
             <div className="flex items-center gap-3 metric-cell" style={{ minHeight: '33px' }}>
-                <span className="metric-cell-header font-bold">Exposures</span>
+                <span className="metric-cell-header font-bold inline-flex items-center gap-1">
+                    Exposures
+                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </span>
 
                 {!isExperimentDraft && (
                     <div

@@ -15,6 +15,7 @@ import type {
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
+    PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
@@ -27,7 +28,7 @@ import type {
     TaskRunArtifactsUploadResponseApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
-    TaskRunCreateRequestApi,
+    TaskRunCreateRequestSchemaApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
@@ -267,14 +268,14 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
 export const tasksRunCreate = async (
     projectId: string,
     id: string,
-    taskRunCreateRequestApi: TaskRunCreateRequestApi,
+    taskRunCreateRequestSchemaApi: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunCreateRequestApi),
+        body: JSON.stringify(taskRunCreateRequestSchemaApi),
     })
 }
 
@@ -441,7 +442,7 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
- * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to agent server
  */
 export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
@@ -556,11 +557,14 @@ export const tasksRunsSetOutputPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
+    patchedTaskRunSetOutputRequestApi: PatchedTaskRunSetOutputRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
     })
 }
 
