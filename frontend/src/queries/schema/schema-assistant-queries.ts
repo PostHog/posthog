@@ -1147,6 +1147,36 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 }
 
 /**
+ * Drills into an insight to list the persons behind a specific data point. Returned rows are
+ * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ *
+ * Currently supports trends as the source; other insight kinds will be added incrementally.
+ * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
+ * cell in the source insight. Omit them to get all actors for the query.
+ */
+export interface AssistantInsightActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source insight query whose data point we are drilling into. */
+    source: AssistantTrendsQuery
+
+    /** Bucket date for the data point. Accepts ISO date or integer offset. */
+    day?: string | integer
+
+    /** Series index (0-based) when the source has multiple series. */
+    series?: integer
+
+    /**
+     * Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order.
+     * Array length must equal the number of breakdown dimensions.
+     */
+    breakdown?: string[]
+
+    /** Whether to pull from the previous period when `compare` is enabled in the source. */
+    compare?: 'current' | 'previous'
+}
+
+/**
  * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
  * token usage, costs, errors, and other metadata. Use for AI observability — debugging
  * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.

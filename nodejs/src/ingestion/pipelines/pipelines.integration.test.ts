@@ -27,7 +27,6 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     anonymize_ips: false,
     api_token: 'test-api-token',
     secret_api_token: null,
-    slack_incoming_webhook: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
     heatmaps_opt_in: null,

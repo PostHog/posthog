@@ -98,7 +98,7 @@ class TestPlanResolver:
 
     async def test_returns_none_plan_when_no_api_url(self, resolver: PlanResolver) -> None:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.posthog_api_url = ""
+            mock_settings.return_value.posthog_api_base_url = ""
             mock_settings.return_value.plan_cache_ttl = 300
             mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
@@ -150,7 +150,7 @@ class TestPlanResolver:
         resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.posthog_api_url = "https://app.posthog.com"
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
             mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
@@ -175,7 +175,7 @@ class TestPlanResolver:
         resolver._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.posthog_api_url = "https://app.posthog.com"
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
             mock_settings.return_value.free_plan_trial_period_days = 30
             await resolver.get_plan(user_id=1, auth_header="Bearer phx_mysecretkey")
@@ -190,7 +190,7 @@ class TestPlanResolver:
         resolver._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.posthog_api_url = "https://app.posthog.com"
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
             mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
@@ -202,7 +202,7 @@ class TestPlanResolver:
         resolver._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.posthog_api_url = "https://app.posthog.com"
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
             mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
@@ -220,7 +220,7 @@ class TestPlanResolver:
         resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.posthog_api_url = "https://app.posthog.com"
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
             mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")

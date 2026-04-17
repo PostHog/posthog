@@ -2744,5 +2744,20 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "query-trends-actors": {
+        "description": "List the persons behind a specific data point in a trends insight. Use this to answer \"who were the users that did X on day Y?\" or \"which users are in this breakdown bucket?\".\n\nPair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.\n\nSelectors:\n\n- `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.\n- `series`: 0-based index of the series to drill into when the trends query has multiple series.\n- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: [\"Opera\"]`. Multiple dimensions: `breakdown: [\"Opera\", \"en-US\"]`.\n- `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `count` (number of matching events for that actor). Results are limited to the top 100 actors ordered by event count; pagination will be added later.\n\nGuidance:\n\n- Keep the `source` trends query minimal — only include the filters/breakdowns needed to identify the cell.\n- If the user wants \"all users who did X\", omit `day`/`series`/`breakdown` to broaden the drill-down.\n- For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons behind a trends data point",
+        "title": "List persons behind a trends data point",
+        "required_scopes": ["query:read", "person:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }

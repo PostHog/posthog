@@ -60,6 +60,7 @@ Check:
 2. Significance status (significant vs not) must be correctly stated for each variant.
 3. The agent must not declare a winner when results are not statistically significant.
 4. Variant names must match the tool output.
+5. When a metric's goal is "Decrease", a reduction in the metric is a positive outcome. The agent must frame lower values as good and not treat them as a regression.
 
 Choose: pass (all facts accurate, no hallucinations) or fail (any factual error, hallucinated number, or wrong conclusion)
 """.strip()
@@ -195,9 +196,50 @@ MOCK_BAYESIAN_NON_SIGNIFICANT = MaxExperimentSummaryContext(
 )
 
 
+# Bayesian experiment with goal=decrease: the test variant reduces cart
+# abandonment (a good outcome when lower is better). Chance-to-win is
+# already inverted by the data service for decrease goals, so test shows
+# a high chance to win. Delta and credible interval are negative for the
+# test variant, reflecting that abandonment went down — which is the
+# desired direction. Checks that Claude frames the reduction as positive
+# rather than treating the negative delta as a regression.
+MOCK_BAYESIAN_GOAL_DECREASE = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Cart Abandonment Reduction Test",
+    description="Testing whether a streamlined cart page reduces abandonment rate",
+    variants=["control", "test"],
+    exposures={"control": 3512.0, "test": 3480.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Cart abandonment rate",
+            goal=Goal.DECREASE,
+            variant_results=[
+                MaxExperimentVariantResultBayesian(
+                    key="control",
+                    chance_to_win=0.08,
+                    credible_interval=[-0.009, 0.058],
+                    delta=0.0245,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultBayesian(
+                    key="test",
+                    chance_to_win=0.92,
+                    credible_interval=[-0.071, -0.021],
+                    delta=-0.046,
+                    significant=True,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[],
+    stats_method=ExperimentStatsMethod.BAYESIAN,
+)
+
+
 MOCK_CONTEXTS: dict[str, MaxExperimentSummaryContext] = {
     "bayesian_significant": MOCK_BAYESIAN_SIGNIFICANT,
     "bayesian_non_significant": MOCK_BAYESIAN_NON_SIGNIFICANT,
+    "bayesian_goal_decrease": MOCK_BAYESIAN_GOAL_DECREASE,
 }
 
 
@@ -321,6 +363,13 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
                     mock_key="bayesian_non_significant",
                 ),
                 metadata={"test_type": "bayesian_non_significant"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    mock_key="bayesian_goal_decrease",
+                ),
+                metadata={"test_type": "bayesian_goal_decrease"},
             ),
         ],
         pytestconfig=pytestconfig,

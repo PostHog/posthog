@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiRequest, getCookie } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { customerIOImportLogicType } from './customerIOImportLogicType'
@@ -63,12 +64,14 @@ export interface OptOutSyncConfigResponse {
     csv_import_result: CSVImportResult | null
     webhook_enabled: boolean
     has_webhook_secret: boolean
+    track_enabled: boolean
+    has_track_credentials: boolean
 }
 
 export const customerIOImportLogic = kea<customerIOImportLogicType>([
     path(['products', 'workflows', 'customerIOImportLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamIdStrict']],
+        values: [teamLogic, ['currentTeamIdStrict'], preflightLogic, ['preflight']],
     })),
     actions({
         openImportModal: true,
@@ -88,6 +91,14 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         removeWebhookConfig: true,
         setIsSavingWebhook: (isSaving: boolean) => ({ isSaving }),
         setWebhookError: (error: string | null) => ({ error }),
+        setTrackSiteId: (siteId: string) => ({ siteId }),
+        setTrackApiKey: (apiKey: string) => ({ apiKey }),
+        setTrackRegion: (region: string) => ({ region }),
+        saveTrackConfig: true,
+        toggleTrackSync: (enabled: boolean) => ({ enabled }),
+        removeTrackConfig: true,
+        setIsSavingTrack: (isSaving: boolean) => ({ isSaving }),
+        setTrackError: (error: string | null) => ({ error }),
     }),
     loaders({
         syncConfig: [
@@ -190,6 +201,49 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 loadSyncConfigFailure: () => false,
             },
         ],
+        trackSiteId: [
+            '',
+            {
+                setTrackSiteId: (_, { siteId }) => siteId,
+                closeImportModal: () => '',
+            },
+        ],
+        trackApiKey: [
+            '',
+            {
+                setTrackApiKey: (_, { apiKey }) => apiKey,
+                closeImportModal: () => '',
+            },
+        ],
+        trackRegion: [
+            'US',
+            {
+                setTrackRegion: (_, { region }) => region,
+            },
+        ],
+        isSavingTrack: [
+            false,
+            {
+                setIsSavingTrack: (_, { isSaving }) => isSaving,
+            },
+        ],
+        trackError: [
+            null as string | null,
+            {
+                setTrackError: (_, { error }) => error,
+                saveTrackConfig: () => null,
+                toggleTrackSync: () => null,
+                removeTrackConfig: () => null,
+            },
+        ],
+        isRemovingTrackConfig: [
+            false,
+            {
+                removeTrackConfig: () => true,
+                loadSyncConfigSuccess: () => false,
+                loadSyncConfigFailure: () => false,
+            },
+        ],
     }),
     forms(({ actions }) => ({
         importForm: {
@@ -233,6 +287,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 step1: 'completed' | 'failed' | false
                 step2: 'completed' | 'failed' | false
                 step3: 'completed' | false
+                step4: 'completed' | false
             } => {
                 const resolveStatus = (
                     localStatus: string | undefined,
@@ -249,13 +304,20 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                     step1: resolveStatus(importProgress?.status, syncConfig?.app_import_result?.status),
                     step2: resolveStatus(csvProgress?.status, syncConfig?.csv_import_result?.status),
                     step3: syncConfig?.webhook_enabled ? 'completed' : false,
+                    step4: syncConfig?.track_enabled ? 'completed' : false,
                 }
             },
+        ],
+        trackEnabled: [(s) => [s.syncConfig], (syncConfig): boolean => syncConfig?.track_enabled ?? false],
+        hasTrackCredentials: [
+            (s) => [s.syncConfig],
+            (syncConfig): boolean => syncConfig?.has_track_credentials ?? false,
         ],
     }),
     listeners(({ actions, values }) => ({
         openImportModal: () => {
             actions.loadSyncConfig()
+            actions.setTrackRegion(values.preflight?.region ?? 'US')
         },
         removeAppConfig: async () => {
             try {
@@ -378,6 +440,54 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 actions.setWebhookSigningSecret('')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to remove webhook integration')
+            } finally {
+                actions.loadSyncConfig()
+            }
+        },
+        saveTrackConfig: async () => {
+            const siteId = values.trackSiteId
+            const apiKey = values.trackApiKey
+            const region = values.trackRegion
+            if (!siteId || !apiKey) {
+                actions.setTrackError('Both site ID and API key are required.')
+                return
+            }
+            actions.setIsSavingTrack(true)
+            try {
+                await new ApiRequest().messagingCategoriesSaveTrackConfig().create({
+                    data: { site_id: siteId, api_key: apiKey, region, track_enabled: true },
+                })
+                lemonToast.success('Outbound sync enabled!')
+                actions.setTrackSiteId('')
+                actions.setTrackApiKey('')
+                actions.loadSyncConfig()
+            } catch (error: any) {
+                actions.setTrackError(error.detail || 'Failed to save track config')
+            } finally {
+                actions.setIsSavingTrack(false)
+            }
+        },
+        toggleTrackSync: async ({ enabled }) => {
+            actions.setIsSavingTrack(true)
+            try {
+                await new ApiRequest().messagingCategoriesSaveTrackConfig().create({
+                    data: { track_enabled: enabled },
+                })
+                lemonToast.success(enabled ? 'Outbound sync enabled' : 'Outbound sync disabled')
+                actions.loadSyncConfig()
+            } catch (error: any) {
+                actions.setTrackError(error.detail || 'Failed to update track config')
+            } finally {
+                actions.setIsSavingTrack(false)
+            }
+        },
+        removeTrackConfig: async () => {
+            try {
+                await new ApiRequest().messagingCategoriesRemoveTrackConfig().delete()
+                actions.setTrackSiteId('')
+                actions.setTrackApiKey('')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to remove track integration')
             } finally {
                 actions.loadSyncConfig()
             }

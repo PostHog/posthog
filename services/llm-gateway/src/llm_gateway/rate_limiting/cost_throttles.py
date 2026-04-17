@@ -33,11 +33,10 @@ class CostStatus:
 
 
 def _is_free_plan_throttled(context: ThrottleContext) -> bool:
-    settings = get_settings()
     return (
         context.product == POSTHOG_CODE_PRODUCT
-        and settings.plan_aware_throttling_enabled
         and not is_pro_plan(context.plan_key)
+        and context.seat_created_at is not None
     )
 
 
@@ -259,9 +258,8 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         base_key = super()._get_cache_key(context)
         if not base_key:
             return base_key
-        settings = get_settings()
-        if context.product == POSTHOG_CODE_PRODUCT and settings.plan_aware_throttling_enabled:
-            period = get_billing_period_number(context.seat_created_at, settings.free_plan_trial_period_days)
+        if context.product == POSTHOG_CODE_PRODUCT:
+            period = get_billing_period_number(context.seat_created_at, get_settings().free_plan_trial_period_days)
             return f"{base_key}:period:{period}"
         return base_key
 

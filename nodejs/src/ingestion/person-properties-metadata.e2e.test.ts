@@ -46,7 +46,6 @@ const DEFAULT_TEAM: Team = {
     anonymize_ips: true,
     api_token: 'api_token',
     secret_api_token: null,
-    slack_incoming_webhook: 'slack_incoming_webhook',
     session_recording_opt_in: true,
     person_processing_opt_out: null,
     heatmaps_opt_in: null,

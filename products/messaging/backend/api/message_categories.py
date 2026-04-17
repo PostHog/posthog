@@ -145,6 +145,7 @@ class MessageCategoryViewSet(
             config = OptOutSyncConfig.objects.select_related(
                 "app_integration",
                 "webhook_integration",
+                "track_integration",
             ).get(team_id=self.team_id)
         except OptOutSyncConfig.DoesNotExist:
             return Response(
@@ -154,6 +155,8 @@ class MessageCategoryViewSet(
                     "csv_import_result": None,
                     "webhook_enabled": False,
                     "has_webhook_secret": False,
+                    "track_enabled": False,
+                    "has_track_credentials": False,
                 },
                 status=status.HTTP_200_OK,
             )
@@ -167,6 +170,12 @@ class MessageCategoryViewSet(
                 "has_webhook_secret": bool(
                     config.webhook_integration
                     and config.webhook_integration.sensitive_config.get("webhook_signing_secret")
+                ),
+                "track_enabled": config.track_enabled,
+                "has_track_credentials": bool(
+                    config.track_integration
+                    and config.track_integration.sensitive_config.get("site_id")
+                    and config.track_integration.sensitive_config.get("api_key")
                 ),
             },
             status=status.HTTP_200_OK,
@@ -225,12 +234,11 @@ class MessageCategoryViewSet(
         config.webhook_enabled = enabled
         config.save(update_fields=["webhook_integration", "webhook_enabled"])
 
+        has_webhook_secret = bool(integration and integration.sensitive_config.get("webhook_signing_secret"))
         return Response(
             {
                 "webhook_enabled": enabled,
-                "has_webhook_secret": bool(integration.sensitive_config.get("webhook_signing_secret"))
-                if integration
-                else False,
+                "has_webhook_secret": has_webhook_secret,
             },
             status=status.HTTP_200_OK,
         )
@@ -244,6 +252,76 @@ class MessageCategoryViewSet(
             config.webhook_integration = None
             config.webhook_enabled = False
             config.save(update_fields=["webhook_integration", "webhook_enabled"])
+        except OptOutSyncConfig.DoesNotExist:
+            pass
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["post"])
+    def save_track_config(self, request, **kwargs):
+        """
+        Save Customer.io Track API credentials and/or toggle outbound sync.
+
+        Accepts:
+          - site_id (optional): set on first creation only
+          - api_key (optional): set on first creation only
+          - region (optional): "us" or "eu", set on first creation only
+          - track_enabled (required): enable or disable outbound sync
+        """
+        site_id = request.data.get("site_id")
+        api_key = request.data.get("api_key")
+        region = request.data.get("region", "us")
+        enabled = bool(request.data.get("track_enabled", False))
+        has_new_creds = bool(site_id and api_key)
+
+        integration = Integration.objects.filter(team_id=self.team_id, kind="customerio-track").first()
+
+        if integration and has_new_creds:
+            return Response(
+                {"error": "Integration already exists. Delete it first to use different credentials."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if enabled and not integration and not has_new_creds:
+            return Response(
+                {"error": "Site ID and API key are required to enable outbound sync."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not integration and has_new_creds:
+            integration = Integration.objects.create(
+                team_id=self.team_id,
+                kind="customerio-track",
+                sensitive_config={"site_id": site_id, "api_key": api_key},
+                config={"region": region},
+                created_by=request.user,
+                errors="",
+            )
+
+        config, _ = OptOutSyncConfig.objects.get_or_create(team_id=self.team_id)
+        config.track_integration = integration
+        config.track_enabled = enabled
+        config.save(update_fields=["track_integration", "track_enabled"])
+
+        has_track_credentials = bool(
+            integration and integration.sensitive_config.get("site_id") and integration.sensitive_config.get("api_key")
+        )
+        return Response(
+            {
+                "track_enabled": enabled,
+                "has_track_credentials": has_track_credentials,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["delete"])
+    def remove_track_config(self, request, **kwargs):
+        """Remove the Customer.io Track API integration and reset outbound sync state."""
+        Integration.objects.filter(team_id=self.team_id, kind="customerio-track").delete()
+        try:
+            config = OptOutSyncConfig.objects.get(team_id=self.team_id)
+            config.track_integration = None
+            config.track_enabled = False
+            config.save(update_fields=["track_integration", "track_enabled"])
         except OptOutSyncConfig.DoesNotExist:
             pass
         return Response(status=status.HTTP_204_NO_CONTENT)

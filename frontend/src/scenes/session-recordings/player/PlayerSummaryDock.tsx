@@ -26,8 +26,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
     const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
 
-    const isEnabled =
-        featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]
+    const isEnabled = featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)

@@ -303,6 +303,7 @@ class Team(UUIDTClassicModel):
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    # DEPRECATED - not used anywhere and eligible for deletion
     slack_incoming_webhook = models.CharField(max_length=500, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

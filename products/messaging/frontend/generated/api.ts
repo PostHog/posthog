@@ -172,6 +172,23 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
 }
 
 /**
+ * Remove the Customer.io Track API integration and reset outbound sync state.
+ */
+export const getMessagingCategoriesRemoveTrackConfigDestroyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/remove_track_config/`
+}
+
+export const messagingCategoriesRemoveTrackConfigDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingCategoriesRemoveTrackConfigDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
  * Remove the Customer.io webhook integration and reset inbound sync state.
  */
 export const getMessagingCategoriesRemoveWebhookConfigDestroyUrl = (projectId: string) => {
@@ -185,6 +202,32 @@ export const messagingCategoriesRemoveWebhookConfigDestroy = async (
     return apiMutator<void>(getMessagingCategoriesRemoveWebhookConfigDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Save Customer.io Track API credentials and/or toggle outbound sync.
+
+Accepts:
+  - site_id (optional): set on first creation only
+  - api_key (optional): set on first creation only
+  - region (optional): "us" or "eu", set on first creation only
+  - track_enabled (required): enable or disable outbound sync
+ */
+export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/save_track_config/`
+}
+
+export const messagingCategoriesSaveTrackConfigCreate = async (
+    projectId: string,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesSaveTrackConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageCategoryApi),
     })
 }
 

@@ -222,6 +222,11 @@ export interface PatchedTaskApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
 }
 
 /**

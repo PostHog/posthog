@@ -1,4 +1,5 @@
 import copy
+from typing import cast
 
 import structlog
 from rest_framework import mixins, serializers, status, viewsets
@@ -13,6 +14,7 @@ from posthog.api.utils import action
 from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.feature_flag.flag_analytics import get_cached_evaluations_7d_by_team
 from posthog.models.filters.filter import Filter
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.user_permissions import UserPermissions
@@ -80,6 +82,11 @@ class OrganizationFeatureFlagView(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
+
+        counts_by_team = get_cached_evaluations_7d_by_team(
+            cast(str, feature_flag_key), [flag.team_id for flag in flags]
+        )
+
         flags_data = [
             {
                 "flag_id": flag.id,
@@ -90,6 +97,7 @@ class OrganizationFeatureFlagView(
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
+                "evaluations_7d": counts_by_team.get(flag.team_id) if counts_by_team is not None else None,
             }
             for flag in flags
         ]
