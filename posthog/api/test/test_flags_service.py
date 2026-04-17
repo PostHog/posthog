@@ -7,7 +7,9 @@ for the Rust flags service integration.
 
 from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
+
+from parameterized import parameterized
 
 from posthog.api.services.flags_service import get_flags_from_service
 
@@ -23,7 +25,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_basic_flag_request(self, mock_session):
-        """Test basic flag request without detailed analysis."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -56,7 +57,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_detailed_analysis_without_auth(self, mock_session):
-        """Test detailed analysis request without authentication token."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -77,7 +77,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_detailed_analysis_with_auth(self, mock_session):
-        """Test detailed analysis request with proper authentication."""
         mock_response = Mock()
         mock_response_with_conditions = {
             **self.mock_response_data,
@@ -117,27 +116,27 @@ class TestFlagsService(TestCase):
         self.assertIn("conditions", response)
         self.assertEqual(len(response["conditions"]), 1)
 
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("whitespace_only", "   "),
+        ]
+    )
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
-    def test_empty_internal_token_ignored(self, mock_session):
-        """Test that empty or whitespace-only internal tokens are ignored."""
+    def test_empty_internal_token_ignored(self, _name, token, mock_session):
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
 
-        # Test with empty string
-        get_flags_from_service(token=self.test_token, distinct_id=self.test_distinct_id, internal_request_token="")
+        get_flags_from_service(token=self.test_token, distinct_id=self.test_distinct_id, internal_request_token=token)
 
-        # Test with whitespace
-        get_flags_from_service(token=self.test_token, distinct_id=self.test_distinct_id, internal_request_token="   ")
-
-        # Both calls should not include Authorization header
-        for call in mock_session.post.call_args_list:
-            headers = call.kwargs.get("headers", {})
-            self.assertNotIn("Authorization", headers)
+        # Check no Authorization header is set
+        call_args = mock_session.post.call_args
+        headers = call_args.kwargs.get("headers", {})
+        self.assertNotIn("Authorization", headers)
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_person_properties_parameter(self, mock_session):
-        """Test person_properties parameter is passed correctly."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -153,7 +152,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_only_use_override_person_properties(self, mock_session):
-        """Test only_use_override_person_properties parameter."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -169,7 +167,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_flag_keys_parameter(self, mock_session):
-        """Test flag_keys parameter for filtering specific flags."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -185,7 +182,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_override_flags_definitions_parameter(self, mock_session):
-        """Test override_flags_definitions parameter for historical evaluation."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -210,7 +206,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_groups_parameter(self, mock_session):
-        """Test groups parameter for group-based flags."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -226,7 +221,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_all_parameters_together(self, mock_session):
-        """Test all parameters working together."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
@@ -266,7 +260,6 @@ class TestFlagsService(TestCase):
 
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_http_error_handling(self, mock_session):
-        """Test that HTTP errors are properly raised."""
         from requests import HTTPError
 
         mock_response = Mock()
@@ -279,22 +272,16 @@ class TestFlagsService(TestCase):
         # Verify raise_for_status was called
         mock_response.raise_for_status.assert_called_once()
 
+    @override_settings(FEATURE_FLAGS_SERVICE_URL="http://custom:8080", FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT=5)
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION")
     def test_configuration_settings(self, mock_session):
-        """Test that configuration settings are used correctly."""
         mock_response = Mock()
         mock_response.json.return_value = self.mock_response_data
         mock_session.post.return_value = mock_response
 
-        with patch("posthog.api.services.flags_service.getattr") as mock_getattr:
-            mock_getattr.side_effect = lambda settings, key, default: {
-                "FEATURE_FLAGS_SERVICE_URL": "http://custom:8080",
-                "FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT": 5,
-            }.get(key.split(".")[-1], default)
+        get_flags_from_service(token=self.test_token, distinct_id=self.test_distinct_id)
 
-            get_flags_from_service(token=self.test_token, distinct_id=self.test_distinct_id)
-
-            # Check that custom URL and timeout were used
-            call_args = mock_session.post.call_args
-            self.assertIn("http://custom:8080/flags", call_args[0][0])
-            self.assertEqual(call_args.kwargs["timeout"], 5)
+        # Check that custom URL and timeout were used
+        call_args = mock_session.post.call_args
+        self.assertIn("http://custom:8080/flags", call_args[0][0])
+        self.assertEqual(call_args.kwargs["timeout"], 5)
