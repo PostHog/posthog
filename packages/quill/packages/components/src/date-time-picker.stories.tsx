@@ -97,6 +97,29 @@ export const CustomMaxDate: Story = {
     },
 }
 
+export const CustomMinDate: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        return <DateTimePicker value={value} onApply={setValue} minDate={subDays(new Date(), 2)} />
+    },
+}
+
+export const MinDateAndMaxDate: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        return (
+            <DateTimePicker
+                value={value}
+                onApply={setValue}
+                minDate={subDays(new Date(), 30)}
+                maxDate={subDays(new Date(), 1)}
+            />
+        )
+    },
+}
+
 export const EuropeanDateFormat: Story = {
     args: baseArgs,
     render: () => {

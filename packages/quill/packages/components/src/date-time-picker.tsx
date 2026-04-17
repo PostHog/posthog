@@ -19,7 +19,7 @@ import {
 import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Button, InputGroup, InputGroupNumberInput, ScrollArea, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { Day, useCalendar } from './use-calendar'
@@ -63,6 +63,7 @@ export interface DateTimePickerProps {
     value: DateTimeValue
     onApply: (value: DateTimeValue) => void
     onCancel?: () => void
+    minDate?: Date
     maxDate?: Date
     dateFormat?: DateFormatOrder
     weekStartsOn?: Day
@@ -76,16 +77,20 @@ interface DayItemProps {
     startDate: Date
     endDate: Date
     viewing: Date
+    minDate?: Date
     maxDate: Date
     onClick: (day: Date) => void
 }
 
-function DayItem({ day, startDate, endDate, viewing, maxDate, onClick }: DayItemProps): React.ReactElement {
+function DayItem({ day, startDate, endDate, viewing, minDate, maxDate, onClick }: DayItemProps): React.ReactElement {
     const outOfMonth = !isSameMonth(day, viewing)
     const dayDate = new Date(day.getFullYear(), day.getMonth(), day.getDate())
     const maxDay = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate())
     const afterMax = dayDate.getTime() > maxDay.getTime()
-    const disabled = outOfMonth || afterMax
+    const beforeMin = minDate
+        ? dayDate.getTime() < new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()).getTime()
+        : false
+    const disabled = outOfMonth || afterMax || beforeMin
 
     const isStart = !disabled && isSameDay(startDate, day)
     const isEnd = !disabled && isSameDay(endDate, day)
@@ -139,6 +144,7 @@ interface CalendarProps {
     defaultViewing: Date
     startDate: Date
     endDate: Date
+    minDate?: Date
     maxDate: Date
     onSelect: (day: Date) => void
     onViewChange: (month: Date) => void
@@ -150,6 +156,7 @@ function Calendar({
     defaultViewing,
     startDate,
     endDate,
+    minDate,
     maxDate,
     onSelect,
     onViewChange,
@@ -240,6 +247,7 @@ function Calendar({
                                 startDate={startDate}
                                 endDate={endDate}
                                 viewing={viewing}
+                                minDate={minDate}
                                 maxDate={maxDate}
                                 onClick={onSelect}
                             />
@@ -304,6 +312,12 @@ function DateTimeInput({ date, maxDate, onChange, dateFormat }: DateTimeInputPro
     const separatorClass = 'text-xs text-muted-foreground select-none'
     const sep = dateFormat === 'YMD' ? '-' : '/'
 
+    const maxYear = getYear(maxDate) % 100
+    const atMaxYear = year === maxYear
+    const maxMonth = atMaxYear ? getMonth(maxDate) + 1 : 12
+    const atMaxMonth = atMaxYear && month === maxMonth
+    const maxDay = atMaxMonth ? getDate(maxDate) : getDaysInMonth(new Date(2000 + year, month - 1))
+
     const monthSegment = (
         <InputGroupNumberInput
             key="month"
@@ -311,7 +325,7 @@ function DateTimeInput({ date, maxDate, onChange, dateFormat }: DateTimeInputPro
             value={month}
             onValueChange={set(setMonth)}
             min={1}
-            max={12}
+            max={maxMonth}
             format={PAD_2}
             className={segmentClass}
         />
@@ -323,7 +337,7 @@ function DateTimeInput({ date, maxDate, onChange, dateFormat }: DateTimeInputPro
             value={day}
             onValueChange={set(setDay)}
             min={1}
-            max={getDaysInMonth(new Date(2000 + year, month - 1))}
+            max={maxDay}
             format={PAD_2}
             className={segmentClass}
         />
@@ -335,7 +349,7 @@ function DateTimeInput({ date, maxDate, onChange, dateFormat }: DateTimeInputPro
             value={year}
             onValueChange={set(setYear)}
             min={0}
-            max={getYear(maxDate) % 100}
+            max={maxYear}
             format={PAD_2}
             className={segmentClass}
         />
@@ -399,13 +413,16 @@ export function DateTimePicker({
     value,
     onApply,
     onCancel,
-    maxDate = new Date(),
+    minDate,
+    maxDate: maxDateProp,
     dateFormat = 'MDY',
     weekStartsOn,
     onDateTimeSettings,
     compact = false,
     className,
 }: DateTimePickerProps): React.ReactElement {
+    const maxDate = maxDateProp ?? new Date()
+    const hasExplicitMaxDate = maxDateProp !== undefined
     const [start, setStart] = React.useState<Date>(value.start)
     const [end, setEnd] = React.useState<Date>(value.end)
     const [range, setRange] = React.useState<DateTimeRange>(value.range)
@@ -451,7 +468,10 @@ export function DateTimePicker({
             return
         }
         setRange(CUSTOM_RANGE)
-        if (end.getTime() > next.getTime()) {
+        if (next.getTime() > end.getTime()) {
+            setStart(end)
+            setEnd(next)
+        } else {
             setStart(next)
         }
     }
@@ -461,7 +481,10 @@ export function DateTimePicker({
             return
         }
         setRange(CUSTOM_RANGE)
-        if (start.getTime() < next.getTime()) {
+        if (next.getTime() < start.getTime()) {
+            setEnd(start)
+            setStart(next)
+        } else {
             setEnd(next)
         }
     }
@@ -499,10 +522,17 @@ export function DateTimePicker({
             {/* Headers */}
             {!compact && (
                 <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_10.625rem]">
-                    <div className="flex justify-end px-4 py-2 bg-muted/30 border-b border-border rounded-tl-lg">
+                    <div className="flex items-center gap-2 px-2 py-2 bg-muted/30 border-b border-border rounded-tl-lg">
                         <span className="text-xs text-muted-foreground">Custom</span>
+                        {(minDate || hasExplicitMaxDate) && (
+                            <div className="flex items-center gap-1 ml-auto">
+                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min date: {format(minDate, 'MMM d, yy')}</Badge>}
+                                {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
+                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max date: {format(maxDate, 'MMM d, yy')}</Badge>}
+                            </div>
+                        )}
                     </div>
-                    <div className="flex justify-end px-4 py-2 bg-muted/30 border-b border-l border-border rounded-tr-lg">
+                    <div className="flex justify-start px-2 py-2 bg-muted/30 border-b border-l border-border rounded-tr-lg">
                         <span className="text-xs text-muted-foreground">Quick ranges</span>
                     </div>
                 </div>
@@ -557,6 +587,7 @@ export function DateTimePicker({
                                     defaultViewing={leftViewing}
                                     startDate={start}
                                     endDate={end}
+                                    minDate={minDate}
                                     maxDate={maxDate}
                                     onSelect={handleSelect}
                                     onViewChange={setLeftViewing}
@@ -570,6 +601,7 @@ export function DateTimePicker({
                                 defaultViewing={rightViewing}
                                 startDate={start}
                                 endDate={end}
+                                minDate={minDate}
                                 maxDate={maxDate}
                                 onSelect={handleSelect}
                                 onViewChange={setRightViewing}
@@ -617,12 +649,12 @@ export function DateTimePicker({
             <Separator />
 
             {/* Actions */}
-            <div className="flex justify-end p-4 items-center gap-4 bg-muted/30">
+            <div className="flex justify-end p-4 items-center gap-2 bg-muted/30">
                 <span className="text-xs text-muted-foreground flex items-center gap-1 tabular-nums">
                     {range.name === 'Custom' ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
                 </span>
                 {onCancel ? (
-                    <Button variant="default" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
+                    <Button variant="outline" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
                         Cancel
                     </Button>
                 ) : null}
