@@ -647,7 +647,7 @@ class SessionAgeMiddleware:
 
 
 class KnownLoginDeviceCookieMiddleware:
-    """Sets the known-login cookie on responses from the login endpoints."""
+    """(Re)issues the known-device cookie on every authenticated response"""
 
     def __init__(self, get_response):
         self.get_response = get_response

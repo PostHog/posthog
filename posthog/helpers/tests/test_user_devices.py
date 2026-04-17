@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 
 from django.test import RequestFactory
 
+from parameterized import parameterized
+
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -53,9 +55,17 @@ class TestHasValidKnownDeviceCookie(BaseTest):
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
         self.assertFalse(has_valid_known_device_cookie(request, user))
 
-    def test_returns_false_for_malformed_cookie_without_raising(self):
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("plain_text", "not-a-signed-payload"),
+            ("colons", "::::"),
+            ("short", "x:y"),
+            ("garbage", "garbage:not-base62:zzz"),
+        ]
+    )
+    def test_returns_false_for_malformed_cookie_without_raising(self, _name: str, value: str) -> None:
         # Garbage values must not propagate exceptions
         user = self._make_user()
-        for value in ["", "not-a-signed-payload", "::::", "x:y", "garbage:not-base62:zzz"]:
-            request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
-            self.assertFalse(has_valid_known_device_cookie(request, user), value)
+        request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
+        self.assertFalse(has_valid_known_device_cookie(request, user))
