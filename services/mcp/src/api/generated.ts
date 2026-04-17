@@ -21651,6 +21651,26 @@ export namespace Schemas {
     }
 
     /**
+     * Shape of each item in the GET /api/users/@me/pending_invites/ response.
+     */
+    export interface PendingInvite {
+      id: string;
+      target_email: string;
+      organization_id: string;
+      organization_name: string;
+      created_at: string;
+    }
+
+    export interface PaginatedPendingInviteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PendingInvite[];
+    }
+
+    /**
      * * `home` - Home
     * `pinned` - Pinned
     * `custom_products` - Custom Products
@@ -38651,6 +38671,19 @@ export namespace Schemas {
     };
 
     export type UsersListParams = {
+    email?: string;
+    is_staff?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UsersPendingInvitesListParams = {
     email?: string;
     is_staff?: boolean;
     /**

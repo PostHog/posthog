@@ -1758,6 +1758,26 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
+/**
+ * Shape of each item in the GET /api/users/@me/pending_invites/ response.
+ */
+export interface PendingInviteApi {
+    id: string
+    target_email: string
+    organization_id: string
+    organization_name: string
+    created_at: string
+}
+
+export interface PaginatedPendingInviteListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PendingInviteApi[]
+}
+
 export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.
@@ -2018,6 +2038,19 @@ export const SubscriptionsListTargetType = {
 } as const
 
 export type UsersListParams = {
+    email?: string
+    is_staff?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UsersPendingInvitesListParams = {
     email?: string
     is_staff?: boolean
     /**
