@@ -8,6 +8,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
+from .constants import (
+    ALL_INITIAL_PERMISSION_MODE_CHOICES,
+    CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    INITIAL_PERMISSION_MODE_CHOICES,
+)
 from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
@@ -22,13 +27,6 @@ from .temporal.process_task.utils import (
 )
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
-
-INITIAL_PERMISSION_MODE_CHOICES = ["default", "acceptEdits", "plan", "bypassPermissions"]
-CODEX_INITIAL_PERMISSION_MODE_CHOICES = ["auto", "read-only", "full-access"]
-ALL_INITIAL_PERMISSION_MODE_CHOICES = [
-    *INITIAL_PERMISSION_MODE_CHOICES,
-    *CODEX_INITIAL_PERMISSION_MODE_CHOICES,
-]
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -725,13 +723,23 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("id must be a string or number")
         return value
 
+    @staticmethod
+    def _require_nonempty_string(params: dict, key: str) -> None:
+        value = params.get(key)
+        if not value or not isinstance(value, str) or not value.strip():
+            raise serializers.ValidationError({"params": f"{key} is required and must be a non-empty string"})
+
     def validate(self, attrs):
         method = attrs["method"]
         params = attrs.get("params", {})
         if method == "user_message":
-            content = params.get("content")
-            if not content or not isinstance(content, str) or not content.strip():
-                raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
+            self._require_nonempty_string(params, "content")
+        elif method == "permission_response":
+            self._require_nonempty_string(params, "requestId")
+            self._require_nonempty_string(params, "optionId")
+        elif method == "set_config_option":
+            self._require_nonempty_string(params, "configId")
+            self._require_nonempty_string(params, "value")
         return attrs
 
 

@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-08T06:10:13.845708Z"
+exclude-newer = "2026-04-10T14:48:21.685649Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -2925,14 +2925,14 @@ wheels = [
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.38"
+version = "1.3.40"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e9/b5/fb1ca364e80dc3066048245b3ab490916c37257a16d697d384ecea63afb5/hogql_parser-1.3.38.tar.gz", hash = "sha256:1ff1efb682d04d94d9db00f989608c4a918b129c0998a93e7a7f0b2331b59359", size = 88681, upload-time = "2026-04-13T13:00:38.255Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/f9/11a8d6e8c63c90a76f9e7acc481ba0909f5bca28c3b4498827e126a3b528/hogql_parser-1.3.40.tar.gz", hash = "sha256:e6d3237f24c5ed126d1da075b81a430b2fd82862f27f9a2fd241f7750bff9edd", size = 90110, upload-time = "2026-04-17T14:44:34.952Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/70/59a094abe1a5aba0e2aacb403809d98610d0d30ee61bf15f8ccffffe4f02/hogql_parser-1.3.38-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:5ec9613ecfce170e4ec3e0391352b9f3e96d545e22bda44549f05693789e9ca8", size = 653581, upload-time = "2026-04-13T13:00:22.971Z" },
-    { url = "https://files.pythonhosted.org/packages/15/45/af91400a2f09981fa0be6e46ce8afc913ee852a3a7b58dc65eac4a6b65fa/hogql_parser-1.3.38-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:9935708aba669d4dc3fca28abe8b7d5af144fc5cb10e7f4ceb435f354b666837", size = 659654, upload-time = "2026-04-13T13:00:24.413Z" },
-    { url = "https://files.pythonhosted.org/packages/c3/5b/2ba9e9432b6483c971b11ed754c880ad5c43961c2220ff431dff68038de5/hogql_parser-1.3.38-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:95fca76b246364683f90bc603e1762aa7150e4acb9c5fb61d27b87733e4bff7c", size = 4957867, upload-time = "2026-04-13T13:00:26.491Z" },
-    { url = "https://files.pythonhosted.org/packages/92/6e/32d21e33dd9184dcdb4806b2c26cb365d537ee4a071a38f6443a0838ef8e/hogql_parser-1.3.38-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:f2e8ba4d9f03ce733e49becda43923e3a89c36fd3564c62ac55db9d6712c616a", size = 5061055, upload-time = "2026-04-13T13:00:28.38Z" },
+    { url = "https://files.pythonhosted.org/packages/52/a7/9c9f70b5d68dc788e9a65df8902d6d036316325f483c6339796b7cd5b132/hogql_parser-1.3.40-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:1d95e6b3281ca3268d9a00c1d33e2717da7b842b47838f4f6057d6aaa1f67cb5", size = 660095, upload-time = "2026-04-17T14:44:16.44Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/d6/7b89850ed5cafbe961ea378dd9e1391c0e8ab9d4bdd3bffde837ff935b58/hogql_parser-1.3.40-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:a213237f36828e1855e8da3617ad8bc00a7ac175a1cb26ecfbd4d4ac31ad3487", size = 662763, upload-time = "2026-04-17T14:44:18.328Z" },
+    { url = "https://files.pythonhosted.org/packages/11/e6/b31f66411dc0fbc22f5bad5e1b521aa90d863d6a5602fe294987a3b3d92e/hogql_parser-1.3.40-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:44efd85f1551500ec09871388edf70b4b1160ccaaa846f1373b46478bc29b3bf", size = 5019414, upload-time = "2026-04-17T14:44:20.739Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/f0/c7cc320b4d164f0eaf432b177f5c6c24944a800285b60eb9fc5646ec1bb4/hogql_parser-1.3.40-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:b91786ce9d3943b51dc647209d32995bcd1951738578ed8c0a9c73f579b5a201", size = 5123934, upload-time = "2026-04-17T14:44:23.593Z" },
 ]
 
 [[package]]
@@ -5350,7 +5350,7 @@ requires-dist = [
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.38" },
+    { name = "hogql-parser", specifier = "==1.3.40" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },
