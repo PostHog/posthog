@@ -229,10 +229,33 @@ procs:
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
+    personhog-etcd-init:
+        shell: |-
+            bin/wait-for-docker && \
+            docker exec posthog-etcd-1 etcdctl put /personhog/config/total_partitions 4 && \
+            echo 'etcd init complete'
+        capability: personhog
+        ready_pattern: 'etcd init complete'
+        autostart: true
+
+    personhog-router-leader:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-router-leader
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
     personhog-leader:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service personhog-leader
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
+    personhog-writer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-writer
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
