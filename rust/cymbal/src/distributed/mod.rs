@@ -39,7 +39,7 @@ impl DistributedContext {
         );
         Self {
             resolution,
-            http_client: reqwest::Client::new(),
+            http_client: app_context.http_client.clone(),
             distributed_headless_host: app_context.config.distributed_headless_host.clone(),
             distributed_remote_timeout_ms: app_context.config.distributed_remote_timeout_ms,
             pod_ip: app_context.config.pod_ip.clone(),

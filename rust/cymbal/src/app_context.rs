@@ -39,6 +39,7 @@ pub struct AppContext {
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     pub signal_client: MaybeSignalClient,
+    pub http_client: reqwest::Client,
 }
 
 impl AppContext {
@@ -185,6 +186,7 @@ impl AppContext {
             issue_buckets_redis_client,
             signal_client,
             symbol_resolver,
+            http_client: reqwest::Client::new(),
         })
     }
 }
