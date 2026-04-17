@@ -1,7 +1,7 @@
 import json
 import asyncio
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.conf import settings
 
@@ -114,7 +114,7 @@ class DeltaTableHelper:
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = pa.schema(delta_table.schema().to_arrow())
+        delta_table_schema = cast(pa.Schema, delta_table.schema().to_arrow())
 
         new_fields = [
             deltalake.Field.from_arrow(field)
