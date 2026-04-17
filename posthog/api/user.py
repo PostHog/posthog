@@ -574,7 +574,7 @@ class UserViewSet(
         return Response({"github_login": user.get_github_login()})
 
     @extend_schema(responses={200: PendingInviteSerializer(many=True)})
-    @action(methods=["GET"], detail=True, url_path="pending_invites")
+    @action(methods=["GET"], detail=True, url_path="pending_invites", pagination_class=None)
     def pending_invites(self, request, **kwargs):
         """List pending organization invites for the current user, matched by email.
 
