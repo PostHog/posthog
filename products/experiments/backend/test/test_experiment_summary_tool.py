@@ -362,7 +362,15 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         RECENT_CACHE_CALCULATE_ASYNC_IF_STALE which returned immediately
         on cache miss, giving the AI zero results and causing hallucinations.
         """
-        experiment = await self.acreate_experiment(name="cold-cache-test", with_metrics=True)
+        experiment = await self.acreate_experiment(name="cold-cache-test", with_metrics=False)
+        experiment.metrics = [
+            {
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "purchase"},
+                "name": "Purchase value",
+            }
+        ]
+        await experiment.asave(update_fields=["metrics"])
 
         data_service = ExperimentSummaryDataService(self.team)
         context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
