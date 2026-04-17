@@ -10,7 +10,7 @@ import {
     MessageKey as RdKafkaMessageKey,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Counter, Summary } from 'prom-client'
+import { Counter, Histogram, Summary } from 'prom-client'
 
 import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
@@ -138,6 +138,9 @@ export class KafkaProducerWrapper {
         try {
             const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
             kafkaProducerMessagesQueuedCounter.labels(labels).inc()
+            if (value) {
+                kafkaProducerMessageSizeBytes.labels(labels).observe(value.length)
+            }
             logger.debug('📤', 'Producing message', { topic: topic })
 
             // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
@@ -173,10 +176,16 @@ export class KafkaProducerWrapper {
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
-            kafkaProducerMessagesFailedCounter.labels(labels).inc()
+            const errorCode = (error as LibrdKafkaError)?.code
+            const failureLabels = {
+                ...labels,
+                error_code: typeof errorCode === 'number' ? String(errorCode) : 'unknown',
+            }
+            kafkaProducerMessagesFailedCounter.labels(failureLabels).inc()
             logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
+                error_code: errorCode,
             })
 
             if ((error as LibrdKafkaError).isRetriable) {
@@ -295,8 +304,8 @@ export const kafkaProducerMessagesWrittenCounter = new Counter({
 
 export const kafkaProducerMessagesFailedCounter = new Counter({
     name: 'kafka_producer_messages_failed_total',
-    help: 'Count of write failures by the Kafka producer, by destination topic.',
-    labelNames: ['topic_name', 'producer_name'],
+    help: 'Count of write failures by the Kafka producer, by destination topic and librdkafka error code.',
+    labelNames: ['topic_name', 'producer_name', 'error_code'],
 })
 
 export const ingestEventKafkaProduceLatency = new Summary({
@@ -304,4 +313,12 @@ export const ingestEventKafkaProduceLatency = new Summary({
     help: 'Wait time for individual Kafka produces',
     labelNames: ['topic_name', 'producer_name'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const kafkaProducerMessageSizeBytes = new Histogram({
+    name: 'kafka_producer_message_size_bytes',
+    help: 'Size distribution of messages produced to Kafka, measured at queue time.',
+    labelNames: ['topic_name', 'producer_name'],
+    // Targeting typical event sizes (~1 KB) up to max request size (~1 MB).
+    buckets: [64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304],
 })
