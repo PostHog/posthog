@@ -33,9 +33,6 @@ tools:
     hog-flow-templates-destroy:
         operation: hog_flow_templates_destroy
         enabled: false
-    hog-flow-templates-logs-retrieve:
-        operation: hog_flow_templates_logs_retrieve
-        enabled: false
     workflows-list:
         operation: hog_flows_list
         enabled: true
@@ -87,9 +84,6 @@ tools:
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
         enabled: false
-    hog-flows-logs-retrieve:
-        operation: hog_flows_logs_retrieve
-        enabled: false
     hog-flows-metrics-retrieve:
         operation: hog_flows_metrics_retrieve
         enabled: false
@@ -113,4 +107,10 @@ tools:
         enabled: false
     hog-flows-schedules-destroy:
         operation: hog_flows_schedules_destroy
+        enabled: false
+    hog-flow-templates-logs-list:
+        operation: hog_flow_templates_logs_list
+        enabled: false
+    hog-flows-logs-list:
+        operation: hog_flows_logs_list
         enabled: false
