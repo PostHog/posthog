@@ -69,7 +69,17 @@ export const anomaliesLogic = kea<anomaliesLogicType>([
         filteredAnomalies: [
             (s) => [s.anomalies],
             (anomalies: AnomalyScoreType[]): AnomalyScoreType[] => {
-                return [...anomalies].sort((a, b) => b.score - a.score)
+                // Mirror the backend ordering so paginated pages stay consistent:
+                // rate desc, then peak score, then latest anomaly timestamp.
+                return [...anomalies].sort((a, b) => {
+                    if (b.anomaly_rate !== a.anomaly_rate) {
+                        return b.anomaly_rate - a.anomaly_rate
+                    }
+                    if (b.score !== a.score) {
+                        return b.score - a.score
+                    }
+                    return (b.timestamp ?? '').localeCompare(a.timestamp ?? '')
+                })
             },
         ],
     }),

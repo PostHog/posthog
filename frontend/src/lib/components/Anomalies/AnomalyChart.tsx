@@ -33,9 +33,10 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
             const pointBorder = getColorVar('color-bg-primary')
             // Muted shade for past anomalies: same danger hue at ~45% alpha.
             const pastAnomalyColor = `${anomalyColor}73`
-            // Score line: same danger hue at ~40% alpha (`66` hex) so it's
-            // readable at a glance without stealing focus from the metric line.
-            const scoreLineColor = `${anomalyColor}66`
+            // Score line: same danger hue at ~60% alpha (`99` hex). Punchy
+            // enough to read cleanly against the metric line's 8% fill at
+            // any score value, subtle enough to still feel like context.
+            const scoreLineColor = `${anomalyColor}99`
 
             const datasets: any[] = [
                 {
@@ -63,7 +64,7 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
                     label: 'score',
                     data: scoreLine,
                     borderColor: scoreLineColor,
-                    borderWidth: 1,
+                    borderWidth: 1.25,
                     borderDash: [3, 3],
                     pointRadius: 0,
                     pointHoverRadius: 0,

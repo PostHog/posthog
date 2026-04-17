@@ -137,7 +137,11 @@ def _build_series_rows(scores: list[AnomalyScore]) -> list[dict[str, Any]]:
             }
         )
 
-    rows.sort(key=lambda r: r["score"], reverse=True)
+    # Rate first: a series flagged anomalous on most of its observations in
+    # the window is more worth attention than one that spiked once, even if
+    # the one-off had a higher peak score. Peak score breaks ties, latest
+    # timestamp breaks remaining ties.
+    rows.sort(key=lambda r: (r["anomaly_rate"], r["score"], r["timestamp"]), reverse=True)
     return rows
 
 

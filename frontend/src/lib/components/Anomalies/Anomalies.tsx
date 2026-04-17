@@ -19,29 +19,12 @@ import { anomaliesLogic } from './anomaliesLogic'
 import { AnomalyChart } from './AnomalyChart'
 import { AnomalyInterval, AnomalyScoreType, AnomalyWindow } from './types'
 
-type Severity = 'critical' | 'high' | 'moderate'
-
-function scoreSeverity(score: number): Severity {
-    if (score >= 0.98) {
-        return 'critical'
-    }
-    if (score >= 0.9) {
-        return 'high'
-    }
-    return 'moderate'
-}
-
-const severityBadge: Record<Severity, string> = {
-    critical: 'bg-danger-highlight text-danger border-danger/30',
-    high: 'bg-warning-highlight text-warning border-warning/30',
-    moderate: 'bg-surface-secondary text-muted border-border',
-}
-
-const severityBar: Record<Severity, string> = {
-    critical: 'bg-danger',
-    high: 'bg-warning',
-    moderate: 'bg-border-bold',
-}
+// Rate is neutral information, not a severity signal — a low rate on a
+// typically-stable metric can be more interesting than a high rate on a
+// chronically noisy one. Let the chart + user judgement carry the "how
+// interesting" read, and keep the chip and left-edge bar visually quiet.
+const RATE_BADGE_CLASSES = 'bg-surface-secondary text-default border-border'
+const ROW_ACCENT_CLASS = 'bg-border-bold'
 
 function ratePercent(rate: number): string {
     const pct = rate * 100
@@ -71,8 +54,6 @@ function intervalLabel(interval: string): string {
 function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
     const { feedbackByAnomaly } = useValues(anomaliesLogic)
     const { setAnomalyFeedback } = useActions(anomaliesLogic)
-    const severity = scoreSeverity(anomaly.score)
-    const scorePct = Math.round(anomaly.score * 100)
     const hasSeriesLabel = anomaly.series_label && anomaly.series_label !== anomaly.insight_name
     const feedback = feedbackByAnomaly[anomaly.id]
 
@@ -91,20 +72,12 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
             className="group flex h-32 items-stretch gap-3 border-b border-border px-2 py-2 no-underline transition-colors hover:bg-surface-secondary"
             subtle
         >
-            {/* Severity left-edge bar — vertical scan cue */}
-            <div className={`w-0.5 shrink-0 rounded-full ${severityBar[severity]}`} aria-hidden />
+            {/* Left-edge accent — vertical scan cue, purely decorative. */}
+            <div className={`w-0.5 shrink-0 rounded-full ${ROW_ACCENT_CLASS}`} aria-hidden />
 
             {/* Metadata column — tight, left-aligned */}
             <div className="flex w-60 shrink-0 flex-col gap-1">
                 <div className="flex items-center gap-1.5">
-                    <span
-                        className={`rounded border px-1.5 py-0.5 font-mono text-xs font-bold tabular-nums ${severityBadge[severity]}`}
-                    >
-                        {scorePct}%
-                    </span>
-                    <LemonTag type="muted" size="small">
-                        {intervalLabel(anomaly.interval)}
-                    </LemonTag>
                     {anomaly.scored_count > 0 && (
                         <Tooltip
                             title={
@@ -117,11 +90,16 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                             }
                             placement="top"
                         >
-                            <LemonTag type="danger" size="small">
+                            <span
+                                className={`rounded border px-1.5 py-0.5 font-mono text-xs font-bold tabular-nums ${RATE_BADGE_CLASSES}`}
+                            >
                                 {ratePercent(anomaly.anomaly_rate)}%
-                            </LemonTag>
+                            </span>
                         </Tooltip>
                     )}
+                    <LemonTag type="muted" size="small">
+                        {intervalLabel(anomaly.interval)}
+                    </LemonTag>
                     {anomaly.timestamp && (
                         <span className="ml-auto font-mono text-[10px] font-semibold tabular-nums text-danger">
                             {dayjs(anomaly.timestamp).format('MMM D')}
@@ -221,7 +199,7 @@ export function Anomalies(): JSX.Element {
                     <span className="font-mono tabular-nums">{filteredAnomalies.length}</span>
                     <span>series</span>
                     <span className="text-border-bold">·</span>
-                    <span>sorted by top score</span>
+                    <span>sorted by anomaly rate</span>
                 </div>
             </div>
 

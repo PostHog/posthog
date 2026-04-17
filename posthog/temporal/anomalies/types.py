@@ -20,7 +20,10 @@ class EligibleInsight:
 
 @dataclasses.dataclass
 class ScheduleTrainingInputs:
-    batch_size: int = 50
+    # Hard cap per scheduled training tick (hourly). Oldest `last_trained_at`
+    # wins, so anything over this cap waits for the next hour — best-effort
+    # drain rather than trying to refit the whole estate in one run.
+    batch_size: int = 100
     max_concurrent: int = 5  # max child workflows running in parallel
 
 
@@ -51,7 +54,9 @@ class TrainInsightResult:
 
 @dataclasses.dataclass
 class ScheduleScoringInputs:
-    batch_size: int = 50
+    # Hard cap per scheduled scoring tick (every 5 min). Most-overdue by
+    # `next_score_due_at` wins; anything over the cap falls to the next tick.
+    batch_size: int = 100
     max_concurrent: int = 10  # scoring is lighter, can run more in parallel
 
 
