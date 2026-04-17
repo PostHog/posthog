@@ -23,7 +23,6 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     validate_team_attrs,
 )
-from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -107,18 +106,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
         return value
 
-    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        if not settings.DEBUG:
-            try:
-                raise_if_user_provided_url_unsafe(value)
-            except ValueError:
-                raise exceptions.ValidationError(
-                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
-                )
-        return value
-
     class Meta:
         model = Project
         fields = (
@@ -135,7 +122,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "uuid",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "app_urls",  # Compat with TeamSerializer
-            "slack_incoming_webhook",  # Compat with TeamSerializer
             "anonymize_ips",  # Compat with TeamSerializer
             "completed_snippet_onboarding",  # Compat with TeamSerializer
             "ingested_event",  # Compat with TeamSerializer
@@ -218,7 +204,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "uuid",
             "api_token",
             "app_urls",
-            "slack_incoming_webhook",
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",

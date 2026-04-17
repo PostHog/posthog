@@ -6,6 +6,10 @@ on:
             - master
     pull_request:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
     pull-requests: read
@@ -156,15 +160,17 @@ jobs:
                   echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
 
     dagster:
-        name: Dagster tests
+        name: Dagster tests (${{ matrix.runner }})
         needs: [changes]
         timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
+                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v6
@@ -269,7 +275,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !startsWith(matrix.runner, 'blacksmith')
               with:
                   name: junit-results-dagster
                   path: junit-*.xml

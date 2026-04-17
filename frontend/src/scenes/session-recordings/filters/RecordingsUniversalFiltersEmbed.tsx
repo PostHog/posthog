@@ -60,7 +60,7 @@ import {
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
-import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
+import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
@@ -361,7 +361,10 @@ const SaveFiltersModal = ({
     }
 
     const addSavedFilter = async (): Promise<void> => {
-        const f = await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
+        const f = await createPlaylist(
+            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+            false
+        )
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setIsOpen(false)
@@ -540,7 +543,7 @@ const ReplayFiltersTab = ({
         }
 
         if (pendingFilterApplication.filters) {
-            setFilters(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>)
+            setFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
         }
@@ -553,7 +556,11 @@ const ReplayFiltersTab = ({
             return
         }
 
-        const f = await updatePlaylist(appliedSavedFilter.short_id, { filters, type: 'filters' }, false)
+        const f = await updatePlaylist(
+            appliedSavedFilter.short_id,
+            { filters: stripSessionIds(filters), type: 'filters' },
+            false
+        )
         loadSavedFilters()
         setAppliedSavedFilter(f)
     }
@@ -592,7 +599,11 @@ const ReplayFiltersTab = ({
                                 size="small"
                                 icon={<IconTrash />}
                                 onClick={() =>
-                                    setFilters(appliedSavedFilter.filters as Partial<RecordingUniversalFilters>)
+                                    setFilters(
+                                        stripSessionIds(
+                                            appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
+                                        )
+                                    )
                                 }
                             >
                                 Discard changes

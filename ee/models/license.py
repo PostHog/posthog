@@ -29,7 +29,7 @@ class LicenseError(exceptions.APIException):
         self.detail = exceptions._get_error_details(detail, code)
 
 
-class LicenseManager(models.Manager):
+class LicenseManager(models.Manager["License"]):
     def first_valid(self) -> Optional["License"]:
         """Return the highest valid license or cloud licenses if any"""
         valid_licenses = list(self.filter(Q(valid_until__gte=timezone.now()) | Q(plan="cloud")))
@@ -89,7 +89,7 @@ class License(models.Model):
 
     @property
     def is_v2_license(self) -> bool:
-        return self.key and len(self.key.split("::")) == 2
+        return bool(self.key) and len(self.key.split("::")) == 2
 
     __repr__ = sane_repr("key", "plan", "valid_until")
 
@@ -115,5 +115,5 @@ def get_licensed_users_available() -> Optional[int]:
 
 
 @receiver(post_save, sender=License)
-def license_saved(sender, instance, created, raw, using, **kwargs):
+def license_saved(sender, instance: License, created: bool, raw: bool, using: str, **kwargs: object) -> None:
     sync_all_organization_available_product_features()

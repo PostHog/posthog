@@ -21,8 +21,10 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { DashboardType, InsightShortId } from '~/types'
 
@@ -76,6 +78,7 @@ export function EditSubscription({
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -428,13 +431,20 @@ export function EditSubscription({
                         <FlaggedFeature flag={FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS}>
                             <LemonField name="summary_enabled">
                                 {({ value, onChange }) => (
-                                    <LemonSwitch
-                                        checked={value}
-                                        onChange={onChange}
-                                        bordered
-                                        label="Include an automatic AI summary"
-                                        fullWidth
-                                    />
+                                    <AIConsentPopoverWrapper>
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onChange}
+                                            bordered
+                                            label="Include an automatic AI summary"
+                                            fullWidth
+                                            disabledReason={
+                                                !dataProcessingAccepted
+                                                    ? 'Your organization needs to approve AI data processing before enabling AI summaries'
+                                                    : undefined
+                                            }
+                                        />
+                                    </AIConsentPopoverWrapper>
                                 )}
                             </LemonField>
 

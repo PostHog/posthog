@@ -36,13 +36,6 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
-export interface UnpauseResponseApi {
-    /** Always 'unpaused'. */
-    status: string
-    /** Whether the workflow was actually paused at the time of the call. */
-    was_paused: boolean
-}
-
 /**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
@@ -107,7 +100,19 @@ export interface PaginatedSignalSourceConfigListApi {
     results: SignalSourceConfigApi[]
 }
 
-export type SignalProcessingListParams = {
+export interface PatchedSignalSourceConfigApi {
+    readonly id?: string
+    source_product?: SourceProductEnumApi
+    source_type?: SignalSourceConfigSourceTypeEnumApi
+    enabled?: boolean
+    config?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly status?: string | null
+}
+
+export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
      */
@@ -118,7 +123,7 @@ export type SignalProcessingListParams = {
     offset?: number
 }
 
-export type SignalSourceConfigsListParams = {
+export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */

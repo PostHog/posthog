@@ -16,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CyclotronJobFiltersType } from '~/types'
 
+import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
@@ -31,6 +32,7 @@ import {
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
+import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -48,6 +50,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
+    const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -89,16 +92,28 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
+        ...(hasRecommendations
+            ? [
+                  {
+                      key: 'recommendations' as const,
+                      label: 'Recommendations',
+                      content: <RecommendationsTab />,
+                  },
+              ]
+            : []),
         {
             key: 'configuration',
             label: 'Configuration',
             content: (
-                <Settings
-                    logicKey={ERROR_TRACKING_LOGIC_KEY}
-                    sectionId="environment-error-tracking-configuration"
-                    settingId="error-tracking-alerting"
-                    handleLocally
-                />
+                <>
+                    <IntegrationsMovedBanner />
+                    <Settings
+                        logicKey={ERROR_TRACKING_LOGIC_KEY}
+                        sectionId="environment-error-tracking-configuration"
+                        settingId="error-tracking-alerting"
+                        handleLocally
+                    />
+                </>
             ),
         },
     ]
