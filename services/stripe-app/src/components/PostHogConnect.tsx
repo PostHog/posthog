@@ -5,7 +5,7 @@ import Stripe from 'stripe'
 
 import type { AppConstants } from '../constants'
 import { logger } from '../logger'
-import { clearCredentials, loadCredentials, saveCredentials, type Region } from '../posthog/auth'
+import { clearCredentials, loadCredentials, saveAllCredentials, type Region } from '../posthog/auth'
 
 const stripe = new Stripe(STRIPE_API_KEY, {
     httpClient: createHttpClient(),
@@ -109,25 +109,29 @@ const PostHogConnect = ({ constants, mode }: PostHogConnectProps): JSX.Element =
     )
 }
 
-const DevTokenEntry = ({ onSaved }: { onSaved: () => void }): JSX.Element => {
+export const DevTokenEntry = ({ onSaved }: { onSaved: () => void }): JSX.Element => {
     const [region, setRegion] = useState<Region>('us')
     const [accessToken, setAccessToken] = useState('')
     const [refreshToken, setRefreshToken] = useState('')
+    const [projectId, setProjectId] = useState('')
+    const [clientId, setClientId] = useState('')
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     const handleSave = useCallback(async (): Promise<void> => {
-        if (!accessToken || !refreshToken) {
-            setError('Both tokens are required')
+        if (!accessToken || !refreshToken || !projectId || !clientId) {
+            setError('All fields are required')
             return
         }
 
         setSaving(true)
         setError(null)
         try {
-            await saveCredentials(stripe, { region, accessToken, refreshToken })
+            await saveAllCredentials(stripe, { region, accessToken, refreshToken, projectId, clientId })
             setAccessToken('')
             setRefreshToken('')
+            setProjectId('')
+            setClientId('')
             onSaved()
         } catch (e) {
             logger.error('DevTokenEntry: failed to save credentials:', e)
@@ -135,14 +139,24 @@ const DevTokenEntry = ({ onSaved }: { onSaved: () => void }): JSX.Element => {
         } finally {
             setSaving(false)
         }
-    }, [region, accessToken, refreshToken, onSaved])
+    }, [region, accessToken, refreshToken, projectId, clientId, onSaved])
 
     return (
-        <Box css={{ stack: 'y', rowGap: 'small', marginTop: 'medium' }}>
+        <Box
+            css={{
+                stack: 'y',
+                rowGap: 'small',
+                marginTop: 'medium',
+                paddingTop: 'medium',
+                borderTopStyle: 'double',
+                borderTopWidth: 1,
+                borderTopColor: 'neutral',
+            }}
+        >
             <Banner
                 type="default"
                 title="Dev mode"
-                description="Paste tokens from manage.py generate_stripe_app_tokens"
+                description="Paste values from `manage.py generate_stripe_app_tokens --team-id 1` to connect to PostHog in development."
             />
             <Select label="Region" value={region} onChange={(e): void => setRegion(e.target.value as Region)}>
                 <option value="us">US</option>
@@ -158,9 +172,11 @@ const DevTokenEntry = ({ onSaved }: { onSaved: () => void }): JSX.Element => {
                 value={refreshToken}
                 onChange={(e): void => setRefreshToken(e.target.value)}
             />
+            <TextField label="Project ID" value={projectId} onChange={(e): void => setProjectId(e.target.value)} />
+            <TextField label="Client ID" value={clientId} onChange={(e): void => setClientId(e.target.value)} />
             {error && <Banner type="critical" title={error} />}
             <Button type="primary" onPress={handleSave} disabled={saving}>
-                {saving ? 'Saving...' : 'Save tokens'}
+                {saving ? 'Saving...' : 'Save credentials'}
             </Button>
         </Box>
     )

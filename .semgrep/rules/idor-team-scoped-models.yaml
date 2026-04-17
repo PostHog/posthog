@@ -184,6 +184,7 @@ rules:
                               |SurveyResponseArchive
                               |Tag
                               |Task
+                              |TaskAutomation
                               |TaskRun
                               |EmailChannel
                               |Text
@@ -376,6 +377,7 @@ rules:
                         |SurveyResponseArchive
                         |Tag
                         |Task
+                        |TaskAutomation
                         |TaskRun
                         |EmailChannel
                         |Text

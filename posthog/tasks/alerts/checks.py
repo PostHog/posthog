@@ -395,7 +395,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
                 logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
                 logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                send_notifications_for_errors(alert, alert_check.error)
+                if isinstance(alert_check.error, dict):
+                    send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
                 send_notifications_for_breaches(alert, breaches)
@@ -457,7 +458,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
                     return check_trends_alert_with_detector(alert, insight, query, alert.detector_config)
                 return check_trends_alert(alert, insight, query)
             case _:
-                raise NotImplementedError(f"AlertCheckError: Alerts for {query.kind} are not supported yet")
+                raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
 
 
 def add_alert_check(

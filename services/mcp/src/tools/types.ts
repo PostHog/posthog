@@ -107,10 +107,20 @@ export type ToolUiMeta = {
     visibility?: ('model' | 'app')[]
 }
 
-export type ToolMeta = {
-    ui?: ToolUiMeta
-    // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
-    'ui/resourceUri'?: string
+export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
+export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
+
+export type PostHogToolMeta = {
     /** Return JSON instead of TOON-encoded text. Use for tools whose output is consumed programmatically. */
     responseFormat?: 'json'
+}
+
+export type ToolMeta = {
+    // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
+    'ui/resourceUri'?: string
+    // New non-legacy key for MCP Apps
+    ui?: ToolUiMeta
+
+    /** PostHog-specific tool metadata under a namespaced key. */
+    [POSTHOG_META_KEY]?: PostHogToolMeta
 }
