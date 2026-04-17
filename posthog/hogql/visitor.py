@@ -1060,7 +1060,7 @@ class CloningVisitor(Visitor[Any]):
         return ast.ThrowStatement(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
-            expr=self.visit(node.expr) if node.expr else None,
+            expr=self.visit(node.expr),
         )
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
