@@ -1,14 +1,14 @@
 import { expect, test } from '../utils/playwright-test-base'
 
+async function waitForSavedViewCreated(page: import('@playwright/test').Page, viewName: string): Promise<void> {
+    await expect(async () => {
+        await expect(page.getByText(viewName, { exact: true }).last()).toBeVisible()
+    }).toPass({ timeout: 40000 })
+}
+
 async function waitForSavedViewState(page: import('@playwright/test').Page, viewName: string): Promise<void> {
     await expect(async () => {
         const sceneTitle = page.locator('.scene-name h1 span').getByText(viewName, { exact: true })
-        if (!(await sceneTitle.isVisible().catch(() => false))) {
-            const savedViewRow = page.getByText(viewName, { exact: true }).last()
-            await expect(savedViewRow).toBeVisible()
-            await savedViewRow.click()
-        }
-
         await expect(sceneTitle).toBeVisible()
         await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
     }).toPass({ timeout: 40000 })
@@ -81,7 +81,7 @@ test.describe('SQL Editor', () => {
             // Click submit
             await submitButton.click()
 
-            await waitForSavedViewState(page, uniqueViewName)
+            await waitForSavedViewCreated(page, uniqueViewName)
         })
 
         test('Materialize view pane', async ({ page }) => {
