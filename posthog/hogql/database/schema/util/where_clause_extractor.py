@@ -454,8 +454,16 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
     pushdown into the raw_sessions subquery, so aggregation state only covers sessions that
     actually participate in the outer events filter.
 
-    Background on the motivating ExperimentQuery OOM and why the pushdown must be scoped to
-    selective event filters (it regresses ``WebStatsTableQuery``):
+    **This is a targeted fix for one customer's ExperimentQuery OOMs, not a general-purpose
+    optimization.** Benchmarks in the analysis doc show the pushdown *regresses* most other
+    traffic — e.g. a healthy ``WebStatsTableQuery`` got +93% runtime / +32% memory once the
+    pushdown kicked in, because a ``$pageview OR $screen`` filter doesn't narrow the session
+    set and the ``GLOBAL IN`` broadcast + double events scan dominate. The modifier that
+    activates this code path (``sessionIdPushdown``) is therefore off by default and is only
+    turned on by ``ExperimentQueryRunner``, gated by a per-team feature flag so we can enable
+    it for the single affected team without touching anyone else.
+
+    Background, numbers, and the rollout decision:
     https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
 
     Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
