@@ -20,6 +20,10 @@ function isValidGenerationSentiment(value: unknown): value is GenerationSentimen
 }
 
 const BATCH_MAX_SIZE = 5
+// Mirrors llmSentimentLazyLoaderLogic: capping in-flight requests per flush
+// keeps sentiment from starving sibling lazy loaders on list pages with many
+// rows, given the browser's per-origin connection limit (~6).
+const MAX_CONCURRENT_BATCHES = 2
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -27,6 +31,20 @@ function chunk<T>(arr: T[], size: number): T[][] {
         chunks.push(arr.slice(i, i + size))
     }
     return chunks
+}
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+    if (items.length === 0) {
+        return
+    }
+    let cursor = 0
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (cursor < items.length) {
+            const index = cursor++
+            await worker(items[index])
+        }
+    })
+    await Promise.all(runners)
 }
 
 export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentLazyLoaderLogicType>([
@@ -174,32 +192,30 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
 
                     const chunks = chunk(allIds, BATCH_MAX_SIZE)
 
-                    await Promise.allSettled(
-                        chunks.map(async (batch) => {
-                            try {
-                                const response = await api.create<BatchGenerationSentimentResponse>(
-                                    `api/environments/${teamId}/llm_analytics/sentiment/`,
-                                    {
-                                        ids: batch,
-                                        analysis_level: 'generation',
-                                        date_from: dateRangeForBatch?.dateFrom || undefined,
-                                        date_to: dateRangeForBatch?.dateTo || undefined,
-                                    }
-                                )
-
-                                const results: Record<string, GenerationSentiment | null> = {}
-
-                                for (const generationId of batch) {
-                                    const raw = response.results[generationId]
-                                    results[generationId] = isValidGenerationSentiment(raw) ? raw : null
+                    await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
+                        try {
+                            const response = await api.create<BatchGenerationSentimentResponse>(
+                                `api/environments/${teamId}/llm_analytics/sentiment/`,
+                                {
+                                    ids: batch,
+                                    analysis_level: 'generation',
+                                    date_from: dateRangeForBatch?.dateFrom || undefined,
+                                    date_to: dateRangeForBatch?.dateTo || undefined,
                                 }
+                            )
 
-                                actions.loadGenerationSentimentBatchSuccess(results, batch)
-                            } catch {
-                                actions.loadGenerationSentimentBatchFailure(batch)
+                            const results: Record<string, GenerationSentiment | null> = {}
+
+                            for (const generationId of batch) {
+                                const raw = response.results[generationId]
+                                results[generationId] = isValidGenerationSentiment(raw) ? raw : null
                             }
-                        })
-                    )
+
+                            actions.loadGenerationSentimentBatchSuccess(results, batch)
+                        } catch {
+                            actions.loadGenerationSentimentBatchFailure(batch)
+                        }
+                    })
                 }, 0)
             },
         }
