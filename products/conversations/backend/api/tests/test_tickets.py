@@ -882,6 +882,75 @@ class TestTicketAssignment(APIBaseTest):
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkUpdateTagsTickets(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket1 = Ticket.objects.create_with_number(
+            team=self.team, channel_source=Channel.WIDGET, distinct_id="u1", status=Status.NEW
+        )
+        self.ticket2 = Ticket.objects.create_with_number(
+            team=self.team, channel_source=Channel.WIDGET, distinct_id="u2", status=Status.NEW
+        )
+
+    def _url(self):
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_tags/"
+
+    def test_add_tags_by_ticket_number(self, _mock):
+        response = self.client.post(
+            self._url(),
+            {"ids": [self.ticket1.ticket_number], "action": "add", "tags": ["urgent"]},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["updated"]) == 1
+        assert data["updated"][0]["id"] == self.ticket1.ticket_number
+        assert "urgent" in data["updated"][0]["tags"]
+
+    def test_set_tags_across_multiple_tickets(self, _mock):
+        response = self.client.post(
+            self._url(),
+            {
+                "ids": [self.ticket1.ticket_number, self.ticket2.ticket_number],
+                "action": "set",
+                "tags": ["billing", "vip"],
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["updated"]) == 2
+        for item in data["updated"]:
+            assert sorted(item["tags"]) == ["billing", "vip"]
+
+    def test_missing_ticket_number_reported_as_skipped(self, _mock):
+        response = self.client.post(
+            self._url(),
+            {"ids": [999999], "action": "add", "tags": ["nope"]},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["updated"]) == 0
+        assert len(data["skipped"]) == 1
+        assert data["skipped"][0]["id"] == 999999
+
+    def test_remove_tag(self, _mock):
+        self.client.post(
+            self._url(),
+            {"ids": [self.ticket1.ticket_number], "action": "set", "tags": ["keep", "remove-me"]},
+            content_type="application/json",
+        )
+        response = self.client.post(
+            self._url(),
+            {"ids": [self.ticket1.ticket_number], "action": "remove", "tags": ["remove-me"]},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["updated"][0]["tags"] == ["keep"]
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestUnreadCountEndpoint(APIBaseTest):
     def setUp(self):
         super().setUp()

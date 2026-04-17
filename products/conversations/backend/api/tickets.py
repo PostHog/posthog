@@ -668,6 +668,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    # Use ticket_number instead of id for bulk tag lookups.
+    # The shared BulkUpdateTagsRequestSerializer sends integer IDs but
+    # ticket PKs are UUIDs — the frontend selects by ticket_number.
+    bulk_tag_lookup_field = "ticket_number"
+
     @extend_schema(
         request=None,
         responses={

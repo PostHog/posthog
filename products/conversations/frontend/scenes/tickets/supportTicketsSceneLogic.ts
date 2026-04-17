@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type {
@@ -20,6 +21,8 @@ import type {
 import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
+export const TICKET_RESOURCE = 'tickets' as const
+export const TICKET_API_PATH = 'conversations/tickets'
 
 export interface SupportTicketsSceneLogicProps {
     key?: string
@@ -209,115 +212,123 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }),
         ],
     }),
-    listeners(({ actions, values, props }) => ({
-        loadTickets: async (_, breakpoint) => {
-            await breakpoint(300)
-            const params: Record<string, any> = {}
+    listeners(({ actions, values, props }) => {
+        const ticketSelection = listSelectionLogic({ resource: TICKET_RESOURCE, apiPath: TICKET_API_PATH })
 
-            if (props.distinctIds && props.distinctIds.length > 0) {
-                params.distinct_ids = props.distinctIds.join(',')
-            }
+        return {
+            [ticketSelection.actionTypes.bulkUpdateTagsSuccess]: () => {
+                actions.loadTickets()
+            },
+            loadTickets: async (_, breakpoint) => {
+                await breakpoint(300)
+                const params: Record<string, any> = {}
 
-            if (values.statusFilter.length > 0) {
-                params.status = values.statusFilter.join(',')
-            }
-            if (values.priorityFilter.length > 0) {
-                params.priority = values.priorityFilter.join(',')
-            }
-            if (values.channelFilter !== 'all') {
-                params.channel_source = values.channelFilter
-            }
-            if (values.slaFilter !== 'all') {
-                params.sla = values.slaFilter
-            }
-            if (values.assigneeFilter !== 'all') {
-                if (values.assigneeFilter === 'unassigned') {
-                    params.assignee = 'unassigned'
-                } else if (values.assigneeFilter && typeof values.assigneeFilter === 'object') {
-                    params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
+                if (props.distinctIds && props.distinctIds.length > 0) {
+                    params.distinct_ids = props.distinctIds.join(',')
                 }
-            }
-            if (values.tagsFilter.length > 0) {
-                params.tags = JSON.stringify(values.tagsFilter)
-            }
-            if (values.searchQuery) {
-                params.search = values.searchQuery
-            }
-            if (values.dateFrom) {
-                params.date_from = values.dateFrom
-            }
-            if (values.dateTo) {
-                params.date_to = values.dateTo
-            }
-            params.order_by = values.orderBy
-            params.limit = SUPPORT_TICKETS_PAGE_SIZE
-            params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
-            try {
-                const response = await api.conversationsTickets.list(params)
-                actions.setTickets(response.results || [])
-                actions.setTotalCount(response.count ?? response.results?.length ?? 0)
-            } catch {
-                lemonToast.error('Failed to load tickets')
-                actions.setTicketsLoading(false)
-            }
-        },
-        applyViewFilters: () => {
-            actions.setCurrentPage(1)
-        },
-        setCurrentPage: () => {
-            actions.loadTickets()
-        },
-        setSearchQuery: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setStatusFilter: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setPriorityFilter: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setChannelFilter: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setSlaFilter: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setAssigneeFilter: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setTagsFilter: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setDateRange: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setSorting: () => {
-            actions.clearActiveView()
-            actions.setCurrentPage(1)
-        },
-        setActiveView: ({ view }) => {
-            if (view) {
+                if (values.statusFilter.length > 0) {
+                    params.status = values.statusFilter.join(',')
+                }
+                if (values.priorityFilter.length > 0) {
+                    params.priority = values.priorityFilter.join(',')
+                }
+                if (values.channelFilter !== 'all') {
+                    params.channel_source = values.channelFilter
+                }
+                if (values.slaFilter !== 'all') {
+                    params.sla = values.slaFilter
+                }
+                if (values.assigneeFilter !== 'all') {
+                    if (values.assigneeFilter === 'unassigned') {
+                        params.assignee = 'unassigned'
+                    } else if (values.assigneeFilter && typeof values.assigneeFilter === 'object') {
+                        params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
+                    }
+                }
+                if (values.tagsFilter.length > 0) {
+                    params.tags = JSON.stringify(values.tagsFilter)
+                }
+                if (values.searchQuery) {
+                    params.search = values.searchQuery
+                }
+                if (values.dateFrom) {
+                    params.date_from = values.dateFrom
+                }
+                if (values.dateTo) {
+                    params.date_to = values.dateTo
+                }
+                params.order_by = values.orderBy
+                params.limit = SUPPORT_TICKETS_PAGE_SIZE
+                params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
+
+                try {
+                    const response = await api.conversationsTickets.list(params)
+                    actions.setTickets(response.results || [])
+                    actions.setTotalCount(response.count ?? response.results?.length ?? 0)
+                } catch {
+                    lemonToast.error('Failed to load tickets')
+                    actions.setTicketsLoading(false)
+                }
+            },
+            applyViewFilters: () => {
+                actions.setCurrentPage(1)
+            },
+            setCurrentPage: () => {
+                ticketSelection.actions.clearSelection()
+                actions.loadTickets()
+            },
+            setSearchQuery: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setStatusFilter: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setPriorityFilter: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setChannelFilter: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setSlaFilter: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setAssigneeFilter: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setTagsFilter: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setDateRange: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setSorting: () => {
+                actions.clearActiveView()
+                actions.setCurrentPage(1)
+            },
+            setActiveView: ({ view }) => {
+                if (view) {
+                    const { searchParams } = router.values
+                    router.actions.replace(router.values.location.pathname, { ...searchParams, view: view.short_id })
+                }
+            },
+            clearActiveView: () => {
                 const { searchParams } = router.values
-                router.actions.replace(router.values.location.pathname, { ...searchParams, view: view.short_id })
-            }
-        },
-        clearActiveView: () => {
-            const { searchParams } = router.values
-            if (searchParams.view) {
-                const { view: _, ...rest } = searchParams
-                router.actions.replace(router.values.location.pathname, rest)
-            }
-        },
-    })),
+                if (searchParams.view) {
+                    const { view: _, ...rest } = searchParams
+                    router.actions.replace(router.values.location.pathname, rest)
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         const { searchParams } = router.values
         const viewShortId = searchParams.view

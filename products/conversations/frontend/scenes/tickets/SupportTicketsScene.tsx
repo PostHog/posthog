@@ -15,9 +15,12 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
+import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
+import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { getSelectionState, listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -50,7 +53,12 @@ import {
     slaOptions,
     statusMultiselectOptions,
 } from '../../types'
-import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import {
+    SUPPORT_TICKETS_PAGE_SIZE,
+    TICKET_API_PATH,
+    TICKET_RESOURCE,
+    supportTicketsSceneLogic,
+} from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -221,58 +229,109 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { setCurrentPage, setSorting } = useActions(logic)
     const { push } = useActions(router)
 
+    const ticketSelection = listSelectionLogic({ resource: TICKET_RESOURCE, apiPath: TICKET_API_PATH })
+    const { selectedIds } = useValues(ticketSelection)
+    const { selectAllOnPage } = useActions(ticketSelection)
+
+    const allPageItems = tickets.map((ticket) => ({
+        id: ticket.ticket_number,
+        isEditable: true,
+    }))
+    const { isAllSelected, isSomeSelected } = getSelectionState(
+        selectedIds,
+        allPageItems.map((item) => item.id)
+    )
+
+    const selectionColumn: LemonTableColumns<Ticket> = embedded
+        ? []
+        : [
+              {
+                  key: 'selection',
+                  width: 32,
+                  title: (
+                      <LemonCheckbox
+                          checked={isSomeSelected ? 'indeterminate' : isAllSelected}
+                          onChange={() => selectAllOnPage(allPageItems)}
+                          aria-label="Select all tickets on this page"
+                      />
+                  ),
+                  render: function Render(_: unknown, ticket: Ticket, index: number) {
+                      return (
+                          <SelectionCheckbox
+                              resource={TICKET_RESOURCE}
+                              id={ticket.ticket_number}
+                              index={index}
+                              allPageItems={allPageItems}
+                              ariaLabel={`Select ticket #${ticket.ticket_number}`}
+                          />
+                      )
+                  },
+              },
+          ]
+
+    const baseColumns = embedded
+        ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
+        : SUPPORT_TICKETS_TABLE_COLUMNS
+
     return (
-        <LemonTable<Ticket>
-            dataSource={tickets}
-            rowKey="id"
-            loading={ticketsLoading}
-            embedded={embedded}
-            sorting={sorting}
-            onSort={(newSorting) => setSorting(newSorting)}
-            noSortingCancellation
-            pagination={{
-                controlled: true,
-                currentPage,
-                pageSize: SUPPORT_TICKETS_PAGE_SIZE,
-                entryCount: totalCount,
-                onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
-                onForward:
-                    currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
-                        ? () => setCurrentPage(currentPage + 1)
-                        : undefined,
-            }}
-            onRow={(ticket) => {
-                const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
-                return {
-                    onClick: (e: React.MouseEvent) => {
-                        if (e.metaKey || e.ctrlKey) {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            newInternalTab(ticketUrl)
-                        } else {
-                            push(ticketUrl)
-                        }
-                    },
-                    onAuxClick: (e: React.MouseEvent) => {
-                        if (e.button === 1) {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            newInternalTab(ticketUrl)
-                        }
-                    },
+        <>
+            {!embedded && selectedIds.length > 0 && (
+                <div className="flex items-center justify-end min-h-9 mb-2">
+                    <BulkActionToolbar resource={TICKET_RESOURCE} />
+                </div>
+            )}
+            <LemonTable<Ticket>
+                dataSource={tickets}
+                rowKey="id"
+                loading={ticketsLoading}
+                embedded={embedded}
+                sorting={sorting}
+                onSort={(newSorting) => setSorting(newSorting)}
+                noSortingCancellation
+                pagination={{
+                    controlled: true,
+                    currentPage,
+                    pageSize: SUPPORT_TICKETS_PAGE_SIZE,
+                    entryCount: totalCount,
+                    onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
+                    onForward:
+                        currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
+                            ? () => setCurrentPage(currentPage + 1)
+                            : undefined,
+                }}
+                onRow={(ticket) => {
+                    const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
+                    return {
+                        onClick: (e: React.MouseEvent) => {
+                            // Prevent navigation when clicking on selection checkbox
+                            if ((e.target as HTMLElement).closest('.LemonCheckbox')) {
+                                return
+                            }
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            } else {
+                                push(ticketUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            }
+                        },
+                    }
+                }}
+                rowClassName={(ticket) =>
+                    clsx({
+                        'bg-primary-alt-highlight': ticket.unread_team_count > 0,
+                    })
                 }
-            }}
-            rowClassName={(ticket) =>
-                clsx({
-                    'bg-primary-alt-highlight': ticket.unread_team_count > 0,
-                })
-            }
-            columns={
-                embedded
-                    ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
-                    : SUPPORT_TICKETS_TABLE_COLUMNS
-            }
-        />
+                columns={[...selectionColumn, ...baseColumns]}
+            />
+        </>
     )
 }
 

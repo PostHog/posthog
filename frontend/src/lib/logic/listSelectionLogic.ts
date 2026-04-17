@@ -17,7 +17,7 @@ export interface BulkUpdateTagsResult {
     skipped: Array<{ id: number; reason: string }>
 }
 
-export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights'
+export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'tickets'
 
 export interface PageItem {
     id: number
@@ -26,6 +26,8 @@ export interface PageItem {
 
 export interface ListSelectionLogicProps {
     resource: BulkTaggableResource
+    /** API path segment if it differs from the resource key (e.g. 'conversations/tickets' for tickets). */
+    apiPath?: string
 }
 
 /**
@@ -118,8 +120,9 @@ export const listSelectionLogic = kea<listSelectionLogicType>([
             null as BulkUpdateTagsResult | null,
             {
                 bulkUpdateTags: async ({ action, tags }: { action: BulkTagAction; tags: string[] }) => {
+                    const path = logicProps.apiPath ?? logicProps.resource
                     const response = await api.create(
-                        `api/projects/${values.currentProjectId}/${logicProps.resource}/bulk_update_tags/`,
+                        `api/projects/${values.currentProjectId}/${path}/bulk_update_tags/`,
                         { ids: values.selectedIds, action, tags }
                     )
                     return response as BulkUpdateTagsResult

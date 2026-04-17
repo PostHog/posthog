@@ -164,8 +164,19 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         tag_action: str = validated["action"]
         tags: list[str] = validated["tags"]
 
-        # Build queryset from the viewset's own queryset (inherits team/project scoping)
-        queryset = self.get_queryset().filter(id__in=validated_ids)
+        # Build queryset from the viewset's own queryset (inherits team/project scoping).
+        # Subclasses can set ``bulk_tag_lookup_field`` to look up by a natural key
+        # instead of ``id`` (e.g. ``ticket_number`` for UUID-keyed models).
+        # Explicit branches (rather than a dynamic dict key) are intentional to
+        # avoid ORM field-injection patterns that semgrep blocks; adding another
+        # lookup field means adding another branch here.
+        lookup_field = getattr(self, "bulk_tag_lookup_field", "id")
+        if lookup_field == "id":
+            queryset = self.get_queryset().filter(id__in=validated_ids)
+        elif lookup_field == "ticket_number":
+            queryset = self.get_queryset().filter(ticket_number__in=validated_ids)
+        else:
+            raise ValueError(f"Unsupported bulk_tag_lookup_field: {lookup_field!r}")
         queryset = self.prefetch_tagged_items_if_available(queryset)
         objects = list(queryset)
 
@@ -188,10 +199,10 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if user_access_level and access_level_satisfied_for_resource(scope_object, user_access_level, "editor"):
                 editable_objects.append(obj)
             else:
-                errors.append({"id": obj.id, "reason": "Permission denied"})
+                errors.append({"id": getattr(obj, lookup_field), "reason": "Permission denied"})
 
         # Track missing IDs
-        found_ids = {obj.id for obj in objects}
+        found_ids = {getattr(obj, lookup_field) for obj in objects}
         for obj_id in validated_ids:
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": "Not found"})
@@ -222,7 +233,7 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
                 new_tags = set(normalized_tags)
 
             set_tags_on_object(list(new_tags), obj)
-            updated.append({"id": obj.id, "tags": sorted(new_tags)})
+            updated.append({"id": getattr(obj, lookup_field), "tags": sorted(new_tags)})
 
         # Cleanup orphan tags once at the end
         if team_id is not None:
