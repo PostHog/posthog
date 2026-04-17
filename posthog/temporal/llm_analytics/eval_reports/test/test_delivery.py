@@ -7,7 +7,6 @@ from posthog.temporal.llm_analytics.eval_reports.delivery import (
     _inline_email_styles,
     _linkify_citations,
     _render_metrics_block_html,
-    _render_metrics_block_mrkdwn,
     _render_section_html,
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
@@ -263,23 +262,6 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertNotIn("▲", html)
         self.assertNotIn("▼", html)
         self.assertNotIn("pp vs previous", html)
-
-
-class TestMetricsBlockMrkdwn(SimpleTestCase):
-    def test_compact_format(self):
-        metrics = EvalReportMetrics(total_runs=100, pass_count=80, fail_count=18, na_count=2, pass_rate=81.63)
-        text = _render_metrics_block_mrkdwn(metrics)
-        self.assertIn("*Pass rate:*", text)
-        self.assertIn("81.63%", text)
-        self.assertIn("100", text)
-        self.assertIn("80", text)
-        self.assertIn("18", text)
-        self.assertIn("*N/A:*", text)
-
-    def test_with_delta(self):
-        metrics = EvalReportMetrics(pass_rate=90.0, previous_pass_rate=80.0)
-        text = _render_metrics_block_mrkdwn(metrics)
-        self.assertIn("▲", text)
 
 
 class TestDeliverReport(SimpleTestCase):

@@ -3,7 +3,10 @@
 import datetime as dt
 
 import temporalio.activity
+from dateutil.rrule import rrulestr
 from structlog import get_logger
+
+from posthog.hogql import ast
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -92,19 +95,24 @@ async def fetch_count_triggered_eval_reports_activity(
             if today_runs >= report.daily_run_cap:
                 continue
 
-            # Count evals since last delivery (or start_date if first run)
-            since = report.last_delivered_at or report.start_date
+            # Count evals since last delivery (or since report creation if first run).
+            # starts_at is nullable for count-triggered reports, so fall back to created_at.
+            since = report.last_delivered_at or report.starts_at or report.created_at
             since_str = since.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             team = Team.objects.get(id=report.team_id)
             query = parse_select(
-                f"""
+                """
                 SELECT count() as total
                 FROM events
                 WHERE event = '$ai_evaluation'
-                    AND properties.$ai_evaluation_id = '{report.evaluation_id}'
-                    AND timestamp >= '{since_str}'
-                """
+                    AND properties.$ai_evaluation_id = {evaluation_id}
+                    AND timestamp >= {since}
+                """,
+                placeholders={
+                    "evaluation_id": ast.Constant(value=str(report.evaluation_id)),
+                    "since": ast.Constant(value=since_str),
+                },
             )
             result = execute_hogql_query(query=query, team=team)
             rows = result.results or []
@@ -115,7 +123,10 @@ async def fetch_count_triggered_eval_reports_activity(
 
         return due
 
-    report_ids = await check_reports()
+    # Heartbeat while the sync loop runs — prevents activity timeout as the
+    # number of count-triggered reports grows (each report = 1 HogQL query).
+    async with Heartbeater():
+        report_ids = await check_reports()
     await logger.ainfo(f"Found {len(report_ids)} count-triggered evaluation reports ready")
     return FetchDueEvalReportsOutput(report_ids=report_ids)
 
@@ -139,17 +150,22 @@ def _find_nth_eval_timestamp(
     team = Team.objects.get(id=team_id)
     before_str = before.strftime("%Y-%m-%d %H:%M:%S.%f")
     query = parse_select(
-        f"""
+        """
         SELECT min(ts) FROM (
             SELECT timestamp as ts
             FROM events
             WHERE event = '$ai_evaluation'
-                AND properties.$ai_evaluation_id = '{evaluation_id}'
-                AND timestamp <= '{before_str}'
+                AND properties.$ai_evaluation_id = {evaluation_id}
+                AND timestamp <= {before}
             ORDER BY timestamp DESC
-            LIMIT {int(n)}
+            LIMIT {limit}
         )
-        """
+        """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=evaluation_id),
+            "before": ast.Constant(value=before_str),
+            "limit": ast.Constant(value=int(n)),
+        },
     )
     result = execute_hogql_query(query=query, team=team)
     rows = result.results or []
@@ -161,6 +177,31 @@ def _find_nth_eval_timestamp(
             return ts
     # Fallback: 24h ago
     return before - dt.timedelta(days=1)
+
+
+_DEFAULT_PERIOD = dt.timedelta(days=1)
+
+
+def _period_for_scheduled_report(report, now: dt.datetime) -> dt.timedelta:
+    """Return the typical gap between successive RRULE occurrences.
+
+    Used as the "one period" lookback for scheduled reports — e.g. an hourly
+    RRULE yields 1h, a weekly RRULE yields 7d. Falls back to 1 day if the rule
+    hasn't accumulated enough history yet (fewer than two past occurrences).
+    """
+    if not report.rrule or not report.starts_at:
+        return _DEFAULT_PERIOD
+    try:
+        rule = rrulestr(report.rrule, dtstart=report.starts_at)
+    except (ValueError, TypeError):
+        return _DEFAULT_PERIOD
+    prev = rule.before(now, inc=False)
+    if prev is None:
+        return _DEFAULT_PERIOD
+    prev_prev = rule.before(prev, inc=False)
+    if prev_prev is None:
+        return _DEFAULT_PERIOD
+    return prev - prev_prev
 
 
 @temporalio.activity.defn
@@ -177,18 +218,12 @@ async def prepare_report_context_activity(
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
 
-        # Period end is now, period start depends on context
         period_end = now
-        freq_deltas = {
-            "hourly": dt.timedelta(hours=1),
-            "daily": dt.timedelta(days=1),
-            "weekly": dt.timedelta(weeks=1),
-        }
 
         if inputs.manual:
-            # Manual "Generate now": always look back one full frequency period
-            # so the user always gets a meaningful report regardless of last delivery.
-            if report.frequency == "every_n":
+            # Manual "Generate now": always look back one full period so the
+            # user gets something meaningful regardless of last delivery.
+            if report.is_count_triggered:
                 # For count-triggered reports, sample the most recent N evals so
                 # "Generate now" always produces something useful even if the
                 # threshold hasn't been crossed yet.
@@ -199,25 +234,23 @@ async def prepare_report_context_activity(
                     before=now,
                 )
             else:
-                period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
+                period_start = now - _period_for_scheduled_report(report, now)
         elif report.last_delivered_at:
             period_start = report.last_delivered_at
         else:
-            # First run: look back one period (or to start_date for count-triggered)
-            if report.frequency == "every_n":
-                period_start = report.start_date
+            # First run: look back one typical period (count-triggered reports
+            # fall back to the report's anchor — starts_at if present, else its
+            # creation time — since they don't have a natural cadence).
+            if report.is_count_triggered:
+                period_start = report.starts_at or report.created_at
             else:
-                period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
+                period_start = now - _period_for_scheduled_report(report, now)
 
         # Previous period for comparison (same duration, shifted back)
         period_duration = period_end - period_start
         previous_period_start = period_start - period_duration
 
-        # `report_prompt_guidance` is a per-report TextField that lets users steer
-        # the agent. Added in migration 0024 (Commit 2 of the v2 schema refactor).
-        # `getattr` with fallback keeps this activity compatible with the unmigrated
-        # database state during Commit 1 local testing.
-        guidance = getattr(report, "report_prompt_guidance", "") or ""
+        guidance = report.report_prompt_guidance or ""
 
         return PrepareReportContextOutput(
             report_id=str(report.id),

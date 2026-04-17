@@ -83,7 +83,11 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
             )
             tasks.append(task)
 
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # return_exceptions=True isolates individual report failures — one failing
+        # report shouldn't block the others. Log the offenders so they're visible
+        # in observability even though we don't re-raise.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        _log_fan_out_failures("scheduled_eval_report", result.report_ids, results)
 
 
 @temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
@@ -119,7 +123,21 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             )
             tasks.append(task)
 
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        _log_fan_out_failures("count_triggered_eval_report", result.report_ids, results)
+
+
+def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
+    """Log which child workflows failed in a fan-out, without re-raising."""
+    failed: list[tuple[str, str]] = []
+    for report_id, result in zip(report_ids, results):
+        if isinstance(result, BaseException):
+            failed.append((report_id, f"{type(result).__name__}: {result}"))
+    if failed:
+        temporalio.workflow.logger.warning(
+            f"{kind}.child_workflow_errors",
+            extra={"failed_count": len(failed), "failures": failed},
+        )
 
 
 @temporalio.workflow.defn(name=GENERATE_EVAL_REPORT_WORKFLOW_NAME)
