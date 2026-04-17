@@ -138,12 +138,29 @@ impl ReleaseBuilder {
                 self.missing().join(", ")
             )
         }
-        let version = self.version.as_ref().unwrap();
-        let project = self.name.as_ref().unwrap();
-        if let Some(release) = Release::lookup(project, version)? {
-            Ok(release)
-        } else {
-            self.create_release()
+        // Clone so we can re-lookup if a concurrent caller wins the create race
+        // (e.g. the inject and upload phases of `sourcemap process` both reach
+        // `fetch_or_create` for the same release).
+        let name = self.name.clone().expect("can_create() ensured name is set");
+        let version = self
+            .version
+            .clone()
+            .expect("can_create() ensured version is set");
+
+        if let Some(release) = Release::lookup(&name, &version)? {
+            return Ok(release);
+        }
+
+        match self.create_release() {
+            Ok(release) => Ok(release),
+            Err(err) if is_hash_already_in_use(&err) => {
+                warn!(
+                    "Release {}@{} reported as already in use on create; re-fetching",
+                    name, version
+                );
+                Release::lookup(&name, &version)?.ok_or(err)
+            }
+            Err(err) => Err(err),
         }
     }
 
@@ -184,5 +201,53 @@ impl ReleaseBuilder {
             request.project, request.version, response.id
         );
         Ok(response)
+    }
+}
+
+/// Returns true if `err` (including wrapped causes) is the PostHog API
+/// `validation_error` that signals a release with this `hash_id` already
+/// exists. Used to make `fetch_or_create` tolerant of GET/POST races where
+/// `Release::lookup` returns 404 for a release that a concurrent caller
+/// (or a prior phase of the same `sourcemap process` run) just created.
+fn is_hash_already_in_use(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<ClientError>(),
+            Some(ClientError::ApiError(_, _, body)) if body.contains("already in use")
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::Url;
+
+    fn releases_url() -> Box<Url> {
+        Box::new(
+            Url::parse("https://us.posthog.com/api/projects/1/error_tracking/releases").unwrap(),
+        )
+    }
+
+    #[test]
+    fn detects_hash_already_in_use_error() {
+        let body = r#"{"type":"validation_error","code":"invalid_input","detail":"Hash id abc123 already in use","attr":null}"#;
+        let client_err = ClientError::ApiError(400, releases_url(), body.to_string());
+        let wrapped = anyhow::Error::new(client_err).context("Failed to create release");
+        assert!(is_hash_already_in_use(&wrapped));
+    }
+
+    #[test]
+    fn ignores_unrelated_api_errors() {
+        let client_err =
+            ClientError::ApiError(500, releases_url(), "internal server error".to_string());
+        let wrapped = anyhow::Error::new(client_err).context("Failed to create release");
+        assert!(!is_hash_already_in_use(&wrapped));
+    }
+
+    #[test]
+    fn ignores_non_api_errors() {
+        let err = anyhow::anyhow!("something totally unrelated");
+        assert!(!is_hash_already_in_use(&err));
     }
 }
