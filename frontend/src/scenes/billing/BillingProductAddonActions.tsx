@@ -21,6 +21,7 @@ interface BillingProductAddonActionsProps {
     productRef?: React.RefObject<HTMLDivElement>
     buttonSize?: LemonButtonProps['size']
     ctaTextOverride?: string
+    align?: 'left' | 'right'
 }
 
 export const BillingProductAddonActions = ({
@@ -28,6 +29,7 @@ export const BillingProductAddonActions = ({
     productRef,
     buttonSize,
     ctaTextOverride,
+    align = 'right',
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
@@ -172,7 +174,7 @@ export const BillingProductAddonActions = ({
 
         if (isTrialEligible && !isSubscribedToAnotherAddon) {
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className={`mt-2 text-xs text-secondary ${align === 'left' ? 'text-left' : 'text-right'}`}>
                     You'll have {addon.trial?.length} days to try it out. Then you'll be charged{' '}
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                 </p>
@@ -181,7 +183,7 @@ export const BillingProductAddonActions = ({
 
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className={`mt-2 text-xs text-secondary ${align === 'left' ? 'text-left' : 'text-right'}`}>
                     Pay ~${proratedAmount.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
@@ -193,7 +195,7 @@ export const BillingProductAddonActions = ({
         if (isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
             const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className={`mt-2 text-xs text-secondary ${align === 'left' ? 'text-left' : 'text-right'}`}>
                     Pay ~${amountDue.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
@@ -286,8 +288,12 @@ export const BillingProductAddonActions = ({
     }
 
     return (
-        <div className="min-w-64">
-            <div className="ml-4 mt-2 self-center flex items-center justify-end gap-x-3 whitespace-nowrap">
+        <div className={align === 'left' ? '' : 'min-w-64'}>
+            <div
+                className={`mt-2 self-center flex items-center gap-x-3 whitespace-nowrap ${
+                    align === 'left' ? 'justify-start' : 'ml-4 justify-end'
+                }`}
+            >
                 {content}
             </div>
             {renderPricingInfo()}

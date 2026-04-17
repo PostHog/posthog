@@ -127,7 +127,7 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
                 </div>
             )}
             <div>
-                <BillingProductAddonActions addon={addon} buttonSize="small" />
+                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" />
             </div>
         </div>
     )
@@ -176,11 +176,11 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         <div>
             {/* Header row */}
             <div className="grid" style={gridColsStyle}>
-                <div className="px-4 py-4 text-xs uppercase font-semibold text-secondary tracking-wide">Feature</div>
+                <div className="px-4 py-4 text-sm font-semibold text-secondary">Feature</div>
                 {comparableAddons.map((addon) => (
                     <div
                         key={addon.type}
-                        className="px-4 py-4 text-xs uppercase font-semibold text-secondary tracking-wide text-center border-l border-primary"
+                        className="px-4 py-4 text-sm font-semibold text-secondary text-center border-l border-primary"
                     >
                         {addon.name}
                     </div>
