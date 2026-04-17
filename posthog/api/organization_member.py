@@ -180,3 +180,34 @@ class OrganizationMemberViewSet(
                 "keys": api_keys_data["keys"],
             }
         )
+
+    @action(detail=True, methods=["post"], url_path="promote_to_member")
+    def promote_to_member(self, request, *args, **kwargs) -> Response:
+        from django.db import transaction
+
+        from posthog.models import GuestResourceGrant
+
+        target: OrganizationMembership = self.get_object()
+
+        requesting_membership = OrganizationMembership.objects.get(organization=target.organization, user=request.user)
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only org admins and owners can promote guests.")
+
+        if not target.is_guest:
+            raise exceptions.ValidationError("User is already a regular member of this organization.")
+
+        with transaction.atomic():
+            grants_removed = GuestResourceGrant.objects.filter(organization_membership=target).count()
+            GuestResourceGrant.objects.filter(organization_membership=target).delete()
+            target.is_guest = False
+            target.bypass_sso_enforcement = False
+            target.save()
+
+        return Response(
+            {
+                "promoted": True,
+                "grants_removed": grants_removed,
+                "next_steps": "Assign regular access control to this user via roles or resource sharing.",
+            },
+            status=200,
+        )
