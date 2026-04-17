@@ -525,9 +525,6 @@ export type HogFlowsLogsListParams = {
      * Only return log entries before this timestamp (ISO 8601).
      */
     before?: string
-    created_at?: string
-    created_by?: number
-    id?: string
     /**
      * Filter logs by a specific invocation instance ID.
      * @minLength 1
@@ -553,7 +550,6 @@ export type HogFlowsLogsListParams = {
      * @minLength 1
      */
     search?: string
-    updated_at?: string
 }
 
 export type HogFlowsSchedulesListParams = {

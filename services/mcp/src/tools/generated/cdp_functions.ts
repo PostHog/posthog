@@ -267,15 +267,7 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
 })
 
 const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsListParams.omit({ project_id: true }).extend(
-    HogFunctionsLogsListQueryParams.omit({
-        created_at: true,
-        created_by: true,
-        enabled: true,
-        offset: true,
-        search: true,
-        type: true,
-        updated_at: true,
-    }).shape
+    HogFunctionsLogsListQueryParams.omit({ offset: true }).shape
 )
 
 const cdpFunctionsLogsRetrieve = (): ToolBase<
@@ -288,14 +280,14 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedLogEntryList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/logs/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/logs/`,
             query: {
                 after: params.after,
                 before: params.before,
-                id: params.id,
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                search: params.search,
             },
         })
         return result

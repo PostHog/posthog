@@ -569,10 +569,6 @@ export type BatchExportsRunsLogsListParams = {
      */
     limit?: number
     /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-    /**
      * Search string to filter log messages (case-insensitive substring match).
      * @minLength 1
      */

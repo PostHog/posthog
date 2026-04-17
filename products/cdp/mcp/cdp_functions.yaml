@@ -216,12 +216,11 @@ tools:
             Retrieve execution logs for a specific function (destination, transformation, site app, etc.) by its ID.
             Returns timestamped log entries with level (DEBUG, LOG, INFO, WARN, ERROR) and message. Use to debug
             function execution issues, check for errors, or monitor function behavior. Filter by time range, log level,
-            or specific invocation instance ID.
+            search term, or specific invocation instance ID.
         exclude_params:
             - created_at
             - created_by
             - enabled
-            - search
             - type
             - updated_at
             - offset

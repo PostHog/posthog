@@ -128,7 +128,7 @@ class LogEntryMixin(viewsets.GenericViewSet):
         parameters=[LogEntryRequestSerializer],
         responses={200: LogEntrySerializer(many=True)},
     )
-    @action(detail=True, methods=["GET"])
+    @action(detail=True, methods=["GET"], filter_backends=[])
     def logs(self, request: Request, *args, **kwargs):
         obj = self.get_object()
 

@@ -969,10 +969,6 @@ export const hogFunctionsLogsListQueryLimitMax = 500
 export const HogFunctionsLogsListQueryParams = /* @__PURE__ */ zod.object({
     after: zod.iso.datetime({}).optional().describe('Only return log entries after this timestamp (ISO 8601).'),
     before: zod.iso.datetime({}).optional().describe('Only return log entries before this timestamp (ISO 8601).'),
-    created_at: zod.iso.datetime({}).optional(),
-    created_by: zod.number().optional(),
-    enabled: zod.boolean().optional(),
-    id: zod.string().optional(),
     instance_id: zod.string().min(1).optional().describe('Filter logs by a specific invocation instance ID.'),
     level: zod.string().min(1).optional().describe("Comma-separated log levels to filter by (e.g. 'info,warn,error')."),
     limit: zod
@@ -987,8 +983,6 @@ export const HogFunctionsLogsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Search string to filter log messages (case-insensitive substring match).'),
-    type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    updated_at: zod.iso.datetime({}).optional(),
 })
 
 /**

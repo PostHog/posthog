@@ -32715,10 +32715,6 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
      * Search string to filter log messages (case-insensitive substring match).
      * @minLength 1
      */
@@ -33434,9 +33430,6 @@ export namespace Schemas {
      * Only return log entries before this timestamp (ISO 8601).
      */
     before?: string;
-    created_at?: string;
-    created_by?: number;
-    id?: string;
     /**
      * Filter logs by a specific invocation instance ID.
      * @minLength 1
@@ -33462,7 +33455,6 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
-    updated_at?: string;
     };
 
     export type EnvironmentsHogFlowsSchedulesListParams = {
@@ -33528,10 +33520,6 @@ export namespace Schemas {
      * Only return log entries before this timestamp (ISO 8601).
      */
     before?: string;
-    created_at?: string;
-    created_by?: number;
-    enabled?: boolean;
-    id?: string;
     /**
      * Filter logs by a specific invocation instance ID.
      * @minLength 1
@@ -33557,11 +33545,6 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    type?: string[];
-    updated_at?: string;
     };
 
     export type EnvironmentsInsightVariablesListParams = {
@@ -35990,10 +35973,6 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
      * Search string to filter log messages (case-insensitive substring match).
      * @minLength 1
      */
@@ -37149,9 +37128,6 @@ export namespace Schemas {
      * Only return log entries before this timestamp (ISO 8601).
      */
     before?: string;
-    created_at?: string;
-    created_by?: number;
-    id?: string;
     /**
      * Filter logs by a specific invocation instance ID.
      * @minLength 1
@@ -37177,7 +37153,6 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
-    updated_at?: string;
     };
 
     export type HogFlowsSchedulesListParams = {
@@ -37266,10 +37241,6 @@ export namespace Schemas {
      * Only return log entries before this timestamp (ISO 8601).
      */
     before?: string;
-    created_at?: string;
-    created_by?: number;
-    enabled?: boolean;
-    id?: string;
     /**
      * Filter logs by a specific invocation instance ID.
      * @minLength 1
@@ -37295,11 +37266,6 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    type?: string[];
-    updated_at?: string;
     };
 
     export type InsightVariablesListParams = {
