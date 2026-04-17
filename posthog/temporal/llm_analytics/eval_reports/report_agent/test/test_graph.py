@@ -4,7 +4,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.temporal.llm_analytics.eval_reports.report_agent.graph import _fallback_content, _validate_agent_output
+from posthog.temporal.llm_analytics.eval_reports.report_agent.graph import (
+    _append_references_section,
+    _fallback_content,
+    _validate_agent_output,
+)
 from posthog.temporal.llm_analytics.eval_reports.report_agent.prompts import EVAL_REPORT_SYSTEM_PROMPT
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -166,3 +170,39 @@ class TestValidateAgentOutput(SimpleTestCase):
         content = self._valid_content()
         content.citations = [Citation(generation_id="g", trace_id="t", reason="r")]
         self.assertIsNone(_validate_agent_output(content))
+
+
+class TestAppendReferencesSection(SimpleTestCase):
+    def test_no_citations_leaves_sections_untouched(self):
+        content = EvalReportContent(
+            title="t",
+            sections=[ReportSection(title="S1", content="c1")],
+            citations=[],
+        )
+        _append_references_section(content)
+        self.assertEqual(len(content.sections), 1)
+
+    def test_appends_references_as_final_section(self):
+        content = EvalReportContent(
+            title="t",
+            sections=[ReportSection(title="S1", content="c1")],
+            citations=[Citation(generation_id="g1", trace_id="t1", reason="r1")],
+        )
+        _append_references_section(content)
+        self.assertEqual(len(content.sections), 2)
+        self.assertEqual(content.sections[-1].title, "References")
+        self.assertIn("g1", content.sections[-1].content)
+
+    def test_references_does_not_displace_content_at_max_sections(self):
+        # Regression: previously the auto-appended References section replaced
+        # the agent's final section when agent produced MAX_REPORT_SECTIONS.
+        content = EvalReportContent(
+            title="t",
+            sections=[ReportSection(title=f"S{i}", content=f"c{i}") for i in range(MAX_REPORT_SECTIONS)],
+            citations=[Citation(generation_id="g1", trace_id="t1", reason="r1")],
+        )
+        _append_references_section(content)
+        self.assertEqual(len(content.sections), MAX_REPORT_SECTIONS + 1)
+        # Agent's last section is preserved
+        self.assertEqual(content.sections[MAX_REPORT_SECTIONS - 1].title, f"S{MAX_REPORT_SECTIONS - 1}")
+        self.assertEqual(content.sections[-1].title, "References")

@@ -1,6 +1,12 @@
 """Tests for the v2 eval report agent output tools (set_title, add_section, add_citation)."""
 
+import json
+import datetime as dt
+
+from posthog.test.base import BaseTest
+
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -13,8 +19,11 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
 from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import (
     _UUID_RE,
     _ch_ts,
+    _widened_ts_window,
     add_citation,
     add_section,
+    get_report_run,
+    list_recent_report_runs,
     set_title,
 )
 
@@ -25,6 +34,8 @@ _VALID_TRACE_ID = "abcdefab-cdef-abcd-efab-cdefabcdefab"
 _set_title_fn = set_title.func  # type: ignore[attr-defined]
 _add_section_fn = add_section.func  # type: ignore[attr-defined]
 _add_citation_fn = add_citation.func  # type: ignore[attr-defined]
+_list_recent_report_runs_fn = list_recent_report_runs.func  # type: ignore[attr-defined]
+_get_report_run_fn = get_report_run.func  # type: ignore[attr-defined]
 
 
 def _state_with_empty_report() -> dict:
@@ -44,6 +55,29 @@ class TestChTs(SimpleTestCase):
     )
     def test_converts_iso_to_clickhouse_format(self, _name, iso_input, expected):
         self.assertEqual(_ch_ts(iso_input), expected)
+
+
+class TestWidenedTsWindow(SimpleTestCase):
+    def test_widens_start_by_7_days_and_end_by_1_day(self):
+        state = {
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+        }
+        ts_start, ts_end = _widened_ts_window(state)
+        self.assertEqual(ts_start, "2026-04-01 14:00:00.000000")
+        self.assertEqual(ts_end, "2026-04-09 15:00:00.000000")
+
+    def test_falls_back_to_sentinels_on_missing_keys(self):
+        ts_start, ts_end = _widened_ts_window({})
+        # Wide sentinel bounds so a bad state doesn't prevent partition pruning
+        self.assertTrue(ts_start.startswith("2020-01-01"))
+        self.assertTrue(ts_end.startswith("2099-01-01"))
+
+    def test_falls_back_on_malformed_timestamps(self):
+        state = {"period_start": "not-a-timestamp", "period_end": "also-bad"}
+        ts_start, ts_end = _widened_ts_window(state)
+        self.assertTrue(ts_start.startswith("2020-01-01"))
+        self.assertTrue(ts_end.startswith("2099-01-01"))
 
 
 class TestUuidRegex(SimpleTestCase):
@@ -204,6 +238,124 @@ class TestAddCitation(SimpleTestCase):
         self.assertEqual(len(state["report"].citations), 2)
         self.assertEqual(state["report"].citations[0].reason, "first")
         self.assertEqual(state["report"].citations[1].reason, "second")
+
+
+class TestListAndGetReportRun(BaseTest):
+    """DB-backed tests for the split list_recent_report_runs + get_report_run tools."""
+
+    def setUp(self):
+        super().setUp()
+        from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+        from products.llm_analytics.backend.models.evaluations import Evaluation
+
+        self.evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        self.report = EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=self.evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+            created_by=self.user,
+        )
+        self.EvaluationReportRun = EvaluationReportRun
+
+        now = timezone.now()
+        # Three prior runs, ending in ascending order so we can assert the most
+        # recent comes first.
+        self.older_run = EvaluationReportRun.objects.create(
+            report=self.report,
+            content={"title": "Older report", "sections": []},
+            metadata={"pass_rate": 85.0, "total_runs": 20},
+            period_start=now - dt.timedelta(days=14),
+            period_end=now - dt.timedelta(days=13),
+        )
+        self.recent_run = EvaluationReportRun.objects.create(
+            report=self.report,
+            content={"title": "Recent report", "sections": [{"title": "Summary", "content": "foo"}]},
+            metadata={"pass_rate": 94.2, "total_runs": 53},
+            period_start=now - dt.timedelta(days=2),
+            period_end=now - dt.timedelta(days=1),
+        )
+        self.state = {
+            "evaluation_id": str(self.evaluation.id),
+            "period_start": now.isoformat(),
+        }
+
+    def test_list_returns_compact_index_newest_first(self):
+        result = json.loads(_list_recent_report_runs_fn(state=self.state))
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["title"], "Recent report")
+        self.assertEqual(result[0]["pass_rate"], 94.2)
+        self.assertEqual(result[0]["total_runs"], 53)
+        self.assertIn("run_id", result[0])
+        # Full content intentionally omitted
+        self.assertNotIn("content", result[0])
+
+    def test_list_filters_by_since_days(self):
+        result = json.loads(_list_recent_report_runs_fn(state=self.state, since_days=3))
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["title"], "Recent report")
+
+    def test_list_clamps_limit(self):
+        # limit > 200 should be clamped; easier to assert by passing 0 and checking clamp to 1
+        result = json.loads(_list_recent_report_runs_fn(state=self.state, limit=0))
+        self.assertEqual(len(result), 1)
+
+    def test_get_returns_full_content(self):
+        result = json.loads(_get_report_run_fn(state=self.state, run_id=str(self.recent_run.id)))
+        self.assertEqual(result["content"]["title"], "Recent report")
+        self.assertEqual(len(result["content"]["sections"]), 1)
+        self.assertEqual(result["metadata"]["pass_rate"], 94.2)
+
+    def test_get_rejects_non_uuid(self):
+        result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
+        self.assertIn("error", result)
+
+    def test_get_rejects_run_from_other_evaluation(self):
+        # Another evaluation with its own report + run
+        from products.llm_analytics.backend.models.evaluations import Evaluation
+
+        other_eval = Evaluation.objects.create(
+            team=self.team,
+            name="Other Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "other"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
+
+        other_report = EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=other_eval,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+            created_by=self.user,
+        )
+        other_run = self.EvaluationReportRun.objects.create(
+            report=other_report,
+            content={"title": "Other"},
+            metadata={},
+            period_start=timezone.now() - dt.timedelta(days=1),
+            period_end=timezone.now(),
+        )
+        # Agent state is scoped to self.evaluation — other_run must not be visible
+        result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
+        self.assertIn("error", result)
 
 
 class TestToolsCoordinate(SimpleTestCase):

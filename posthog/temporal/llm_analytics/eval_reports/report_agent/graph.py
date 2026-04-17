@@ -134,6 +134,20 @@ def _fallback_content(evaluation_name: str, metrics: EvalReportMetrics, reason: 
     )
 
 
+def _append_references_section(content: EvalReportContent) -> None:
+    """Auto-append a References section from structured citations.
+
+    Every delivery surface (UI, email, Slack) gets a clickable bibliography.
+    MAX_REPORT_SECTIONS caps the number of AGENT-authored sections; References
+    is generated post-validation and sits on top as the +1 so citations never
+    displace substantive content even when the agent uses the full budget.
+    """
+    if not content.citations:
+        return
+    refs_lines = [f"{i}. `{c.generation_id}` — {c.reason}" for i, c in enumerate(content.citations, 1)]
+    content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
+
+
 def _validate_agent_output(content: EvalReportContent) -> str | None:
     """Return a reason string if content is invalid, else None.
 
@@ -257,18 +271,7 @@ def run_eval_report_agent(
             )
             return _fallback_content(evaluation_name, metrics, validation_error)
 
-        # Auto-append a References section from structured citations so every
-        # delivery surface (UI, email, Slack) gets a clickable bibliography.
-        if content.citations:
-            refs_lines = []
-            for i, c in enumerate(content.citations, 1):
-                refs_lines.append(f"{i}. `{c.generation_id}` — {c.reason}")
-            refs_section = ReportSection(title="References", content="\n".join(refs_lines))
-            if len(content.sections) >= MAX_REPORT_SECTIONS:
-                # Replace the last agent section to stay within the cap.
-                content.sections[-1] = refs_section
-            else:
-                content.sections.append(refs_section)
+        _append_references_section(content)
 
         logger.info(
             "eval_report_agent_completed",

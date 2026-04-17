@@ -9,11 +9,13 @@ InjectedState, but whole-key replacement does not.
 
 import re
 import json
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
+
+from posthog.hogql import ast
 
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import MAX_REPORT_SECTIONS, Citation, ReportSection
 
@@ -30,12 +32,33 @@ def _ch_ts(iso_str: str) -> str:
     ClickHouse DateTime64 can't parse 'T' separator or '+00:00' timezone directly.
     Converts '2026-03-12T10:05:48.034000+00:00' → '2026-03-12 10:05:48.034000'.
     """
-    from datetime import datetime
-
     dt = datetime.fromisoformat(iso_str)
     if dt.tzinfo is not None:
         dt = dt.astimezone(UTC).replace(tzinfo=None)
     return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+_WIDENED_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
+_WIDENED_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
+
+
+def _widened_ts_window(state: dict) -> tuple[str, str]:
+    """Return (ts_start, ts_end) widened for generation-event lookups.
+
+    Generations predate their evals, so widen the start by 7 days to catch the
+    generating event. End is period_end + 1 day buffer for eval lag. Falls back
+    to wide sentinel bounds if state has malformed/missing timestamps so
+    partition pruning still has a usable range.
+    """
+    try:
+        ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
+    except (ValueError, TypeError, KeyError):
+        ts_start = _ch_ts(_WIDENED_TS_START_SENTINEL)
+    try:
+        ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
+    except (ValueError, TypeError, KeyError):
+        ts_end = _ch_ts(_WIDENED_TS_END_SENTINEL)
+    return ts_start, ts_end
 
 
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
@@ -67,7 +90,7 @@ def _fetch_period_counts(team_id: int, evaluation_id: str, ts_start: str, ts_end
     """
     rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT
             countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
             countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
@@ -75,10 +98,15 @@ def _fetch_period_counts(team_id: int, evaluation_id: str, ts_start: str, ts_end
             count() as total
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND properties.$ai_evaluation_id = {evaluation_id}
+            AND timestamp >= {ts_start}
+            AND timestamp < {ts_end}
         """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=evaluation_id),
+            "ts_start": ast.Constant(value=ts_start),
+            "ts_end": ast.Constant(value=ts_end),
+        },
     )
     row = rows[0] if rows else [0, 0, 0, 0]
     return int(row[0]), int(row[1]), int(row[2]), int(row[3])
@@ -145,6 +173,8 @@ def get_pass_rate_over_time(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
 
+    # Whitelisted truncation function — `bucket` is an LLM-controlled arg, so pick
+    # from a fixed set rather than interpolating arbitrary identifiers into SQL.
     trunc_fn = "toStartOfHour" if bucket == "hour" else "toStartOfDay"
 
     rows = _execute_hogql(
@@ -157,12 +187,17 @@ def get_pass_rate_over_time(
             count() as total
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND timestamp >= {{ts_start}}
+            AND timestamp < {{ts_end}}
         GROUP BY bucket
         ORDER BY bucket
         """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=evaluation_id),
+            "ts_start": ast.Constant(value=ts_start),
+            "ts_end": ast.Constant(value=ts_end),
+        },
     )
 
     result = []
@@ -206,22 +241,29 @@ def list_all_eval_results(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
 
+    shared_placeholders = {
+        "evaluation_id": ast.Constant(value=evaluation_id),
+        "ts_start": ast.Constant(value=ts_start),
+        "ts_end": ast.Constant(value=ts_end),
+    }
+
     # First get total count to know if we need to sample.
     count_rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT count() as cnt
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND properties.$ai_evaluation_id = {evaluation_id}
+            AND timestamp >= {ts_start}
+            AND timestamp < {ts_end}
         """,
+        placeholders=shared_placeholders,
     )
     total_count = int(count_rows[0][0]) if count_rows else 0
     is_sampled = total_count > _LIST_ALL_MAX_RESULTS
 
-    # Use random ordering when sampling, chronological when showing all.
+    # Whitelisted order/limit fragments — no user input flows into these.
     order_clause = "ORDER BY rand()" if is_sampled else "ORDER BY timestamp ASC"
     limit_clause = f"LIMIT {_LIST_ALL_MAX_RESULTS}" if is_sampled else ""
 
@@ -235,12 +277,13 @@ def list_all_eval_results(
             properties.$ai_evaluation_reasoning as reasoning
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND timestamp >= {{ts_start}}
+            AND timestamp < {{ts_end}}
         {order_clause}
         {limit_clause}
         """,
+        placeholders=shared_placeholders,
     )
 
     max_reasoning_length = min(max(20, max_reasoning_length), 200)
@@ -288,6 +331,8 @@ def sample_eval_results(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
 
+    # Whitelisted filter fragment — `filter` is an LLM-controlled arg; pick
+    # from a fixed set rather than interpolating arbitrary SQL.
     filter_clause = ""
     if filter == "pass":
         filter_clause = "AND properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)"
@@ -306,13 +351,19 @@ def sample_eval_results(
             properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND timestamp >= {{ts_start}}
+            AND timestamp < {{ts_end}}
             {filter_clause}
         ORDER BY timestamp DESC
-        LIMIT {limit}
+        LIMIT {{limit}}
         """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=evaluation_id),
+            "ts_start": ast.Constant(value=ts_start),
+            "ts_end": ast.Constant(value=ts_end),
+            "limit": ast.Constant(value=limit),
+        },
     )
 
     result = []
@@ -351,11 +402,10 @@ def sample_generation_details(
 
     # Strict UUID validation: generation IDs originate from the LLM and may relay
     # values from $ai_target_event_id which is set by user instrumentation. Reject
-    # anything that isn't a canonical UUID before interpolating into HogQL.
+    # anything that isn't a canonical UUID before passing into HogQL.
     ids_to_fetch = [gid for gid in generation_ids[:20] if _UUID_RE.fullmatch(gid)]
     if not ids_to_fetch:
         return json.dumps([])
-    ids_str = ", ".join(f"'{gid}'" for gid in ids_to_fetch)
 
     # generation_ids from sample_eval_results are $ai_target_event_id values,
     # which reference the event UUID of $ai_generation events (not $ai_generation_id
@@ -364,7 +414,7 @@ def sample_generation_details(
     # The actual content lives in $ai_output_choices. Use COALESCE to fall back.
     rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT
             toString(uuid) as generation_id,
             properties.$ai_model as model,
@@ -384,9 +434,13 @@ def sample_generation_details(
             properties.$ai_output_state as output_state
         FROM events
         WHERE event = '$ai_generation'
-            AND toString(uuid) IN ({ids_str})
-        LIMIT {len(ids_to_fetch)}
+            AND toString(uuid) IN {ids}
+        LIMIT {limit}
         """,
+        placeholders={
+            "ids": ast.Array(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
+            "limit": ast.Constant(value=len(ids_to_fetch)),
+        },
     )
 
     result = []
@@ -437,24 +491,17 @@ def get_generation_detail(
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
 
-    # Timestamp window for ClickHouse partition pruning.
-    # Generations predate their evals, so widen the start by 7 days.
-    # End is period_end + 1 day buffer for eval lag.
-    from datetime import datetime, timedelta
-
-    try:
-        ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
-    except (ValueError, TypeError, KeyError):
-        ts_start = _ch_ts(state.get("period_start", "2020-01-01T00:00:00+00:00"))
-    try:
-        ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
-    except (ValueError, TypeError, KeyError):
-        ts_end = _ch_ts(state.get("period_end", "2099-01-01T00:00:00+00:00"))
+    ts_start, ts_end = _widened_ts_window(state)
+    shared_placeholders = {
+        "generation_id": ast.Constant(value=generation_id),
+        "ts_start": ast.Constant(value=ts_start),
+        "ts_end": ast.Constant(value=ts_end),
+    }
 
     # Full generation event data
     gen_rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT
             toString(uuid) as generation_id,
             properties.$ai_model as model,
@@ -480,11 +527,12 @@ def get_generation_detail(
             properties.$ai_output_state as output_state
         FROM events
         WHERE event = '$ai_generation'
-            AND toString(uuid) = '{generation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND toString(uuid) = {generation_id}
+            AND timestamp >= {ts_start}
+            AND timestamp < {ts_end}
         LIMIT 1
         """,
+        placeholders=shared_placeholders,
     )
 
     if not gen_rows:
@@ -495,7 +543,7 @@ def get_generation_detail(
     # Also fetch eval results for this generation
     eval_rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT
             properties.$ai_evaluation_id as eval_id,
             properties.$ai_evaluation_result as result,
@@ -503,12 +551,13 @@ def get_generation_detail(
             properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_target_event_id = '{generation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND properties.$ai_target_event_id = {generation_id}
+            AND timestamp >= {ts_start}
+            AND timestamp < {ts_end}
         ORDER BY timestamp DESC
         LIMIT 20
         """,
+        placeholders=shared_placeholders,
     )
 
     evals = []
@@ -578,28 +627,24 @@ def get_generation_text_repr(
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
 
-    from datetime import datetime, timedelta
-
-    try:
-        ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
-    except (ValueError, TypeError, KeyError):
-        ts_start = _ch_ts(state.get("period_start", "2020-01-01T00:00:00+00:00"))
-    try:
-        ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
-    except (ValueError, TypeError, KeyError):
-        ts_end = _ch_ts(state.get("period_end", "2099-01-01T00:00:00+00:00"))
+    ts_start, ts_end = _widened_ts_window(state)
 
     rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT uuid, event, timestamp, properties
         FROM events
         WHERE event = '$ai_generation'
-            AND toString(uuid) = '{generation_id}'
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND toString(uuid) = {generation_id}
+            AND timestamp >= {ts_start}
+            AND timestamp < {ts_end}
         LIMIT 1
         """,
+        placeholders={
+            "generation_id": ast.Constant(value=generation_id),
+            "ts_start": ast.Constant(value=ts_start),
+            "ts_end": ast.Constant(value=ts_end),
+        },
     )
 
     if not rows:
@@ -627,39 +672,99 @@ def get_generation_text_repr(
 
 
 @tool
-def get_recent_reports(
+def list_recent_report_runs(
     state: Annotated[dict, InjectedState],
-    limit: int = 3,
+    since_days: int = 30,
+    limit: int = 20,
 ) -> str:
-    """Get content from previous evaluation report runs for delta analysis.
+    """List metadata for previous report runs of this evaluation.
 
-    Helps identify what has changed since the last report.
+    Returns a compact index: run_id, period, title, pass rate, total runs.
+    No full content — use this to discover which past runs look interesting,
+    then call `get_report_run(run_id)` to pull the full narrative for the ones
+    worth reading. This two-step pattern keeps context small when scanning a
+    long history.
 
     Args:
-        limit: Number of recent reports to fetch (default 3)
+        since_days: Only include runs whose period ends within the last N days (default 30, max 365)
+        limit: Maximum number of runs to return (default 20, max 200)
     """
     from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
 
+    since_days = min(max(1, since_days), 365)
+    limit = min(max(1, limit), 200)
     evaluation_id = state["evaluation_id"]
-    period_start = state["period_start"]
 
-    recent_runs = EvaluationReportRun.objects.filter(
+    try:
+        period_start = datetime.fromisoformat(state["period_start"])
+    except (ValueError, TypeError, KeyError):
+        period_start = datetime.now(tz=UTC)
+
+    since = period_start - timedelta(days=since_days)
+
+    runs = EvaluationReportRun.objects.filter(
         report__evaluation_id=evaluation_id,
         period_end__lt=period_start,
-    ).order_by("-created_at")[:limit]
+        period_end__gte=since,
+    ).order_by("-period_end")[:limit]
 
     result = []
-    for run in recent_runs:
+    for run in runs:
+        content = run.content if isinstance(run.content, dict) else {}
+        metadata = run.metadata if isinstance(run.metadata, dict) else {}
         result.append(
             {
+                "run_id": str(run.id),
                 "period_start": str(run.period_start),
                 "period_end": str(run.period_end),
-                "content": run.content,
-                "metadata": run.metadata,
+                "title": content.get("title", ""),
+                "pass_rate": metadata.get("pass_rate"),
+                "total_runs": metadata.get("total_runs"),
+                "delivery_status": run.delivery_status,
             }
         )
 
     return json.dumps(result, indent=2, default=str)
+
+
+@tool
+def get_report_run(
+    state: Annotated[dict, InjectedState],
+    run_id: str,
+) -> str:
+    """Fetch the full content + metadata for a single past report run.
+
+    Use after `list_recent_report_runs` to drill into a specific run that looks
+    relevant for delta analysis. Returns the full serialized report (title,
+    sections, citations, metrics).
+
+    Args:
+        run_id: The report run UUID, from list_recent_report_runs.
+    """
+    from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
+
+    if not _UUID_RE.fullmatch(run_id or ""):
+        return json.dumps({"error": "Invalid run_id format"})
+
+    # Scope to the current evaluation so the agent can't read runs from another eval.
+    evaluation_id = state["evaluation_id"]
+    try:
+        run = EvaluationReportRun.objects.get(id=run_id, report__evaluation_id=evaluation_id)
+    except EvaluationReportRun.DoesNotExist:
+        return json.dumps({"error": f"Run {run_id} not found for this evaluation"})
+
+    return json.dumps(
+        {
+            "run_id": str(run.id),
+            "period_start": str(run.period_start),
+            "period_end": str(run.period_end),
+            "content": run.content,
+            "metadata": run.metadata,
+            "delivery_status": run.delivery_status,
+        },
+        indent=2,
+        default=str,
+    )
 
 
 @tool
@@ -821,7 +926,8 @@ EVAL_REPORT_TOOLS = [
     sample_generation_details,
     get_generation_detail,
     get_generation_text_repr,
-    get_recent_reports,
+    list_recent_report_runs,
+    get_report_run,
     get_top_failure_reasons,
     # Output tools (mutate state["report"])
     set_title,

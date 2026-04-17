@@ -39,7 +39,8 @@ You build the report incrementally by calling three output tools:
 - **`list_all_eval_results(max_reasoning_length=80)`** — compact overview of ALL results: verdict + generation_id + truncated reasoning per row. Call this early to see the full picture before drilling into specifics.
 - **`sample_eval_results(filter="all"|"pass"|"fail"|"na", limit)`** — sample eval run rows including generation_id + verdict + full reasoning.
 - **`sample_generation_details(generation_ids)`** — full generation data (input, output, model, tokens, **trace_id**). REQUIRED before citing — gives you the trace_id to pass to `add_citation`.
-- **`get_recent_reports(limit)`** — previous report content from prior runs (for delta analysis / continuity with earlier findings).
+- **`list_recent_report_runs(since_days, limit)`** — compact index of prior runs for this evaluation: run_id + title + period + pass_rate. Use to scan what past reports covered before drilling in.
+- **`get_report_run(run_id)`** — full content of a specific past run, looked up via `list_recent_report_runs`. Use for delta analysis / continuity with earlier findings.
 
 ## Grounding rule — every claim needs an example
 
@@ -60,7 +61,7 @@ If `sample_generation_details` returns empty for a generation_id, try others fro
 4. Call `get_top_failure_reasons()` if there are any failures.
 5. Call `sample_eval_results(filter="fail")` to get failing generation_ids with full reasoning. Also `sample_eval_results(filter="pass")` for contrast examples.
 6. Call `sample_generation_details(...)` on 3-5 interesting generation_ids (mix of pass and fail) to get trace_ids + full content. This is NOT optional — you need trace_ids to cite.
-7. (Optional) Call `get_recent_reports()` for continuity with prior analyses.
+7. (Optional) Call `list_recent_report_runs()` to see what recent runs covered, then `get_report_run(run_id)` on one or two interesting ones for continuity with prior analyses.
 8. Decide your title and section structure.
 9. Call `set_title(...)` once.
 10. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR. Embed `<generation_id>` references inline so readers can click through to examples.
