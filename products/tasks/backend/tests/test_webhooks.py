@@ -141,6 +141,24 @@ class TestGitHubPRWebhook(TestCase):
     def test_pr_closed_without_merge_does_not_add_checkmark(self, mock_update_reaction, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
+        # Create a mapping so the only reason update_reaction isn't called is the merged guard
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T12345",
+            channel="C001",
+            thread_ts="1234.5678",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+
         payload = {
             "action": "closed",
             "pull_request": {

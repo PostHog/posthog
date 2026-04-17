@@ -164,7 +164,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
 
 
 def _add_slack_merge_reaction(task_run: TaskRun) -> None:
-    """Add a white_check_mark reaction to the Slack thread that originated this task."""
     try:
         mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
         if not mapping:
