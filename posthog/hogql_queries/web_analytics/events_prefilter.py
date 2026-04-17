@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -27,8 +28,18 @@ class _EventsFieldCollector(TraversingVisitor):
         field_type = node.type
         if isinstance(field_type, ast.PropertyType):
             ft = field_type.field_type
-            if ft.table_type == self.events_table_type and len(field_type.chain) >= 1:
-                self.property_accesses.add((str(field_type.chain[0]), ft.name))
+            table_type = ft.table_type
+            col_name = ft.name
+            # Unwrap VirtualTableType (e.g. poe for person properties) to check if this
+            # property ultimately lives on the events table, and resolve the actual DB
+            # column name (e.g. "person_properties" instead of "properties")
+            while isinstance(table_type, ast.VirtualTableType):
+                db_field = table_type.virtual_table.fields.get(ft.name)
+                if isinstance(db_field, DatabaseField):
+                    col_name = db_field.name
+                table_type = table_type.table_type
+            if table_type == self.events_table_type and len(field_type.chain) >= 1:
+                self.property_accesses.add((str(field_type.chain[0]), col_name))
             field_type = ft
         if isinstance(field_type, ast.FieldType) and field_type.table_type == self.events_table_type:
             self.fields.add(field_type.name)
