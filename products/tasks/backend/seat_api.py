@@ -15,7 +15,6 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission
 
 # TODO: Centralize billing proxy through BillingManager (ee/billing/) to avoid
 # duplicating auth header construction and keep all billing communication in one place
@@ -51,8 +50,7 @@ class SeatViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     # ------------------------------------------------------------------
@@ -134,6 +132,23 @@ class SeatViewSet(viewsets.ViewSet):
         if not _is_org_admin(request.user):
             raise PermissionDenied("Only organization admins can perform this action.")
 
+    def _require_org_member(self, request: Request, distinct_id: str) -> None:
+        org = cast(User, request.user).organization
+        if (
+            not org
+            or not OrganizationMembership.objects.filter(
+                user__distinct_id=distinct_id,
+                organization=org,
+            ).exists()
+        ):
+            raise PermissionDenied("Target user is not a member of this organization.")
+
+    def _resolve_and_check_membership(self, request: Request, pk: str | None) -> str:
+        distinct_id = self._resolve_distinct_id(pk, request)
+        if pk != "me":
+            self._require_org_member(request, distinct_id)
+        return distinct_id
+
     @staticmethod
     def _filtered_query_params(request: Request) -> dict[str, str]:
         product_key = request.query_params.get("product_key", "")
@@ -170,6 +185,7 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "Invalid user_distinct_id format"}, status=status.HTTP_400_BAD_REQUEST)
         if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
+        self._require_org_member(request, str(body_distinct_id))
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -187,7 +203,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "GET",
             f"/api/v2/seats/{distinct_id}/",
@@ -205,7 +221,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
@@ -223,7 +239,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "DELETE",
             f"/api/v2/seats/{distinct_id}/",
@@ -242,7 +258,7 @@ class SeatViewSet(viewsets.ViewSet):
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_distinct_id(pk, request)
+        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",

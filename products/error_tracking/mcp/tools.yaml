@@ -21,7 +21,17 @@ ui_apps:
 tools:
     error-tracking-assignment-rules-list:
         operation: error_tracking_assignment_rules_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking assignment rules
+        description: >
+            List error tracking assignment rules for the current project. Returns rules in evaluation order with
+            their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: false
@@ -71,8 +81,9 @@ tools:
         list: true
         title: List error tracking issues
         description: >
-            List all error tracking issues in the project. Returns issues with id, status, name, first seen
-            timestamp, and assignee info.
+            List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp,
+            and assignee info.
+        ui_app: error-issue-list
         response:
             include:
                 - id
@@ -80,7 +91,6 @@ tools:
                 - name
                 - first_seen
                 - assignee
-        ui_app: error-issue-list
     error-tracking-issues-create:
         operation: error_tracking_issues_create
         enabled: false
@@ -140,11 +150,22 @@ tools:
             idempotent: false
         title: Merge error tracking issues
         description: >
-            Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id`
-            and the issues to merge into it as `ids`.
+            Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and
+            the issues to merge into it as `ids`.
     error-tracking-issues-split-create:
         operation: error_tracking_issues_split_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Split error tracking issue fingerprints
+        description: >
+            Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the
+            source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a
+            required `fingerprint` and optional `name` or `description`.
     error-tracking-issues-bulk-create:
         operation: error_tracking_issues_bulk_create
         enabled: false
@@ -286,8 +307,18 @@ tools:
     error-tracking-issues-exists-retrieve:
         operation: error_tracking_issues_exists_retrieve
         enabled: false
-
-# Query wrapper tools — execute ErrorTrackingQuery via the query API.
+    error-tracking-recommendations-list:
+        operation: error_tracking_recommendations_list
+        enabled: false
+    error-tracking-recommendations-dismiss-create:
+        operation: error_tracking_recommendations_dismiss_create
+        enabled: false
+    error-tracking-recommendations-refresh-create:
+        operation: error_tracking_recommendations_refresh_create
+        enabled: false
+    error-tracking-recommendations-restore-create:
+        operation: error_tracking_recommendations_restore_create
+        enabled: false
 wrappers:
     query-error-tracking-issues:
         schema_ref: AssistantErrorTrackingQuery
@@ -301,13 +332,13 @@ wrappers:
         title: Query error tracking issues
         description_file: ./prompts/query-error-tracking-issues.md
         ui_resource_uri: ui://posthog/error-issue-list.html
-        url_prefix: /error_tracking
         property_defaults:
             limit: 50
             orderBy: occurrences
             volumeResolution: 1
             dateRange:
-                date_from: '-7d'
+                date_from: -7d
             filterTestAccounts: true
             status: active
             orderDirection: DESC
+        url_prefix: /error_tracking

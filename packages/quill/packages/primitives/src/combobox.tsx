@@ -7,6 +7,7 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { MenuLabel } from './menuLabel'
+import { Separator } from './separator'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -19,9 +20,9 @@ function Combobox<Value, Multiple extends boolean | undefined = false>({
     return (
         <ComboboxAnchorContext.Provider value={anchorRef}>
             <ComboboxPrimitive.Root
-                    highlightItemOnHover={highlightItemOnHover}
-                    {...props}
-                >
+                highlightItemOnHover={highlightItemOnHover}
+                {...props}
+            >
                 {children}
             </ComboboxPrimitive.Root>
         </ComboboxAnchorContext.Provider>
@@ -123,7 +124,7 @@ function ComboboxContent({
                     data-slot="combobox-content"
                     data-chips={!!anchor}
                     className={cn(
-                        'group/combobox-content relative max-h-(--available-height) min-w-[max(12rem,var(--anchor-width))] max-w-[min(24rem,var(--available-width))] origin-(--transform-origin) overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-start-2 data-[side=inline-start]:slide-in-from-end-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-7 *:data-[slot=input-group]:border-none *:data-[slot=input-group]:bg-input/20 *:data-[slot=input-group]:shadow-none dark:bg-popover data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+                        'group/combobox-content relative flex flex-col max-h-(--available-height) min-w-[max(12rem,var(--anchor-width))] max-w-[min(24rem,var(--available-width))] origin-(--transform-origin) overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-start-2 data-[side=inline-start]:slide-in-from-end-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-7 *:data-[slot=input-group]:border-none *:data-[slot=input-group]:bg-input/20 *:data-[slot=input-group]:shadow-none dark:bg-popover data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
                         className
                     )}
                     {...props}
@@ -138,7 +139,7 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
         <ComboboxPrimitive.List
             data-slot="combobox-list"
             className={cn(
-                'max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0',
+                'min-h-0 max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 has-data-[slot=combobox-list-footer]:scroll-pb-10 overflow-y-auto overscroll-contain p-1 has-data-[slot=combobox-list-footer]:pb-0 data-empty:p-0',
                 className
             )}
             {...props}
@@ -155,10 +156,10 @@ function ComboboxItem({ className, children, title, ...props }: ComboboxPrimitiv
                 'not-has-[>[data-slot=item]]:[&>button]:overflow-hidden',
                 className
             )}
-            render={<Button left className="aria-selected:pe-7" />}
+            render={<Button left className="relative aria-selected:pe-7" />}
             {...props}
         >
-            <span className="truncate" title={title ?? (typeof children === 'string' ? children : undefined)}>{children}</span>
+            <span className="inline-flex items-center gap-1.5 truncate" title={title ?? (typeof children === 'string' ? children : undefined)}>{children}</span>
             <ComboboxPrimitive.ItemIndicator
                 render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
             >
@@ -263,6 +264,15 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
     )
 }
 
+function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+    return (
+        <div data-slot="combobox-list-footer" className={cn("sticky -bottom-px bg-popover mt-1 -top-px", className)}>
+            <Separator orientation="horizontal" className="-mx-2" />
+            <div className="py-1" {...props} />
+        </div>
+    )
+}
+
 function useComboboxAnchor(): React.RefObject<HTMLDivElement> {
     const contextRef = React.useContext(ComboboxAnchorContext)
     if (contextRef === null) {
@@ -281,6 +291,7 @@ export {
     ComboboxLabel,
     ComboboxCollection,
     ComboboxEmpty,
+    ComboboxListFooter,
     ComboboxSeparator,
     ComboboxChips,
     ComboboxChip,

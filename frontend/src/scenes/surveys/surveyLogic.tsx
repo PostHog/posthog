@@ -93,6 +93,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
@@ -755,7 +756,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            coalesce(properties.\`${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}\` = true, false) = false
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                         )
                         AND (
                             -- Include non-'sent' events directly
@@ -808,7 +812,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            coalesce(properties.\`${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}\` = true, false) = false
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                             )
                             AND {filters} -- Apply property filters here to reduce initial events
                         GROUP BY person_id
@@ -1591,7 +1598,10 @@ export const surveyLogic = kea<surveyLogicType>([
                  * So we return all responses that don't have it.
                  * For posthog-js > 1.240, we use the $survey_completed property.
                  */
-                return `AND coalesce(properties.\`${SurveyEventProperties.SURVEY_COMPLETED}\` = true, true)`
+                return `AND ${buildSurveyOptionalBooleanPropertyFilter(
+                    SurveyEventProperties.SURVEY_COMPLETED,
+                    'false'
+                )}`
             },
         ],
         archivedResponsesFilter: [

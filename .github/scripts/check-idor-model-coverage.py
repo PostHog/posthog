@@ -130,6 +130,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "CodeInviteRedemption",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
+        "StreamlitAppVersion",
         "FeatureFlagEvaluationContext",
         "Run",
         "RunSnapshot",
