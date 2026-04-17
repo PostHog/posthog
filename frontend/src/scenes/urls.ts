@@ -27,6 +27,7 @@ export const urls = {
     ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
+    guest: (): string => '/guest',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     newTab: () => '/search',

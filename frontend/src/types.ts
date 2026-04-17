@@ -318,6 +318,12 @@ export interface SceneDashboardChoice {
 export type UserTheme = 'light' | 'dark' | 'system'
 export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 
+export interface GuestGrant {
+    team_id: number
+    resource: string
+    resource_id: string
+}
+
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
@@ -350,6 +356,8 @@ export interface UserType extends UserBaseType {
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
+    is_guest_in_current_project?: boolean
+    guest_grants?: GuestGrant[]
 }
 
 export type HedgehogColorOptions =

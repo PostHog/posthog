@@ -262,6 +262,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
+    [Scene.GuestLanding]: {
+        name: 'Your shared content',
+        layout: 'guest-minimal',
+    },
+    [Scene.GuestNotFound]: {
+        name: 'Not found',
+        layout: 'guest-minimal',
+    },
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
@@ -972,5 +980,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
+    [urls.guest()]: [Scene.GuestLanding, 'guest-landing'],
     ...productRoutes,
 }
