@@ -773,7 +773,9 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
 )
 def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for logs tables"""
-    cluster_resource = BackupsClickhouseClusterResource(cluster=settings.CLICKHOUSE_MIGRATIONS_CLUSTER)
+    cluster_resource = BackupsClickhouseClusterResource(
+        host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
+    )
     for table in LOGS_TABLES:
         request = run_backup_request(
             table,
@@ -795,7 +797,9 @@ def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
 )
 def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for logs tables"""
-    cluster_resource = BackupsClickhouseClusterResource(cluster=settings.CLICKHOUSE_MIGRATIONS_CLUSTER)
+    cluster_resource = BackupsClickhouseClusterResource(
+        host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
+    )
     for table in LOGS_TABLES:
         request = run_backup_request(
             table,
