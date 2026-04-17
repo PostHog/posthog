@@ -234,11 +234,12 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Create a new runner for the previous period
+        # Create a new runner for the previous period.
+        # Clone timings so the parallel to_query() calls don't race on the shared HogQLTimings instance.
         previous_runner = MarketingAnalyticsTableQueryRunner(
             query=previous_query,
             team=self.team,
-            timings=self.timings,
+            timings=self.timings.clone_for_subquery(0),
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
