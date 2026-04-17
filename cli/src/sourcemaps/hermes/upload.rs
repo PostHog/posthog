@@ -5,6 +5,7 @@ use serde_json::json;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
+use crate::api::releases::is_hash_already_in_use;
 use crate::api::symbol_sets::{self, SymbolSetUpload};
 use crate::invocation_context::context;
 use crate::sourcemaps::args::ReleaseArgs;
@@ -44,9 +45,22 @@ pub fn upload(args: &Args) -> Result<()> {
     info!("Processing directory: {}", directory.display());
     let maps = read_maps(&directory);
 
-    // Get or create a release if project/version are provided or if any map is missing a release_id
-    let created_release_id =
-        get_release_for_maps(&directory, release.clone(), maps.iter())?.map(|r| r.id.to_string());
+    // Get or create a release if project/version are provided or if any map is missing a release_id.
+    // If a concurrent step has just created the release, the `by_hash` GET used inside
+    // `get_release_for_maps` can briefly serve a stale 404 — the follow-up POST then fails with
+    // `Hash id ... already in use`. In that case proceed without overriding map release_ids
+    // rather than aborting.
+    let created_release_id = match get_release_for_maps(&directory, release.clone(), maps.iter()) {
+        Ok(result) => result.map(|r| r.id.to_string()),
+        Err(err) if is_hash_already_in_use(&err) => {
+            warn!(
+                    "release already exists (created concurrently); keeping release_ids on existing maps: {}",
+                    err
+                );
+            None
+        }
+        Err(err) => return Err(err),
+    };
 
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
     for mut map in maps.into_iter() {

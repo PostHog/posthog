@@ -1,10 +1,10 @@
 use anyhow::{bail, Result};
 use std::path::Path;
-use tracing::info;
+use tracing::{info, warn};
 use walkdir::DirEntry;
 
 use crate::{
-    api::releases::{Release, ReleaseBuilder},
+    api::releases::{is_hash_already_in_use, Release, ReleaseBuilder},
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs},
         content::SourceMapFile,
@@ -55,10 +55,25 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'sta
 
     let cwd = std::env::current_dir()?;
 
-    let created_release_id =
-        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-            .as_ref()
-            .map(|r| r.id.to_string());
+    // If a concurrent CLI invocation has already created the release, the `by_hash` GET used
+    // inside `get_release_for_maps` can briefly serve a stale 404 — the follow-up POST then
+    // fails with `Hash id ... already in use`. Treat that as a signal to proceed without a
+    // release association (chunk_ids still get injected) rather than aborting the run.
+    let created_release_id = match get_release_for_maps(
+        &cwd,
+        release.clone(),
+        pairs.iter().map(|p| &p.sourcemap),
+    ) {
+        Ok(release) => release.as_ref().map(|r| r.id.to_string()),
+        Err(err) if is_hash_already_in_use(&err) => {
+            warn!(
+                    "release already exists (created concurrently); injecting chunk ids without a release association: {}",
+                    err
+                );
+            None
+        }
+        Err(err) => return Err(err),
+    };
 
     pairs = inject_pairs(pairs, created_release_id)?;
 

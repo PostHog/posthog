@@ -138,29 +138,12 @@ impl ReleaseBuilder {
                 self.missing().join(", ")
             )
         }
-        // Clone so we can re-lookup if a concurrent caller wins the create race
-        // (e.g. the inject and upload phases of `sourcemap process` both reach
-        // `fetch_or_create` for the same release).
-        let name = self.name.clone().expect("can_create() ensured name is set");
-        let version = self
-            .version
-            .clone()
-            .expect("can_create() ensured version is set");
-
-        if let Some(release) = Release::lookup(&name, &version)? {
-            return Ok(release);
-        }
-
-        match self.create_release() {
-            Ok(release) => Ok(release),
-            Err(err) if is_hash_already_in_use(&err) => {
-                warn!(
-                    "Release {}@{} reported as already in use on create; re-fetching",
-                    name, version
-                );
-                Release::lookup(&name, &version)?.ok_or(err)
-            }
-            Err(err) => Err(err),
+        let version = self.version.as_ref().unwrap();
+        let project = self.name.as_ref().unwrap();
+        if let Some(release) = Release::lookup(project, version)? {
+            Ok(release)
+        } else {
+            self.create_release()
         }
     }
 
@@ -206,10 +189,13 @@ impl ReleaseBuilder {
 
 /// Returns true if `err` (including wrapped causes) is the PostHog API
 /// `validation_error` that signals a release with this `hash_id` already
-/// exists. Used to make `fetch_or_create` tolerant of GET/POST races where
-/// `Release::lookup` returns 404 for a release that a concurrent caller
-/// (or a prior phase of the same `sourcemap process` run) just created.
-fn is_hash_already_in_use(err: &anyhow::Error) -> bool {
+/// exists. Used by the sourcemap inject/upload flows to degrade gracefully
+/// when another step (or a concurrent invocation) has just created the
+/// release — `Release::lookup`'s `by_hash` endpoint can briefly serve a
+/// stale 404 afterwards, so callers can't reliably re-fetch and should
+/// fall back to whatever release_id they already have on their source
+/// pairs instead of aborting.
+pub(crate) fn is_hash_already_in_use(err: &anyhow::Error) -> bool {
     err.chain().any(|cause| {
         matches!(
             cause.downcast_ref::<ClientError>(),
