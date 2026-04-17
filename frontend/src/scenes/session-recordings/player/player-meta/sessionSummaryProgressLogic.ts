@@ -82,13 +82,15 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                     [sessionId]: { maxStep: 0, hasRetried: false },
                 }),
                 setProgress: (state, { sessionId, progress }) => {
+                    if (!progress) {
+                        return state
+                    }
                     const existing = state[sessionId] ?? { maxStep: 0, hasRetried: false }
-                    const step = progress?.step ?? 0
                     return {
                         ...state,
                         [sessionId]: {
-                            maxStep: Math.max(existing.maxStep, step),
-                            hasRetried: existing.hasRetried || step < existing.maxStep,
+                            maxStep: Math.max(existing.maxStep, progress.step),
+                            hasRetried: existing.hasRetried || progress.step < existing.maxStep,
                         },
                     }
                 },
