@@ -53,6 +53,10 @@ export const StandardReason: Story = {
 }
 
 export const Loading: Story = {
+    parameters: {
+        // The primary button spins while loading — don't wait for it to disappear.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     render: () => (
         <ModalShell>
             <ImpersonationReasonModal
