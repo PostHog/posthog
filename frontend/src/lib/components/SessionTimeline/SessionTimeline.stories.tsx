@@ -300,7 +300,7 @@ export const ManyItems: StoryFn = () => {
     )
 }
 
-/** Single category — only console logs. */
+/** Single category — only console logs visible. */
 export const SingleCategory: StoryFn = () => {
     const collector = buildCollector({
         center: CENTER,
