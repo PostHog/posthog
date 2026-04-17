@@ -16,11 +16,12 @@ import {
 } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { humanFriendlyCurrency } from 'lib/utils'
+
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { BillingPlan, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { formatFlatRate } from './BillingProductAddon'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -99,7 +100,7 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
     return (
         <div
             className={
-                'flex flex-col gap-3 p-4 rounded bg-surface-secondary ' +
+                'flex flex-col gap-3 p-5 rounded bg-surface-secondary ' +
                 (addon.subscribed ? 'ring-2 ring-accent' : '')
             }
         >
@@ -122,11 +123,14 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
                 </div>
             )}
             {upgradePlan?.flat_rate && (
-                <div className="text-base font-bold mt-auto">
-                    {formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)}
+                <div className="flex items-baseline gap-x-1 mt-4">
+                    <span className="font-bold text-3xl leading-none">
+                        {humanFriendlyCurrency(Number(upgradePlan.unit_amount_usd), 0)}
+                    </span>
+                    {upgradePlan.unit && <span className="text-secondary">/ {upgradePlan.unit}</span>}
                 </div>
             )}
-            <div>
+            <div className="mt-3">
                 <BillingProductAddonActions addon={addon} buttonSize="small" align="left" />
             </div>
         </div>
