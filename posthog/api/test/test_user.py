@@ -142,16 +142,19 @@ class TestUserAPI(APIBaseTest):
         from posthog.constants import INVITE_DAYS_VALIDITY
         from posthog.models import OrganizationInvite
 
-        other_org = Organization.objects.create(name="Other Organization")
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
         target_email = self.user.email.upper() if uppercase_email else self.user.email
 
         if expired:
-            with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
-                OrganizationInvite.objects.create(
-                    organization=other_org,
-                    target_email=target_email,
-                    created_by=self.user,
-                )
+            # Push created_at back beyond INVITE_DAYS_VALIDITY without needing freeze_time.
+            invite = OrganizationInvite.objects.create(
+                organization=other_org,
+                target_email=target_email,
+                created_by=self.user,
+            )
+            OrganizationInvite.objects.filter(pk=invite.pk).update(
+                created_at=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)
+            )
         else:
             OrganizationInvite.objects.create(
                 organization=other_org,
@@ -166,7 +169,7 @@ class TestUserAPI(APIBaseTest):
     def test_pending_invites_excludes_other_emails_and_existing_memberships(self):
         from posthog.models import OrganizationInvite
 
-        other_org = Organization.objects.create(name="Other Organization")
+        other_org = Organization.objects.create(name="Another Org For Pending Invites Test")
 
         matching_invite = OrganizationInvite.objects.create(
             organization=other_org,
