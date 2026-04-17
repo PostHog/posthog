@@ -483,6 +483,24 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
+# The bootstrap flow creates the membership inside the same transaction as the org,
+# so the two timestamps land within a small delta. Anything larger is an invitee.
+_ORG_FIRST_USER_JOINED_WITHIN_SECONDS = 5
+
+
+def is_organization_first_user(user: "User", organization: "Organization") -> bool:
+    """Whether the user was the first member of the organization (i.e. the creator).
+
+    Inferred from the delta between org creation and membership creation rather than
+    stored explicitly — a small delta means the user bootstrapped the org in the
+    same transaction, a larger delta means they joined later via invite / JIT / SAML.
+    """
+    membership = OrganizationMembership.objects.filter(organization=organization, user=user).only("joined_at").first()
+    if membership is None:
+        return False
+    return abs((membership.joined_at - organization.created_at).total_seconds()) < _ORG_FIRST_USER_JOINED_WITHIN_SECONDS
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""

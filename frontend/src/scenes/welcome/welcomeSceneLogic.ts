@@ -96,6 +96,14 @@ export const welcomeSceneLogic = kea<welcomeSceneLogicType>([
                 markCardInteracted: (state, { card }) => ({ ...state, [card]: true }),
             },
         ],
+        // Local flag so sceneLogic stops redirecting back to /welcome during the
+        // window between the dismiss POST and the user refetch landing.
+        dismissedLocally: [
+            false,
+            {
+                dismissWelcome: () => true,
+            },
+        ],
     }),
 
     loaders({

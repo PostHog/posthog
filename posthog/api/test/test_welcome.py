@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, User
@@ -102,21 +103,24 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertIn("product_analytics", data["products_in_use"])
 
-    def test_is_organization_first_user_true_for_owner(self):
-        # The default APIBaseTest user is the first member of the org it was created with.
+    @parameterized.expand(
+        [
+            # (name, join_delta_seconds, expected_is_first_user)
+            ("owner_joins_at_org_creation", 0, True),
+            ("boundary_just_within_5_seconds", 4, True),
+            ("invitee_joins_minutes_later", 60 * 5, False),
+            ("invitee_joins_hours_later", 60 * 60, False),
+        ]
+    )
+    def test_is_organization_first_user(self, _name: str, join_delta_seconds: int, expected: bool):
+        org = Organization.objects.create(name=f"Org-{_name}")
+        with freeze_time(timezone.now() + timedelta(seconds=join_delta_seconds)):
+            member = User.objects.create_and_join(org, f"{_name}@example.com", "password")
+        self.client.force_login(member)
+        member.current_organization = org
+        member.save()
         response = self.client.get("/api/users/@me/")
-        self.assertTrue(response.json()["is_organization_first_user"])
-
-    def test_is_organization_first_user_false_for_invited_user(self):
-        # Create a new org and a user invited after creation time.
-        org = Organization.objects.create(name="Other")
-        with freeze_time(timezone.now() + timedelta(minutes=5)):
-            invitee = User.objects.create_and_join(org, "invitee@example.com", "password")
-        self.client.force_login(invitee)
-        invitee.current_organization = org
-        invitee.save()
-        response = self.client.get("/api/users/@me/")
-        self.assertFalse(response.json()["is_organization_first_user"])
+        self.assertEqual(response.json()["is_organization_first_user"], expected)
 
     def test_unauthenticated_cannot_access_welcome(self):
         self.client.logout()

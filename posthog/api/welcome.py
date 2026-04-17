@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembership, is_organization_first_user
 
 # Keys on Team.has_completed_onboarding_for are ProductKey values mapped to booleans.
 # Fallback presence-of-data checks supplement the onboarding signal.
@@ -76,13 +76,7 @@ class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = cast(User, request.user)
-        try:
-            organization = self.organization
-        except Exception:
-            organization = user.organization
-        if organization is None:
-            return Response({"detail": "Current organization not found."}, status=404)
-
+        organization = self.organization
         payload = _get_welcome_payload(organization, user)
         return Response(payload)
 
@@ -101,7 +95,7 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
     )
     cache_key = f"welcome_screen:{organization.id}:{latest_activity_id or 'none'}"
     cached = cache.get(cache_key)
-    is_first_user = _is_organization_first_user(user, organization)
+    is_first_user = is_organization_first_user(user, organization)
     if cached is not None:
         # Per-user data must still be recomputed because the cache is per-org.
         payload = dict(cached)
@@ -130,18 +124,6 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
 
 def _filter_self(members: list[dict[str, Any]], user: User) -> list[dict[str, Any]]:
     return [member for member in members if member.get("email") != user.email][:_TEAM_MEMBERS_MAX_ITEMS]
-
-
-def _is_organization_first_user(user: User, organization: Organization) -> bool:
-    """A user is the first user of the org if their membership was created at the same time as the org.
-
-    The activation-logic PR exposes this via the serializer; here we compute the same signal
-    inline until that field ships.
-    """
-    membership = OrganizationMembership.objects.filter(organization=organization, user=user).only("joined_at").first()
-    if membership is None:
-        return False
-    return abs((membership.joined_at - organization.created_at).total_seconds()) < 5
 
 
 def _get_inviter(user: User, organization: Organization) -> dict[str, str] | None:

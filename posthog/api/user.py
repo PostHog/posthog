@@ -267,22 +267,12 @@ class UserSerializer(serializers.ModelSerializer):
         return membership.welcome_screen_seen_at.replace(tzinfo=UTC).isoformat()
 
     def get_is_organization_first_user(self, instance: User) -> bool:
-        """True if the current user was the first member of their current organization.
+        from posthog.models.organization import is_organization_first_user
 
-        This is inferred from the time between organization creation and membership creation
-        rather than persisted separately — a small delta means the user bootstrapped the org.
-        """
         organization = instance.current_organization
         if organization is None:
             return False
-        from posthog.models.organization import OrganizationMembership
-
-        membership = (
-            OrganizationMembership.objects.filter(organization=organization, user=instance).only("joined_at").first()
-        )
-        if membership is None:
-            return False
-        return abs((membership.joined_at - organization.created_at).total_seconds()) < 5
+        return is_organization_first_user(instance, organization)
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
