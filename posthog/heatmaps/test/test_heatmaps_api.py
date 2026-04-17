@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_event,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -613,6 +614,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_result_count({"date_from": "2023-03-08", "type": "scrolldepth"}, 1)
 
     # ---- v2 url_properties filter ----
+    def _enable_heatmaps_v2_flag(self) -> None:
+        # All v2 tests run with the gating flag enabled. A dedicated test below covers the
+        # flag-off path (v2 params must be silently ignored).
+        patcher = patch(
+            "posthog.heatmaps.heatmaps_api.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _seed_orgs_dataset(self) -> None:
         self._create_heatmap_event(
             "org_one_home", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/orgs/1"
@@ -672,6 +683,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_url_properties_filter_variants(
         self, _name: str, url_properties: list, do_path_cleaning: bool, expected_count: int
     ) -> None:
+        self._enable_heatmaps_v2_flag()
         self._seed_orgs_dataset()
 
         params: dict[str, str | int | None] = {
@@ -686,6 +698,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freezegun.freeze_time("2025-03-31")
     def test_url_properties_with_path_cleaning_collapses_ids(self) -> None:
+        self._enable_heatmaps_v2_flag()
         self._seed_orgs_dataset()
 
         # Configure team-wide path cleaning to collapse `/orgs/<id>` to `/orgs/:id`
@@ -704,6 +717,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freezegun.freeze_time("2025-03-31")
     def test_url_properties_is_cleaned_path_exact_operator(self) -> None:
+        self._enable_heatmaps_v2_flag()
         self._seed_orgs_dataset()
 
         self.team.path_cleaning_filters = [
@@ -728,6 +742,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freezegun.freeze_time("2025-03-31")
     def test_url_properties_rejected_with_legacy_url_exact(self) -> None:
+        self._enable_heatmaps_v2_flag()
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/")
 
         response = self._get_heatmap(
@@ -751,6 +766,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @freezegun.freeze_time("2025-03-31")
     def test_url_properties_validation_errors(self, _name: str, payload) -> None:
+        self._enable_heatmaps_v2_flag()
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00")
 
         self._get_heatmap(
@@ -760,9 +776,59 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freezegun.freeze_time("2025-03-31")
     def test_url_properties_invalid_json(self) -> None:
+        self._enable_heatmaps_v2_flag()
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00")
 
         self._get_heatmap(
             {"date_from": "2023-03-08", "url_properties": "not json"},
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_ignored_when_flag_disabled(self) -> None:
+        # When the gating flag is off, v2 params must be silently stripped — the request
+        # still succeeds (date_from + type keep generating predicates) but the v2 filter
+        # has no effect.
+        self._seed_orgs_dataset()
+
+        with patch(
+            "posthog.heatmaps.heatmaps_api.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            # All five seeded events are returned — the restrictive v2 regex is ignored.
+            self._assert_heatmap_single_result_count(
+                {
+                    "date_from": "2023-03-08",
+                    "url_properties": json.dumps(
+                        [{"key": "$current_url", "operator": "regex", "value": "^/nothing-matches$"}]
+                    ),
+                    "do_path_cleaning": "true",
+                },
+                5,
+            )
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_with_legacy_params_allowed_when_flag_disabled(self) -> None:
+        # Mutual-exclusion validation must NOT fire when the flag is off — v2 params get
+        # stripped before the serializer ever sees them.
+        self._create_heatmap_event(
+            "session_home", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/"
+        )
+        self._create_heatmap_event(
+            "session_orgs", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/orgs/1"
+        )
+
+        with patch(
+            "posthog.heatmaps.heatmaps_api.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            self._assert_heatmap_single_result_count(
+                {
+                    "date_from": "2023-03-08",
+                    "url_exact": "https://app.example.com/",
+                    "url_properties": json.dumps(
+                        [{"key": "$current_url", "operator": "exact", "value": "https://app.example.com/orgs/1"}]
+                    ),
+                },
+                1,
+            )

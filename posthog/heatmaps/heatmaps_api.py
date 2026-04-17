@@ -7,6 +7,7 @@ from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
+import posthoganalytics
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey, PropertyOperator
@@ -350,7 +351,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = HeatmapsResponseSerializer
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
+        query_params = self._strip_v2_params_if_disabled(request.query_params)
+        request_serializer = HeatmapsRequestSerializer(data=query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
         aggregation = request_serializer.validated_data.pop("aggregation")
@@ -441,6 +443,35 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return predicate_expressions
 
+    HEATMAPS_V2_FILTERS_FLAG = "heatmaps-v2-filters"
+    V2_ONLY_PARAMS = ("url_properties", "do_path_cleaning")
+
+    def _heatmaps_v2_filters_enabled(self) -> bool:
+        return bool(
+            posthoganalytics.feature_enabled(
+                self.HEATMAPS_V2_FILTERS_FLAG,
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.team.organization_id),
+                    }
+                },
+                send_feature_flag_events=False,
+            )
+        )
+
+    def _strip_v2_params_if_disabled(self, query_params):
+        # Fast-path: no v2 params supplied → skip the flag lookup entirely.
+        if not any(param in query_params for param in self.V2_ONLY_PARAMS):
+            return query_params
+        if self._heatmaps_v2_filters_enabled():
+            return query_params
+        mutable = query_params.copy()
+        for param in self.V2_ONLY_PARAMS:
+            mutable.pop(param, None)
+        return mutable
+
     def _url_property_expressions(
         self,
         url_properties: builtins.list[dict],
@@ -502,7 +533,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def events(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        request_serializer = HeatmapEventsRequestSerializer(data=request.query_params, context={"team": self.team})
+        query_params = self._strip_v2_params_if_disabled(request.query_params)
+        request_serializer = HeatmapEventsRequestSerializer(data=query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
         validated_data = request_serializer.validated_data
