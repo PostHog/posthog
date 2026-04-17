@@ -431,7 +431,7 @@ export function EditSubscription({
                         <FlaggedFeature flag={FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS}>
                             <LemonField name="summary_enabled">
                                 {({ value, onChange }) => (
-                                    <AIConsentPopoverWrapper hidden={dataProcessingAccepted}>
+                                    <AIConsentPopoverWrapper>
                                         <LemonSwitch
                                             checked={value}
                                             onChange={onChange}
