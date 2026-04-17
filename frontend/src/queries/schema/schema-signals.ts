@@ -242,10 +242,9 @@ export interface EnrichedReviewer {
 
 // ── Discriminated union over all signal variants ─────────────────────────────────
 
-/** @discriminator source_product, source_type */
+/** @discriminator source_product */
 export type SignalInput =
     | SessionProblemSignalInput
-    | SessionSegmentClusterSignalInput
     | LlmEvaluationSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput

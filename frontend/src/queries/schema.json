@@ -34750,14 +34750,11 @@
         },
         "SignalInput": {
             "discriminator": {
-                "propertyName": "source_product, source_type"
+                "propertyName": "source_product"
             },
             "oneOf": [
                 {
                     "$ref": "#/definitions/SessionProblemSignalInput"
-                },
-                {
-                    "$ref": "#/definitions/SessionSegmentClusterSignalInput"
                 },
                 {
                     "$ref": "#/definitions/LlmEvaluationSignalInput"
@@ -34778,7 +34775,7 @@
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
                 }
             ],
-            "required": ["source_product, source_type"],
+            "required": ["source_product"],
             "type": "object"
         },
         "SignalReviewerUserInfo": {
