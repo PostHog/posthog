@@ -34,7 +34,17 @@ tools:
             their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking assignment rule
+        description: >
+            Create an error tracking assignment rule for the current project. Provide `filters` to match incoming
+            errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.
     error-tracking-assignment-rules-reorder-partial-update:
         operation: error_tracking_assignment_rules_reorder_partial_update
         enabled: false

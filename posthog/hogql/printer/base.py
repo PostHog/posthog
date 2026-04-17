@@ -20,7 +20,7 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FunctionCallTable, Table
+from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import (
@@ -1227,6 +1227,8 @@ class HogQLPrinter(Visitor[str]):
                     field_sql = self._print_identifier(type.name)
                 else:
                     # resolved_field may be an ast.Alias; in both cases .name is the physical column name to emit
+                    if not isinstance(resolved_field, DatabaseField):
+                        raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.
@@ -1300,6 +1302,8 @@ class HogQLPrinter(Visitor[str]):
             table_name = self._get_table_name(table)
 
             if field is None:
+                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
+            if not isinstance(field, DatabaseField):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
