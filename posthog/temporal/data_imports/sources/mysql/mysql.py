@@ -203,7 +203,7 @@ def _explain_query(cursor: Cursor, query: str, query_args: dict[str, Any], logge
     """
     try:
         explain_query = f"EXPLAIN {query}"
-        logger.debug(f"Running EXPLAIN on {explain_query}")
+        logger.debug(f"Running EXPLAIN on: {query}")
         cursor.execute(explain_query, query_args)
         rows = cursor.fetchall()
         column_names = [col[0] for col in cursor.description or []]
