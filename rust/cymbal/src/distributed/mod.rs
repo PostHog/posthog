@@ -27,6 +27,7 @@ pub struct DistributedContext {
     http_client: reqwest::Client,
     distributed_headless_host: String,
     distributed_remote_timeout_ms: u64,
+    internal_api_secret: String,
     pod_ip: String,
     port: u16,
 }
@@ -42,6 +43,7 @@ impl DistributedContext {
             http_client: app_context.http_client.clone(),
             distributed_headless_host: app_context.config.distributed_headless_host.clone(),
             distributed_remote_timeout_ms: app_context.config.distributed_remote_timeout_ms,
+            internal_api_secret: app_context.config.internal_api_secret.clone(),
             pod_ip: app_context.config.pod_ip.clone(),
             port: app_context.config.port,
         }
@@ -257,7 +259,11 @@ impl DistributedContext {
 
         let response = tokio::time::timeout(
             Duration::from_millis(self.distributed_remote_timeout_ms),
-            self.http_client.post(url).json(&request).send(),
+            self.http_client
+                .post(url)
+                .header("X-Internal-Api-Secret", &self.internal_api_secret)
+                .json(&request)
+                .send(),
         )
         .await
         .map_err(|_| RemoteError::Timeout)?
