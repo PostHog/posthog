@@ -5856,6 +5856,8 @@ export namespace Schemas {
 
     export type StaticFiltersActivitiesItem = {[key: string]: unknown};
 
+    export type StaticFiltersClientsItem = {[key: string]: unknown};
+
     export interface StaticFilters {
       /** Users who have logged activity. */
       users: StaticFiltersUsersItem[];
@@ -5863,6 +5865,8 @@ export namespace Schemas {
       scopes: StaticFiltersScopesItem[];
       /** Available activity types. */
       activities: StaticFiltersActivitiesItem[];
+      /** API clients that have generated activity (from x-posthog-client header). */
+      clients: StaticFiltersClientsItem[];
     }
 
     export interface AvailableFiltersResponse {
@@ -35472,6 +35476,7 @@ export namespace Schemas {
 
     export type AdvancedActivityLogsListParams = {
     activities?: string[];
+    clients?: string[];
     detail_filters?: string;
     end_date?: string;
     hogql_filter?: string;
