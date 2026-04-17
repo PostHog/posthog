@@ -108,6 +108,31 @@ export const BasicFiltersTab = (): JSX.Element => {
                     />
                 </div>
 
+                {(availableFilters?.static_filters?.clients?.length ?? 0) > 0 && (
+                    <div className="flex flex-col gap-1">
+                        <label className="block text-sm font-medium mb-1">Client</label>
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            value={filters.clients || []}
+                            onChange={(clients) => setFilters({ clients })}
+                            options={
+                                availableFilters?.static_filters?.clients?.map((c: any) => ({
+                                    key: c.value,
+                                    label: c.value,
+                                })) || []
+                            }
+                            loading={availableFiltersLoading}
+                            placeholder="All clients"
+                            allowCustomValues={false}
+                            data-attr="audit-logs-client-filter"
+                            size="small"
+                            className="min-w-50"
+                        />
+                    </div>
+                )}
+
                 <div className="flex items-end justify-end mb-1">
                     <div className="relative">
                         <LemonButton

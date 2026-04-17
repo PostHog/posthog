@@ -208,6 +208,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.UUIDField(), required=False, default=[])
     scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    clients = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = JSONStringFilterField(required=False)
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
@@ -260,6 +261,10 @@ class StaticFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
     scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+    clients = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="API clients that have generated activity (from x-posthog-client header).",
+    )
 
 
 class AvailableFiltersResponseSerializer(serializers.Serializer):

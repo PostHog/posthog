@@ -33,6 +33,7 @@ export interface AdvancedActivityLogFilters {
     users?: string[]
     scopes?: ActivityScope[]
     activities?: string[]
+    clients?: string[]
     detail_filters?: Record<string, DetailFilter>
     was_impersonated?: boolean
     is_system?: boolean
@@ -54,6 +55,7 @@ export interface AvailableFilters {
         users: Array<{ label: string; value: string }>
         scopes: Array<{ value: string }>
         activities: Array<{ value: string }>
+        clients: Array<{ value: string }>
     }
     detail_fields?: Record<string, ScopeFields>
 }
@@ -75,6 +77,7 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     users: [],
     scopes: [],
     activities: [],
+    clients: [],
     detail_filters: {},
     item_ids: [],
     page: 1,
@@ -191,6 +194,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.users?.forEach((user) => params.append('users', user))
                     values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
+                    values.filters.clients?.forEach((client) => params.append('clients', client))
                     values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
 
                     if (values.filters.was_impersonated !== undefined) {
@@ -249,6 +253,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     filters.users?.length ||
                     filters.scopes?.length ||
                     filters.activities?.length ||
+                    filters.clients?.length ||
                     filters.item_ids?.length ||
                     filters.was_impersonated !== undefined ||
                     filters.is_system !== undefined ||
@@ -301,6 +306,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     users: filters.users?.length ? filters.users.join(',') : undefined,
                     scopes: filters.scopes?.length ? filters.scopes.join(',') : undefined,
                     activities: filters.activities?.length ? filters.activities.join(',') : undefined,
+                    clients: filters.clients?.length ? filters.clients.join(',') : undefined,
                     item_ids: filters.item_ids?.length ? filters.item_ids.join(',') : undefined,
                     was_impersonated: filters.was_impersonated?.toString(),
                     is_system: filters.is_system?.toString(),
@@ -460,6 +466,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     users: values.filters.users,
                     scopes: values.filters.scopes,
                     activities: values.filters.activities,
+                    clients: values.filters.clients,
                     detail_filters: values.filters.detail_filters,
                     was_impersonated: values.filters.was_impersonated,
                     is_system: values.filters.is_system,
@@ -527,6 +534,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 urlFilters.activities = Array.isArray(searchParams.activities)
                     ? searchParams.activities
                     : searchParams.activities?.split(',') || []
+            }
+            if (searchParams.clients) {
+                urlFilters.clients = Array.isArray(searchParams.clients)
+                    ? searchParams.clients
+                    : searchParams.clients?.split(',') || []
             }
             if (searchParams.item_ids) {
                 urlFilters.item_ids = searchParams.item_ids.split?.(',') || [searchParams.item_ids]

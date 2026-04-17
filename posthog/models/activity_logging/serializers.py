@@ -50,6 +50,11 @@ class ActivityLogSerializer(serializers.Serializer):
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
     detail = DetailSerializer(required=False)
+    client = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="SDK or integration that triggered this action (from x-posthog-client header).",
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
     @extend_schema_field({"type": "object", "nullable": True})
