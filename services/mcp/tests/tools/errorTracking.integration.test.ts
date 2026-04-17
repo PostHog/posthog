@@ -24,7 +24,9 @@ type ErrorTrackingFingerprintListResult = {
 
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
+    let currentUserId: number
     const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
+    const createdAssignmentRuleIds: string[] = []
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -39,9 +41,25 @@ describe('Error Tracking', { concurrent: false }, () => {
         const client = createTestClient()
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+        const user = await context.api.request<{ id: number }>({
+            method: 'GET',
+            path: '/api/users/@me/',
+        })
+        currentUserId = user.id
     })
 
     afterEach(async () => {
+        for (const id of createdAssignmentRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/assignment_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdAssignmentRuleIds.length = 0
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
@@ -166,6 +184,39 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(result).toBeTruthy()
             expect(typeof result.count).toBe('number')
             expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('assignment-rules create tool', () => {
+        const assignmentRulesCreateTool = GENERATED_TOOLS['error-tracking-assignment-rules-create']!()
+
+        it('should create an assignment rule', async () => {
+            const result = (await assignmentRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+            })) as { id: string; filters: unknown; assignee: { type: string; id: number | string } | null }
+
+            createdAssignmentRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
         })
     })
 

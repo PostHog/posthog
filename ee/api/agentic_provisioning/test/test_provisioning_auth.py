@@ -525,6 +525,78 @@ class TestProvisioningAuthentication(APIBaseTest):
         self.wizard_app.provisioning_can_provision_resources = True
         self.wizard_app.save(update_fields=["provisioning_can_provision_resources"])
 
+    # --- CIMD URL-based PKCE identification ---
+
+    def test_pkce_partner_identified_by_cimd_url(self):
+        cimd_url = "https://example.com/api/oauth/wizard/client-metadata"
+        cimd_app = OAuthApplication.objects.create(
+            name="CIMD Wizard",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8239/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_url,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="wizard",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+
+        verifier, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_pkce",
+                "email": "cimd-wizard@example.com",
+                "client_id": cimd_url,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+        assert res.json()["type"] == "oauth"
+
+        cimd_app.delete()
+
+    def test_cimd_url_inactive_partner_rejected(self):
+        cimd_url = "https://example.com/api/oauth/wizard/client-metadata-inactive"
+        cimd_app = OAuthApplication.objects.create(
+            name="Inactive CIMD Wizard",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8239/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_url,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="wizard",
+            provisioning_active=False,
+            provisioning_can_create_accounts=True,
+        )
+
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_inactive",
+                "email": "cimd-inactive@example.com",
+                "client_id": cimd_url,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 401
+
+        cimd_app.delete()
+
     # --- PKCE code_challenge_method validation ---
 
     def test_plain_code_challenge_method_rejected(self):
