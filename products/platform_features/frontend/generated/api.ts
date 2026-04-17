@@ -20,11 +20,7 @@ import type {
     CommentApi,
     CommentsListParams,
     ListParams,
-    MembersDestroyParams,
     MembersListParams,
-    MembersPartialUpdateParams,
-    MembersScopedApiKeysRetrieveParams,
-    MembersUpdateParams,
     OrganizationApi,
     OrganizationMemberApi,
     PaginatedActivityLogListApi,
@@ -396,30 +392,17 @@ export const membersList = async (
     })
 }
 
-export const getMembersUpdateUrl = (organizationId: string, userUuid: string, params?: MembersUpdateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/members/${userUuid}/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/members/${userUuid}/`
+export const getMembersUpdateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/`
 }
 
 export const membersUpdate = async (
     organizationId: string,
     userUuid: string,
     organizationMemberApi: NonReadonly<OrganizationMemberApi>,
-    params?: MembersUpdateParams,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
-    return apiMutator<OrganizationMemberApi>(getMembersUpdateUrl(organizationId, userUuid, params), {
+    return apiMutator<OrganizationMemberApi>(getMembersUpdateUrl(organizationId, userUuid), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -427,34 +410,17 @@ export const membersUpdate = async (
     })
 }
 
-export const getMembersPartialUpdateUrl = (
-    organizationId: string,
-    userUuid: string,
-    params?: MembersPartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/members/${userUuid}/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/members/${userUuid}/`
+export const getMembersPartialUpdateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/`
 }
 
 export const membersPartialUpdate = async (
     organizationId: string,
     userUuid: string,
     patchedOrganizationMemberApi: NonReadonly<PatchedOrganizationMemberApi>,
-    params?: MembersPartialUpdateParams,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
-    return apiMutator<OrganizationMemberApi>(getMembersPartialUpdateUrl(organizationId, userUuid, params), {
+    return apiMutator<OrganizationMemberApi>(getMembersPartialUpdateUrl(organizationId, userUuid), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -462,61 +428,31 @@ export const membersPartialUpdate = async (
     })
 }
 
-export const getMembersDestroyUrl = (organizationId: string, userUuid: string, params?: MembersDestroyParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/members/${userUuid}/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/members/${userUuid}/`
+export const getMembersDestroyUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/`
 }
 
 export const membersDestroy = async (
     organizationId: string,
     userUuid: string,
-    params?: MembersDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getMembersDestroyUrl(organizationId, userUuid, params), {
+    return apiMutator<void>(getMembersDestroyUrl(organizationId, userUuid), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getMembersScopedApiKeysRetrieveUrl = (
-    organizationId: string,
-    userUuid: string,
-    params?: MembersScopedApiKeysRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
+export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
 }
 
 export const membersScopedApiKeysRetrieve = async (
     organizationId: string,
     userUuid: string,
-    params?: MembersScopedApiKeysRetrieveParams,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
-    return apiMutator<OrganizationMemberApi>(getMembersScopedApiKeysRetrieveUrl(organizationId, userUuid, params), {
+    return apiMutator<OrganizationMemberApi>(getMembersScopedApiKeysRetrieveUrl(organizationId, userUuid), {
         ...options,
         method: 'GET',
     })

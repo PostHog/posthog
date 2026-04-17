@@ -647,34 +647,6 @@ export type MembersListParams = {
     order?: string
 }
 
-export type MembersUpdateParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string
-}
-
-export type MembersPartialUpdateParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string
-}
-
-export type MembersDestroyParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string
-}
-
-export type MembersScopedApiKeysRetrieveParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string
-}
-
 export type RolesListParams = {
     /**
      * Number of results to return per page.

@@ -35036,34 +35036,6 @@ export namespace Schemas {
     order?: string;
     };
 
-    export type MembersUpdateParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string;
-    };
-
-    export type MembersPartialUpdateParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string;
-    };
-
-    export type MembersDestroyParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string;
-    };
-
-    export type MembersScopedApiKeysRetrieveParams = {
-    /**
-     * Sort order. Defaults to `-joined_at`.
-     */
-    order?: string;
-    };
-
     export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.

@@ -4,7 +4,8 @@ from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -96,18 +97,20 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
-@extend_schema(
-    tags=["core", "platform_features"],
-    parameters=[
-        OpenApiParameter(
-            name="order",
-            type=str,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            enum=sorted(ALLOWED_ORDERINGS),
-            description=f"Sort order. Defaults to `{DEFAULT_ORDERING}`.",
-        ),
-    ],
+@extend_schema(tags=["core", "platform_features"])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=sorted(ALLOWED_ORDERINGS),
+                description=f"Sort order. Defaults to `{DEFAULT_ORDERING}`.",
+            ),
+        ],
+    ),
 )
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
