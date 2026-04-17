@@ -28,6 +28,7 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
+from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.security.url_validation import is_url_allowed
 
@@ -327,7 +328,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     return app
 
 
-def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
+def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytics.capture) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
 
@@ -349,7 +350,7 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
         if app:
             updated = _update_cimd_application(app, metadata)
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
-            posthoganalytics.capture(
+            capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_metadata_refreshed",
                 properties={
@@ -364,7 +365,7 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
         try:
             new_app = _create_cimd_application(url, metadata)
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
-            posthoganalytics.capture(
+            capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_created",
                 properties={
@@ -391,7 +392,8 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
 def refresh_cimd_metadata_task(url: str) -> None:
     """Celery task wrapper: refresh CIMD metadata in the background."""
     try:
-        fetch_and_upsert_cimd_application(url)
+        with ph_scoped_capture() as capture_ph_event:  # This runs inside Celery, needs this to capture event
+            fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
     except (CIMDFetchError, CIMDValidationError) as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)

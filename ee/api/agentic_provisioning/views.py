@@ -1084,6 +1084,16 @@ def provisioning_resources_create(request: Request) -> Response:
             status=400,
         )
 
+    if resolved_service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
+        _capture_provisioning_event(
+            "resource_created",
+            "error",
+            error_code="requires_payment_credentials",
+            service_id=resolved_service_id,
+            team_id=team.id,
+        )
+        return _error_response("requires_payment_credentials", "Payment credentials required for paid plan")
+
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -1253,6 +1263,14 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
             resource_id=resource_id,
+        )
+
+    if service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
+        _capture_provisioning_event(
+            "update_service", "error", error_code="requires_payment_credentials", service_id=service_id, team_id=team_id
+        )
+        return _error_response(
+            "requires_payment_credentials", "Payment credentials required for paid plan", resource_id=resource_id
         )
 
     _set_provisioning_service_id(team, service_id)
