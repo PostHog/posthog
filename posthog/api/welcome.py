@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -265,7 +265,7 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
     return members
 
 
-def _get_recent_activity(team_ids: list[int], since) -> list[dict[str, Any]]:
+def _get_recent_activity(team_ids: list[int], since: datetime) -> list[dict[str, Any]]:
     if not team_ids:
         return []
 
@@ -327,7 +327,7 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 
     timestamp = row.created_at
     if timezone.is_naive(timestamp):
-        timestamp = timezone.make_aware(timestamp, timezone.utc)
+        timestamp = timezone.make_aware(timestamp, UTC)
 
     return {
         "type": f"{row.scope}.{row.activity}",
