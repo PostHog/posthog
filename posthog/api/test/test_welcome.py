@@ -92,7 +92,7 @@ class TestWelcomeEndpoint(APIBaseTest):
         response = self.client.get("/api/organizations/@current/welcome/")
         data = response.json()
         never_member = next((m for m in data["team_members"] if m["email"] == "never@example.com"), None)
-        self.assertIsNotNone(never_member)
+        assert never_member is not None
         self.assertEqual(never_member["last_active"], "never")
 
     def test_recent_activity_dedupes_by_item(self):
