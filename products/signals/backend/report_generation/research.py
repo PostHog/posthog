@@ -120,7 +120,7 @@ If the report already has a title that is PR-specific and still accurate after y
 - Bad: fix(funnel): various funnel improvements and bug fixes
 - Bad: multiple analytics issues
         """,
-        max_length=96,
+        max_length=96,  # Generous enough for descriptive PR-style titles
     )
     summary: str = Field(
         description="""
@@ -534,6 +534,18 @@ async def run_multi_turn_research(
         origin_product="signal_report",
         signal_report_id=signal_report_id,
     )
+
+    # Record the research task relationship immediately after task creation
+    if signal_report_id:
+        from products.signals.backend.models import SignalReportTask
+
+        await SignalReportTask.objects.acreate(
+            team_id=context.team_id,
+            report_id=signal_report_id,
+            task_id=str(session.task.id),
+            relationship=SignalReportTask.Relationship.RESEARCH,
+        )
+
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
     if output_fn:

@@ -8723,7 +8723,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -10193,6 +10193,69 @@
                     "type": "null"
                 }
             ]
+        },
+        "ConversationsTicketSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "channel_detail": {
+                    "type": ["string", "null"]
+                },
+                "channel_source": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email_subject": {
+                    "type": ["string", "null"]
+                },
+                "priority": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "type": "string"
+                },
+                "ticket_number": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "ticket_number",
+                "channel_source",
+                "channel_detail",
+                "status",
+                "priority",
+                "created_at",
+                "email_subject"
+            ],
+            "type": "object"
+        },
+        "ConversationsTicketSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ConversationsTicketSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "conversations",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ticket",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "ConversionGoalFilter": {
             "anyOf": [
@@ -30210,7 +30273,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "boxplot_data": {
-                            "description": "Box plot data when display type is BoxPlot",
+                            "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
                                 "$ref": "#/definitions/BoxPlotDatum"
                             },
@@ -34556,6 +34619,9 @@
                     "$ref": "#/definitions/LinearIssueSignalInput"
                 },
                 {
+                    "$ref": "#/definitions/ConversationsTicketSignalInput"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
                 }
             ],
@@ -34585,7 +34651,15 @@
             "type": "object"
         },
         "SignalSourceProduct": {
-            "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
+            "enum": [
+                "session_replay",
+                "llm_analytics",
+                "github",
+                "linear",
+                "zendesk",
+                "conversations",
+                "error_tracking"
+            ],
             "type": "string"
         },
         "SignalSourceType": {
@@ -35127,7 +35201,7 @@
                     "$ref": "#/definitions/StickinessOperator"
                 },
                 "value": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 }
             },
             "required": ["operator", "value"],
@@ -35256,7 +35330,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1."
                 },
                 "kind": {
@@ -37009,7 +37083,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -39619,6 +39693,10 @@
                 }
             },
             "type": "object"
+        },
+        "positive_integer": {
+            "minimum": 1,
+            "type": "integer"
         }
     }
 }

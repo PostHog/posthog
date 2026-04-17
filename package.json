@@ -129,7 +129,9 @@
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
             "typescript": "5.8.3",
-            "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3"
+            "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
+            "fast-xml-parser@^4": ">=4.5.4",
+            "fast-xml-parser@^5": ">=5.3.5"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

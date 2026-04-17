@@ -196,6 +196,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
+                max(timestamp) AS last_timestamp,
                 ifNull(
                     nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
                     argMin(distinct_id, timestamp)
@@ -321,7 +322,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 5,
+            "schema_version": 6,
         }
 
     @cached_property
@@ -352,16 +353,18 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
+        date_from = self._date_range.date_from_for_filtering()
+        date_to = self._date_range.date_to_for_filtering()
+
         for result in mapped_results:
-            # Exclude traces that are outside of the capture range.
-            timestamp_dt = cast(datetime, result["first_timestamp"])
-            if (
-                timestamp_dt < self._date_range.date_from_for_filtering()
-                or timestamp_dt > self._date_range.date_to_for_filtering()
-            ):
+            # Overlap semantics: match sessions list behavior where a trace
+            # is counted if ANY of its events fall in the date window.
+            first_timestamp = cast(datetime, result["first_timestamp"])
+            last_timestamp = cast(datetime, result["last_timestamp"])
+            if first_timestamp > date_to or last_timestamp < date_from:
                 continue
 
-            traces.append(self._map_trace(result, timestamp_dt))
+            traces.append(self._map_trace(result, first_timestamp))
 
         return traces
 
