@@ -19,7 +19,7 @@ from posthog.dags.common import JobOwners, check_for_concurrent_runs
 from posthog.dags.common.resources import BackupsClickhouseClusterResource
 
 BACKUP_RESOURCE_DEFS = {
-    "cluster": BackupsClickhouseClusterResource.configure_at_launch(),
+    "cluster": BackupsClickhouseClusterResource(),
     "s3": S3Resource.configure_at_launch(),
 }
 
