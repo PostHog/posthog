@@ -10,6 +10,9 @@ import { welcomeDialogLogic } from '../welcomeDialogLogic'
 function relativeTime(iso: string): string {
     const now = Date.now()
     const then = new Date(iso).getTime()
+    if (Number.isNaN(then)) {
+        return 'recently'
+    }
     const diffMs = Math.max(0, now - then)
     const minutes = Math.floor(diffMs / 60_000)
     if (minutes < 1) {
@@ -28,6 +31,10 @@ function relativeTime(iso: string): string {
     }
     const weeks = Math.floor(days / 7)
     return `${weeks}w ago`
+}
+
+function looksLikeEmail(value: string): boolean {
+    return /\S+@\S+\.\S+/.test(value)
 }
 
 export function RecentActivityCard(): JSX.Element | null {
@@ -61,7 +68,11 @@ export function RecentActivityCard(): JSX.Element | null {
                             <div className="flex-1 min-w-0 text-sm leading-snug">
                                 <div className="flex items-center gap-1.5 text-muted text-xs">
                                     <ProfilePicture
-                                        user={{ first_name: item.actor_name }}
+                                        user={
+                                            looksLikeEmail(item.actor_name)
+                                                ? { email: item.actor_name }
+                                                : { first_name: item.actor_name }
+                                        }
                                         size="xs"
                                         name={item.actor_name}
                                     />

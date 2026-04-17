@@ -18,6 +18,7 @@ import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLog
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { WelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -26,6 +27,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DashboardPlacement } from '~/types'
 
 import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
+
+/** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it. */
+function MaybeWelcomeDialog(): JSX.Element | null {
+    const { user } = useValues(userLogic)
+    if (!user || user.is_organization_first_user !== false || user.welcome_screen_seen_at) {
+        return null
+    }
+    return <WelcomeDialog />
+}
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -112,7 +122,7 @@ export function ProjectHomepage(): JSX.Element {
         return (
             <div className="flex-1 min-h-0">
                 <AiFirstHomepage />
-                <WelcomeDialog />
+                <MaybeWelcomeDialog />
             </div>
         )
     }
@@ -123,7 +133,7 @@ export function ProjectHomepage(): JSX.Element {
         return (
             <>
                 <HomePageContent />
-                <WelcomeDialog />
+                <MaybeWelcomeDialog />
             </>
         )
     }
@@ -131,7 +141,7 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="-m-4">
             <NewTabScene />
-            <WelcomeDialog />
+            <MaybeWelcomeDialog />
         </div>
     )
 }

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -14,8 +15,18 @@ import { TeamMembersCard } from './cards/TeamMembersCard'
 import { welcomeDialogLogic } from './welcomeDialogLogic'
 
 export function WelcomeDialog(): JSX.Element | null {
-    const { welcomeData, welcomeDataLoading, organizationName, inviter, shouldShowDialog } =
-        useValues(welcomeDialogLogic)
+    const {
+        welcomeData,
+        welcomeDataLoading,
+        welcomeDataError,
+        organizationName,
+        inviter,
+        shouldShowDialog,
+        teamMembers,
+        recentActivity,
+        popularDashboards,
+        productsInUse,
+    } = useValues(welcomeDialogLogic)
     const { dismissWelcome, closeDialog } = useActions(welcomeDialogLogic)
     const { user } = useValues(userLogic)
 
@@ -25,15 +36,23 @@ export function WelcomeDialog(): JSX.Element | null {
 
     const firstName = user?.first_name || ''
     const inviterLine = inviter
-        ? `${inviter.name} invited you — welcome${firstName ? `, ${firstName}` : ''}.`
-        : `Welcome${firstName ? `, ${firstName}` : ''}.`
+        ? `${inviter.name} invited you. Welcome${firstName ? `, ${firstName}` : ''}!`
+        : firstName
+          ? `Welcome, ${firstName}!`
+          : undefined
+
+    const hasAnyData =
+        teamMembers.length > 0 || recentActivity.length > 0 || popularDashboards.length > 0 || productsInUse.length > 0
+    const introCopy = hasAnyData
+        ? "Here's what your team has been working on."
+        : "You're one of the first in this workspace — start exploring."
 
     return (
         <LemonModal
             isOpen={shouldShowDialog}
             onClose={() => closeDialog()}
             width={640}
-            title={`Welcome to ${organizationName || 'your workspace'}`}
+            title={`Welcome to ${organizationName || 'PostHog'}`}
             description={inviterLine}
             data-attr="welcome-dialog"
             footer={
@@ -42,7 +61,7 @@ export function WelcomeDialog(): JSX.Element | null {
                         I'll look around
                     </LemonButton>
                     <LemonButton type="primary" onClick={() => dismissWelcome()} data-attr="welcome-dismiss">
-                        Got it, don't show again
+                        Don't show again
                     </LemonButton>
                 </div>
             }
@@ -53,9 +72,13 @@ export function WelcomeDialog(): JSX.Element | null {
                 </div>
             ) : (
                 <div className="flex flex-col gap-4">
-                    <p className="text-muted text-sm m-0">
-                        Here's a quick orientation to what your teammates have been up to.
-                    </p>
+                    {welcomeDataError ? (
+                        <LemonBanner type="warning">
+                            We couldn't load your team's activity. You can still explore PostHog from here.
+                        </LemonBanner>
+                    ) : (
+                        <p className="text-muted text-sm m-0">{introCopy}</p>
+                    )}
                     <TeamMembersCard />
                     <RecentActivityCard />
                     <PopularDashboardsCard />

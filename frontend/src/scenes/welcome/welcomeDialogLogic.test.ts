@@ -61,6 +61,9 @@ describe('welcomeDialogLogic', () => {
     let logic: ReturnType<typeof welcomeDialogLogic.build>
 
     beforeEach(() => {
+        // closeDialog writes a "looked around" flag to sessionStorage — clear it between tests
+        // so a prior test's closeDialog call doesn't suppress the dialog in the next test.
+        window.sessionStorage.clear()
         useMocks({
             get: {
                 '/api/organizations/@current/welcome/': mockPayload,

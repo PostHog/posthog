@@ -12,7 +12,8 @@ import { welcomeDialogLogic } from '../welcomeDialogLogic'
 const LAST_ACTIVE_COPY: Record<string, string> = {
     today: 'Active today',
     this_week: 'Active this week',
-    inactive: 'Not recently active',
+    inactive: 'Inactive',
+    never: "Hasn't signed in",
 }
 
 export function TeamMembersCard(): JSX.Element | null {
@@ -33,13 +34,17 @@ export function TeamMembersCard(): JSX.Element | null {
                     onClick={() => trackCardClick('members', urls.settings('organization'))}
                     className="inline-flex items-center gap-1 text-xs text-muted"
                 >
-                    <span>See all teammates</span>
+                    <span>See all members</span>
                     <IconArrowRight />
                 </Link>
             </div>
             <ul className="flex flex-col gap-2">
                 {teamMembers.map((member) => (
-                    <li key={member.email} className="flex items-center gap-3">
+                    <li
+                        key={member.email}
+                        className="flex items-center gap-3"
+                        title={`${member.name} <${member.email}>`}
+                    >
                         <ProfilePicture user={{ first_name: member.name, email: member.email }} size="md" />
                         <div className="flex-1 min-w-0">
                             <div className="truncate font-medium">{member.name}</div>

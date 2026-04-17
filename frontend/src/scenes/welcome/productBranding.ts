@@ -98,22 +98,38 @@ export const SCOPE_TO_PRODUCT: Record<string, string> = {
     Survey: 'surveys',
 }
 
-/** Verbs used in the activity feed per scope. */
+/** Verbs used in the activity feed, keyed by scope OR the scope.activity pair for specificity. */
 export const SCOPE_VERBS: Record<string, string> = {
-    Insight: 'created an insight',
-    Dashboard: 'shared a dashboard',
-    Notebook: 'wrote a notebook',
-    Experiment: 'launched an experiment',
-    FeatureFlag: 'shipped a feature flag',
-    Survey: 'launched a survey',
+    // Defaults per scope (used when the activity verb is generic or unknown)
+    Insight: 'updated an insight',
+    Dashboard: 'updated a dashboard',
+    Notebook: 'updated a notebook',
+    Experiment: 'updated an experiment',
+    FeatureFlag: 'updated a feature flag',
+    Survey: 'updated a survey',
+    // More specific per-activity overrides
+    'Insight.created': 'created an insight',
+    'Insight.deleted': 'deleted an insight',
+    'Dashboard.created': 'created a dashboard',
+    'Dashboard.deleted': 'deleted a dashboard',
+    'Notebook.created': 'wrote a notebook',
+    'Notebook.deleted': 'deleted a notebook',
+    'Experiment.created': 'created an experiment',
+    'Experiment.deleted': 'deleted an experiment',
+    'FeatureFlag.created': 'created a feature flag',
+    'FeatureFlag.deleted': 'deleted a feature flag',
+    'Survey.created': 'created a survey',
+    'Survey.deleted': 'deleted a survey',
 }
 
 export function brandingForScope(type: string): { branding: ProductBranding; verb: string } {
     const [scope] = type.split('.')
     const productKey = SCOPE_TO_PRODUCT[scope]
+    // Prefer the specific scope.activity verb; fall back to the scope default.
+    const verb = SCOPE_VERBS[type] ?? SCOPE_VERBS[scope] ?? 'made a change'
     return {
         branding: (productKey && PRODUCT_BRANDING[productKey]) || FALLBACK_BRANDING,
-        verb: SCOPE_VERBS[scope] ?? 'made a change',
+        verb,
     }
 }
 

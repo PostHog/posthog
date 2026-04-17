@@ -2,10 +2,10 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.core.cache import cache
-from django.db.models import F, Q
+from django.db.models import F
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,6 +14,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership, is_organization_first_user
+from posthog.rbac.user_access_control import UserAccessControl
 
 # Keys on Team.has_completed_onboarding_for are ProductKey values mapped to booleans.
 # Fallback presence-of-data checks supplement the onboarding signal.
@@ -47,6 +48,62 @@ _TEAM_MEMBERS_MAX_ITEMS = 8
 _SUGGESTED_NEXT_STEPS_MAX_ITEMS = 3
 _RECENT_DAYS = 30
 _CACHE_TTL_SECONDS = 5 * 60
+_MAX_TEAMS_SCANNED = 200
+_MAX_ENTITY_NAME_LENGTH = 200
+
+
+# ------------- Response serializers -----------------------------------------------------------------
+
+
+class _WelcomeInviterSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    email = serializers.EmailField()
+
+
+class _WelcomeTeamMemberSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    email = serializers.EmailField()
+    avatar = serializers.CharField(allow_null=True)
+    role = serializers.CharField()
+    last_active = serializers.ChoiceField(choices=["today", "this_week", "inactive", "never"])
+
+
+class _WelcomeRecentActivitySerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Scope.activity pair, e.g. 'Insight.created'.")
+    actor_name = serializers.CharField()
+    entity_name = serializers.CharField()
+    entity_url = serializers.CharField(allow_null=True)
+    timestamp = serializers.DateTimeField()
+
+
+class _WelcomePopularDashboardSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    team_id = serializers.IntegerField()
+    url = serializers.CharField()
+
+
+class _WelcomeSuggestedStepSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    href = serializers.CharField()
+    reason = serializers.CharField(allow_blank=True)
+    docs_href = serializers.CharField(required=False)
+    product_key = serializers.CharField(required=False)
+
+
+class WelcomeResponseSerializer(serializers.Serializer):
+    organization_name = serializers.CharField()
+    inviter = _WelcomeInviterSerializer(allow_null=True)
+    team_members = _WelcomeTeamMemberSerializer(many=True)
+    recent_activity = _WelcomeRecentActivitySerializer(many=True)
+    popular_dashboards = _WelcomePopularDashboardSerializer(many=True)
+    products_in_use = serializers.ListField(child=serializers.CharField())
+    suggested_next_steps = _WelcomeSuggestedStepSerializer(many=True)
+    is_organization_first_user = serializers.BooleanField()
+
+
+# ------------- Viewset --------------------------------------------------------------------------------
 
 
 @extend_schema(tags=["platform_features"])
@@ -58,19 +115,7 @@ class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         responses={
-            200: inline_serializer(
-                name="WelcomeResponse",
-                fields={
-                    "organization_name": serializers.CharField(),
-                    "inviter": serializers.DictField(allow_null=True),
-                    "team_members": serializers.ListField(child=serializers.DictField()),
-                    "recent_activity": serializers.ListField(child=serializers.DictField()),
-                    "popular_dashboards": serializers.ListField(child=serializers.DictField()),
-                    "products_in_use": serializers.ListField(child=serializers.CharField()),
-                    "suggested_next_steps": serializers.ListField(child=serializers.DictField()),
-                    "is_organization_first_user": serializers.BooleanField(),
-                },
-            ),
+            200: WelcomeResponseSerializer,
             404: OpenApiResponse(description="Current organization not found"),
         },
     )
@@ -81,69 +126,107 @@ class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(payload)
 
 
+# ------------- Payload builder ------------------------------------------------------------------------
+
+
 def _get_welcome_payload(organization: Organization, user: User) -> dict[str, Any]:
-    """Cached per-org for 5 minutes, keyed on the most recent relevant activity log id so it invalidates naturally."""
-    team_ids = list(organization.teams.values_list("id", flat=True))
+    """Return the payload rendered on the invitee welcome dialog.
+
+    The org-scoped subset is cached for 5 minutes keyed on the most recent activity log id so it
+    invalidates naturally after team activity. Per-user data is always recomputed on read so that
+    (a) the same cache entry is safe to serve to multiple users, and (b) access control is applied
+    to each reader independently.
+    """
+    access_control = UserAccessControl(user=user, organization_id=str(organization.id))
+    accessible_team_ids = _get_accessible_team_ids(organization, access_control)
+
+    since = timezone.now() - timedelta(days=_RECENT_DAYS)
     latest_activity_id = (
         ActivityLog.objects.filter(
-            Q(organization_id=organization.id) | Q(team_id__in=team_ids),
+            team_id__in=accessible_team_ids,
             scope__in=_RECENT_ACTIVITY_SCOPES,
+            created_at__gte=since,
+            is_system=False,
         )
         .order_by("-created_at")
         .values_list("id", flat=True)
         .first()
+        if accessible_team_ids
+        else None
     )
-    cache_key = f"welcome_screen:{organization.id}:{latest_activity_id or 'none'}"
-    cached = cache.get(cache_key)
-    is_first_user = is_organization_first_user(user, organization)
-    if cached is not None:
-        # Per-user data must still be recomputed because the cache is per-org.
-        payload = dict(cached)
-        payload["inviter"] = _get_inviter(user, organization)
-        payload["suggested_next_steps"] = _build_suggested_next_steps(user, payload.get("products_in_use", []))
-        payload["team_members"] = _filter_self(payload.get("team_members", []), user)
-        payload["is_organization_first_user"] = is_first_user
-        return payload
+    cache_key = (
+        f"welcome_screen:{organization.id}:{','.join(map(str, accessible_team_ids))}:{latest_activity_id or 'none'}"
+    )
+    cacheable = cache.get(cache_key)
+    if cacheable is None:
+        cacheable = {
+            "organization_name": organization.name,
+            "team_members": _get_team_members(organization),
+            "recent_activity": _get_recent_activity(accessible_team_ids, since),
+            "popular_dashboards": _get_popular_dashboards(accessible_team_ids),
+            "products_in_use": _get_products_in_use(organization),
+        }
+        cache.set(cache_key, cacheable, _CACHE_TTL_SECONDS)
 
-    team_members = _get_team_members(organization)
-    payload = {
-        "organization_name": organization.name,
-        "team_members": team_members,
-        "recent_activity": _get_recent_activity(organization, team_ids),
-        "popular_dashboards": _get_popular_dashboards(team_ids),
-        "products_in_use": _get_products_in_use(organization),
+    # Construct the user-specific response fresh each request — never mutate the cached dict.
+    return {
+        **cacheable,
+        "inviter": _get_inviter(user, organization),
+        "team_members": _filter_self(cacheable["team_members"], user),
+        "suggested_next_steps": _build_suggested_next_steps(user, cacheable["products_in_use"]),
+        "is_organization_first_user": is_organization_first_user(user, organization),
     }
-    cache.set(cache_key, payload, _CACHE_TTL_SECONDS)
 
-    payload["inviter"] = _get_inviter(user, organization)
-    payload["team_members"] = _filter_self(team_members, user)
-    payload["suggested_next_steps"] = _build_suggested_next_steps(user, payload["products_in_use"])
-    payload["is_organization_first_user"] = is_first_user
-    return payload
+
+# ------------- Helpers --------------------------------------------------------------------------------
+
+
+def _get_accessible_team_ids(organization: Organization, access_control: UserAccessControl) -> list[int]:
+    """Return team ids visible to the requesting user, capped to keep the aggregation bounded."""
+    queryset = organization.teams.all()
+    try:
+        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    except Exception:
+        # Defensive — access control subsystem may raise for orgs without the advanced-permissions feature.
+        pass
+    return list(queryset.order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
 
 
 def _filter_self(members: list[dict[str, Any]], user: User) -> list[dict[str, Any]]:
-    return [member for member in members if member.get("email") != user.email][:_TEAM_MEMBERS_MAX_ITEMS]
+    user_email = (user.email or "").lower()
+    return [m for m in members if (m.get("email") or "").lower() != user_email][:_TEAM_MEMBERS_MAX_ITEMS]
 
 
 def _get_inviter(user: User, organization: Organization) -> dict[str, str] | None:
-    invite = (
-        organization.invites.filter(target_email__iexact=user.email, created_by__isnull=False)
-        .select_related("created_by")
-        .order_by("-created_at")
+    """Return the inviter recorded on the membership, falling back to an outstanding invite row."""
+    membership = (
+        OrganizationMembership.objects.filter(organization=organization, user=user)
+        .select_related("invited_by")
+        .only("invited_by__first_name", "invited_by__email", "invited_by__id")
         .first()
     )
-    if invite is None or invite.created_by is None:
+    inviter = getattr(membership, "invited_by", None) if membership else None
+    if inviter is None:
+        # Fallback for pre-1102 memberships or invites accepted through legacy paths — look up a lingering invite.
+        invite = (
+            organization.invites.filter(target_email__iexact=user.email, created_by__isnull=False)
+            .select_related("created_by")
+            .order_by("-created_at")
+            .first()
+        )
+        inviter = invite.created_by if invite is not None else None
+    if inviter is None:
         return None
     return {
-        "name": invite.created_by.first_name or invite.created_by.email,
-        "email": invite.created_by.email,
+        "name": inviter.first_name or (inviter.email.split("@", 1)[0] if inviter.email else "A teammate"),
+        "email": inviter.email,
     }
 
 
 def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
-    recent_threshold = timezone.now() - timedelta(days=7)
-    today_threshold = timezone.now() - timedelta(hours=24)
+    now = timezone.now()
+    today_threshold = now - timedelta(hours=24)
+    recent_threshold = now - timedelta(days=7)
 
     # Fetch one extra to account for filtering out the current user downstream.
     memberships = (
@@ -158,7 +241,7 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
         last_login = member_user.last_login
 
         if last_login is None:
-            last_active = "inactive"
+            last_active = "never"
         elif last_login >= today_threshold:
             last_active = "today"
         elif last_login >= recent_threshold:
@@ -166,9 +249,13 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
         else:
             last_active = "inactive"
 
+        # Fall back to the local-part of the email rather than the whole address to avoid leaking raw emails in the UI.
+        display_name = member_user.first_name or (
+            member_user.email.split("@", 1)[0] if member_user.email else "A teammate"
+        )
         members.append(
             {
-                "name": member_user.first_name or member_user.email,
+                "name": display_name,
                 "email": member_user.email,
                 "avatar": None,
                 "role": OrganizationMembership.Level(membership.level).label,
@@ -178,19 +265,20 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
     return members
 
 
-def _get_recent_activity(organization: Organization, team_ids: list[int]) -> list[dict[str, Any]]:
+def _get_recent_activity(team_ids: list[int], since) -> list[dict[str, Any]]:
     if not team_ids:
         return []
 
-    since = timezone.now() - timedelta(days=_RECENT_DAYS)
     # Over-fetch to leave room for de-duping noisy autosave rows on the same entity.
+    # Using filter(is_system=False) (not exclude(is_system=True)) so the partial indexes on activity_log
+    # that are conditioned on is_system=False are actually usable.
     raw_rows = list(
         ActivityLog.objects.filter(
-            Q(organization_id=organization.id) | Q(team_id__in=team_ids),
+            team_id__in=team_ids,
             scope__in=_RECENT_ACTIVITY_SCOPES,
             created_at__gte=since,
+            is_system=False,
         )
-        .exclude(is_system=True)
         .select_related("user")
         .order_by("-created_at")[: _RECENT_ACTIVITY_MAX_ITEMS * 4]
     )
@@ -203,28 +291,51 @@ def _get_recent_activity(organization: Organization, team_ids: list[int]) -> lis
             continue
         seen.add(dedupe_key)
 
-        user = row.user
-        actor_name = (user.first_name or user.email) if user is not None else "Someone"
-        detail = row.detail if isinstance(row.detail, dict) else {}
-        entity_name = detail.get("name") or detail.get("short_id") or row.scope
-
-        entity_url = None
-        url_builder = _SCOPE_URL_BUILDERS.get(row.scope)
-        if url_builder is not None and row.item_id and row.team_id:
-            entity_url = url_builder(row.team_id, row.item_id)
-
-        results.append(
-            {
-                "type": f"{row.scope}.{row.activity}",
-                "actor_name": actor_name,
-                "entity_name": entity_name,
-                "entity_url": entity_url,
-                "timestamp": row.created_at.isoformat(),
-            }
-        )
+        try:
+            entity = _format_activity_row(row, team_ids)
+        except Exception:
+            # A single malformed row shouldn't kill the whole welcome response.
+            continue
+        if entity is None:
+            continue
+        results.append(entity)
         if len(results) >= _RECENT_ACTIVITY_MAX_ITEMS:
             break
     return results
+
+
+def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any] | None:
+    if row.team_id not in team_ids:
+        return None
+
+    member_user = row.user
+    if member_user is not None:
+        actor_name = member_user.first_name or (
+            member_user.email.split("@", 1)[0] if member_user.email else "A teammate"
+        )
+    else:
+        actor_name = "Someone"
+
+    detail = row.detail if isinstance(row.detail, dict) else {}
+    raw_name = detail.get("name") or detail.get("short_id") or row.scope
+    entity_name = (str(raw_name) if raw_name is not None else row.scope)[:_MAX_ENTITY_NAME_LENGTH]
+
+    entity_url = None
+    url_builder = _SCOPE_URL_BUILDERS.get(row.scope)
+    if url_builder is not None and row.item_id and row.team_id:
+        entity_url = url_builder(row.team_id, row.item_id)
+
+    timestamp = row.created_at
+    if timezone.is_naive(timestamp):
+        timestamp = timezone.make_aware(timestamp, timezone.utc)
+
+    return {
+        "type": f"{row.scope}.{row.activity}",
+        "actor_name": actor_name,
+        "entity_name": entity_name,
+        "entity_url": entity_url,
+        "timestamp": timestamp.isoformat(),
+    }
 
 
 def _get_popular_dashboards(team_ids: list[int]) -> list[dict[str, Any]]:
@@ -240,8 +351,8 @@ def _get_popular_dashboards(team_ids: list[int]) -> list[dict[str, Any]]:
     return [
         {
             "id": dashboard.id,
-            "name": dashboard.name or f"Dashboard #{dashboard.id}",
-            "description": dashboard.description or "",
+            "name": (dashboard.name or f"Dashboard #{dashboard.id}")[:_MAX_ENTITY_NAME_LENGTH],
+            "description": (dashboard.description or "")[:_MAX_ENTITY_NAME_LENGTH],
             "team_id": dashboard.team_id,
             "url": f"/project/{dashboard.team_id}/dashboard/{dashboard.id}",
         }
@@ -250,25 +361,28 @@ def _get_popular_dashboards(team_ids: list[int]) -> list[dict[str, Any]]:
 
 
 def _get_products_in_use(organization: Organization) -> list[str]:
+    """Detect which products the org uses via a handful of bounded EXISTS queries.
+
+    Replaces an earlier implementation that iterated every team row in Python, which scaled
+    O(teams) and loaded all has_completed_onboarding_for JSONB blobs into memory.
+    """
+    teams_qs = organization.teams.all().order_by("id")[:_MAX_TEAMS_SCANNED]
     products: set[str] = set()
-    for team in organization.teams.only(
-        "id",
-        "has_completed_onboarding_for",
-        "session_recording_opt_in",
-        "ingested_event",
-        "surveys_opt_in",
-    ):
-        onboarded = team.has_completed_onboarding_for or {}
-        if isinstance(onboarded, dict):
-            for key in _PRODUCT_KEYS:
-                if onboarded.get(key):
-                    products.add(key)
-        if team.ingested_event:
-            products.add("product_analytics")
-        if team.session_recording_opt_in:
-            products.add("session_replay")
-        if getattr(team, "surveys_opt_in", False):
-            products.add("surveys")
+
+    # Presence-of-data heuristics — each is a single indexed EXISTS.
+    if teams_qs.filter(ingested_event=True).exists():
+        products.add("product_analytics")
+    if teams_qs.filter(session_recording_opt_in=True).exists():
+        products.add("session_replay")
+    if teams_qs.filter(surveys_opt_in=True).exists():
+        products.add("surveys")
+
+    # Onboarding-flag signal — has_completed_onboarding_for is JSONB, so check per-key via EXISTS.
+    for key in _PRODUCT_KEYS:
+        if key in products:
+            continue
+        if teams_qs.filter(has_completed_onboarding_for__has_key=key).exists():
+            products.add(key)
 
     return sorted(products)
 
@@ -320,7 +434,7 @@ def _build_suggested_next_steps(user: User, products_in_use: list[str]) -> list[
             {
                 "label": "Explore the project home",
                 "href": href,
-                "reason": "A good place to start",
+                "reason": "See your team's dashboards and insights.",
                 "docs_href": "https://posthog.com/docs",
                 "product_key": "product_analytics",
             }

@@ -93,6 +93,10 @@ REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Re
 
 NUM_2FA_BACKUP_CODES = 10
 
+# Sentinel used by UserSerializer._get_current_membership to distinguish "not yet looked up"
+# from "looked up and no membership exists" in the per-request context cache.
+_SENTINEL_NO_MEMBERSHIP = object()
+
 logger = structlog.get_logger(__name__)
 
 
@@ -251,28 +255,54 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
-    def get_welcome_screen_seen_at(self, instance: User) -> Optional[str]:
+    def _get_current_membership(self, instance: User):
+        """Load the current membership once per serialization, memoized on the serializer instance."""
+        cached = self.context.get(f"_current_membership_{instance.pk}")
+        if cached is not None:
+            return cached if cached is not _SENTINEL_NO_MEMBERSHIP else None
+
         organization = instance.current_organization
         if organization is None:
+            self.context[f"_current_membership_{instance.pk}"] = _SENTINEL_NO_MEMBERSHIP
             return None
         from posthog.models.organization import OrganizationMembership
 
-        membership = (
-            OrganizationMembership.objects.filter(organization=organization, user=instance)
-            .only("welcome_screen_seen_at")
-            .first()
-        )
+        try:
+            membership = (
+                OrganizationMembership.objects.filter(organization=organization, user=instance)
+                .only("id", "welcome_screen_seen_at")
+                .first()
+            )
+        except Exception:
+            # Defensive — if the new column hasn't been migrated yet (rolling deploy window),
+            # treat the user as already having seen the welcome so we don't crash /api/users/@me/.
+            membership = None
+
+        self.context[f"_current_membership_{instance.pk}"] = membership or _SENTINEL_NO_MEMBERSHIP
+        return membership
+
+    def get_welcome_screen_seen_at(self, instance: User) -> Optional[str]:
+        membership = self._get_current_membership(instance)
         if membership is None or membership.welcome_screen_seen_at is None:
             return None
         return membership.welcome_screen_seen_at.replace(tzinfo=UTC).isoformat()
 
     def get_is_organization_first_user(self, instance: User) -> bool:
-        from posthog.models.organization import is_organization_first_user
+        # Short-circuit: once a user has dismissed the welcome screen, the frontend never
+        # needs this value again — save the extra membership-ordering query on every /me/ call.
+        membership = self._get_current_membership(instance)
+        if membership is not None and membership.welcome_screen_seen_at is not None:
+            return False
 
         organization = instance.current_organization
         if organization is None:
             return False
-        return is_organization_first_user(instance, organization)
+        from posthog.models.organization import is_organization_first_user
+
+        try:
+            return is_organization_first_user(instance, organization)
+        except Exception:
+            return False
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -687,28 +717,43 @@ class UserViewSet(
     )
     @action(methods=["POST"], detail=True, url_path="welcome_screen/dismiss")
     def dismiss_welcome_screen(self, request, **kwargs):
-        """Mark the current user's membership to their current organization as having dismissed the welcome screen.
+        """Mark the requesting user's membership to their current organization as dismissed.
 
-        Idempotent — repeat calls are no-ops once the timestamp is set.
+        Idempotent — repeat calls are no-ops once the timestamp is set. Only the authenticated
+        user can dismiss their own welcome screen (no staff impersonation).
         """
         from django.utils import timezone
 
         from posthog.models.organization import OrganizationMembership
 
+        requesting_user = cast(User, request.user)
         instance = self.get_object()
+        if instance.pk != requesting_user.pk:
+            raise exceptions.PermissionDenied("You can only dismiss your own welcome screen.")
+
         organization = instance.current_organization
         if organization is None:
             raise exceptions.NotFound("No current organization set.")
 
-        membership = OrganizationMembership.objects.filter(organization=organization, user=instance).first()
-        if membership is None:
-            raise exceptions.NotFound("Current user is not a member of the current organization.")
+        now = timezone.now()
+        # Atomic CAS: only write if not already dismissed. Avoids a check-then-write race
+        # and avoids a redundant activity-log entry when two tabs dismiss concurrently.
+        updated = OrganizationMembership.objects.filter(
+            organization=organization,
+            user=instance,
+            welcome_screen_seen_at__isnull=True,
+        ).update(welcome_screen_seen_at=now)
 
-        if membership.welcome_screen_seen_at is None:
-            membership.welcome_screen_seen_at = timezone.now()
-            membership.save(update_fields=["welcome_screen_seen_at", "updated_at"])
+        if not updated:
+            # Either already dismissed, or the membership doesn't exist.
+            membership = OrganizationMembership.objects.filter(organization=organization, user=instance).first()
+            if membership is None:
+                raise exceptions.NotFound("Current user is not a member of the current organization.")
+            seen_at = membership.welcome_screen_seen_at
+        else:
+            seen_at = now
 
-        return Response({"welcome_screen_seen_at": membership.welcome_screen_seen_at.replace(tzinfo=UTC).isoformat()})
+        return Response({"welcome_screen_seen_at": seen_at.replace(tzinfo=UTC).isoformat()})
 
     @action(
         methods=["GET", "PATCH"],

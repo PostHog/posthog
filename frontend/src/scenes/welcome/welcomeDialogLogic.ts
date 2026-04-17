@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
 import type { welcomeDialogLogicType } from './welcomeDialogLogicType'
@@ -13,12 +14,14 @@ export interface WelcomeInviter {
     email: string
 }
 
+export type WelcomeLastActive = 'today' | 'this_week' | 'inactive' | 'never'
+
 export interface WelcomeTeamMember {
     name: string
     email: string
     avatar: string | null
     role: string
-    last_active: 'today' | 'this_week' | 'inactive'
+    last_active: WelcomeLastActive
 }
 
 export interface WelcomeRecentActivity {
@@ -69,6 +72,32 @@ const EMPTY_PAYLOAD: WelcomePayload = {
 
 export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
 
+// SessionStorage key used to suppress the dialog for the remainder of a tab's session after
+// the user clicks "I'll look around" — avoids re-opening on every project-home remount.
+const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
+
+function rememberLookedAround(orgId: string | undefined): void {
+    if (typeof window === 'undefined' || !orgId) {
+        return
+    }
+    try {
+        window.sessionStorage.setItem(SESSION_LOOKED_AROUND_KEY, orgId)
+    } catch {
+        // sessionStorage can be unavailable (privacy mode, etc.) — degrade gracefully.
+    }
+}
+
+function wasLookedAround(orgId: string | undefined): boolean {
+    if (typeof window === 'undefined' || !orgId) {
+        return false
+    }
+    try {
+        return window.sessionStorage.getItem(SESSION_LOOKED_AROUND_KEY) === orgId
+    } catch {
+        return false
+    }
+}
+
 export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
     path(['scenes', 'welcome', 'welcomeDialogLogic']),
 
@@ -80,9 +109,11 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
     actions({
         dismissWelcome: true,
         closeDialog: true,
+        resetForOrgChange: true,
         trackCardClick: (card: WelcomeCardKind, targetHref: string) => ({ card, targetHref }),
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
+        setWelcomeDataError: (error: boolean) => ({ error }),
     }),
 
     reducers({
@@ -90,26 +121,43 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             null as number | null,
             {
                 markShown: () => Date.now(),
+                resetForOrgChange: () => null,
             },
         ],
         interactedCards: [
             {} as Record<WelcomeCardKind, boolean>,
             {
                 markCardInteracted: (state, { card }) => ({ ...state, [card]: true }),
+                resetForOrgChange: () => ({}) as Record<WelcomeCardKind, boolean>,
             },
         ],
-        // Close the dialog optimistically so it doesn't flash back while the
-        // loadUser refetch is in flight.
+        // Hide the dialog optimistically so it doesn't flash back during the loadUser refetch.
         locallyClosed: [
             false,
             {
                 dismissWelcome: () => true,
                 closeDialog: () => true,
+                resetForOrgChange: () => false,
+            },
+        ],
+        hasLoadedOnce: [
+            false,
+            {
+                loadWelcomeDataSuccess: () => true,
+                resetForOrgChange: () => false,
+            },
+        ],
+        welcomeDataError: [
+            false,
+            {
+                setWelcomeDataError: (_, { error }) => error,
+                loadWelcomeData: () => false,
+                resetForOrgChange: () => false,
             },
         ],
     }),
 
-    loaders({
+    loaders(({ actions }) => ({
         welcomeData: [
             EMPTY_PAYLOAD,
             {
@@ -117,14 +165,14 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                     try {
                         return await api.get<WelcomePayload>('api/organizations/@current/welcome/')
                     } catch (error) {
-                        // Fail-soft — render a minimal welcome if the aggregation endpoint errors.
                         console.warn('Failed to load welcome data', error)
+                        actions.setWelcomeDataError(true)
                         return EMPTY_PAYLOAD
                     }
                 },
             },
         ],
-    }),
+    })),
 
     selectors({
         inviter: [(s) => [s.welcomeData], (data): WelcomeInviter | null => data.inviter],
@@ -140,14 +188,26 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         // Only open for invitees (not the org creator) who haven't already dismissed it.
         shouldShowDialog: [
             (s) => [s.user, s.locallyClosed],
-            (user, locallyClosed): boolean =>
-                !!user && user.is_organization_first_user === false && !user.welcome_screen_seen_at && !locallyClosed,
+            (user, locallyClosed): boolean => {
+                if (!user || user.is_organization_first_user !== false || user.welcome_screen_seen_at) {
+                    return false
+                }
+                if (locallyClosed) {
+                    return false
+                }
+                // Also suppress if the user opted to look around earlier in this tab's session.
+                return !wasLookedAround(user.organization?.id)
+            },
         ],
     }),
 
     listeners(({ actions, values }) => ({
         loadWelcomeDataSuccess: ({ welcomeData }) => {
-            if (!values.shouldShowDialog) {
+            if (!values.shouldShowDialog || values.welcomeDataError) {
+                return
+            }
+            if (!welcomeData.organization_name) {
+                // Empty payload = backend error that was caught and returned EMPTY_PAYLOAD.
                 return
             }
             actions.markShown()
@@ -159,19 +219,28 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 from_invite_type: welcomeData.inviter ? 'invite' : 'unknown',
             })
         },
+        closeDialog: () => {
+            // Persist "I'll look around" across remounts in the same tab.
+            rememberLookedAround(values.user?.organization?.id)
+        },
         dismissWelcome: async () => {
-            const interactedCards = Object.keys(values.interactedCards).length
+            const interactedCount = Object.keys(values.interactedCards).length
             const timeOnScreen = values.shownAt ? Date.now() - values.shownAt : null
-            posthog.capture('welcome_screen_dismissed', {
-                time_on_screen_ms: timeOnScreen,
-                cards_interacted_with: interactedCards,
-            })
+            let success = true
             try {
                 await api.create('api/users/@me/welcome_screen/dismiss/')
             } catch (error) {
+                success = false
                 console.warn('Failed to dismiss welcome screen', error)
+                lemonToast.warning("Couldn't save your preference — we'll try again next time.")
             }
-            // Refresh user so welcome_screen_seen_at persists for future sessions.
+            // Analytics fire AFTER the network call so we don't double-count on retries.
+            posthog.capture('welcome_screen_dismissed', {
+                time_on_screen_ms: timeOnScreen,
+                cards_interacted_with: interactedCount,
+                success,
+            })
+            // Refresh user so welcome_screen_seen_at reflects the new state for next session.
             actions.loadUser()
         },
         trackCardClick: ({ card, targetHref }) => {
@@ -183,12 +252,18 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
     })),
 
-    // Watch shouldShowDialog and trigger the fetch when it transitions to true.
-    // This handles the race where the dialog mounts before userLogic has loaded
-    // the user, so afterMount alone would have skipped the fetch.
+    // Re-evaluate on user changes. Triggers the initial fetch once the user loads, and re-fetches
+    // when the user switches current organization so we don't render stale data across orgs.
     subscriptions(({ actions, values }) => ({
-        shouldShowDialog: (shouldShow: boolean, previous: boolean | undefined) => {
-            if (shouldShow && !previous && values.welcomeData === EMPTY_PAYLOAD && !values.welcomeDataLoading) {
+        user: (nextUser, previousUser) => {
+            const prevOrgId = previousUser?.organization?.id
+            const nextOrgId = nextUser?.organization?.id
+            if (prevOrgId && nextOrgId && prevOrgId !== nextOrgId) {
+                actions.resetForOrgChange()
+            }
+        },
+        shouldShowDialog: (shouldShow: boolean) => {
+            if (shouldShow && !values.hasLoadedOnce && !values.welcomeDataLoading) {
                 actions.loadWelcomeData()
             }
         },

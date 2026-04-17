@@ -125,7 +125,11 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        user.join(organization=self.organization, level=self.level)
+        membership = user.join(organization=self.organization, level=self.level)
+        if self.created_by_id is not None:
+            # Persist inviter so the welcome dialog can attribute it after this invite row is deleted below.
+            membership.invited_by_id = self.created_by_id
+            membership.save(update_fields=["invited_by", "updated_at"])
 
         for item in self.private_project_access or []:
             try:

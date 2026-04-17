@@ -524,6 +524,15 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     # Set when the user dismisses or navigates past the welcome screen shown after joining an existing org.
     # Scoped to the membership so users in multiple orgs see the welcome once per org.
     welcome_screen_seen_at = models.DateTimeField(null=True, blank=True, default=None)
+    # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
+    # the OrganizationInvite row itself is deleted during use() and can't be looked up afterwards.
+    invited_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     class Meta:
         constraints = [
