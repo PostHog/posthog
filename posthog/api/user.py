@@ -483,7 +483,7 @@ class UserViewSet(
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
     # Custom @action GETs that should map to user:read for OAuth / personal API keys
-    scope_object_read_actions = ["list", "retrieve", "github_login"]
+    scope_object_read_actions = ["list", "retrieve", "github_login", "pending_invites"]
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
@@ -581,16 +581,14 @@ class UserViewSet(
             return Response([])
 
         normalized_email = EmailNormalizer.normalize(user.email)
-        existing_memberships = OrganizationMembership.objects.filter(user=user).values_list(
-            "organization_id", flat=True
-        )
+        existing_org_ids = OrganizationMembership.objects.filter(user=user).values_list("organization_id", flat=True)
 
         invites = (
             OrganizationInvite.objects.filter(
                 target_email__iexact=normalized_email,
                 created_at__gt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),
             )
-            .exclude(organization_id__in=list(existing_memberships))
+            .exclude(organization_id__in=existing_org_ids)
             .select_related("organization")
             .order_by("-created_at")
         )

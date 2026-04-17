@@ -1,5 +1,6 @@
 import uuid
 import datetime
+import contextlib
 from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
@@ -19,6 +20,7 @@ from django.utils.text import slugify
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
@@ -130,23 +132,53 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
-    def test_pending_invites_returns_invites_for_current_user_email(self):
+    @parameterized.expand(
+        [
+            ("matching_email", lambda email: email, False, 1),
+            ("uppercase_email", str.upper, False, 1),
+            ("expired_invite", lambda email: email, True, 0),
+        ]
+    )
+    def test_pending_invites_filtering(self, _name, email_transform, expired, expected_count):
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Organization")
+        created_at_ctx = (
+            freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1))
+            if expired
+            else contextlib.nullcontext()
+        )
+        with created_at_ctx:
+            OrganizationInvite.objects.create(
+                organization=other_org,
+                target_email=email_transform(self.user.email),
+                created_by=self.user,
+            )
+
+        response = self.client.get("/api/users/@me/pending_invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), expected_count)
+
+    def test_pending_invites_excludes_other_emails_and_existing_memberships(self):
         from posthog.models import OrganizationInvite
 
         other_org = Organization.objects.create(name="Other Organization")
 
-        invite = OrganizationInvite.objects.create(
+        matching_invite = OrganizationInvite.objects.create(
             organization=other_org,
             target_email=self.user.email,
             created_by=self.user,
         )
 
+        # Invite for a different email — should be ignored.
         OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="someone-else@example.com",
             created_by=self.user,
         )
 
+        # Invite to an org the user already belongs to — should be ignored.
         OrganizationInvite.objects.create(
             organization=self.organization,
             target_email=self.user.email,
@@ -158,41 +190,10 @@ class TestUserAPI(APIBaseTest):
         data = response.json()
 
         self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["id"], str(invite.id))
+        self.assertEqual(data[0]["id"], str(matching_invite.id))
         self.assertEqual(data[0]["organization_id"], str(other_org.id))
         self.assertEqual(data[0]["organization_name"], "Other Organization")
         self.assertEqual(data[0]["target_email"], self.user.email)
-
-    def test_pending_invites_ignores_expired_invites(self):
-        from posthog.constants import INVITE_DAYS_VALIDITY
-        from posthog.models import OrganizationInvite
-
-        other_org = Organization.objects.create(name="Stale Organization")
-
-        with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
-            OrganizationInvite.objects.create(
-                organization=other_org,
-                target_email=self.user.email,
-                created_by=self.user,
-            )
-
-        response = self.client.get("/api/users/@me/pending_invites/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), [])
-
-    def test_pending_invites_matches_email_case_insensitively(self):
-        from posthog.models import OrganizationInvite
-
-        other_org = Organization.objects.create(name="Uppercase Organization")
-        OrganizationInvite.objects.create(
-            organization=other_org,
-            target_email=self.user.email.upper(),
-            created_by=self.user,
-        )
-
-        response = self.client.get("/api/users/@me/pending_invites/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()), 1)
 
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
