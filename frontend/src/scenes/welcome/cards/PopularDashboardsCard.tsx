@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { IconDashboard } from '@posthog/icons'
+
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -16,15 +18,26 @@ export function PopularDashboardsCard(): JSX.Element | null {
     return (
         <LemonCard hoverEffect={false} className="p-6">
             <h2 className="text-lg font-semibold mb-3">Popular dashboards</h2>
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-3 m-0 p-0 list-none">
                 {popularDashboards.map((dashboard) => (
-                    <li key={dashboard.id} className="text-sm">
-                        <Link to={dashboard.url} onClick={() => trackCardClick('dashboards', dashboard.url)}>
-                            <span className="font-medium">{dashboard.name}</span>
-                        </Link>
-                        {dashboard.description ? (
-                            <div className="text-xs text-muted truncate">{dashboard.description}</div>
-                        ) : null}
+                    <li key={dashboard.id} className="flex items-start gap-3">
+                        <IconDashboard
+                            className="text-xl text-[var(--color-brand-blue)] flex-shrink-0 mt-0.5"
+                            aria-hidden="true"
+                        />
+                        <div className="flex-1 min-w-0 text-sm leading-snug">
+                            <Link
+                                to={dashboard.url}
+                                subtle
+                                onClick={() => trackCardClick('dashboards', dashboard.url)}
+                                className="font-medium break-words"
+                            >
+                                {dashboard.name}
+                            </Link>
+                            {dashboard.description ? (
+                                <div className="text-xs text-muted truncate">{dashboard.description}</div>
+                            ) : null}
+                        </div>
                     </li>
                 ))}
             </ul>

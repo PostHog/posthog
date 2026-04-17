@@ -5,6 +5,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
+import { AskMaxCard } from './cards/AskMaxCard'
 import { PopularDashboardsCard } from './cards/PopularDashboardsCard'
 import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
@@ -60,6 +61,7 @@ export function WelcomeDialog(): JSX.Element | null {
                     <PopularDashboardsCard />
                     <ProductsInUseCard />
                     <SuggestedNextStepsCard />
+                    <AskMaxCard />
                 </div>
             )}
         </LemonModal>

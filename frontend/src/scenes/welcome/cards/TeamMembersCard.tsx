@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconArrowRight } from '@posthog/icons'
+
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
@@ -25,14 +27,15 @@ export function TeamMembersCard(): JSX.Element | null {
         <LemonCard hoverEffect={false} className="p-6">
             <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold">Your team</h2>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
+                <Link
                     to={urls.settings('organization')}
+                    subtle
                     onClick={() => trackCardClick('members', urls.settings('organization'))}
+                    className="inline-flex items-center gap-1 text-xs text-muted"
                 >
-                    See all teammates
-                </LemonButton>
+                    <span>See all teammates</span>
+                    <IconArrowRight />
+                </Link>
             </div>
             <ul className="flex flex-col gap-2">
                 {teamMembers.map((member) => (

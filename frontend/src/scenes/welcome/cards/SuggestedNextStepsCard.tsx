@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { IconArrowRight, IconBook } from '@posthog/icons'
+
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -16,13 +18,33 @@ export function SuggestedNextStepsCard(): JSX.Element | null {
     return (
         <LemonCard hoverEffect={false} className="p-6">
             <h2 className="text-lg font-semibold mb-3">Suggested next steps</h2>
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-3 m-0 p-0 list-none">
                 {suggestedNextSteps.map((step, index) => (
-                    <li key={`${step.href}-${index}`}>
-                        <Link to={step.href} onClick={() => trackCardClick('next_steps', step.href)}>
-                            <span className="font-medium">{step.label}</span>
-                        </Link>
-                        <div className="text-xs text-muted">{step.reason}</div>
+                    <li key={`${step.href}-${index}`} className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                            <Link
+                                to={step.href}
+                                subtle
+                                onClick={() => trackCardClick('next_steps', step.href)}
+                                className="inline-flex items-center gap-1 font-medium"
+                            >
+                                <span>{step.label}</span>
+                                <IconArrowRight className="text-sm" />
+                            </Link>
+                            <div className="text-xs text-muted">{step.reason}</div>
+                        </div>
+                        {step.docs_href ? (
+                            <Link
+                                to={step.docs_href}
+                                target="_blank"
+                                subtle
+                                onClick={() => trackCardClick('next_steps', step.docs_href!)}
+                                className="inline-flex items-center gap-1 text-xs text-muted flex-shrink-0 mt-0.5"
+                            >
+                                <IconBook />
+                                <span>Docs</span>
+                            </Link>
+                        ) : null}
                     </li>
                 ))}
             </ul>

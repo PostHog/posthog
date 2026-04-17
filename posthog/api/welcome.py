@@ -281,23 +281,45 @@ def _build_suggested_next_steps(user: User, products_in_use: list[str]) -> list[
     if "session_replay" in products_in_use and role in {"product", "designer", ""}:
         href = f"/project/{team_id}/replay/home" if team_id else "/replay/home"
         suggestions.append(
-            {"label": "Watch a recent recording", "href": href, "reason": "Your team uses Session replay"}
+            {
+                "label": "Watch a recent recording",
+                "href": href,
+                "reason": "Your team uses Session replay",
+                "docs_href": "https://posthog.com/docs/session-replay",
+            }
         )
 
     if "feature_flags" in products_in_use and role in {"engineering", "engineer", ""}:
         href = f"/project/{team_id}/feature_flags" if team_id else "/feature_flags"
         suggestions.append(
-            {"label": "See active feature flags", "href": href, "reason": "Your team uses Feature flags"}
+            {
+                "label": "See active feature flags",
+                "href": href,
+                "reason": "Your team uses Feature flags",
+                "docs_href": "https://posthog.com/docs/feature-flags",
+            }
         )
 
     if "experiments" in products_in_use and role in {"product", "engineering", "engineer", ""}:
         href = f"/project/{team_id}/experiments" if team_id else "/experiments"
         suggestions.append(
-            {"label": "Explore running experiments", "href": href, "reason": "Your team uses Experiments"}
+            {
+                "label": "Explore running experiments",
+                "href": href,
+                "reason": "Your team uses Experiments",
+                "docs_href": "https://posthog.com/docs/experiments",
+            }
         )
 
     if not suggestions:
         href = f"/project/{team_id}" if team_id else "/"
-        suggestions.append({"label": "Explore the project home", "href": href, "reason": "A good place to start"})
+        suggestions.append(
+            {
+                "label": "Explore the project home",
+                "href": href,
+                "reason": "A good place to start",
+                "docs_href": "https://posthog.com/docs",
+            }
+        )
 
     return suggestions[:_SUGGESTED_NEXT_STEPS_MAX_ITEMS]
