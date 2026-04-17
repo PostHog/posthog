@@ -323,6 +323,7 @@ mod tests {
     use common_types::RawEvent;
     use serde_json::json;
     use std::collections::HashMap;
+    use std::num::NonZeroU32;
     use time::OffsetDateTime;
 
     fn create_test_context(
@@ -916,8 +917,6 @@ mod tests {
     // Each case constructs a `process_events` call with a specific
     // `OverflowLimiter` configuration and asserts the stamped
     // `overflow_reason` on the sink-captured event.
-
-    use std::num::NonZeroU32;
 
     fn build_limiter(
         per_second: u32,

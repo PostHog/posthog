@@ -21,7 +21,7 @@ use rdkafka::producer::{FutureProducer, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
@@ -539,7 +539,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // before the serial enqueue phase. This is where the CPU win lives:
         // serde_json::to_string + header build run concurrently on up to N
         // worker threads, rather than sequentially on a single task.
-        let prep_start = std::time::Instant::now();
+        let prep_start = Instant::now();
         let mut prep_set: JoinSet<(usize, Result<ProduceRecord, CaptureError>)> = JoinSet::new();
         for (idx, event) in events.into_iter().enumerate() {
             let this = self.clone();
@@ -583,7 +583,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // on-wire order by send_result() call order, and same-distinct_id events
         // hash to the same partition via murmur2. Within-batch same-key ordering
         // must survive so e.g. $identify lands before subsequent events.
-        let enqueue_start = std::time::Instant::now();
+        let enqueue_start = Instant::now();
         let mut ack_set = JoinSet::new();
         for slot in prepared {
             let record = slot.expect("prep slot not filled");

@@ -535,6 +535,8 @@ mod tests {
     use crate::sinks::Event;
     use crate::v0_request::ProcessedEvent;
     use async_trait::async_trait;
+    use common_redis::MockRedisClient;
+    use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -774,9 +776,6 @@ mod tests {
     // Exercise the pipeline's new replay overflow stamping stage
     // (moved here from the kafka sink's prepare_record). The limiter is
     // backed by a MockRedisClient primed with a specific session id.
-
-    use common_redis::MockRedisClient;
-    use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 
     async fn build_replay_limiter(limited_session_ids: Vec<String>) -> Arc<RedisLimiter> {
         let client = Arc::new(
