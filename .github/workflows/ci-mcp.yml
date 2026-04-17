@@ -233,6 +233,14 @@ jobs:
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
+            # wrangler.jsonc points `assets.directory` at `./public/`, whose
+            # contents are produced by `pnpm build` (UI apps) and gitignored.
+            # vitest-pool-workers parses the full wrangler config and fails if
+            # the directory is missing. We don't need the assets for DO tests —
+            # creating an empty dir is enough.
+            - name: Ensure wrangler assets directory exists
+              run: mkdir -p services/mcp/public
+
             # Runs the MCP Durable Object tests against the real Cloudflare
             # Workers runtime via @cloudflare/vitest-pool-workers. No external
             # services required — miniflare is bundled and serves the DO
