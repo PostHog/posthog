@@ -121,6 +121,8 @@ export function formatLLMUsage(
     return null
 }
 
+export const LLM_TRACES_PAGE_SIZE = 50
+
 export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
 
 export function formatLLMLatency(latency: number, showMinutes?: boolean): string {

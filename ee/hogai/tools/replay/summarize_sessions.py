@@ -303,11 +303,16 @@ class SummarizeSessionsTool(MaxTool):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    def _get_trigger_session_id(self) -> str | None:
+        """Get the session ID of the user who triggered the summarization."""
+        return self._get_session_id(self._config)
+
     async def _summarize_sessions_individually(self, session_ids: list[str]) -> str:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
         video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
 
         async def _summarize(session_id: str) -> dict[str, Any] | None:
             nonlocal completed
@@ -319,6 +324,7 @@ class SummarizeSessionsTool(MaxTool):
                     team=self._team,
                     model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                     video_validation_enabled=video_validation_enabled,
+                    trigger_session_id=trigger_session_id,
                 )
                 completed += 1
                 self._dispatch_session_progress(session_id, "summarized", completed, total)
@@ -362,6 +368,7 @@ class SummarizeSessionsTool(MaxTool):
         )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
         async with Heartbeater():
             async for update_type, data in execute_summarize_session_group(
                 session_ids=session_ids,
@@ -372,6 +379,7 @@ class SummarizeSessionsTool(MaxTool):
                 summary_title=summary_title,
                 extra_summary_context=None,
                 video_validation_enabled=video_validation_enabled,
+                trigger_session_id=trigger_session_id,
             ):
                 # Max "reasoning" text update message
                 if update_type == SessionSummaryStreamUpdate.UI_STATUS:
