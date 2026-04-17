@@ -187,19 +187,17 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-
             - name: Update hogql-parser in requirements
               shell: bash
               env:
                   RETRIES: 20
               run: |
+                  # setuptools isn't installed by default after actions/setup-python, but
+                  # `python setup.py --version` needs it. Mirrors the sdist step above.
+                  pip install setuptools==80.9.0
+                  VERSION=$(python common/hogql_parser/setup.py --version)
                   # In case the version is not available yet, try up to $RETRIES times
-                  VERSION=$(node -p "require('./common/hogql_parser/package.json').version")
-                  for i in $(seq 1 $RETRIES); do
+                  for i in $(seq 1 "$RETRIES"); do
                       if uv add "hogql-parser==$VERSION"; then
                           break
                       fi
