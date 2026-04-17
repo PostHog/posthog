@@ -1214,7 +1214,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         precompute_recordings_counts([playlist], self.user, self.team)
 
-        assert playlist._prefetched_collection_count == {"count": 3, "watched_count": 2}
+        assert playlist._prefetched_collection_count == {"count": 3, "watched_count": 2}  # type: ignore[attr-defined]
         assert not hasattr(playlist, "_prefetched_saved_filters_count")
 
     def test_collection_with_soft_deleted_items_excluded_from_count(self) -> None:
@@ -1227,7 +1227,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         # count excludes the soft-deleted item (None), but watched_count includes it
         # to match the historical behavior of count_collection_recordings.
-        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 1}
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 1}  # type: ignore[attr-defined]
 
     def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
         playlist = self._make_playlist("empty")
@@ -1239,8 +1239,8 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         precompute_recordings_counts([playlist], self.user, self.team)
 
-        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}
-        assert playlist._prefetched_saved_filters_count == {
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == {  # type: ignore[attr-defined]
             "count": 2,
             "has_more": False,
             "watched_count": 1,
@@ -1254,7 +1254,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         precompute_recordings_counts([playlist], self.user, self.team)
 
-        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()
+        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
 
     def test_redis_mget_failure_degrades_without_raising(self) -> None:
         playlist = self._make_playlist("redis down")
@@ -1266,8 +1266,8 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
             precompute_recordings_counts([playlist], self.user, self.team)
 
-        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}
-        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
 
     def test_does_not_read_items_from_other_team(self) -> None:
         # Defense-in-depth: even if a caller misuses the helper by passing a
@@ -1281,9 +1281,9 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # Simulate a buggy caller passing both playlists.
         precompute_recordings_counts([mine, theirs], self.user, self.team)
 
-        assert mine._prefetched_collection_count == {"count": None, "watched_count": 0}
+        assert mine._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
         # The other-team playlist's items are filtered out by playlist__team_id.
-        assert theirs._prefetched_collection_count == {"count": None, "watched_count": 0}
+        assert theirs._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
 
     @parameterized.expand(
         [
@@ -1312,10 +1312,10 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         if expected_collection_count is None:
             assert not hasattr(playlist, "_prefetched_collection_count")
         else:
-            assert playlist._prefetched_collection_count == expected_collection_count
+            assert playlist._prefetched_collection_count == expected_collection_count  # type: ignore[attr-defined]
 
         if expect_saved_filters_default:
-            assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()
+            assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
 
     def test_list_clamps_limit_query_param_to_max(self) -> None:
         # Sanity-check the pagination cap — requesting limit=99999 must cap at the configured max.
