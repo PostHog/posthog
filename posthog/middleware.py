@@ -654,8 +654,10 @@ class KnownLoginDeviceCookieMiddleware:
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        if request.user.is_authenticated and isinstance(request.user, User):
-            set_known_device_cookie(response, request.user)
+        # `request.user` is None on endpoints with no AuthenticationMiddleware (e.g. public widget API)
+        user = getattr(request, "user", None)
+        if isinstance(user, User):
+            set_known_device_cookie(response, user)
         return response
 
 
