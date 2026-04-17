@@ -380,6 +380,35 @@ class TestLoginAPI(APIBaseTest):
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class TestLogoutRedirect(APIBaseTest):
+    """
+    Tests that /logout preserves a safe `next` param so users return to where they were
+    after logging back in.
+    """
+
+    def test_logout_without_next_redirects_to_login(self):
+        response = self.client.post("/logout")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], settings.LOGIN_URL)
+
+    def test_logout_forwards_safe_next_param(self):
+        response = self.client.post("/logout?next=/settings/user-notifications")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
+
+    @parameterized.expand(
+        [
+            ("scheme_relative", "//evil.com/path"),
+            ("absolute_url", "https://evil.com"),
+            ("javascript_url", "javascript:alert(1)"),
+        ]
+    )
+    def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
+        response = self.client.post(f"/logout?next={unsafe}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
+
+
 class TestTwoFactorAPI(APIBaseTest):
     """
     Tests the two factor view set.

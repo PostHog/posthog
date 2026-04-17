@@ -44,10 +44,24 @@ export const ToolConfigSchema = z
                         schema_ref: z.string().optional(),
                         /** Properties to exclude when generating from schema_ref. */
                         exclude_properties: z.array(z.string()).optional(),
+                        /**
+                         * When true, the param becomes optional in the tool schema.
+                         * Must be paired with `fallback` to specify the state key used
+                         * to resolve the value when the caller omits it.
+                         */
+                        optional: z.boolean().optional(),
+                        /**
+                         * State manager key to resolve the param from when omitted.
+                         * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
+                         */
+                        fallback: z.enum(['orgId', 'projectId']).optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {
                         message: 'input_schema and schema_ref are mutually exclusive',
+                    })
+                    .refine((data) => !(data.optional && !data.fallback), {
+                        message: 'optional requires a fallback key to resolve the value from state',
                     })
             )
             .optional(),

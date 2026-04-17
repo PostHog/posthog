@@ -117,7 +117,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return schema.sync_type_config.get("incremental_field_type")
 
     def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
-        return schema.sync_type
+        return ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None
 
     def get_primary_key_columns(self, schema: ExternalDataSchema) -> list[str] | None:
         return schema.primary_key_columns
@@ -281,11 +281,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 elif should_sync is True:
                     unpause_external_data_schedule(str(instance.id))
             else:
+                should_sync_value = should_sync if should_sync is not None else instance.should_sync
                 if should_sync is True:
-                    sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
+                    sync_external_data_job_workflow(instance, create=True, should_sync=should_sync_value)
 
             if was_sync_frequency_updated or was_sync_time_of_day_updated:
-                sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+                should_sync_value = should_sync if should_sync is not None else instance.should_sync
+                sync_external_data_job_workflow(instance, create=False, should_sync=should_sync_value)
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (

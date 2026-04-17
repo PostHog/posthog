@@ -3033,15 +3033,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 response_placeholder.status_code,
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status.HTTP_400_BAD_REQUEST,
                 response_placeholder.json(),
             )
-            # With the new HogQL query runner this legacy endpoint now returns 500 instead of a proper 400.
-            # We don't really care, since this endpoint should eventually be removed altogether.
-            # self.assertEqual(
-            #     response_placeholder.json(),
-            #     self.validation_error_response("Unresolved placeholder: {team_id}"),
-            # )
+            self.assertEqual(
+                response_placeholder.json(),
+                self.validation_error_response("Unresolved placeholder: {team_id}"),
+            )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries

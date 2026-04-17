@@ -25,6 +25,10 @@ export function MaxMemorySettings(): JSX.Element {
             enableFormOnSubmit
             className="w-full deprecated-space-y-4"
         >
+            <p className="max-w-160 text-sm text-secondary mb-4">
+                When memory exceeds 5,000 characters, only the first and last 2,500 characters are visible to PostHog
+                AI. The maximum memory size is 10,000 characters.
+            </p>
             {currentProjectLoading || isLoading ? (
                 <div className="gap-2 flex flex-col">
                     <LemonSkeleton className="h-6 w-32" />

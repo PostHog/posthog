@@ -1,12 +1,23 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconQuestion } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy, IconQuestion } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonModal,
+    LemonSkeleton,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -220,7 +231,125 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {footer()}
             </>
+            <CDCSelfManagedSetupDialog />
         </div>
+    )
+}
+
+function CDCSelfManagedSetupDialog(): JSX.Element | null {
+    const {
+        cdcSelfManagedSetupDialogOpen,
+        source,
+        databaseSchema,
+        sourceConnectionDetails,
+        cdcSelfManagedVerifyResult,
+        cdcSelfManagedVerifyResultLoading,
+    } = useValues(sourceWizardLogic)
+    const { closeCdcSelfManagedSetupDialog, verifyCdcSelfManagedSetup } = useActions(sourceWizardLogic)
+
+    // Checkbox state is pure UI toggle — no business logic, stays local.
+    const [confirmed, setConfirmed] = useState(false)
+
+    const payload = (source?.payload || {}) as Record<string, any>
+    const cdcTableNames = useMemo(
+        () =>
+            (databaseSchema || [])
+                .filter((s: any) => s.should_sync && s.sync_type === 'cdc')
+                .map((s: any) => s.table as string),
+        [databaseSchema]
+    )
+    const schema = (sourceConnectionDetails?.payload?.schema as string) || 'public'
+    const pubName = (payload.cdc_publication_name as string) || 'posthog_pub'
+    const dbUser = (sourceConnectionDetails?.payload?.user as string) || '<your_user>'
+
+    const tableList =
+        cdcTableNames.length > 0
+            ? cdcTableNames.map((t) => `"${schema}"."${t}"`).join(', ')
+            : `"${schema}"."your_table"`
+
+    const sql = `-- 1. Grants for the PostHog user
+--    Reading a replication slot requires REPLICATION (or rds_replication on RDS).
+--    Run ONE of the lines below, depending on your environment:
+ALTER USER "${dbUser}" WITH REPLICATION;             -- self-hosted / most clouds
+-- GRANT rds_replication TO "${dbUser}";             -- AWS RDS
+GRANT USAGE ON SCHEMA "${schema}" TO "${dbUser}";
+GRANT SELECT ON ${tableList} TO "${dbUser}";
+
+-- 2. Publication covering the ${cdcTableNames.length} selected table${cdcTableNames.length === 1 ? '' : 's'}
+--    Run this as the table owner (or a superuser). PostHog will create and manage
+--    the replication slot itself once the source is created.
+CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
+  WITH (publish_via_partition_root = true);
+
+-- Later, to add a new table to the publication:
+-- ALTER PUBLICATION "${pubName}" ADD TABLE "${schema}"."new_table";`
+
+    const handleCopy = async (): Promise<void> => {
+        await copyToClipboard(sql, 'Setup SQL')
+    }
+
+    if (!cdcSelfManagedSetupDialogOpen) {
+        return null
+    }
+
+    const errors =
+        cdcSelfManagedVerifyResult && !cdcSelfManagedVerifyResult.valid ? cdcSelfManagedVerifyResult.errors : null
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={closeCdcSelfManagedSetupDialog}
+            title="Create your publication"
+            description={`Self-managed CDC needs the publication to exist before PostHog connects — PostHog will create and manage the replication slot itself. Run the SQL below (covering the ${cdcTableNames.length} table${cdcTableNames.length === 1 ? '' : 's'} you selected for CDC) as the table owner, then click Verify & create.`}
+            width={720}
+            footer={
+                <>
+                    <LemonButton
+                        type="tertiary"
+                        onClick={closeCdcSelfManagedSetupDialog}
+                        disabledReason={cdcSelfManagedVerifyResultLoading ? 'Verifying...' : undefined}
+                    >
+                        Back
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        loading={cdcSelfManagedVerifyResultLoading}
+                        disabledReason={!confirmed ? 'Confirm you have executed the SQL' : undefined}
+                        onClick={verifyCdcSelfManagedSetup}
+                    >
+                        Verify & create source
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="flex justify-end">
+                    <LemonButton size="small" type="secondary" icon={<IconCopy />} onClick={() => void handleCopy()}>
+                        Copy SQL
+                    </LemonButton>
+                </div>
+                <pre className="text-xs bg-surface-primary p-3 rounded overflow-x-auto whitespace-pre-wrap border border-border">
+                    {sql}
+                </pre>
+
+                <LemonCheckbox
+                    checked={confirmed}
+                    onChange={setConfirmed}
+                    label="I have executed the SQL above on my PostgreSQL database"
+                />
+
+                {errors && errors.length > 0 && (
+                    <LemonBanner type="error">
+                        <p className="font-semibold mb-1">Verification failed — please fix the following and retry:</p>
+                        <ul className="list-disc ml-5 mb-0 text-sm">
+                            {errors.map((err, i) => (
+                                <li key={i}>{err}</li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 

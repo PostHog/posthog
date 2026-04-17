@@ -7,7 +7,6 @@ from structlog import get_logger
 
 from posthog.models import Insight
 from posthog.models.subscription import Subscription, SubscriptionDelivery
-from posthog.subscription_delivery_rollout import hackathon_subscription_feature
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
@@ -23,6 +22,10 @@ SUBSCRIPTION_SUMMARY_FAILURE = Counter(
     "posthog_subscription_ai_summary_failure_total",
     "AI summary generation failed for a subscription delivery",
     ["reason"],
+)
+SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
+    "posthog_subscription_ai_summary_skipped_no_ai_consent_total",
+    "AI summary skipped because the organization has not approved AI data processing",
 )
 
 
@@ -58,7 +61,6 @@ def _build_states_from_content_snapshot(
                 "insight_id": insight_id,
                 "insight_name": insight_name,
                 "query_kind": query_kind,
-                "query_definition": {"query_hash": insight_snap.get("query_hash")},
                 "results_summary": results_summary,
                 "timestamp": timestamp,
             }
@@ -107,14 +109,20 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("team").get,
+        Subscription.objects.select_related("team__organization").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
     if not subscription.summary_enabled:
         return SnapshotInsightsResult()
 
-    if not await database_sync_to_async(hackathon_subscription_feature, thread_sensitive=False)(inputs.team_id):
+    if not subscription.team.organization.is_ai_data_processing_approved:
+        SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT.inc()
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.skipped_no_ai_consent",
+            subscription_id=inputs.subscription_id,
+            organization_id=str(subscription.team.organization_id),
+        )
         return SnapshotInsightsResult()
 
     if not inputs.delivery_id:

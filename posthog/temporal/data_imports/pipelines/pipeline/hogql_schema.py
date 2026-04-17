@@ -52,10 +52,8 @@ class HogQLSchema:
 
         if hogql_type is StringDatabaseField:
             # Checking for JSON string columns with the first non-null value in the column
-            for value in column:
-                value_str = value.as_py()
-                if value_str is not None:
-                    assert isinstance(value_str, str)
+            for value_str in column.to_pylist():
+                if isinstance(value_str, str):
                     if value_str.startswith("{") or value_str.startswith("["):
                         hogql_type = StringJSONDatabaseField
                     break
