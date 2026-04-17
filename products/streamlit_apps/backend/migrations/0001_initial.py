@@ -47,6 +47,19 @@ class Migration(migrations.Migration):
                 ("deleted_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -153,21 +166,6 @@ class Migration(migrations.Migration):
                 related_name="+",
                 to="streamlit_apps.streamlitappversion",
             ),
-        ),
-        migrations.AddField(
-            model_name="streamlitapp",
-            name="created_by",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                to=settings.AUTH_USER_MODEL,
-            ),
-        ),
-        migrations.AddField(
-            model_name="streamlitapp",
-            name="team",
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
         ),
         migrations.AddConstraint(
             model_name="streamlitapp",

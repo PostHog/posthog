@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.db import IntegrityError
+
 from parameterized import parameterized
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
@@ -60,7 +62,7 @@ class TestStreamlitAppVersionModel(BaseTest):
     def test_unique_version_per_app(self):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="b.zip", zip_hash="b")
 
     def test_ordering_by_version_number_desc(self):
@@ -99,7 +101,7 @@ class TestStreamlitAppSandboxModel(BaseTest):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
         StreamlitAppSandbox.objects.create(app=app, version=version, sandbox_id="modal-1")
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             StreamlitAppSandbox.objects.create(app=app, version=version, sandbox_id="modal-2")
 
     def test_defaults(self):

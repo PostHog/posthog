@@ -324,7 +324,7 @@ depends_on = [
     "posthog",
     "products.tasks",
 ]
-layer = "non_isolated"
+layer = "modules"
 
 [[modules]]
 path = "products.streamlit_apps"
