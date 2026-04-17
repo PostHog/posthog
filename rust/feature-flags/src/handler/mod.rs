@@ -228,7 +228,11 @@ async fn process_request_inner(
                 } else {
                     Some(false)
                 },
-                context.meta.only_use_override_person_properties,
+                if authentication::is_internal_request(&context) {
+                    context.meta.only_use_override_person_properties
+                } else {
+                    None
+                },
             )
             .await?;
 
