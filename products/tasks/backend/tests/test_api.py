@@ -807,6 +807,41 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("own_private_env", True, True, status.HTTP_200_OK),
+            ("other_users_private_env", True, False, status.HTTP_403_FORBIDDEN),
+            ("other_users_public_env", False, False, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_enforces_sandbox_environment_privacy(
+        self, label, env_private, env_owned_by_requester, expected_status, mock_workflow
+    ):
+        other_user = User.objects.create_user(
+            email=f"other-{label}@example.com", first_name="Other", password="password"
+        )
+        self.organization.members.add(other_user)
+
+        env_creator = self.user if env_owned_by_requester else other_user
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name=f"Env {label}",
+            private=env_private,
+            created_by=env_creator,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(env.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
             # (filter_param, filter_value, task_repos, expected_task_indices)
             ("repository", "posthog/posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0]),
             ("repository", "posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0, 2]),

@@ -364,6 +364,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not sandbox_environment:
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
 
+            if sandbox_environment.private and sandbox_environment.created_by_id != request.user.id:
+                return Response(
+                    {"detail": "You do not have access to this sandbox environment"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
             extra_state = extra_state or {}
             extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
 
