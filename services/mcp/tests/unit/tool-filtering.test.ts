@@ -11,7 +11,13 @@ describe('Tool Filtering - Features', () => {
         {
             features: undefined,
             description: 'all tools when no features specified',
-            expectedTools: ['feature-flag-get-definition', 'dashboard-create', 'insights-list', 'organizations-get'],
+            expectedTools: [
+                'feature-flag-get-definition',
+                'dashboard-create',
+                'insights-list',
+                'organizations-list',
+                'organization-get',
+            ],
         },
         {
             features: [],
@@ -37,13 +43,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['workspace'],
             description: 'workspace tools',
-            expectedTools: [
-                'organizations-get',
-                'switch-organization',
-                'projects-get',
-                'switch-project',
-                'property-definitions',
-            ],
+            expectedTools: ['switch-organization', 'projects-get', 'switch-project', 'property-definitions'],
         },
         {
             features: ['error_tracking'],
@@ -227,7 +227,7 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-reorder-tiles')
 
         expect(toolNames).not.toContain('create-feature-flag')
-        expect(toolNames).not.toContain('organizations-get')
+        expect(toolNames).not.toContain('organizations-list')
     })
 
     it('should include read tools when user has write scope', async () => {
@@ -260,7 +260,7 @@ describe('Tool Filtering - API Scopes', () => {
 
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('create-feature-flag')
-        expect(toolNames).toContain('organization-details-get')
+        expect(toolNames).toContain('organization-get')
 
         expect(toolNames).not.toContain('dashboard-create')
         expect(toolNames).not.toContain('insight-create')
@@ -318,13 +318,13 @@ describe('Tool Filtering - excludeTools', () => {
             excludeTools: ['switch-organization', 'switch-project'],
             description: 'excludes both switch tools when project ID is provided',
             expectedExcluded: ['switch-organization', 'switch-project'],
-            expectedIncluded: ['organizations-get', 'projects-get'],
+            expectedIncluded: ['organizations-list', 'projects-get'],
         },
         {
             excludeTools: ['switch-organization'],
             description: 'excludes only switch-organization when org ID is provided',
             expectedExcluded: ['switch-organization'],
-            expectedIncluded: ['switch-project', 'organizations-get', 'projects-get'],
+            expectedIncluded: ['switch-project', 'organizations-list', 'projects-get'],
         },
         {
             excludeTools: [],
@@ -361,7 +361,6 @@ describe('Tool Filtering - excludeTools', () => {
         })
         const toolNames = tools.map((t) => t.name)
 
-        expect(toolNames).toContain('organizations-get')
         expect(toolNames).toContain('projects-get')
         expect(toolNames).not.toContain('switch-organization')
         expect(toolNames).not.toContain('switch-project')

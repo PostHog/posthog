@@ -463,6 +463,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
+        order_by_result = self.visit(ctx.orderByClause()) if ctx.orderByClause() else None
+        order_by = order_by_result[0] if order_by_result else None
+        interpolate = order_by_result[1] if order_by_result else None
         select_query = ast.SelectQuery(
             ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.selectColumnExprListBeforeFrom()) if ctx.selectColumnExprListBeforeFrom() else [],
@@ -473,7 +476,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
             qualify=self.visit(ctx.qualifyClause()) if ctx.qualifyClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
-            order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
+            order_by=order_by,
+            interpolate=interpolate,
             limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
         )
 
@@ -577,7 +581,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):
-        return self.visit(ctx.orderExprList())
+        order_by = self.visit(ctx.orderExprList())
+        interpolate = self.visit(ctx.interpolateClause()) if ctx.interpolateClause() else None
+        return order_by, interpolate
+
+    def visitInterpolateClause(self, ctx: HogQLParser.InterpolateClauseContext):
+        exprs = ctx.interpolateExpr()
+        if not exprs:
+            return []
+        return [self.visit(expr) for expr in exprs]
 
     def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
         limit_expr = self.visit(ctx.limitExpr())
@@ -758,7 +770,33 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitOrderExpr(self, ctx: HogQLParser.OrderExprContext):
         order = "DESC" if ctx.DESC() or ctx.DESCENDING() else "ASC"
-        return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
+        with_fill = self.visit(ctx.withFillClause()) if ctx.withFillClause() else None
+        return ast.OrderExpr(
+            expr=self.visit(ctx.columnExpr()),
+            order=cast(Literal["ASC", "DESC"], order),
+            with_fill=with_fill,
+        )
+
+    def visitWithFillClause(self, ctx: HogQLParser.WithFillClauseContext):
+        column_exprs = ctx.columnExpr()
+        idx = 0
+        from_value = None
+        to_value = None
+        step_value = None
+        if ctx.FROM():
+            from_value = self.visit(column_exprs[idx])
+            idx += 1
+        if ctx.TO():
+            to_value = self.visit(column_exprs[idx])
+            idx += 1
+        if ctx.STEP():
+            step_value = self.visit(column_exprs[idx])
+        return ast.WithFillExpr(from_value=from_value, to_value=to_value, step_value=step_value)
+
+    def visitInterpolateExpr(self, ctx: HogQLParser.InterpolateExprContext):
+        column_exprs = ctx.columnExpr()
+        value = self.visit(column_exprs[1]) if len(column_exprs) > 1 else None
+        return ast.InterpolateExpr(expr=self.visit(column_exprs[0]), value=value)
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
         if ctx.placeholder():
@@ -1288,7 +1326,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
         name = self.visit(ctx.identifier())
         parameters: list[ast.Expr] = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else []
-        within_group = self.visit(ctx.withinGroupClause())
+        within_group, _interpolate = self.visit(ctx.withinGroupClause())
         return ast.Call(name=name, params=parameters, args=[], within_group=within_group)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):

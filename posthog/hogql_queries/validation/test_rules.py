@@ -29,6 +29,7 @@ class TestRequireAtLeastOneSeries(BaseTest):
             RequireAtLeastOneSeries().validate(self._context(query))
 
         self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["insight_requires_at_least_one_series"])
 
     def test_allows_non_empty_series(self):
         query = LifecycleQuery(series=[EventsNode(event="$pageview")])
@@ -83,6 +84,7 @@ class TestDisallowUnsupportedDataWarehouseSettings(BaseTest):
             DisallowUnsupportedDataWarehouseSettings().validate(self._context(query))
 
         self.assertIn(expected_error, str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["data_warehouse_series_unsupported_settings"])
 
     def test_allows_supported_settings_without_data_warehouse_series(self):
         query = LifecycleQuery(

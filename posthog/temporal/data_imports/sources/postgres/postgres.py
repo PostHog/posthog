@@ -1229,6 +1229,7 @@ def postgres_source(
                 sslrootcert="/tmp/no.txt",
                 sslcert="/tmp/no.txt",
                 sslkey="/tmp/no.txt",
+                options=f"-c statement_timeout={SYNC_STATEMENT_TIMEOUT_MS}",
             )
         except psycopg.OperationalError as e:
             if require_ssl and "SSL" in str(e):
@@ -1364,6 +1365,7 @@ def postgres_source(
                         sslcert="/tmp/no.txt",
                         sslkey="/tmp/no.txt",
                         cursor_factory=cursor_factory,
+                        options=f"-c statement_timeout={SYNC_STATEMENT_TIMEOUT_MS}",
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):
@@ -1381,19 +1383,13 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
-                # Bump statement_timeout for the streaming connection. A server
-                # cursor FETCH inherits the session statement_timeout, and on
-                # wide/partitioned scans the source's default (often 30-60s)
-                # kills the fetch before rows come back.
-                try:
-                    with connection.cursor() as setup_cursor:
-                        setup_cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
-                            )
-                        )
-                except Exception as e:
-                    logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
+                # Use psycopg.Cursor directly to bypass cursor_factory (which may be ServerCursor
+                # and requires a `name` arg).
+                with psycopg.Cursor(connection) as check_cursor:
+                    check_cursor.execute("SHOW statement_timeout")
+                    row = check_cursor.fetchone()
+                    timeout_val = str(row[0]) if row else "unknown"  # type: ignore[index]
+                    logger.info(f"Effective statement_timeout on sync connection: {timeout_val}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
