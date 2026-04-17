@@ -2,12 +2,15 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -69,11 +72,53 @@ export function LLMAnalyticsTraces(): JSX.Element {
     )
 }
 
+function TracesOptionsMenu(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showInputOutputColumns } = useValues(llmAnalyticsTracesTabLogic)
+    const { setShowInputOutputColumns } = useActions(llmAnalyticsTracesTabLogic)
+
+    const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+
+    if (!showInputOutputToggleEnabled) {
+        return null
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-end"
+            overlay={
+                <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconGear />}
+                tooltip="Customize traces view"
+                data-attr="llm-traces-options-menu"
+            >
+                Options
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
+        customActions: <TracesOptionsMenu key="traces-options-menu" />,
         columns: {
             id: {
                 title: 'ID',
