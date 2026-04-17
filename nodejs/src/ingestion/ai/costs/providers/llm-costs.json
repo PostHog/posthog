@@ -549,65 +549,6 @@
         }
     },
     {
-        "model": "anthropic/claude-opus-4.7",
-        "cost": {
-            "default": {
-                "prompt_token": 0.000005,
-                "completion_token": 0.000025,
-                "cache_read_token": 5e-7,
-                "cache_write_token": 0.00000625,
-                "web_search": 0.01
-            },
-            "amazon-bedrock": {
-                "prompt_token": 0.000005,
-                "completion_token": 0.000025,
-                "cache_read_token": 5e-7,
-                "cache_write_token": 0.00000625,
-                "web_search": 0.01
-            },
-            "anthropic": {
-                "prompt_token": 0.000005,
-                "completion_token": 0.000025,
-                "cache_read_token": 5e-7,
-                "cache_write_token": 0.00000625,
-                "web_search": 0.01
-            },
-            "azure": {
-                "prompt_token": 0.000005,
-                "completion_token": 0.000025,
-                "cache_read_token": 5e-7,
-                "cache_write_token": 0.00000625,
-                "web_search": 0.01
-            },
-            "google-vertex": {
-                "prompt_token": 0.000005,
-                "completion_token": 0.000025,
-                "cache_read_token": 5e-7,
-                "cache_write_token": 0.00000625,
-                "web_search": 0.01
-            }
-        }
-    },
-    {
-        "model": "anthropic/claude-opus-4.7-fast",
-        "cost": {
-            "default": {
-                "prompt_token": 0.00003,
-                "completion_token": 0.00015,
-                "cache_read_token": 0.000003,
-                "cache_write_token": 0.0000375,
-                "web_search": 0.01
-            },
-            "anthropic": {
-                "prompt_token": 0.00003,
-                "completion_token": 0.00015,
-                "cache_read_token": 0.000003,
-                "cache_write_token": 0.0000375,
-                "web_search": 0.01
-            }
-        }
-    },
-    {
         "model": "anthropic/claude-sonnet-4",
         "cost": {
             "default": {
