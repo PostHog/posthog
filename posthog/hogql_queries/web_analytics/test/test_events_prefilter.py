@@ -174,6 +174,11 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         verify_no_jsonextract=False,
     )
     def test_bounce_with_person_property_filter(self):
+        from posthog.schema import PersonsOnEventsMode
+
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+
         sql = self._run_prefiltered_query(
             includeBounceRate=True,
             properties=[
@@ -186,6 +191,13 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert "toDate(events.timestamp)" in sql
+        # When materialized with PoE, mat_pp_email must be in the prefilter subquery
+        # SELECT — if missing, the query above would fail with UNKNOWN_IDENTIFIER.
+        # Also verify it appears in the generated SQL for the materialized case.
+        if "mat_pp_email" in sql:
+            assert sql.count("mat_pp_email") >= 2, (
+                "mat_pp_email should appear in both the subquery SELECT and outer WHERE"
+            )
 
     def test_initial_page_breakdown_with_bounce(self):
         sql = self._run_prefiltered_query(
