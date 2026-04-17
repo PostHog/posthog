@@ -21,13 +21,13 @@ from django.utils import timezone
 
 import requests
 import structlog
-import posthoganalytics
 from celery import shared_task
 from oauth2_provider.models import AbstractApplication
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
+from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.security.url_validation import is_url_allowed
 
@@ -341,50 +341,51 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None
 
-    try:
-        metadata, cache_ttl = fetch_cimd_metadata(url)
-        cache.set(_cache_key(url), True, timeout=cache_ttl)
-
-        app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
-        if app:
-            updated = _update_cimd_application(app, metadata)
-            logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
-            posthoganalytics.capture(
-                distinct_id=url,
-                event="cimd_application_metadata_refreshed",
-                properties={
-                    "cimd_url": url,
-                    "client_name": metadata.get("client_name"),
-                    "app_id": str(updated.pk),
-                    "cache_ttl": cache_ttl,
-                },
-            )
-            return updated
-
+    with ph_scoped_capture() as capture_ph_event:  # This runs inside Celery, needs this to capture event
         try:
-            new_app = _create_cimd_application(url, metadata)
-            logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
-            posthoganalytics.capture(
-                distinct_id=url,
-                event="cimd_application_created",
-                properties={
-                    "cimd_url": url,
-                    "client_name": new_app.name,
-                    "app_id": str(new_app.pk),
-                    "redirect_uris_count": len(metadata.get("redirect_uris", [])),
-                    "has_logo": bool(metadata.get("logo_uri")),
-                    "cache_ttl": cache_ttl,
-                },
-            )
-            return new_app
-        except (IntegrityError, ValidationError):
+            metadata, cache_ttl = fetch_cimd_metadata(url)
+            cache.set(_cache_key(url), True, timeout=cache_ttl)
+
             app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
             if app:
-                logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
-                return app
-            raise
-    finally:
-        cache.delete(fetch_lock)
+                updated = _update_cimd_application(app, metadata)
+                logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
+                capture_ph_event(
+                    distinct_id=url,
+                    event="cimd_application_metadata_refreshed",
+                    properties={
+                        "cimd_url": url,
+                        "client_name": metadata.get("client_name"),
+                        "app_id": str(updated.pk),
+                        "cache_ttl": cache_ttl,
+                    },
+                )
+                return updated
+
+            try:
+                new_app = _create_cimd_application(url, metadata)
+                logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
+                capture_ph_event(
+                    distinct_id=url,
+                    event="cimd_application_created",
+                    properties={
+                        "cimd_url": url,
+                        "client_name": new_app.name,
+                        "app_id": str(new_app.pk),
+                        "redirect_uris_count": len(metadata.get("redirect_uris", [])),
+                        "has_logo": bool(metadata.get("logo_uri")),
+                        "cache_ttl": cache_ttl,
+                    },
+                )
+                return new_app
+            except (IntegrityError, ValidationError):
+                app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+                if app:
+                    logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
+                    return app
+                raise
+        finally:
+            cache.delete(fetch_lock)
 
 
 @shared_task(ignore_result=True, time_limit=30)
