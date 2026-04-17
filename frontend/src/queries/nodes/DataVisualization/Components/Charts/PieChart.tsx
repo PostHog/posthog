@@ -44,7 +44,7 @@ const toSliceLabel = (value: unknown): string => {
 }
 
 const sumValues = (values: (number | null)[]): number => {
-    return values.reduce((sum, value) => sum + (value ?? 0), 0)
+    return values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
 }
 
 const getSeriesLabel = (
@@ -113,7 +113,7 @@ export function PieChart({
 }: PieChartProps): JSX.Element {
     const insightProps = useMemo<InsightLogicProps>(
         () => ({
-            dashboardItemId: `sql-pie-chart-${uniqueKey}`,
+            dashboardItemId: `new-sql-pie-chart-${uniqueKey}`,
         }),
         [uniqueKey]
     )
