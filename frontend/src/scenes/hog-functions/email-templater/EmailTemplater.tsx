@@ -770,7 +770,7 @@ function EmailTemplaterModal(): JSX.Element {
                                 onClick={() => submitEmailTemplate()}
                                 disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
                             >
-                                Save
+                                Apply
                             </LemonButton>
                         </div>
                     </div>

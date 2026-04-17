@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCode } from '@posthog/icons'
+import { IconCheck, IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -31,7 +31,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const sceneLogic = messageTemplateSceneLogic(props)
     const logic = messageTemplateLogic(props)
     const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } = useActions(logic)
-    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(logic)
+    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading, saveStatus, isNewTemplate } =
+        useValues(logic)
 
     // Attach template logic to scene logic so it persists across tab switches
     useAttachedLogic(logic, sceneLogic)
@@ -44,8 +45,20 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     resourceType={{ type: 'template' }}
                     actions={
                         <>
-                            {props.id !== 'new' && (
+                            {!isNewTemplate && (
                                 <>
+                                    {saveStatus === 'saving' && (
+                                        <span className="flex items-center gap-1 text-muted text-sm">
+                                            <Spinner className="text-sm" />
+                                            Saving…
+                                        </span>
+                                    )}
+                                    {saveStatus === 'saved' && !templateChanged && (
+                                        <span className="flex items-center gap-1 text-success text-sm">
+                                            <IconCheck className="text-sm" />
+                                            Saved
+                                        </span>
+                                    )}
                                     <More
                                         size="small"
                                         overlay={
@@ -75,29 +88,30 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         }
                                     />
                                     <LemonDivider vertical />
+                                    <LemonButton
+                                        data-attr="cancel-message-template"
+                                        type="secondary"
+                                        onClick={() => resetTemplate(originalTemplate)}
+                                        disabledReason={templateChanged ? undefined : 'No changes to discard'}
+                                        size="small"
+                                    >
+                                        Discard changes
+                                    </LemonButton>
                                 </>
                             )}
-                            {templateChanged && (
+                            {isNewTemplate && (
                                 <LemonButton
-                                    data-attr="cancel-message-template"
-                                    type="secondary"
-                                    onClick={() => resetTemplate(originalTemplate)}
+                                    type="primary"
+                                    htmlType="submit"
+                                    form="template"
+                                    onClick={submitTemplate}
+                                    loading={isTemplateSubmitting}
+                                    disabledReason={templateChanged ? undefined : 'No changes to save'}
                                     size="small"
                                 >
-                                    Discard changes
+                                    Create
                                 </LemonButton>
                             )}
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                form="template"
-                                onClick={submitTemplate}
-                                loading={isTemplateSubmitting}
-                                disabledReason={templateChanged ? undefined : 'No changes to save'}
-                                size="small"
-                            >
-                                {props.id === 'new' ? 'Create' : 'Save'}
-                            </LemonButton>
                         </>
                     }
                 />

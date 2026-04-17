@@ -13,6 +13,8 @@ import { NEW_TEMPLATE } from './constants'
 import type { messageTemplateLogicType } from './messageTemplateLogicType'
 import { MessageTemplate } from './types'
 
+export type SaveStatus = 'idle' | 'saving' | 'saved'
+
 export interface MessageTemplateLogicProps {
     id: string
     messageId?: string | null
@@ -30,11 +32,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
         deleteTemplate: true,
+        triggerAutoSave: true,
+        setSaveStatus: (status: SaveStatus) => ({ status }),
     }),
     selectors({
         logicProps: [
             () => [(_, props: MessageTemplateLogicProps) => props],
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
+        ],
+        isNewTemplate: [
+            () => [(_, props: MessageTemplateLogicProps) => props],
+            (props: MessageTemplateLogicProps): boolean => !props.id || props.id === 'new',
         ],
     }),
     forms(({ actions }) => ({
@@ -71,6 +79,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             },
         ],
+        saveStatus: [
+            'idle' as SaveStatus,
+            {
+                setSaveStatus: (_, { status }) => status,
+                saveTemplateSuccess: () => 'saved' as SaveStatus,
+                saveTemplateFailure: () => 'idle' as SaveStatus,
+            },
+        ],
     }),
     loaders(({ props }) => ({
         template: {
@@ -99,7 +115,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         submitTemplateFailure: () => {
             const errors = values.templateAllErrors
             if (errors?.content?.email?.subject) {
@@ -107,10 +123,38 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveTemplateSuccess: async ({ template }) => {
-            lemonToast.success('Template saved')
+            if (values.isNewTemplate) {
+                lemonToast.success('Template created')
+            }
             template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
+        },
+        setTemplateValue: () => {
+            if (!values.isNewTemplate) {
+                actions.triggerAutoSave()
+            }
+        },
+        setTemplateValues: () => {
+            if (!values.isNewTemplate) {
+                actions.triggerAutoSave()
+            }
+        },
+        triggerAutoSave: async (_, breakpoint) => {
+            // Debounce: wait 1 second after the last change before saving
+            await breakpoint(1000)
+
+            if (!values.templateChanged || values.isNewTemplate) {
+                return
+            }
+
+            // Don't auto-save if there are validation errors
+            if (!values.template.name || !values.template.content.email.subject) {
+                return
+            }
+
+            actions.setSaveStatus('saving')
+            actions.saveTemplate(values.template)
         },
         loadMessageSuccess: async ({ message }) => {
             if (!message) {
