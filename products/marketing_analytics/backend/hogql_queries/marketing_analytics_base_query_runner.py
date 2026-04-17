@@ -19,7 +19,6 @@ from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders
-from posthog.hogql.visitor import clone_expr
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -61,11 +60,8 @@ def _parse_adapter_union_query(
     template = union_query_string.replace(f"'{date_from_str}'", "{date_from}").replace(f"'{date_to_str}'", "{date_to}")
 
     cached = _cached_parse_union_template(template)
-    cloned = clone_expr(cached)
-    assert isinstance(cloned, ast.SelectQuery | ast.SelectSetQuery)
-
     substituted = replace_placeholders(
-        cloned,
+        cached,
         {
             "date_from": ast.Constant(value=date_from_str),
             "date_to": ast.Constant(value=date_to_str),
