@@ -1,22 +1,30 @@
 import { expect, test } from '../utils/workspace-test-base'
 import type { PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 
-async function closeQuickStartPopoverIfOpen(page: import('@playwright/test').Page): Promise<void> {
-    const quickStartPopover = page.getByRole('dialog', { name: 'Quick start guide' })
-    if (await quickStartPopover.isVisible().catch(() => false)) {
-        const quickStartButton = page
-            .locator('[data-attr="global-product-setup-button"], [data-attr="global-product-setup-button-minimized"]')
-            .first()
-        await quickStartButton.click()
-        await expect(quickStartPopover).toBeHidden()
+test.describe.configure({ mode: 'serial' })
+
+async function dismissProductSetupPopoverIfVisible(page: import('@playwright/test').Page): Promise<void> {
+    const quickstartButton = page.getByTestId('global-product-setup-button')
+    const minimizeButton = page.getByText('Minimize', { exact: true })
+
+    if (!(await quickstartButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+        return
     }
+
+    if (!(await minimizeButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+        await quickstartButton.click()
+    }
+
+    await expect(minimizeButton).toBeVisible({ timeout: 10000 })
+    await minimizeButton.click()
+    await expect(minimizeButton).not.toBeVisible({ timeout: 10000 })
 }
 
 async function waitForSavedViewState(page: import('@playwright/test').Page): Promise<void> {
     await expect(page.getByTestId('sql-editor-input-save-view-name')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByRole('button', { name: 'Update view' })).toBeVisible({ timeout: 40000 })
     await expect(page.getByTestId('sql-editor-materialization-button')).toBeVisible({ timeout: 40000 })
-    await closeQuickStartPopoverIfOpen(page)
+    await dismissProductSetupPopoverIfVisible(page)
 }
 
 async function openSaveAsViewModal(page: import('@playwright/test').Page): Promise<void> {
@@ -97,6 +105,7 @@ test.describe('SQL Editor', () => {
             await runBasicQuery(page)
             await saveView(page, uniqueViewName)
 
+            await dismissProductSetupPopoverIfVisible(page)
             await page.getByTestId('sql-editor-materialization-button').click()
             await expect(page.getByTestId('sql-editor-sidebar-query-info-pane')).toBeVisible()
         })
