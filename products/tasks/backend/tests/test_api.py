@@ -29,6 +29,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
 )
+from products.tasks.backend.serializers import TaskAutomationSerializer
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.stream.redis_stream import (
     TaskRunRedisStream,
@@ -944,6 +945,34 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             },
         )
 
+    def test_create_automation_rolls_back_task_when_automation_create_fails(self):
+        serializer = TaskAutomationSerializer(
+            data={
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            context={"team": self.team, "request": MagicMock(user=self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with patch(
+            "products.tasks.backend.serializers.TaskAutomation.objects.create",
+            side_effect=RuntimeError("automation create failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        self.assertFalse(
+            Task.objects.filter(
+                team=self.team,
+                title="Daily PRs",
+                origin_product=Task.OriginProduct.AUTOMATION,
+            ).exists()
+        )
+
     @patch("products.tasks.backend.api.sync_automation_schedule")
     def test_update_automation(self, mock_sync_schedule):
         automation = self.create_automation()
@@ -970,6 +999,29 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertEqual(automation.cron_expression, "30 14 * * *")
         self.assertFalse(automation.enabled)
         mock_sync_schedule.assert_called_once_with(automation)
+
+    def test_update_automation_rolls_back_automation_when_task_update_fails(self):
+        automation = self.create_automation()
+
+        serializer = TaskAutomationSerializer(
+            automation,
+            data={
+                "name": "Updated PR check",
+                "cron_expression": "30 14 * * *",
+            },
+            partial=True,
+            context={"team": self.team, "request": MagicMock(user=self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with patch.object(Task, "save", side_effect=RuntimeError("task update failed")):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        automation.refresh_from_db()
+        automation.task.refresh_from_db()
+        self.assertEqual(automation.cron_expression, "0 9 * * *")
+        self.assertEqual(automation.task.title, "Daily PRs")
 
     @patch("products.tasks.backend.api.delete_automation_schedule")
     def test_delete_automation(self, mock_delete_schedule):

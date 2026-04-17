@@ -1,6 +1,7 @@
 from zoneinfo import available_timezones
 
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from croniter import croniter  # type: ignore[import-untyped]
@@ -729,16 +730,17 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
             if default_integration:
                 validated_data["github_integration"] = default_integration
 
-        task = Task.objects.create(
-            team=self.context["team"],
-            created_by=self.context["request"].user,
-            title=validated_data.pop("name"),
-            description=validated_data.pop("prompt"),
-            origin_product=Task.OriginProduct.AUTOMATION,
-            repository=validated_data.pop("repository"),
-            github_integration=validated_data.pop("github_integration", None),
-        )
-        return TaskAutomation.objects.create(task=task, **validated_data)
+        with transaction.atomic():
+            task = Task.objects.create(
+                team=self.context["team"],
+                created_by=self.context["request"].user,
+                title=validated_data.pop("name"),
+                description=validated_data.pop("prompt"),
+                origin_product=Task.OriginProduct.AUTOMATION,
+                repository=validated_data.pop("repository"),
+                github_integration=validated_data.pop("github_integration", None),
+            )
+            return TaskAutomation.objects.create(task=task, **validated_data)
 
     def update(self, instance, validated_data):
         task_fields = {
@@ -752,18 +754,19 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
             if serializer_field in validated_data:
                 task_updates[task_field] = validated_data.pop(serializer_field)
 
-        automation = super().update(instance, validated_data)
+        with transaction.atomic():
+            automation = super().update(instance, validated_data)
 
-        if task_updates:
-            task = automation.task
-            fields_to_update = []
-            for field, value in task_updates.items():
-                if getattr(task, field) != value:
-                    setattr(task, field, value)
-                    fields_to_update.append(field)
-            if fields_to_update:
-                fields_to_update.append("updated_at")
-                task.save(update_fields=fields_to_update)
+            if task_updates:
+                task = automation.task
+                fields_to_update = []
+                for field, value in task_updates.items():
+                    if getattr(task, field) != value:
+                        setattr(task, field, value)
+                        fields_to_update.append(field)
+                if fields_to_update:
+                    fields_to_update.append("updated_at")
+                    task.save(update_fields=fields_to_update)
 
         return automation
 
