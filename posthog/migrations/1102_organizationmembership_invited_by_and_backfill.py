@@ -36,5 +36,19 @@ class Migration(migrations.Migration):
                 to="posthog.user",
             ),
         ),
+        # OrganizationMembership now has two FKs to User (user + invited_by), so the
+        # Organization.members M2M needs through_fields to disambiguate which one pairs
+        # with organization to form the link row.
+        migrations.AlterField(
+            model_name="organization",
+            name="members",
+            field=models.ManyToManyField(
+                related_name="organizations",
+                related_query_name="organization",
+                through="posthog.OrganizationMembership",
+                through_fields=("organization", "user"),
+                to="posthog.user",
+            ),
+        ),
         migrations.RunPython(backfill_welcome_screen_seen_at, reverse_backfill),
     ]

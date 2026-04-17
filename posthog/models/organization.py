@@ -145,6 +145,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
+        through_fields=("organization", "user"),
         related_name="organizations",
         related_query_name="organization",
     )
