@@ -1604,8 +1604,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_typed_with_source_redis_json_error_surfaces_over_s3_miss() {
-        // Redis parse errors are authoritative corruption signals: they surface
-        // even when S3 confirms NotFound, so callers can tombstone.
         let invalid_json = "not valid json {{{";
         let pickled = serde_pickle::to_vec(&invalid_json, Default::default()).unwrap();
 
@@ -1627,8 +1625,6 @@ mod tests {
     #[cfg(feature = "mock-client")]
     #[tokio::test]
     async fn test_get_typed_with_source_redis_json_error_falls_through_to_s3_hit() {
-        // Redis JSON error must not short-circuit — the reader must still
-        // consult S3 and return its data on hit.
         let expected = make_test_flags();
         let json_string = serde_json::to_string(&expected).unwrap();
 
@@ -1671,8 +1667,6 @@ mod tests {
     #[cfg(feature = "mock-client")]
     #[tokio::test]
     async fn test_get_typed_with_source_redis_pickle_error_falls_through_to_s3_hit() {
-        // Redis pickle decode failure should behave symmetrically to a JSON error:
-        // not short-circuit; still consult S3; return S3 data on hit.
         let expected = make_test_flags();
         let json_string = serde_json::to_string(&expected).unwrap();
 

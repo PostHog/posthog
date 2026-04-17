@@ -899,6 +899,45 @@ mod tests {
         );
     }
 
+    /// Sibling of the Json parse-error test: guards the `Pickle` arm of the
+    /// `Err(e @ (Json(_) | Pickle(_)))` pattern against accidental narrowing.
+    #[tokio::test]
+    async fn test_get_flags_hard_fails_on_hypercache_pickle_error() {
+        use common_redis::MockRedisClient;
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Raw non-pickle bytes make serde_pickle::from_slice::<String> fail.
+        let non_pickle_bytes = b"this is not pickle data".to_vec();
+
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_raw_bytes_ret(&hypercache_test_key(team.id), Ok(non_pickle_bytes));
+
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client);
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let team_redis_client = setup_redis_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(team_redis_client).await;
+
+        let flag_service = FlagService::new(
+            redis_client,
+            context.non_persons_reader.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
+        assert!(
+            matches!(result, Err(FlagError::DataParsingErrorWithContext(_))),
+            "pickle error must hard-fail, got {result:?}"
+        );
+    }
+
     #[tokio::test]
     async fn test_negative_cache_returns_error_for_cached_invalid_token() {
         let redis_client = setup_redis_client(None).await;
