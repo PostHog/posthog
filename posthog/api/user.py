@@ -571,6 +571,8 @@ class UserViewSet(
         Used to surface invites a user received by email but never accepted — for example,
         when they signed up and created their own org before clicking the email link.
         """
+        from django.utils import timezone as django_timezone
+
         from posthog.constants import INVITE_DAYS_VALIDITY
         from posthog.helpers.email_utils import EmailNormalizer
         from posthog.models import OrganizationInvite, OrganizationMembership
@@ -586,7 +588,7 @@ class UserViewSet(
         invites = (
             OrganizationInvite.objects.filter(
                 target_email__iexact=normalized_email,
-                created_at__gt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
             )
             .exclude(organization_id__in=existing_org_ids)
             .select_related("organization")
