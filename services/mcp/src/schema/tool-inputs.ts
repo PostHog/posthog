@@ -260,10 +260,6 @@ export const LLMAnalyticsGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
-
 export const OrganizationSetActiveSchema = z.object({
     orgId: z.string(),
 })

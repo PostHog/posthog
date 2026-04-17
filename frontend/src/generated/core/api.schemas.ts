@@ -543,11 +543,6 @@ export interface ProjectBackwardCompatApi {
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event: boolean
@@ -690,11 +685,6 @@ export interface PatchedProjectBackwardCompatApi {
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event?: boolean
