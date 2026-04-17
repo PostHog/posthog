@@ -48,6 +48,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     experiment_has_legacy_metrics,
 )
+from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
@@ -793,14 +794,26 @@ class EnterpriseExperimentsViewSet(
 
 
 @mutable_receiver(model_activity_signal, sender=Experiment)
+@mutable_receiver(model_activity_signal, sender=WebExperiment)
 def handle_experiment_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    # WebExperiment is a proxy model — normalize scope to "Experiment" for consistent activity logs
+    scope = "Experiment"
+    is_web_experiment = sender is WebExperiment
+
     if before_update and after_update:
         before_deleted = getattr(before_update, "deleted", None)
         after_deleted = getattr(after_update, "deleted", None)
         if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
             activity = "restored" if after_deleted is False else "deleted"
+
+    changes = changes_between(scope, previous=before_update, current=after_update)
+
+    if is_web_experiment:
+        # Web experiments don't use parameters (a product experiment field), but it can
+        # get cleared to null during updates, producing a noisy diff
+        changes = [c for c in changes if c.field != "parameters"]
 
     log_activity(
         organization_id=after_update.team.organization_id,
@@ -810,7 +823,5 @@ def handle_experiment_change(
         item_id=after_update.id,
         scope=scope,
         activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
-        ),
+        detail=Detail(changes=changes, name=after_update.name),
     )
