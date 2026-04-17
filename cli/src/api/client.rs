@@ -63,10 +63,10 @@ impl From<reqwest::Error> for ClientError {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApiErrorResponse {
-    r#type: String,
-    code: String,
-    detail: String,
-    attr: Option<String>,
+    pub(crate) r#type: String,
+    pub(crate) code: String,
+    pub(crate) detail: String,
+    pub(crate) attr: Option<String>,
 }
 
 impl Display for ApiErrorResponse {

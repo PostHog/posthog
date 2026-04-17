@@ -46,17 +46,18 @@ pub fn upload(args: &Args) -> Result<()> {
     let maps = read_maps(&directory);
 
     // Get or create a release if project/version are provided or if any map is missing a release_id.
-    // If a concurrent step has just created the release, the `by_hash` GET used inside
+    //
+    // If a prior step has just created the release, the `by_hash` GET used inside
     // `get_release_for_maps` can briefly serve a stale 404 — the follow-up POST then fails with
-    // `Hash id ... already in use`. In that case proceed without overriding map release_ids
-    // rather than aborting.
+    // `Hash id ... already in use`. We only swallow that error when every map already carries a
+    // `release_id`; otherwise skipping would silently upload orphan symbol sets.
     let created_release_id = match get_release_for_maps(&directory, release.clone(), maps.iter()) {
         Ok(result) => result.map(|r| r.id.to_string()),
-        Err(err) if is_hash_already_in_use(&err) => {
+        Err(err) if is_hash_already_in_use(&err) && maps.iter().all(|m| m.has_release_id()) => {
             warn!(
-                    "release already exists (created concurrently); keeping release_ids on existing maps: {}",
-                    err
-                );
+                "release already exists (likely created by a prior step in this run); keeping release_ids on existing maps: {}",
+                err
+            );
             None
         }
         Err(err) => return Err(err),

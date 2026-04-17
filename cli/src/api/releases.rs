@@ -7,10 +7,15 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
-    api::client::ClientError,
+    api::client::{ApiErrorResponse, ClientError},
     invocation_context::context,
     utils::{files::content_hash, git::GitInfo},
 };
+
+/// Path segment the `ReleaseViewSet` is mounted under. Used by
+/// `is_hash_already_in_use` to avoid matching unrelated endpoints that might
+/// coincidentally return a `validation_error` containing "already in use".
+const RELEASES_PATH_SEGMENT: &str = "/error_tracking/releases";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Release {
@@ -187,20 +192,40 @@ impl ReleaseBuilder {
     }
 }
 
-/// Returns true if `err` (including wrapped causes) is the PostHog API
-/// `validation_error` that signals a release with this `hash_id` already
-/// exists. Used by the sourcemap inject/upload flows to degrade gracefully
-/// when another step (or a concurrent invocation) has just created the
-/// release — `Release::lookup`'s `by_hash` endpoint can briefly serve a
-/// stale 404 afterwards, so callers can't reliably re-fetch and should
-/// fall back to whatever release_id they already have on their source
-/// pairs instead of aborting.
+/// Returns true if `err` (including wrapped causes) is the specific PostHog
+/// API `validation_error` that signals a release with this `hash_id` already
+/// exists. Used by the sourcemap upload flow to degrade gracefully when a
+/// concurrent step has just created the release — `Release::lookup`'s
+/// `by_hash` endpoint can briefly serve a stale 404 afterwards, so callers
+/// that already have the correct release_id on their source pairs should
+/// fall back to it instead of aborting.
+///
+/// The match is gated on all of:
+/// - `ClientError::ApiError` with HTTP status `400`
+/// - request URL path containing the releases endpoint
+/// - JSON body parses as `ApiErrorResponse` with `code == "invalid_input"`
+///   and `detail` containing "already in use"
+///
+/// The multiple gates are intentional: the raw response body is not a stable
+/// wire contract, and a looser match could silently swallow unrelated 4xx
+/// errors (e.g. a future endpoint that happens to emit the same English
+/// phrase) and mask real bugs.
 pub(crate) fn is_hash_already_in_use(err: &anyhow::Error) -> bool {
     err.chain().any(|cause| {
-        matches!(
-            cause.downcast_ref::<ClientError>(),
-            Some(ClientError::ApiError(_, _, body)) if body.contains("already in use")
-        )
+        let Some(ClientError::ApiError(status, url, body)) = cause.downcast_ref::<ClientError>()
+        else {
+            return false;
+        };
+        if *status != 400 {
+            return false;
+        }
+        if !url.path().contains(RELEASES_PATH_SEGMENT) {
+            return false;
+        }
+        let Ok(api_err) = serde_json::from_str::<ApiErrorResponse>(body) else {
+            return false;
+        };
+        api_err.code == "invalid_input" && api_err.detail.contains("already in use")
     })
 }
 
@@ -215,25 +240,62 @@ mod tests {
         )
     }
 
+    fn api_err(status: u16, url: Box<Url>, body: &str) -> anyhow::Error {
+        anyhow::Error::new(ClientError::ApiError(status, url, body.to_string()))
+            .context("Failed to create release")
+    }
+
+    const HASH_IN_USE_BODY: &str = r#"{"type":"validation_error","code":"invalid_input","detail":"Hash id abc123 already in use","attr":null}"#;
+
     #[test]
     fn detects_hash_already_in_use_error() {
-        let body = r#"{"type":"validation_error","code":"invalid_input","detail":"Hash id abc123 already in use","attr":null}"#;
-        let client_err = ClientError::ApiError(400, releases_url(), body.to_string());
-        let wrapped = anyhow::Error::new(client_err).context("Failed to create release");
-        assert!(is_hash_already_in_use(&wrapped));
+        assert!(is_hash_already_in_use(&api_err(
+            400,
+            releases_url(),
+            HASH_IN_USE_BODY
+        )));
     }
 
     #[test]
-    fn ignores_unrelated_api_errors() {
-        let client_err =
-            ClientError::ApiError(500, releases_url(), "internal server error".to_string());
-        let wrapped = anyhow::Error::new(client_err).context("Failed to create release");
-        assert!(!is_hash_already_in_use(&wrapped));
+    fn ignores_non_400_status() {
+        assert!(!is_hash_already_in_use(&api_err(
+            500,
+            releases_url(),
+            HASH_IN_USE_BODY
+        )));
+    }
+
+    #[test]
+    fn ignores_wrong_endpoint() {
+        let other_url = Box::new(
+            Url::parse("https://us.posthog.com/api/projects/1/error_tracking/symbol_sets").unwrap(),
+        );
+        assert!(!is_hash_already_in_use(&api_err(
+            400,
+            other_url,
+            HASH_IN_USE_BODY
+        )));
+    }
+
+    #[test]
+    fn ignores_non_validation_error_code() {
+        let body = r#"{"type":"validation_error","code":"unique_constraint","detail":"Hash id abc123 already in use","attr":null}"#;
+        assert!(!is_hash_already_in_use(&api_err(400, releases_url(), body)));
+    }
+
+    #[test]
+    fn ignores_non_json_body() {
+        assert!(!is_hash_already_in_use(&api_err(
+            400,
+            releases_url(),
+            "Hash id abc already in use"
+        )));
     }
 
     #[test]
     fn ignores_non_api_errors() {
-        let err = anyhow::anyhow!("something totally unrelated");
-        assert!(!is_hash_already_in_use(&err));
+        assert!(!is_hash_already_in_use(&anyhow::anyhow!(
+            "something totally unrelated"
+        )));
     }
 }

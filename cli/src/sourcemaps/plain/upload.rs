@@ -67,11 +67,15 @@ pub fn upload(args: &Args) -> Result<()> {
     info!("Found {} chunks to upload", pairs.len());
 
     // Get or create a release if project/version are provided or if any pair is missing a release_id.
-    // If a concurrent step (typically the inject phase of `sourcemap process`, or a parallel CLI
+    //
+    // If a prior step (typically the inject phase of `sourcemap process`, or a parallel CLI
     // invocation) has just created the release, the `by_hash` GET used inside `get_release_for_maps`
     // can briefly serve a stale 404 — the follow-up POST then fails with `Hash id ... already in use`.
-    // In that case, keep whatever release_id the pairs already have (set by inject) and proceed
-    // with the upload rather than failing the whole run.
+    //
+    // We only swallow that error when every pair already carries a `release_id` (i.e. inject has
+    // already associated them with the correct release). Without that precondition, skipping
+    // `get_release_for_maps` would silently upload orphan symbol sets with no release attribution,
+    // which masks configuration bugs in standalone `sourcemap upload` runs.
     let cwd = std::env::current_dir()?;
     let created_release_id = match get_release_for_maps(
         &cwd,
@@ -79,9 +83,12 @@ pub fn upload(args: &Args) -> Result<()> {
         pairs.iter().map(|p| &p.sourcemap),
     ) {
         Ok(result) => result.map(|r| r.id.to_string()),
-        Err(err) if is_hash_already_in_use(&err) => {
+        Err(err)
+            if is_hash_already_in_use(&err)
+                && pairs.iter().all(|p| p.sourcemap.has_release_id()) =>
+        {
             warn!(
-                "release already exists (created concurrently); keeping release_ids from source pairs: {}",
+                "release already exists (likely created by a prior step in this run); keeping release_ids from source pairs: {}",
                 err
             );
             None
