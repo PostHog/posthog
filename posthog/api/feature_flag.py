@@ -1532,9 +1532,25 @@ class FeatureFlagSerializer(
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
         if validated_data.get("has_encrypted_payloads", False):
-            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
-                # Don't write the redacted payload to the db, keep the current value instead
-                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+            filters = validated_data.get("filters")
+            new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+
+            if new_true_payload is None or new_true_payload == REDACTED_PAYLOAD_VALUE:
+                # Preserve the existing encrypted payload when the request didn't
+                # supply a fresh one — either because `filters.payloads` was
+                # omitted (partial PATCH from the V2 form) or because the
+                # redacted placeholder was echoed back. Only re-inject when
+                # `filters` is being sent, so a filters-less PATCH stays a
+                # partial update.
+                if filters is not None:
+                    existing_true_payload = (instance.filters or {}).get("payloads", {}).get("true")
+                    if existing_true_payload is None:
+                        raise exceptions.ValidationError(
+                            "An encrypted payload is required when has_encrypted_payloads is true."
+                        )
+                    payloads = filters.get("payloads") or {}
+                    payloads["true"] = existing_true_payload
+                    filters["payloads"] = payloads
             else:
                 encrypt_flag_payloads(validated_data)
 
