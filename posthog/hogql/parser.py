@@ -586,7 +586,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return order_by, interpolate
 
     def visitInterpolateClause(self, ctx: HogQLParser.InterpolateClauseContext):
-        return [self.visit(expr) for expr in ctx.interpolateExpr()]
+        exprs = ctx.interpolateExpr()
+        if not exprs:
+            return []
+        return [self.visit(expr) for expr in exprs]
 
     def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
         limit_expr = self.visit(ctx.limitExpr())
@@ -792,7 +795,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitInterpolateExpr(self, ctx: HogQLParser.InterpolateExprContext):
         column_exprs = ctx.columnExpr()
-        return ast.InterpolateExpr(expr=self.visit(column_exprs[0]), value=self.visit(column_exprs[1]))
+        value = self.visit(column_exprs[1]) if len(column_exprs) > 1 else None
+        return ast.InterpolateExpr(expr=self.visit(column_exprs[0]), value=value)
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
         if ctx.placeholder():

@@ -1766,8 +1766,18 @@ class TestPrinter(BaseTest):
             ],
             [
                 "interpolate",
-                "select event, distinct_id from events order by event WITH FILL FROM 'a' TO 'z' INTERPOLATE (distinct_id AS '')",
-                "ORDER BY events.event ASC WITH FILL FROM %(hogql_val_0)s TO %(hogql_val_1)s INTERPOLATE (events.distinct_id AS %(hogql_val_2)s)",
+                "select event, distinct_id from events order by event WITH FILL FROM 'a' TO 'z' INTERPOLATE (distinct_id AS 0)",
+                "ORDER BY events.event ASC WITH FILL FROM %(hogql_val_0)s TO %(hogql_val_1)s INTERPOLATE (events.distinct_id AS 0)",
+            ],
+            [
+                "naked_interpolate",
+                "select event from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE",
+            ],
+            [
+                "interpolate_no_as",
+                "select event, distinct_id from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE (distinct_id)",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE (events.distinct_id)",
             ],
         ]
     )

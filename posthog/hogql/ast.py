@@ -885,7 +885,7 @@ class WithFillExpr(Expr):
 @dataclass(kw_only=True)
 class InterpolateExpr(Expr):
     expr: Expr
-    value: Expr
+    value: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)

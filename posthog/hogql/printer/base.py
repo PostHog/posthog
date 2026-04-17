@@ -304,7 +304,7 @@ class HogQLPrinter(Visitor[str]):
             (
                 f"INTERPOLATE ({comma.join(self.visit(expr) for expr in node.interpolate)})"
                 if node.interpolate
-                else None
+                else ("INTERPOLATE" if node.interpolate is not None else None)
             ),
         ]
 
@@ -688,7 +688,9 @@ class HogQLPrinter(Visitor[str]):
         return " ".join(parts)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
-        return f"{self.visit(node.expr)} AS {self.visit(node.value)}"
+        if node.value is not None:
+            return f"{self.visit(node.expr)} AS {self.visit(node.value)}"
+        return self.visit(node.expr)
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
         if op == ast.CompareOperationOp.Eq:

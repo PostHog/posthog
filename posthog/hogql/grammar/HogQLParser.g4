@@ -101,7 +101,7 @@ groupingSet: LPAREN columnExprList? RPAREN;
 havingClause: HAVING columnExpr;
 qualifyClause: QUALIFY columnExpr;
 orderByClause: ORDER BY orderExprList interpolateClause?;
-interpolateClause: INTERPOLATE LPAREN interpolateExpr (COMMA interpolateExpr)* RPAREN;
+interpolateClause: INTERPOLATE (LPAREN interpolateExpr (COMMA interpolateExpr)* RPAREN)?;
 projectionOrderByClause: ORDER BY columnExprList;
 limitByClause: LIMIT limitExpr BY columnExprList;
 limitAndOffsetClause
@@ -146,7 +146,7 @@ limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)? withFillClause?;
 withFillClause: WITH FILL (FROM columnExpr)? (TO columnExpr)? (STEP columnExpr)?;
-interpolateExpr: columnExpr AS columnExpr;
+interpolateExpr: columnExpr (AS columnExpr)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;

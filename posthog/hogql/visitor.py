@@ -123,7 +123,8 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
         self.visit(node.expr)
-        self.visit(node.value)
+        if node.value is not None:
+            self.visit(node.value)
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         self.visit(node.tuple)
@@ -678,7 +679,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
-            value=self.visit(node.value),
+            value=self.visit(node.value) if node.value is not None else None,
         )
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -898,7 +899,7 @@ class CloningVisitor(Visitor[Any]):
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             group_by_mode=node.group_by_mode,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            interpolate=[self.visit(expr) for expr in node.interpolate] if node.interpolate else None,
+            interpolate=[self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
