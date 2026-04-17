@@ -267,6 +267,8 @@ interface SchemaComposition {
     bodyFieldNames: string[]
     /** Maps alias → original field name for renamed params */
     renamedFields: Record<string, string>
+    /** Maps param name → fallback key for optional params with state fallbacks */
+    paramFallbacks: Record<string, string>
 }
 
 function composeToolSchema(
@@ -418,8 +420,10 @@ function composeToolSchema(
     //   - input_schema  → replace the field with a named import from @/schema/tool-inputs
     //   - schema_ref    → generate inline Zod from schema.json and use that
     //   - description   → wrap the existing Orval-derived field with .describe(...)
+    //   - optional+fallback → make param optional and resolve from state when omitted
     const toolInputsImports: string[] = []
     const schemaRefBlocks: string[] = []
+    const paramFallbacks: Record<string, string> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -430,6 +434,11 @@ function composeToolSchema(
     if (config.param_overrides) {
         const schemaOverrides: string[] = []
         for (const [paramName, override] of Object.entries(config.param_overrides)) {
+            // Track optional params with state fallbacks
+            if (override.optional && override.fallback) {
+                paramFallbacks[paramName] = override.fallback
+            }
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
                 schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
@@ -445,9 +454,9 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description || override.default !== undefined) {
+            } else if (override.description || override.default !== undefined || override.optional) {
                 // Locate the Orval source schema this param came from, so we can reference
-                // its original field type via .shape and wrap it with .describe(...) / .default(...).
+                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional().
                 let sourceImport: string | null = null
                 if (bodyFieldNames.includes(paramName)) {
                     sourceImport = `${pascal}Body`
@@ -468,6 +477,9 @@ function composeToolSchema(
                             .replace(/'/g, "\\'")
                             .replace(/\n\s*/g, ' ')
                         expr += `.describe('${escaped}')`
+                    }
+                    if (override.optional) {
+                        expr += '.optional()'
                     }
                     schemaOverrides.push(`${paramName}: ${expr}`)
                 }
@@ -500,6 +512,7 @@ function composeToolSchema(
         queryParamNames,
         bodyFieldNames,
         renamedFields,
+        paramFallbacks,
     }
 }
 
@@ -514,11 +527,19 @@ function extractPathParams(urlPattern: string): string[] {
     return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
-/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params */
-function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
+/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
+ *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
+function buildPathExpr(
+    urlPath: string,
+    pathParamNames: string[],
+    paramAccessPrefix = '',
+    localVarParams: Set<string> = new Set()
+): string {
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${encodeURIComponent(String(projectId))}').replace('{organization_id}', '${encodeURIComponent(String(orgId))}')}\``
     for (const pn of pathParamNames) {
-        pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
+        const prefix = localVarParams.has(pn) ? '' : paramAccessPrefix
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${encodeURIComponent(String(${prefix}${pn}))}`)
     }
     return pathExpr
 }
@@ -648,7 +669,8 @@ function generateToolCode(
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
 
-    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
+    const localVarParams = new Set(Object.keys(composition.paramFallbacks))
+    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
 
     // Determine which auto-resolved IDs this operation needs
     const needsProjectId = resolved.path.includes('{project_id}')
@@ -662,6 +684,22 @@ function generateToolCode(
     if (needsProjectId) {
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
+
+    // Resolve optional params with state fallbacks
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    for (const [paramName, fallbackKey] of Object.entries(composition.paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (method) {
+            handlerBody += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+            handlerBody += `        if (!${paramName}) {\n`
+            handlerBody += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${fallbackKey === 'orgId' ? 'organization' : 'project'} first.')\n`
+            handlerBody += `        }\n`
+        }
+    }
+
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
     const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0

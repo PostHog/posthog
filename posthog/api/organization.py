@@ -247,6 +247,7 @@ class OrganizationSerializer(
         )
 
 
+@extend_schema(tags=["platform_features"])
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer

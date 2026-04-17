@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { initKeaTests } from '~/test/init'
 
 import { SentimentResult, llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
@@ -338,6 +340,63 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
             logic.actions.loadSentimentBatchSuccess({ 'trace-1': result2 }, ['trace-1'])
             expect(logic.values.getTraceSentiment('trace-1')).toEqual(result2)
+        })
+
+        it('should cap concurrent in-flight sentiment batches at 2', async () => {
+            // Fake timers isolate this test from setTimeout leaks in prior cases
+            // (the listener doesn't cancel its batch timer on unmount).
+            jest.useFakeTimers()
+            let createSpy: jest.SpyInstance | undefined
+            try {
+                // Fifteen trace IDs at BATCH_MAX_SIZE=5 → three chunks. With the
+                // concurrency cap of 2, at most two api.create calls should be
+                // in flight at once; the third chunk must wait for a slot.
+                const release: Array<() => void> = []
+                let inFlight = 0
+                let peakInFlight = 0
+
+                createSpy = jest.spyOn(api, 'create').mockImplementation(
+                    () =>
+                        new Promise((resolve) => {
+                            inFlight++
+                            peakInFlight = Math.max(peakInFlight, inFlight)
+                            release.push(() => {
+                                inFlight--
+                                resolve({ results: {} } as any)
+                            })
+                        })
+                )
+
+                const traceIds = Array.from({ length: 15 }, (_, i) => `trace-${i}`)
+                for (const id of traceIds) {
+                    logic.actions.ensureSentimentLoaded(id)
+                }
+
+                // Fire the listener's setTimeout(0) and let the first two
+                // runners start their api.create calls.
+                jest.advanceTimersByTime(0)
+                await Promise.resolve()
+                await Promise.resolve()
+
+                expect(peakInFlight).toBe(2)
+                expect(createSpy).toHaveBeenCalledTimes(2)
+
+                // Releasing the first in-flight promise frees a slot so the
+                // third chunk can start. Peak must remain at 2.
+                release.shift()!()
+                await Promise.resolve()
+                await Promise.resolve()
+                expect(peakInFlight).toBe(2)
+                expect(createSpy).toHaveBeenCalledTimes(3)
+
+                while (release.length > 0) {
+                    release.shift()!()
+                    await Promise.resolve()
+                }
+            } finally {
+                createSpy?.mockRestore()
+                jest.useRealTimers()
+            }
         })
 
         it('should handle partial batch success with some nulls', () => {

@@ -3,11 +3,29 @@ import type { PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-bas
 
 test.describe.configure({ mode: 'serial' })
 
+async function dismissProductSetupPopoverIfVisible(page: import('@playwright/test').Page): Promise<void> {
+    const quickstartButton = page.getByTestId('global-product-setup-button')
+    const minimizeButton = page.getByText('Minimize', { exact: true })
+
+    if (!(await quickstartButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+        return
+    }
+
+    if (!(await minimizeButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+        await quickstartButton.click()
+    }
+
+    await expect(minimizeButton).toBeVisible({ timeout: 10000 })
+    await minimizeButton.click()
+    await expect(minimizeButton).not.toBeVisible({ timeout: 10000 })
+}
+
 async function waitForSavedViewState(page: import('@playwright/test').Page): Promise<void> {
     await expect(page.getByTestId('sql-editor-input-save-view-name')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByTestId('sql-editor-save-options-button')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByTestId('sql-editor-materialization-button')).toBeVisible({ timeout: 40000 })
     await expect(page.getByTestId('scene-name')).not.toContainText('New SQL query', { timeout: 40000 })
+    await dismissProductSetupPopoverIfVisible(page)
 }
 
 async function openSaveAsViewModal(page: import('@playwright/test').Page): Promise<void> {
@@ -40,23 +58,6 @@ async function saveView(page: import('@playwright/test').Page, viewName: string)
 
     await page.getByRole('button', { name: 'Submit' }).click()
     await waitForSavedViewState(page)
-}
-
-async function dismissProductSetupPopoverIfVisible(page: import('@playwright/test').Page): Promise<void> {
-    const quickstartButton = page.getByTestId('global-product-setup-button')
-    const minimizeButton = page.getByText('Minimize', { exact: true })
-
-    if (!(await quickstartButton.isVisible({ timeout: 1000 }).catch(() => false))) {
-        return
-    }
-
-    if (!(await minimizeButton.isVisible({ timeout: 1000 }).catch(() => false))) {
-        await quickstartButton.click()
-    }
-
-    await expect(minimizeButton).toBeVisible({ timeout: 10000 })
-    await minimizeButton.click()
-    await expect(minimizeButton).not.toBeVisible({ timeout: 10000 })
 }
 
 test.describe('SQL Editor', () => {
