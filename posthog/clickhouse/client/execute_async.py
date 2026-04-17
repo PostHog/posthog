@@ -54,10 +54,10 @@ QUERY_ASYNC_FAILURE_COUNTER = Counter(
 )
 
 # Shown to users when an async query fails with an error that's not on the allow-list of
-# user-safe errors. Without a message here, the retrieve endpoint returns HTTP 500 with an
-# empty body, which the frontend historically surfaced as generic failure or prolonged
-# loading. A generic message plus the query_id lets the UI render a real error state and
-# gives support a handle to look the failure up.
+# user-safe errors. Without a message here, the retrieve endpoint returns HTTP 500 with no
+# error_message in the body — the frontend stops polling but can only show a generic
+# failure with no explanation and no query id for support look-ups. Populating a generic
+# message here lets the UI render something actionable.
 GENERIC_INTERNAL_ERROR_MESSAGE = (
     "The query failed due to an internal error. Please retry. "
     "If the problem persists, contact support with query id: {query_id}"
@@ -328,9 +328,9 @@ def execute_process_query(
             query_status.error_message = str(err)
         else:
             # Never leave error_message empty — the /api/query/:id/ retrieve endpoint maps an
-            # empty message to HTTP 500 with no body, which surfaces to the client as either
-            # a generic failure or (worse) prolonged loading. A generic message lets the UI
-            # render a real error state and gives support a query id to look up.
+            # empty message to HTTP 500, and while the client does stop polling, the error
+            # bubbles up without any explanation or query id. A generic message gives the
+            # UI something to display and gives support a handle to look up the failure.
             query_status.error_message = GENERIC_INTERNAL_ERROR_MESSAGE.format(query_id=query_id)
 
         error_type = clickhouse_error_type(err)

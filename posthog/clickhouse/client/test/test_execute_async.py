@@ -143,8 +143,9 @@ class TestExecuteProcessQuery(TestCase):
         self, mock_process_query_dict, mock_redis_client, mock_ph_scoped
     ):
         # Regression test for the historical behaviour where internal errors left
-        # error_message empty, which the /api/query/:id/ endpoint mapped to HTTP 500 with an
-        # empty body — surfacing as "Loading results…" forever (or a generic failure).
+        # error_message empty, which the /api/query/:id/ endpoint mapped to HTTP 500 with no
+        # error_message — the client stopped polling but surfaced a generic failure with no
+        # explanation or query id the user could report.
         mock_redis = MagicMock()
         mock_redis.get.return_value = json.dumps(
             {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
