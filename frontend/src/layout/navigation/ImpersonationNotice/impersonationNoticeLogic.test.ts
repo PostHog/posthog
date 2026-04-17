@@ -401,7 +401,10 @@ describe('impersonationNoticeLogic', () => {
     })
 
     describe('security', () => {
-        it('sends read_only=true when readOnly is true', async () => {
+        it.each([
+            { readOnly: true, expected: 'true' },
+            { readOnly: false, expected: 'false' },
+        ])('sends read_only=$expected when readOnly is $readOnly', async ({ readOnly, expected }) => {
             logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             const fetchSpy = jest.spyOn(globalThis, 'fetch')
@@ -417,7 +420,7 @@ describe('impersonationNoticeLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.reImpersonate('support ticket #456', true)
+                logic.actions.reImpersonate('support ticket #456', readOnly)
             })
                 .toDispatchActions(['loadUser'])
                 .toFinishAllListeners()
@@ -427,39 +430,7 @@ describe('impersonationNoticeLogic', () => {
             )
             expect(loginCall).toBeTruthy()
             const body = new URLSearchParams(loginCall![1]?.body as string)
-            expect(body.get('read_only')).toBe('true')
-            expect(body.get('reason')).toBe('support ticket #456')
-
-            fetchSpy.mockRestore()
-        })
-
-        it('sends read_only=false when readOnly is false', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
-
-            const fetchSpy = jest.spyOn(globalThis, 'fetch')
-
-            useMocks({
-                get: {
-                    '/admin/auth_check': () => [200, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
-                },
-                post: {
-                    '/admin/login/user/:id/': () => [200, {}],
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.reImpersonate('support ticket #456', false)
-            })
-                .toDispatchActions(['loadUser'])
-                .toFinishAllListeners()
-
-            const loginCall = fetchSpy.mock.calls.find(
-                ([url]) => typeof url === 'string' && url.includes('/admin/login/user/')
-            )
-            expect(loginCall).toBeTruthy()
-            const body = new URLSearchParams(loginCall![1]?.body as string)
-            expect(body.get('read_only')).toBe('false')
+            expect(body.get('read_only')).toBe(expected)
             expect(body.get('reason')).toBe('support ticket #456')
 
             fetchSpy.mockRestore()
