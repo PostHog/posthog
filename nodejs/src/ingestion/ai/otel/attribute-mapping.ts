@@ -1,6 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../utils/json-parse'
+import { aiOtelOlderSpecEventsCounter } from '../metrics'
 
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
@@ -43,6 +44,12 @@ const OLDER_SPEC_INPUT_EVENT_NAMES: Record<string, string> = {
     'gen_ai.tool.message': 'tool',
 }
 const OLDER_SPEC_CHOICE_EVENT_NAME = 'gen_ai.choice'
+
+// Upper bound on the serialized size of an older-spec `events` attribute we
+// will parse. Chosen to match the existing tool-call extraction guard
+// (`MAX_OUTPUT_CHOICES_LENGTH`). Pathological payloads would otherwise force
+// `parseJSON` into multi-megabyte input and pressure the ingestion worker.
+const MAX_OLDER_SPEC_EVENTS_LENGTH = 500_000
 
 const REQUEST_TYPE_TO_EVENT: Record<string, string> = {
     chat: '$ai_generation',
@@ -127,21 +134,29 @@ function promoteRootSpanToTrace(event: PluginEvent): void {
     }
 }
 
-function parseOlderSpecEventsAttribute(raw: unknown): Record<string, unknown>[] | undefined {
+type ParseOutcome = 'parsed' | 'too_large' | 'malformed' | 'non_array'
+
+function parseOlderSpecEventsAttribute(
+    raw: unknown
+): { outcome: 'parsed'; entries: Record<string, unknown>[] } | { outcome: Exclude<ParseOutcome, 'parsed'> } {
     let value: unknown = raw
     if (typeof value === 'string') {
+        if (value.length > MAX_OLDER_SPEC_EVENTS_LENGTH) {
+            return { outcome: 'too_large' }
+        }
         try {
             value = parseJSON(value)
         } catch {
-            return undefined
+            return { outcome: 'malformed' }
         }
     }
     if (!Array.isArray(value)) {
-        return undefined
+        return { outcome: 'non_array' }
     }
-    return value.filter(
+    const entries = value.filter(
         (item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)
     )
+    return { outcome: 'parsed', entries }
 }
 
 function reconstructInputMessage(entry: Record<string, unknown>, eventName: string): Record<string, unknown> | null {
@@ -168,7 +183,9 @@ function reconstructOutputChoice(entry: Record<string, unknown>): Record<string,
     // would only be unwrapped by `isLiteLLMChoice`, which requires a
     // `finish_reason` field we don't have.
     if (typeof entry.message === 'object' && entry.message !== null && !Array.isArray(entry.message)) {
-        return entry.message as Record<string, unknown>
+        // Shallow-copy so the downstream $ai_output_choices array does not
+        // share references with the transient parsed `events` payload.
+        return { ...(entry.message as Record<string, unknown>) }
     }
     if ('role' in entry || 'content' in entry || 'tool_calls' in entry) {
         const message: Record<string, unknown> = {}
@@ -192,17 +209,19 @@ function convertOlderSpecEvents(event: PluginEvent): void {
         return
     }
 
+    let outcome: ParseOutcome | 'empty' | 'unexpected_error' = 'parsed'
     try {
-        const entries = parseOlderSpecEventsAttribute(props.events)
-        if (!entries) {
+        const parsed = parseOlderSpecEventsAttribute(props.events)
+        if (parsed.outcome !== 'parsed') {
+            outcome = parsed.outcome
             return
         }
 
         const inputs: { message: Record<string, unknown>; index: number; order: number }[] = []
         const choices: Record<string, unknown>[] = []
 
-        for (let order = 0; order < entries.length; order++) {
-            const entry = entries[order]
+        for (let order = 0; order < parsed.entries.length; order++) {
+            const entry = parsed.entries[order]
             const eventName = typeof entry['event.name'] === 'string' ? (entry['event.name'] as string) : undefined
             if (!eventName) {
                 continue
@@ -225,18 +244,34 @@ function convertOlderSpecEvents(event: PluginEvent): void {
             }
         }
 
+        // Only populate if the primary / fallback attribute maps did not already
+        // set these keys — strictly `=== undefined` so any non-undefined value
+        // (including null or empty array) is treated as "already set".
         if (inputs.length > 0 && props['$ai_input'] === undefined) {
             const allIndexed = inputs.every((i) => Number.isFinite(i.index))
-            const sorted = allIndexed ? [...inputs].sort((a, b) => a.index - b.index || a.order - b.order) : inputs
+            // Comparator avoids subtraction so extreme numeric indices cannot
+            // overflow float precision.
+            const sorted = allIndexed
+                ? [...inputs].sort((a, b) => (a.index > b.index ? 1 : a.index < b.index ? -1 : 0) || a.order - b.order)
+                : inputs
             props['$ai_input'] = sorted.map((i) => i.message)
         }
 
         if (choices.length > 0 && props['$ai_output_choices'] === undefined) {
             props['$ai_output_choices'] = choices
         }
+
+        if (inputs.length === 0 && choices.length === 0) {
+            outcome = 'empty'
+        }
     } catch {
         // Never let malformed data break the rest of the mapping pipeline.
+        outcome = 'unexpected_error'
     } finally {
+        // `delete` runs in all exit paths — including early returns from the
+        // `parsed.outcome !== 'parsed'` short-circuit and the outer catch —
+        // so a single unparseable event cannot leak the raw string forward.
         delete props.events
+        aiOtelOlderSpecEventsCounter.labels({ outcome }).inc()
     }
 }
