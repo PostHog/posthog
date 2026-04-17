@@ -35,7 +35,7 @@ pub trait TaskExecutor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResolveTask {
-    Frame(FrameTask),
+    Frame(Box<FrameTask>),
     JavaException(JavaExceptionTask),
     DartException(DartExceptionTask),
 }
@@ -311,7 +311,7 @@ pub fn extract_tasks(event: &ExceptionProperties, next_task_id: &mut u64) -> Vec
             };
 
             tasks.push(PlannedTask {
-                task: ResolveTask::Frame(task),
+                task: ResolveTask::Frame(Box::new(task)),
                 location: TaskLocation {
                     exception_index,
                     frame_index: Some(frame_index),

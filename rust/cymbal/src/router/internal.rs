@@ -21,7 +21,11 @@ pub async fn resolve_batch_internal(
 
     match resolution_ctx.process_internal_request(request).await {
         Ok(response) => {
-            info!(task_count, result_count = response.results.len(), "internal resolve-batch completed");
+            info!(
+                task_count,
+                result_count = response.results.len(),
+                "internal resolve-batch completed"
+            );
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(err) => {
