@@ -151,6 +151,9 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
 
     def test_create_organization_integration_not_supported(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
         url = f"/api/organizations/{self.organization.id}/integrations/"
         data = {
             "kind": "vercel",
@@ -162,6 +165,9 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_update_organization_integration_not_supported(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         data = {"config": {"updated": True}}
         response = self.client.patch(url, data)
