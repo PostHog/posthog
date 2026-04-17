@@ -346,6 +346,7 @@ describe('llmSentimentLazyLoaderLogic', () => {
             // Fake timers isolate this test from setTimeout leaks in prior cases
             // (the listener doesn't cancel its batch timer on unmount).
             jest.useFakeTimers()
+            let createSpy: jest.SpyInstance | undefined
             try {
                 // Fifteen trace IDs at BATCH_MAX_SIZE=5 → three chunks. With the
                 // concurrency cap of 2, at most two api.create calls should be
@@ -354,7 +355,7 @@ describe('llmSentimentLazyLoaderLogic', () => {
                 let inFlight = 0
                 let peakInFlight = 0
 
-                const createSpy = jest.spyOn(api, 'create').mockImplementation(
+                createSpy = jest.spyOn(api, 'create').mockImplementation(
                     () =>
                         new Promise((resolve) => {
                             inFlight++
@@ -393,6 +394,7 @@ describe('llmSentimentLazyLoaderLogic', () => {
                     await Promise.resolve()
                 }
             } finally {
+                createSpy?.mockRestore()
                 jest.useRealTimers()
             }
         })

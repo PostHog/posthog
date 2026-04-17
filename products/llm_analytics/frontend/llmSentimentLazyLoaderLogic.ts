@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmSentimentLazyLoaderLogicType } from './llmSentimentLazyLoaderLogicType'
+import { runWithConcurrency } from './utils'
 
 export interface SentimentDateRange {
     dateFrom?: string | null
@@ -52,20 +53,6 @@ function chunk<T>(arr: T[], size: number): T[][] {
         chunks.push(arr.slice(i, i + size))
     }
     return chunks
-}
-
-async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
-    if (items.length === 0) {
-        return
-    }
-    let cursor = 0
-    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-        while (cursor < items.length) {
-            const index = cursor++
-            await worker(items[index])
-        }
-    })
-    await Promise.all(runners)
 }
 
 export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>([
