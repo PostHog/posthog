@@ -217,6 +217,12 @@ def execute_process_query(
         wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
+    # When we re-raise an error for Celery to retry (via the task's autoretry_for), the finally
+    # block must NOT persist the pre-emptive complete=True/error=True defaults set above.
+    # Otherwise the next retry would read complete=True from Redis and short-circuit at the
+    # early-return at the top of this function, silently turning retries into no-ops.
+    persist_final_status = True
+
     try:
         results = process_query_dict(
             team=team,
@@ -239,6 +245,7 @@ def execute_process_query(
         )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except CHQueryErrorTooManySimultaneousQueries:
+        persist_final_status = False
         raise
     except Exception as err:
         from posthog.rbac.user_access_control import UserAccessControlError
@@ -254,16 +261,17 @@ def execute_process_query(
         capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
-        query_status.end_time = datetime.datetime.now(datetime.UTC)
-        manager.store_query_status(query_status)
-        cache_key = None
-        try:
-            if query_status.results:
-                cache_key = query_status.results.get("cache_key")
-                if cache_key:
-                    manager.unregister_cache_key_mapping(cache_key)
-        except Exception as e:
-            capture_exception(e, {"cache_key": cache_key})
+        if persist_final_status:
+            query_status.end_time = datetime.datetime.now(datetime.UTC)
+            manager.store_query_status(query_status)
+            cache_key = None
+            try:
+                if query_status.results:
+                    cache_key = query_status.results.get("cache_key")
+                    if cache_key:
+                        manager.unregister_cache_key_mapping(cache_key)
+            except Exception as e:
+                capture_exception(e, {"cache_key": cache_key})
 
 
 def enqueue_process_query_task(

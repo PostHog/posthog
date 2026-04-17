@@ -136,6 +136,29 @@ class TestExecuteProcessQuery(TestCase):
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
 
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_transient_error_does_not_persist_complete_true(self, mock_process_query_dict, mock_redis_client):
+        # Regression test: the finally block used to always call store_query_status with the
+        # pre-emptive complete=True/error=True defaults, including when we re-raise for retry.
+        # This turned Celery's autoretry_for into a silent no-op because the retry would read
+        # complete=True from Redis and exit early.
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.side_effect = CHQueryErrorTooManySimultaneousQueries("busy", code=202)
+
+        with self.assertRaises(CHQueryErrorTooManySimultaneousQueries):
+            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        # Only one write: the pickup-time write with complete=False. No completion write.
+        self.assertEqual(mock_redis.set.call_count, 1)
+        payload = json.loads(mock_redis.set.call_args_list[0].args[1])
+        self.assertFalse(payload["complete"])
+        self.assertFalse(payload["error"])
+
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
@@ -219,12 +242,16 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             except Exception:
                 pass
 
+        # The error re-raises for Celery to retry. Redis must stay in "in-flight" shape
+        # (complete=False, error=False) — otherwise the retry would read complete=True
+        # and short-circuit at the early-return in execute_process_query.
         result = client.get_query_status(self.team.id, query_id)
-        self.assertTrue(result.error)
-        assert result.error_message is None
+        self.assertFalse(result.complete)
+        self.assertFalse(result.error)
+        self.assertIsNone(result.error_message)
         self.assertIsNotNone(result.start_time)
         self.assertIsNotNone(result.pickup_time)
-        self.assertIsNotNone(result.end_time)
+        self.assertIsNone(result.end_time)
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
