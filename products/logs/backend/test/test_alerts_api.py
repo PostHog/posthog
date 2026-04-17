@@ -791,6 +791,120 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "state" in changed_fields
         assert "consecutive_failures" in changed_fields
 
+    # --- Control-plane event rows ---
+
+    def _assert_single_event_row(
+        self,
+        alert_id: str,
+        *,
+        kind: str,
+        state_before: str,
+        state_after: str,
+    ) -> None:
+        events = list(LogsAlertEvent.objects.filter(alert_id=alert_id).order_by("created_at"))
+        assert len(events) == 1, [(e.kind, e.state_before, e.state_after) for e in events]
+        event = events[0]
+        assert event.kind == kind
+        assert event.state_before == state_before
+        assert event.state_after == state_after
+        assert event.error_message is None
+        assert event.result_count is None
+
+    def test_reset_writes_reset_event_row(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=LogsAlertEvent.Kind.RESET,
+            state_before=LogsAlertConfiguration.State.BROKEN.value,
+            state_after=LogsAlertConfiguration.State.NOT_FIRING.value,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "enable",
+                {"enabled": False, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": True},
+                LogsAlertEvent.Kind.ENABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "disable",
+                {"enabled": True, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": False},
+                LogsAlertEvent.Kind.DISABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "snooze",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+                LogsAlertEvent.Kind.SNOOZE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.SNOOZED.value,
+            ),
+            (
+                "unsnooze",
+                # snooze_until goes through .update() (ORM) here, not the API; hence the raw datetime.
+                {
+                    "state": LogsAlertConfiguration.State.SNOOZED,
+                    "snooze_until": datetime.now(UTC) + timedelta(hours=1),
+                },
+                {"snooze_until": None},
+                LogsAlertEvent.Kind.UNSNOOZE,
+                LogsAlertConfiguration.State.SNOOZED.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "threshold_change",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING, "threshold_count": 10},
+                {"threshold_count": 50},
+                LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+        ]
+    )
+    def test_update_writes_control_plane_event_row(
+        self,
+        _name: str,
+        initial_db_state: dict,
+        patch_payload: dict,
+        expected_kind: str,
+        expected_state_before: str,
+        expected_state_after: str,
+    ) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(**initial_db_state)
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", patch_payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=expected_kind,
+            state_before=expected_state_before,
+            state_after=expected_state_after,
+        )
+
+    def test_update_without_control_plane_change_does_not_write_event_row(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+
+        assert not LogsAlertEvent.objects.filter(alert_id=created["id"]).exists()
+
     # --- Simulate ---
 
     def _simulate_url(self) -> str:

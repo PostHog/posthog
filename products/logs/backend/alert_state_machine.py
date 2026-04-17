@@ -18,7 +18,7 @@ from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from products.logs.backend.models import LogsAlertConfiguration
+    from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -221,12 +221,35 @@ def apply_threshold_change(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
     return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
 
 
-def apply_outcome(alert: LogsAlertConfiguration, outcome: Outcome) -> list[str]:
+def apply_outcome(
+    alert: LogsAlertConfiguration,
+    outcome: Outcome,
+    *,
+    kind: LogsAlertEvent.Kind | None = None,
+) -> list[str]:
     """Mutates `alert.state` and `alert.consecutive_failures` from an outcome.
     Returns modified field names for `save(update_fields=...)`.
+
+    If `kind` is provided, writes a `LogsAlertEvent` audit row — even when
+    state_before == state_after, because the caller has already decided the action
+    is audit-worthy (e.g. enabling an already-NOT_FIRING alert). Worker CHECK rows
+    are written by the temporal activity, not here.
     """
+    state_before = alert.state
     alert.state = outcome.new_state.value
     alert.consecutive_failures = outcome.consecutive_failures
+
+    if kind is not None:
+        from products.logs.backend.models import LogsAlertEvent
+
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=kind,
+            threshold_breached=False,
+            state_before=state_before,
+            state_after=outcome.new_state.value,
+        )
+
     return ["state", "consecutive_failures"]
 
 

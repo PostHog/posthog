@@ -190,32 +190,36 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             enabled_change = validated_data["enabled"]
 
-        # Resolve the state-machine transition in priority order: enable/disable wins over
-        # snooze, which wins over threshold/filter changes. Window-only edits don't touch
-        # state at all. All transitions return an Outcome; apply_outcome is the single
-        # place that actually writes to `state`/`consecutive_failures`.
-        snapshot = instance.to_snapshot()
-        if enabled_change is True:
-            apply_outcome(instance, apply_enable(snapshot))
-        elif enabled_change is False:
-            apply_outcome(instance, apply_disable(snapshot))
-        elif snooze_data is not _SENTINEL:
-            if snooze_data is None:
-                apply_outcome(instance, apply_unsnooze(snapshot))
-            else:
-                apply_outcome(instance, apply_snooze(snapshot))
-        elif threshold_changed:
-            apply_outcome(instance, apply_threshold_change(snapshot))
+        # Wrap the state-machine transition + LogsAlertEvent insert + super().save in one
+        # transaction so a save failure can't orphan an audit row (or vice versa). Matches
+        # the atomic guarantee the reset viewset action already provides.
+        with transaction.atomic():
+            # Resolve the state-machine transition in priority order: enable/disable wins over
+            # snooze, which wins over threshold/filter changes. Window-only edits don't touch
+            # state at all. All transitions return an Outcome; apply_outcome is the single
+            # place that actually writes to `state`/`consecutive_failures`.
+            snapshot = instance.to_snapshot()
+            if enabled_change is True:
+                apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
+            elif enabled_change is False:
+                apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+            elif snooze_data is not _SENTINEL:
+                if snooze_data is None:
+                    apply_outcome(instance, apply_unsnooze(snapshot), kind=LogsAlertEvent.Kind.UNSNOOZE)
+                else:
+                    apply_outcome(instance, apply_snooze(snapshot), kind=LogsAlertEvent.Kind.SNOOZE)
+            elif threshold_changed:
+                apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
 
-        # snooze_until is a timestamp column, not a state — carry it alongside the state
-        # transition so the serializer's single save persists both.
-        if snooze_data is not _SENTINEL:
-            instance.snooze_until = snooze_data
+            # snooze_until is a timestamp column, not a state — carry it alongside the state
+            # transition so the serializer's single save persists both.
+            if snooze_data is not _SENTINEL:
+                instance.snooze_until = snooze_data
 
-        if threshold_changed or window_changed:
-            instance.clear_next_check()
+            if threshold_changed or window_changed:
+                instance.clear_next_check()
 
-        return super().update(instance, validated_data)
+            return super().update(instance, validated_data)
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -571,7 +575,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except InvalidTransition:
             raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            update_fields = apply_outcome(alert, outcome)
+            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
             update_fields.extend(alert.clear_next_check())
             alert.save(update_fields=update_fields)
             # The model's auto-signal skips these fields (signal_exclusions silences
