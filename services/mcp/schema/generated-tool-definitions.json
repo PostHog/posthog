@@ -2251,7 +2251,7 @@
         }
     },
     "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "List prompts",
@@ -2266,7 +2266,7 @@
         }
     },
     "prompt-get": {
-        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "Get prompt",

@@ -23,7 +23,7 @@ export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -59,7 +59,15 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
     prompt_name: zod.string().regex(llmPromptsNameRetrievePathPromptNameRegExp),
 })
 
+export const llmPromptsNameRetrieveQueryContentDefault = `full`
+
 export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    content: zod
+        .enum(['full', 'preview', 'none'])
+        .default(llmPromptsNameRetrieveQueryContentDefault)
+        .describe(
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
     version: zod
         .number()
         .min(1)
