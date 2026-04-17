@@ -201,7 +201,8 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
 
     # Second pass: align with existing Delta table schema.
-    for delta_field in pa.schema(delta_schema.to_arrow()):
+    delta_arrow_schema = cast(pa.Schema, delta_schema.to_arrow())
+    for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
                 pa.array([None] * incoming_table.num_rows, type=delta_field.type)
@@ -346,7 +347,7 @@ async def setup_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_arrow()
+        delta_schema = cast(pa.Schema, existing_delta_table.schema().to_arrow())
         if PARTITION_KEY not in delta_schema.names:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
