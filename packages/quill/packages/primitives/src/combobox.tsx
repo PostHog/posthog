@@ -139,7 +139,7 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
         <ComboboxPrimitive.List
             data-slot="combobox-list"
             className={cn(
-                'min-h-0 max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 has-data-[slot=combobox-list-footer]:scroll-pb-0 overflow-y-auto overscroll-contain p-1 has-data-[slot=combobox-list-footer]:pb-0 data-empty:p-0',
+                'min-h-0 max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 has-data-[slot=combobox-list-footer]:scroll-pb-10 overflow-y-auto overscroll-contain p-1 has-data-[slot=combobox-list-footer]:pb-0 data-empty:p-0',
                 className
             )}
             {...props}
