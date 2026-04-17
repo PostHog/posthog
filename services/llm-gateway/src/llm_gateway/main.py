@@ -151,7 +151,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         redis=app.state.redis,
         http_client=app.state.http_client,
     )
-    logger.info("Plan resolver initialized", posthog_api_url=settings.posthog_api_url or "(not configured)")
+    logger.info("Plan resolver initialized", posthog_api_base_url=settings.posthog_api_base_url or "(not configured)")
 
     logger.info(
         "rate_limits_configured",

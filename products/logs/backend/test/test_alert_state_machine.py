@@ -9,7 +9,16 @@ from products.logs.backend.alert_state_machine import (
     AlertSnapshot,
     AlertState,
     CheckResult,
+    ControlPlaneOutcome,
+    InvalidTransition,
     NotificationAction,
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    apply_user_reset,
     evaluate_alert_check,
 )
 
@@ -351,3 +360,146 @@ class TestEdgeCases(TestCase):
         from products.logs.backend.models import LogsAlertConfiguration
 
         assert set(AlertState) == {s.value for s in LogsAlertConfiguration.State}
+
+
+class TestApplyUserReset(TestCase):
+    def test_broken_to_not_firing_resets_failures(self) -> None:
+        outcome = apply_user_reset(_snapshot(state=BROKEN, consecutive_failures=5))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("pending_resolve", PENDING_RESOLVE),
+            ("errored", ERRORED),
+            ("snoozed", SNOOZED),
+        ]
+    )
+    def test_rejects_non_broken_state(self, _name: str, state: AlertState) -> None:
+        with self.assertRaises(InvalidTransition) as ctx:
+            apply_user_reset(_snapshot(state=state))
+        assert "Only broken alerts" in str(ctx.exception)
+
+
+class TestApplyDisable(TestCase):
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("snoozed", SNOOZED),
+            # BROKEN is intentionally included — disabling a broken alert is legal;
+            # it parks the alert without the user needing to reset first.
+            ("broken", BROKEN),
+        ]
+    )
+    def test_any_state_transitions_to_not_firing(self, _name: str, state: AlertState) -> None:
+        outcome = apply_disable(_snapshot(state=state, consecutive_failures=3))
+        assert outcome.new_state == NOT_FIRING
+        # consecutive_failures is preserved so a re-enable without an explicit reset
+        # doesn't silently wipe forensic information.
+        assert outcome.consecutive_failures == 3
+
+
+class TestApplyEnable(TestCase):
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("snoozed", SNOOZED),
+            ("broken", BROKEN),
+        ]
+    )
+    def test_any_state_transitions_to_not_firing_with_clean_counter(self, _name: str, state: AlertState) -> None:
+        outcome = apply_enable(_snapshot(state=state, consecutive_failures=4))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+
+class TestApplySnooze(TestCase):
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("broken", BROKEN),
+            ("pending_resolve", PENDING_RESOLVE),
+        ]
+    )
+    def test_preserves_failures_and_sets_snoozed(self, _name: str, state: AlertState) -> None:
+        outcome = apply_snooze(_snapshot(state=state, consecutive_failures=2))
+        assert outcome == ControlPlaneOutcome(new_state=SNOOZED, consecutive_failures=2)
+
+
+class TestApplyUnsnooze(TestCase):
+    @parameterized.expand(
+        [
+            ("snoozed", SNOOZED),
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+        ]
+    )
+    def test_any_state_transitions_to_not_firing_with_clean_counter(self, _name: str, state: AlertState) -> None:
+        outcome = apply_unsnooze(_snapshot(state=state, consecutive_failures=1))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+
+class TestApplyThresholdChange(TestCase):
+    def test_snoozed_alert_stays_snoozed(self) -> None:
+        # Editing a snoozed alert's threshold must not wake it up — user explicitly asked
+        # for silence.
+        outcome = apply_threshold_change(_snapshot(state=SNOOZED, consecutive_failures=1))
+        assert outcome == ControlPlaneOutcome(new_state=SNOOZED, consecutive_failures=1)
+
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("broken", BROKEN),
+            ("pending_resolve", PENDING_RESOLVE),
+        ]
+    )
+    def test_non_snoozed_state_resets_to_not_firing(self, _name: str, state: AlertState) -> None:
+        outcome = apply_threshold_change(_snapshot(state=state, consecutive_failures=4))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+
+class TestApplyOutcome(TestCase):
+    """apply_outcome is the ONLY mutator of state/consecutive_failures — covered here so
+    the invariant is locked in by tests, not just convention."""
+
+    def test_applies_control_plane_outcome(self) -> None:
+        from products.logs.backend.models import LogsAlertConfiguration
+
+        alert = LogsAlertConfiguration(
+            state=FIRING.value,
+            consecutive_failures=2,
+            threshold_count=10,
+        )
+        outcome = ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+        fields = apply_outcome(alert, outcome)
+        assert alert.state == NOT_FIRING.value
+        assert alert.consecutive_failures == 0
+        assert fields == ["state", "consecutive_failures"]
+
+    def test_applies_check_outcome(self) -> None:
+        from products.logs.backend.models import LogsAlertConfiguration
+
+        alert = LogsAlertConfiguration(
+            state=NOT_FIRING.value,
+            consecutive_failures=0,
+            threshold_count=10,
+        )
+        outcome = AlertCheckOutcome(
+            new_state=FIRING,
+            notification=NotificationAction.FIRE,
+            consecutive_failures=0,
+            update_last_notified_at=True,
+            error_message=None,
+        )
+        fields = apply_outcome(alert, outcome)
+        assert alert.state == FIRING.value
+        assert alert.consecutive_failures == 0
+        assert fields == ["state", "consecutive_failures"]
