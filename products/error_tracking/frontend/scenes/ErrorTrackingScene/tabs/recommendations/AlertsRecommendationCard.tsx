@@ -168,6 +168,7 @@ function AlertsRecommendationWizardContent({ onClose }: { onClose: () => void })
         <div className="p-4">
             <AlertWizard
                 hideTriggerStep
+                hideCloseButton
                 onCancel={() => {
                     setAlertCreationView(AlertCreationView.None)
                     resetWizard()

@@ -13,9 +13,15 @@ export interface AlertWizardProps {
     onCancel: () => void
     onSwitchToTraditional: () => void
     hideTriggerStep?: boolean
+    hideCloseButton?: boolean
 }
 
-export function AlertWizard({ onCancel, onSwitchToTraditional, hideTriggerStep }: AlertWizardProps): JSX.Element {
+export function AlertWizard({
+    onCancel,
+    onSwitchToTraditional,
+    hideTriggerStep,
+    hideCloseButton,
+}: AlertWizardProps): JSX.Element {
     const { currentStep } = useValues(alertWizardLogic)
     const { setStep } = useActions(alertWizardLogic)
 
@@ -24,14 +30,18 @@ export function AlertWizard({ onCancel, onSwitchToTraditional, hideTriggerStep }
             <div className="grid grid-cols-[1fr_auto_1fr] items-center">
                 <div />
                 <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} hideTriggerStep={hideTriggerStep} />
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconX />}
-                    onClick={onCancel}
-                    aria-label="Close wizard"
-                    className="justify-self-start ml-2"
-                />
+                {hideCloseButton ? (
+                    <div />
+                ) : (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconX />}
+                        onClick={onCancel}
+                        aria-label="Close wizard"
+                        className="justify-self-start ml-2"
+                    />
+                )}
             </div>
 
             <div className="max-w-lg mx-auto flex-1 w-full mt-4">
