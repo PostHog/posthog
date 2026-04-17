@@ -42,6 +42,7 @@ export interface WelcomeSuggestedStep {
     href: string
     reason: string
     docs_href?: string
+    product_key?: string
 }
 
 export interface WelcomePayload {

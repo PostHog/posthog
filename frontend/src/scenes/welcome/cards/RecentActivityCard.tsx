@@ -1,38 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { ComponentType, SVGProps } from 'react'
-
-import { IconDashboard, IconFlag, IconFlask, IconGraph, IconMessage, IconNotebook } from '@posthog/icons'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
+import { brandingForScope } from '../productBranding'
 import { welcomeDialogLogic } from '../welcomeDialogLogic'
-
-type IconElement = ComponentType<SVGProps<SVGSVGElement> & { className?: string }>
-
-interface ScopeMeta {
-    Icon: IconElement
-    verb: string
-    color: string
-}
-
-// Subtle per-scope accents so the card has variety without turning into a wall of orange.
-const SCOPE_META: Record<string, ScopeMeta> = {
-    Insight: { Icon: IconGraph, verb: 'created an insight', color: 'text-[var(--color-brand-blue)]' },
-    Dashboard: { Icon: IconDashboard, verb: 'shared a dashboard', color: 'text-[var(--color-brand-blue)]' },
-    Notebook: { Icon: IconNotebook, verb: 'wrote a notebook', color: 'text-secondary' },
-    Experiment: { Icon: IconFlask, verb: 'launched an experiment', color: 'text-[var(--color-brand-yellow)]' },
-    FeatureFlag: { Icon: IconFlag, verb: 'shipped a feature flag', color: 'text-[var(--color-brand-blue)]' },
-    Survey: { Icon: IconMessage, verb: 'launched a survey', color: 'text-[var(--color-brand-red)]' },
-}
-
-const FALLBACK_META: ScopeMeta = { Icon: IconGraph, verb: 'made a change', color: 'text-secondary' }
-
-function scopeMeta(type: string): ScopeMeta {
-    const [scope] = type.split('.')
-    return SCOPE_META[scope] ?? FALLBACK_META
-}
 
 function relativeTime(iso: string): string {
     const now = Date.now()
@@ -70,11 +43,20 @@ export function RecentActivityCard(): JSX.Element | null {
             <h2 className="text-lg font-semibold mb-4">What your team has been doing</h2>
             <ol className="flex flex-col gap-3 m-0 p-0 list-none">
                 {recentActivity.map((item, index) => {
-                    const { Icon, verb, color } = scopeMeta(item.type)
+                    const { branding, verb } = brandingForScope(item.type)
+                    const Icon = branding.Icon
                     return (
                         <li key={`${item.type}-${index}`} className="flex items-start gap-3">
-                            <div className={`flex-shrink-0 mt-0.5 ${color}`} aria-hidden="true">
-                                <Icon className="text-xl" />
+                            <div
+                                className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center"
+                                /* eslint-disable-next-line react/forbid-dom-props */
+                                style={{
+                                    backgroundColor: `rgb(${branding.rgb} / 0.12)`,
+                                    color: `rgb(${branding.rgb})`,
+                                }}
+                                aria-hidden="true"
+                            >
+                                <Icon className="text-lg" />
                             </div>
                             <div className="flex-1 min-w-0 text-sm leading-snug">
                                 <div className="flex items-center gap-1.5 text-muted text-xs">
