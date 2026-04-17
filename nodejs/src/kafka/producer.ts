@@ -16,6 +16,7 @@ import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
+import { ProducerStatsTracker } from './kafka-producer-metrics'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  *
@@ -57,6 +58,7 @@ export class KafkaProducerWrapper {
         'retry.backoff.ms': 500, // Backoff between retry attempts
         'socket.timeout.ms': 30000, // Timeout for socket operations
         'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
+        'statistics.interval.ms': 30000, // Emit internal statistics every 30s for observability
     }
 
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
@@ -111,6 +113,11 @@ export class KafkaProducerWrapper {
     constructor(producer: HighLevelProducer, name?: string) {
         this.producer = producer
         this.name = name
+
+        if (name) {
+            const statsTracker = new ProducerStatsTracker(name)
+            producer.on('event.stats', (event) => statsTracker.track(event.message))
+        }
     }
 
     async produce({
