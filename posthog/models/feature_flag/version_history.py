@@ -184,7 +184,7 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
     This ensures historical evaluation treats soft-deleted flags consistently
     with flags that never existed at the given time.
     """
-    if not flag.version:
+    if flag.version is None:
         return None
 
     # If timestamp is before flag creation, flag didn't exist
