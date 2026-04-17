@@ -198,7 +198,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["id"], str(matching_invite.id))
         self.assertEqual(data[0]["organization_id"], str(other_org.id))
-        self.assertEqual(data[0]["organization_name"], "Other Organization")
+        self.assertEqual(data[0]["organization_name"], "Another Org For Pending Invites Test")
         self.assertEqual(data[0]["target_email"], self.user.email)
 
     def test_hedgehog_config_is_unset(self):
