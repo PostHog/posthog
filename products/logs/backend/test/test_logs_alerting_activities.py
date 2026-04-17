@@ -8,6 +8,8 @@ from django.db.models import F
 
 from parameterized import parameterized
 
+from posthog.errors import QueryErrorCategory
+
 from products.logs.backend.alert_check_query import AlertCheckCountResult
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 from products.logs.backend.temporal.activities import CheckAlertsOutput, _check_alerts_sync, _evaluate_single_alert
@@ -222,8 +224,17 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
-    def test_clickhouse_failure_creates_error_audit_row(self, mock_produce, mock_query_cls):
-        mock_query_cls.return_value.execute.side_effect = Exception("ClickHouse timeout")
+    @patch(
+        "products.logs.backend.alert_error_classifier.classify_query_error",
+        return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+    )
+    def test_clickhouse_failure_creates_error_audit_row(self, _mock_classify, mock_produce, mock_query_cls):
+        # Force the classifier to treat this as a performance error so the assertion
+        # doesn't depend on whether the raw message hits one of the shared classifier's
+        # recognized shapes.
+        mock_query_cls.return_value.execute.side_effect = Exception(
+            "Code: 160. DB::Exception: Estimated query execution time is too long"
+        )
         alert = self._make_alert()
         stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
         now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
@@ -233,7 +244,8 @@ class TestEvaluateSingleAlert(APIBaseTest):
         check = LogsAlertCheck.objects.get(alert=alert)
         assert check.result_count is None
         assert check.threshold_breached is False
-        assert check.error_message == "ClickHouse timeout"
+        assert check.error_message == "Query is too expensive. Try narrower filters or a shorter window."
+        assert "DB::Exception" not in (check.error_message or "")
         assert stats["errored"] == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
@@ -490,9 +502,15 @@ class TestEvaluateSingleAlert(APIBaseTest):
             consecutive_failures=initial_failures,
             state=initial_state,
         )
-        mock_query_cls.return_value.execute.side_effect = Exception("ClickHouse timeout")
+        mock_query_cls.return_value.execute.side_effect = Exception(
+            "Code: 160. DB::Exception: Estimated query execution time is too long"
+        )
 
-        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+        with patch(
+            "products.logs.backend.alert_error_classifier.classify_query_error",
+            return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+        ):
+            _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
 
         alert.refresh_from_db()
         assert alert.state == expected_state
@@ -506,4 +524,6 @@ class TestEvaluateSingleAlert(APIBaseTest):
         if expected_events:
             props = auto_disabled_calls[0].kwargs["event"].properties
             assert props["consecutive_failures"] == expected_failures
-            assert "ClickHouse timeout" in props["last_error_message"]
+            # Auto-disabled event surfaces the classified user message, never the raw CH exception.
+            assert props["last_error_message"] == "Query is too expensive. Try narrower filters or a shorter window."
+            assert "DB::Exception" not in props["last_error_message"]
