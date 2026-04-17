@@ -439,7 +439,7 @@ export function EditSubscription({
                                             label="Include an automatic AI summary"
                                             fullWidth
                                             disabledReason={
-                                                !dataProcessingAccepted
+                                                !dataProcessingAccepted && !value
                                                     ? 'Your organization needs to approve AI data processing before enabling AI summaries'
                                                     : undefined
                                             }
