@@ -150,6 +150,8 @@ def get_direct_postgres_location_for_schema_model(
         schema_metadata=None,
         default_schema=default_schema,
     )
+
+
 def get_direct_postgres_table_options(
     *, source_catalog: str | None = None, source_schema: str, source_table_name: str
 ) -> dict[str, str]:

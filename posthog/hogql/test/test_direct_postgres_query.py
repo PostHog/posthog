@@ -951,6 +951,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mocked_connection.execute.assert_called_once_with("USE ducklake")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
         mock_capture_exception.assert_not_called()
+
     @patch("posthog.hogql.query.psycopg.connect")
     def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):
         source = ExternalDataSource.objects.create(

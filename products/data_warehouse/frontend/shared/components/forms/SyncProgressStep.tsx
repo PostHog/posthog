@@ -17,6 +17,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExternalDataSourceSchema } from '~/types'
 
 import { buildTableQueryUrl } from 'products/data_warehouse/frontend/utils'
+
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { sourceManagementLogic } from '../../logics/sourceManagementLogic'
 
