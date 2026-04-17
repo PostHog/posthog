@@ -10,7 +10,9 @@ use crate::{
 };
 use common_cache::NegativeCache;
 use common_database::PostgresReader;
-use common_hypercache::{CacheSource, HyperCacheError, HyperCacheReader, KeyType};
+use common_hypercache::{
+    CacheSource, HyperCacheError, HyperCacheReader, KeyType, HYPERCACHE_COUNTER_NAME,
+};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -186,7 +188,6 @@ impl FlagService {
             Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
                 // Parse errors mean data corruption, not a transient issue. Hard-fail
                 // rather than fall back to PG, which lacks dependency metadata.
-                tracing::error!("Failed to parse hypercache data for team {team_id}: {e}");
                 counter!(
                     TOMBSTONE_COUNTER,
                     "namespace" => "feature_flags",
@@ -198,7 +199,25 @@ impl FlagService {
                     "Failed to parse feature flags for team {team_id}: {e}"
                 )));
             }
-            Err(_) => {
+            Err(e) => {
+                // Mirror the hit_fallback counters that `get_typed_with_source_or_fallback`
+                // would emit, so flags and team paths stay on identical instrumentation.
+                let result_label = if matches!(e, HyperCacheError::CacheMiss) {
+                    "hit_fallback"
+                } else {
+                    "hit_fallback_infra_error"
+                };
+                let hc_config = self.flags_hypercache_reader.config();
+                inc(
+                    HYPERCACHE_COUNTER_NAME,
+                    &[
+                        ("result".to_string(), result_label.to_string()),
+                        ("namespace".to_string(), hc_config.namespace.clone()),
+                        ("value".to_string(), hc_config.object_name.clone()),
+                    ],
+                    1,
+                );
+
                 // PG has no dependency metadata, so all flags go in a single stage.
                 let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
                 let evaluation_metadata =
@@ -836,6 +855,47 @@ mod tests {
                 .any(|call| call.op == "set" || call.op == "set_bytes"),
             "Cache write detected after PG fallback. Rust should be read-only; \
              Django handles cache population via HyperCache. Found calls: {client_calls:?}",
+        );
+    }
+
+    /// Corrupt Redis payload must hard-fail with DataParsingErrorWithContext rather
+    /// than silently fall back to PG (which would serve single-stage data).
+    #[tokio::test]
+    async fn test_get_flags_hard_fails_on_hypercache_parse_error() {
+        use common_redis::MockRedisClient;
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Pickle a string that isn't the sentinel and isn't valid JSON for the wrapper.
+        let invalid_json = "not valid json {{{";
+        let pickled =
+            serde_pickle::to_vec(&invalid_json, Default::default()).expect("Failed to pickle");
+
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_raw_bytes_ret(&hypercache_test_key(team.id), Ok(pickled));
+
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client);
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let team_redis_client = setup_redis_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(team_redis_client).await;
+
+        let flag_service = FlagService::new(
+            redis_client,
+            context.non_persons_reader.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
+        assert!(
+            matches!(result, Err(FlagError::DataParsingErrorWithContext(_))),
+            "parse error must hard-fail, got {result:?}"
         );
     }
 
