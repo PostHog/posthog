@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal, Optional, cast
 
 from django.db import models
@@ -186,6 +187,13 @@ class PropertyFinder(TraversingVisitor):
 
 
 class PropertySwapper(CloningVisitor):
+    _RANGE_OPS: set[str] = {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+
     def __init__(
         self,
         timezone: str,
@@ -202,6 +210,189 @@ class PropertySwapper(CloningVisitor):
         self.group_properties = group_properties
         self.context = context
         self.setTimeZones = setTimeZones
+        self._inside_call_depth = 0
+        self._inside_where_depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        # We need to track when we're inside WHERE/PREWHERE so that the
+        # toTimeZone stripping only fires where it helps (partition/PK pruning).
+        # Stripping in JOIN ON, SELECT, HAVING etc. is unnecessary.
+        #
+        # The CloningVisitor.visit_select_query visits fields in a fixed order.
+        # We replicate that here, wrapping only where/prewhere with our flag.
+        saved_where_depth = self._inside_where_depth
+        self._inside_where_depth = 0  # each SelectQuery gets its own scope
+
+        # Visit everything except where/prewhere normally (depth=0, no stripping)
+        ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
+        select_from = self.visit(node.select_from)
+        select = [self.visit(expr) for expr in node.select] if node.select else []
+        array_join_list = [self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None
+
+        # Visit where/prewhere with the flag set (depth=1, stripping enabled)
+        self._inside_where_depth = 1
+        where = self.visit(node.where)
+        prewhere = self.visit(node.prewhere)
+        self._inside_where_depth = 0
+
+        having = self.visit(node.having)
+        qualify = self.visit(node.qualify)
+        group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
+        order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+
+        self._inside_where_depth = saved_where_depth  # restore parent scope
+
+        return ast.SelectQuery(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            ctes=ctes,
+            select_from=select_from,
+            select=select,
+            array_join_op=node.array_join_op,
+            array_join_list=array_join_list,
+            where=where,
+            prewhere=prewhere,
+            having=having,
+            qualify=qualify,
+            group_by=group_by,
+            group_by_mode=node.group_by_mode,
+            order_by=order_by,
+            limit_by=self.visit(node.limit_by),
+            limit=self.visit(node.limit),
+            limit_with_ties=node.limit_with_ties,
+            limit_percent=node.limit_percent,
+            offset=self.visit(node.offset),
+            distinct=node.distinct,
+            window_exprs=(
+                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            ),
+            settings=node.settings.model_copy() if node.settings is not None else None,
+            view_name=node.view_name,
+        )
+
+    def visit_call(self, node: ast.Call):
+        self._inside_call_depth += 1
+        try:
+            return super().visit_call(node)
+        finally:
+            self._inside_call_depth -= 1
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        result = super().visit_compare_operation(node)
+
+        if (
+            not self.setTimeZones
+            or result.op not in self._RANGE_OPS
+            or self._inside_call_depth > 0
+            or self._inside_where_depth == 0
+        ):
+            return result
+
+        return self._move_timezone_from_field_to_constant(result) or result
+
+    def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
+        """Move toTimeZone() from the field side to the constant side of a range comparison.
+
+        ClickHouse DateTime values are epoch seconds internally, and toTimeZone()
+        only changes display metadata — not the underlying value. So for range
+        comparisons, instead of:
+
+            toTimeZone(timestamp, 'US/Pacific') >= '2024-03-01'
+
+        we rewrite to:
+
+            timestamp >= toDateTime64('2024-03-01', 6, 'US/Pacific')
+
+        This lets the query planner use the partition key (toYYYYMM(timestamp))
+        and primary key (toDate(timestamp)) for pruning, which it can't do when
+        the field is wrapped in a function call. The timezone on the constant
+        ensures ClickHouse interprets it in the correct timezone.
+
+        We only do this for top-level range comparisons (not inside function
+        calls like if(), coalesce()) via the _inside_call_depth guard.
+        """
+        bare_field, tz, constant, swapped = self._extract_toTimeZone_parts(node)
+        if bare_field is None or tz is None or constant is None:
+            return None
+
+        tz_constant = self._ensure_constant_has_timezone(constant, tz)
+
+        if swapped:
+            return ast.CompareOperation(left=tz_constant, right=bare_field, op=node.op)
+        else:
+            return ast.CompareOperation(left=bare_field, right=tz_constant, op=node.op)
+
+    @staticmethod
+    def _extract_toTimeZone_parts(
+        node: ast.CompareOperation,
+    ) -> tuple[ast.Expr | None, str | None, ast.Expr | None, bool]:
+        """Extract (bare_field, timezone, constant, swapped) from a comparison
+        where one side is toTimeZone(field, tz).
+
+        Returns (None, None, None, False) if the pattern doesn't match.
+        swapped=True means the toTimeZone was on the right side.
+        """
+        for left_is_tz in (True, False):
+            tz_side = node.left if left_is_tz else node.right
+            const_side = node.right if left_is_tz else node.left
+
+            inner = tz_side
+            if isinstance(inner, ast.Alias):
+                inner = inner.expr
+            if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
+                tz_arg = inner.args[1]
+                if isinstance(tz_arg, ast.Constant) and isinstance(tz_arg.value, str):
+                    return inner.args[0], tz_arg.value, const_side, not left_is_tz
+
+        return None, None, None, False
+
+    @staticmethod
+    def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
+        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
+        already carry timezone information.
+
+        Constants that are already wrapped in toDateTime64/toDateTime with a tz
+        argument are left unchanged. Bare string/datetime constants get wrapped.
+        """
+        inner = expr
+        if isinstance(inner, ast.Alias):
+            inner = inner.expr
+
+        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
+        if isinstance(inner, ast.Call):
+            if inner.name == "toDateTime64" and len(inner.args) == 3:
+                return expr
+            if inner.name == "toDateTime" and len(inner.args) == 2:
+                return expr
+            # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
+            if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
+                wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
+                if wrapped_arg is not inner.args[0]:
+                    new_call = ast.Call(name=inner.name, args=[wrapped_arg])
+                    if isinstance(expr, ast.Alias):
+                        return ast.Alias(alias=expr.alias, expr=new_call)
+                    return new_call
+                return expr
+
+        # Bare constant — wrap with toDateTime64 carrying the timezone.
+        # Skip if the value is already a timezone-aware datetime: the printer
+        # converts it to the team timezone and emits toDateTime64('...', 6, tz)
+        # regardless of the constant's original tzinfo (see escape_sql.py:249).
+        if isinstance(inner, ast.Constant):
+            if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
+                return expr
+            new_call = ast.Call(
+                name="toDateTime64",
+                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+            )
+            if isinstance(expr, ast.Alias):
+                return ast.Alias(alias=expr.alias, expr=new_call)
+            return new_call
+
+        # For anything else (arithmetic, other calls), leave as-is.
+        # These typically already produce timezone-aware values.
+        return expr
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):

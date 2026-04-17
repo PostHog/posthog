@@ -4,6 +4,10 @@
     padding-left: 0.5rem;
 }
 
+.scene-tab-title {
+    font-size: 0.8125rem; /* 13px - 1px smaller than default */
+}
+
 .scene-tab--pinned .scene-tab-title {
     display: none;
 }

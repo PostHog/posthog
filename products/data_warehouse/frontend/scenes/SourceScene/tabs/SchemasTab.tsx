@@ -307,9 +307,8 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                         isHidden: isDirectQuerySource,
                         render: function RenderFrequency(_, schema) {
                             const isCdc = schema.sync_type === 'cdc'
-                            const cdcOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [
+                            const cdcOnlyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [
                                 { value: '1min', label: '1 min' },
-                                { value: '5min', label: '5 mins' },
                             ]
                             const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [
                                 { value: '5min', label: '5 mins' },
@@ -335,7 +334,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                                 sync_frequency: value as DataWarehouseSyncInterval,
                                             })
                                         }
-                                        options={isCdc ? [...cdcOptions, ...standardOptions] : standardOptions}
+                                        options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
                                     />
                                 </SourceEditorAction>
                             )

@@ -21,7 +21,7 @@ const cdpFunctionTemplatesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionTemplateList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_function_templates/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_function_templates/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -46,7 +46,7 @@ const cdpFunctionTemplatesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunctionTemplate>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_function_templates/${params.template_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_function_templates/${encodeURIComponent(String(params.template_id))}/`,
         })
         return result
     },

@@ -409,6 +409,77 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["initial_permission_mode"] == initial_permission_mode
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "claude_rejects_codex_mode",
+                "claude",
+                "claude-opus-4-6",
+                "auto",
+                "Invalid choice 'auto' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
+            ),
+            (
+                "codex_rejects_claude_mode",
+                "codex",
+                "gpt-5.4",
+                "plan",
+                "Invalid choice 'plan' for runtime_adapter 'codex'. Supported values: 'auto', 'read-only', 'full-access'.",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_mismatched_permission_mode(
+        self,
+        _case_name,
+        runtime_adapter,
+        model,
+        initial_permission_mode,
+        expected_detail,
+        mock_workflow,
+    ):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": runtime_adapter,
+                "model": model,
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": expected_detail,
+            "attr": "initial_permission_mode",
+        }
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
         task = self.create_task()

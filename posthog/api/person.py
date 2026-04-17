@@ -1530,7 +1530,7 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
-    group_properties_filter_group = []
+    group_properties_filter_group: list[dict[str, object]] = []
     if hasattr(filter, "aggregation_group_type_index"):
         group_properties_filter_group += [
             {

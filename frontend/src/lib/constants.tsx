@@ -141,12 +141,6 @@ export const RETENTION_RECURRING = 'retention_recurring'
 export const RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = 'retention_first_time'
 export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 
-export const WEBHOOK_SERVICES: Record<string, string> = {
-    Slack: 'slack.com',
-    Discord: 'discord.com',
-    Teams: 'office.com',
-}
-
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
 // or if you're running flox + phrocs you can also run the `sync-feature-flags` process
 //
@@ -278,6 +272,7 @@ export const FEATURE_FLAGS = {
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     ERROR_TRACKING_INSIGHTS: 'error-tracking-insights', // owner: @ablaszkiewicz #team-error-tracking
+    ERROR_TRACKING_RECOMMENDATIONS: 'error-tracking-recommendations', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
@@ -302,6 +297,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_TEMPLATES: 'experiments-templates', // owner: @rodrigoi #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAG_CREATION_INTENTS: 'feature-flag-creation-intents', // owner: #team-feature-flags
+    FEATURE_FLAGS_ACROSS_PROJECTS_INDEX: 'feature-flags-across-projects-index', // owner: #team-platform-features
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_MIXED_TARGETING: 'feature-flag-mixed-targeting', // owner: @dmarticus #team-feature-flags
@@ -409,6 +405,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
+    POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-posthog-code
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
     POSTHOG_AI_ALERTS: 'posthog-ai-alerts', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
@@ -459,6 +456,7 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
+    WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_DRAG_TO_ZOOM: 'web-analytics-drag-to-zoom', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics

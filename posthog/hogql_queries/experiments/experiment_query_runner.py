@@ -188,6 +188,7 @@ class ExperimentQueryRunner(QueryRunner):
             ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
+            sentinel_placeholders={"experiment_date_to"},
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -310,6 +311,7 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
             experiment_metric_uuid=self.metric.uuid,
             experiment_metric_name=metric_name,
+            experiment_metric_type=self.metric.metric_type,
         )
 
         experiment_query_ast = self._get_experiment_query()

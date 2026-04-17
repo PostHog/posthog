@@ -28,7 +28,7 @@ const cdpFunctionsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             query: {
                 created_at: params.created_at,
                 created_by: params.created_by,
@@ -108,7 +108,7 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'POST',
-            path: `/api/projects/${projectId}/hog_functions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             body,
         })
         return result
@@ -124,7 +124,7 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -185,7 +185,7 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -201,7 +201,7 @@ const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
@@ -238,7 +238,7 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.HogFunctionInvocation>({
             method: 'POST',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/invocations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/invocations/`,
             body,
         })
         return result
@@ -261,7 +261,7 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.HogFunction[]>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/rearrange/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/rearrange/`,
             body,
         })
         return result
