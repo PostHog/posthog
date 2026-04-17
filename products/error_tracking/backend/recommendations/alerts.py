@@ -13,31 +13,25 @@ ALERT_TRIGGERS: list[dict[str, str]] = [
 ]
 
 
+def _team_has_alert_for_event(team_id: int, event_id: str) -> bool:
+    return HogFunction.objects.filter(
+        team_id=team_id,
+        type=HogFunctionType.INTERNAL_DESTINATION,
+        deleted=False,
+        filters__contains={"events": [{"id": event_id}]},
+    ).exists()
+
+
 class AlertsRecommendation(Recommendation):
     type = "alerts"
     refresh_interval = timedelta(seconds=5)
 
     def compute(self, team: Team) -> dict[str, Any]:
-        filters_list = HogFunction.objects.filter(
-            team_id=team.id,
-            type=HogFunctionType.INTERNAL_DESTINATION,
-            deleted=False,
-        ).values_list("filters", flat=True)
-
-        events_with_alerts: set[str] = set()
-        for filters in filters_list:
-            if not filters:
-                continue
-            for event in filters.get("events") or []:
-                event_id = event.get("id")
-                if event_id:
-                    events_with_alerts.add(event_id)
-
         return {
             "alerts": [
                 {
                     "key": trigger["key"],
-                    "enabled": trigger["event"] in events_with_alerts,
+                    "enabled": _team_has_alert_for_event(team.id, trigger["event"]),
                 }
                 for trigger in ALERT_TRIGGERS
             ]
