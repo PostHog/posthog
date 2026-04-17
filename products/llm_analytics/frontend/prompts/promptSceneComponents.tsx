@@ -194,7 +194,13 @@ function PromptOutline({
             if (!rawHash) {
                 return
             }
-            const slug = decodeURIComponent(rawHash)
+            // Guard against malformed percent-encoding (e.g. `#%`) which would throw URIError
+            let slug: string
+            try {
+                slug = decodeURIComponent(rawHash)
+            } catch {
+                return
+            }
             const container = containerRef.current
             if (!container) {
                 return
