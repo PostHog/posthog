@@ -241,8 +241,8 @@ export function VisualImageDiffViewer({
         return (
             <div className="p-3 flex justify-center">
                 <div
-                    className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full"
-                    style={{ minWidth: isSmallImage ? undefined : '50%' }}
+                    className="overflow-hidden rounded-lg border bg-bg-light max-w-full"
+                    style={{ width: isSmallImage ? (imageWidth ?? 0) * 2 : '100%', maxWidth: '100%' }}
                 >
                     <div className="flex items-center justify-between px-2 py-1 border-b bg-bg-3000 text-[11px] font-semibold uppercase tracking-wide">
                         <span>Baseline</span>
@@ -253,14 +253,14 @@ export function VisualImageDiffViewer({
                         )}
                         <span>Current</span>
                     </div>
-                    <div ref={overlayRef} className="relative">
+                    <div ref={overlayRef} className="relative overflow-hidden">
                         {baselineUrl ? (
                             <img
                                 src={baselineUrl}
                                 alt="Baseline snapshot"
-                                className={cn('h-auto bg-black/5 block', pixelatedClass)}
+                                className="w-full h-auto bg-black/5 block"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={pixelatedStyle}
+                                style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
                             />
                         ) : (
                             <EmptyImageState title="Baseline snapshot missing" />
@@ -284,7 +284,9 @@ export function VisualImageDiffViewer({
                                 <img
                                     src={activeOverlayUrl}
                                     alt="Current snapshot"
-                                    className="h-auto bg-black/5 block w-full"
+                                    className="w-full h-auto bg-black/5 block"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
                                 />
                             </div>
                         )}
@@ -351,6 +353,11 @@ export function VisualImageDiffViewer({
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
                         {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
+                        {isSmallImage && (
+                            <LemonTag type="highlight" className="font-bold">
+                                2x
+                            </LemonTag>
+                        )}
                     </div>
                     {supportsComparison && (
                         <LemonSegmentedButton

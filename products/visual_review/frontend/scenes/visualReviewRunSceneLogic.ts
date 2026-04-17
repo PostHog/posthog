@@ -152,6 +152,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     {
                         key: 'visual_review_run',
                         name: run?.branch || 'Run',
+                        path: run ? `/visual_review/runs/${run.id}` : undefined,
                     },
                 ]
                 if (selectedSnapshot) {
