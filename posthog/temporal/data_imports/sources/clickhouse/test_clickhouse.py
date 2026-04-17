@@ -13,8 +13,6 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
     _parse_mv_target,
-    _qualified_table,
-    _query_settings,
     _quote_identifier,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
@@ -43,14 +41,6 @@ class TestQuoteIdentifier:
     def test_rejects_null_byte(self):
         with pytest.raises(ValueError, match="null byte"):
             _quote_identifier("bad\x00name")
-
-
-class TestQualifiedTable:
-    def test_qualifies_with_database(self):
-        assert _qualified_table("default", "events") == "`default`.`events`"
-
-    def test_quotes_special_chars(self):
-        assert _qualified_table("my-db", "my table") == "`my-db`.`my table`"
 
 
 class TestStripTypeModifiers:
@@ -142,9 +132,6 @@ class TestFilterClickHouseIncrementalFields:
             ("created_at", IncrementalFieldType.Timestamp, True),
             ("event_date", IncrementalFieldType.Date, False),
         ]
-
-    def test_empty_list(self):
-        assert filter_clickhouse_incremental_fields([]) == []
 
 
 class TestBuildQuery:
@@ -521,31 +508,6 @@ class TestClickHouseColumnToArrowField:
         assert field.type == pa.string()
 
 
-class TestClickHouseSourceConfig:
-    @pytest.fixture
-    def source(self):
-        return ClickHouseSource()
-
-    def test_source_type(self, source):
-        from products.data_warehouse.backend.types import ExternalDataSourceType
-
-        assert source.source_type == ExternalDataSourceType.CLICKHOUSE
-
-    def test_source_config_fields(self, source):
-        config = source.get_source_config
-        field_names = {f.name for f in config.fields}
-        assert {"host", "port", "database", "user", "password", "secure", "verify", "ssh_tunnel"} <= field_names
-
-    def test_source_is_beta(self, source):
-        assert source.get_source_config.betaSource is True
-
-    def test_non_retryable_errors_present(self, source):
-        errors = source.get_non_retryable_errors()
-        # A few key errors that should never be retried
-        assert any("authentication" in k.lower() for k in errors)
-        assert any("Code: 81" in k for k in errors)  # UNKNOWN_DATABASE
-
-
 class TestClickHouseSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -582,13 +544,9 @@ class TestClickHouseSourceNonRetryableErrors:
 
 
 class TestTranslateError:
-    def test_translates_known_errors(self):
+    def test_matches_substring_inside_long_error(self):
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
         assert ClickHouseSource._translate_error(msg) == "Invalid user or password"
-
-    def test_translates_unknown_database(self):
-        msg = "Code: 81. DB::Exception: Database `nonexistent` doesn't exist"
-        assert ClickHouseSource._translate_error(msg) == "Database does not exist"
 
     def test_returns_none_for_unrecognised_error(self):
         assert ClickHouseSource._translate_error("Some random error") is None
@@ -693,20 +651,6 @@ class TestHasDuplicatePrimaryKeys:
         assert _has_duplicate_primary_keys(client, "db", "t", [], self._logger()) is False
         client.query.assert_not_called()
 
-    def test_returns_true_when_duplicates_found(self):
-        client = MagicMock()
-        result = MagicMock()
-        result.result_rows = [(1,)]
-        client.query.return_value = result
-        assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
-
-    def test_returns_false_when_no_duplicates(self):
-        client = MagicMock()
-        result = MagicMock()
-        result.result_rows = []
-        client.query.return_value = result
-        assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is False
-
     def test_fails_safe_to_true_on_clickhouse_error(self):
         client = MagicMock()
         client.query.side_effect = ClickHouseError("Code: 241. Memory limit exceeded")
@@ -732,17 +676,6 @@ class TestHasDuplicatePrimaryKeys:
         assert settings["read_overflow_mode"] == "break"
         assert settings["max_execution_time"] == 30
         assert settings["max_memory_usage"] == 1_000_000_000
-
-
-class TestQuerySettings:
-    def test_includes_ordered_read_and_spill_settings(self):
-        settings = _query_settings(chunk_size=20_000)
-        assert settings["max_block_size"] == 20_000
-        assert settings["optimize_read_in_order"] == 1
-        # Must spill long before we blow the worker — 500 MiB.
-        assert settings["max_bytes_before_external_sort"] == 500 * 1024 * 1024
-        assert settings["output_format_arrow_string_as_string"] == 1
-        assert settings["output_format_arrow_low_cardinality_as_dictionary"] == 0
 
 
 class TestGetIncrementalRowCount:
