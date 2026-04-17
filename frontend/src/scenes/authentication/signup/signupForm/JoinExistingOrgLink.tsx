@@ -11,13 +11,14 @@ function openJoinExistingOrgDialog(): void {
                 <div className="flex items-center justify-center w-14 h-14 rounded-full bg-accent-highlight-secondary mb-4">
                     <IconLetter className="text-2xl text-accent" />
                 </div>
-                <h2 className="text-xl font-bold mb-2">Check your email for your invite</h2>
+                <h2 className="text-xl font-bold mb-2">You'll need your invite link to join</h2>
                 <p className="text-secondary mb-2">
-                    Organization invitations only work by opening the link sent to your email. Signing up here will
-                    create a new, separate organization instead of joining the one you were invited to.
+                    When a teammate invites you to a PostHog organization, we email you a personal invite link. You can
+                    only join the existing organization by opening that email and clicking the link.
                 </p>
                 <p className="text-secondary text-sm mb-0">
-                    Can't find it? Check your spam folder, or ask an admin to resend the invite.
+                    Didn't get an email? Check your spam folder, or ask the teammate who invited you to resend it from
+                    the organization's members settings.
                 </p>
             </div>
         ),
@@ -32,7 +33,7 @@ export function JoinExistingOrgLink(): JSX.Element {
     return (
         <div className="text-center mt-3 text-xs">
             <Link onClick={openJoinExistingOrgDialog} data-attr="signup-join-existing-org" className="text-secondary">
-                Joining via an invite link?
+                Trying to join an existing organization?
             </Link>
         </div>
     )
