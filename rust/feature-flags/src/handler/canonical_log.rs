@@ -1212,12 +1212,10 @@ mod tests {
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
-        #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
         #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
-        #[case(FlagError::NoGroupTypeMappings, 500, "no_group_type_mappings")]
         #[case(
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             500,
@@ -1234,12 +1232,6 @@ mod tests {
             "cohort_filters_parsing_error"
         )]
         #[case(FlagError::PersonNotFound, 503, "person_not_found")]
-        #[case(FlagError::PropertiesNotInCache, 503, "properties_not_in_cache")]
-        #[case(
-            FlagError::StaticCohortMatchesNotCached,
-            503,
-            "static_cohort_not_cached"
-        )]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]
         #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
         fn test_set_error_populates_fields(
