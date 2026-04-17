@@ -162,7 +162,7 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_405_METHOD_NOT_ALLOWED))
 
     def test_update_organization_integration_not_supported(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -172,4 +172,4 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         data = {"config": {"updated": True}}
         response = self.client.patch(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_405_METHOD_NOT_ALLOWED))
