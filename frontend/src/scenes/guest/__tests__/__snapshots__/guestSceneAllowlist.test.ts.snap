@@ -1,0 +1,12 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`guestSceneAllowlist contains the expected scenes 1`] = `
+[
+  "Dashboard",
+  "GuestLanding",
+  "GuestNotFound",
+  "Insight",
+  "Notebook",
+  "Settings",
+]
+`;
