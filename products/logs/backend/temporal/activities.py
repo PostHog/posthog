@@ -18,10 +18,10 @@ from products.logs.backend.alert_check_query import AlertCheckQuery
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
-    AlertSnapshot,
     AlertState,
     CheckResult,
     NotificationAction,
+    apply_outcome,
     evaluate_alert_check,
 )
 from products.logs.backend.alert_utils import advance_next_check_at
@@ -143,18 +143,7 @@ def _evaluate_single_alert(
             error_message=classified.user_message,
         )
 
-    snapshot = AlertSnapshot(
-        state=AlertState(alert.state),
-        evaluation_periods=alert.evaluation_periods,
-        datapoints_to_alarm=alert.datapoints_to_alarm,
-        cooldown_minutes=alert.cooldown_minutes,
-        last_notified_at=alert.last_notified_at,
-        snooze_until=alert.snooze_until,
-        consecutive_failures=alert.consecutive_failures,
-        recent_checks_breached=alert.get_recent_breaches(),
-    )
-
-    outcome = evaluate_alert_check(snapshot, check_result, now)
+    outcome = evaluate_alert_check(alert.to_snapshot(), check_result, now)
 
     # Attempt Kafka delivery BEFORE committing state transition.
     # If delivery fails and we needed to notify, keep old state so the
@@ -203,7 +192,11 @@ def _evaluate_single_alert(
 
     # If the notification delivery failed, don't commit the state transition
     # so the next tick will re-evaluate and retry the notification.
-    committed_state = AlertState(alert.state) if notification_failed else outcome.new_state
+    if notification_failed:
+        committed_outcome = dataclasses.replace(outcome, new_state=AlertState(alert.state))
+    else:
+        committed_outcome = outcome
+    committed_state = committed_outcome.new_state
 
     state_before = alert.state
     with transaction.atomic():
@@ -217,12 +210,12 @@ def _evaluate_single_alert(
             query_duration_ms=check_result.query_duration_ms,
         )
 
-        alert.state = committed_state.value
-        alert.consecutive_failures = outcome.consecutive_failures
+        # All state/consecutive_failures writes go through apply_outcome —
+        # single source of truth, enforced by the semgrep rule.
+        update_fields = apply_outcome(alert, committed_outcome)
         alert.last_checked_at = now
         alert.next_check_at = advance_next_check_at(alert.next_check_at, alert.check_interval_minutes, now)
-
-        update_fields = ["state", "consecutive_failures", "last_checked_at", "next_check_at", "updated_at"]
+        update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
         if notified and outcome.update_last_notified_at:
             alert.last_notified_at = now

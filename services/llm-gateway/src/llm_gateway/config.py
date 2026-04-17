@@ -32,6 +32,12 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
+    "wizard": UserCostLimit(
+        burst_limit_usd=100.0,
+        burst_window_seconds=2592000,  # 30 days
+        sustained_limit_usd=100.0,
+        sustained_window_seconds=2592000,  # 30 days
+    ),
     "posthog_code": UserCostLimit(
         burst_limit_usd=100.0,
         burst_window_seconds=86400,
