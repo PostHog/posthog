@@ -9,10 +9,14 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+
+import { HeatmapUrlFilter } from './HeatmapUrlFilter'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -113,6 +117,8 @@ export function FilterPanel(): JSX.Element {
     const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } = useActions(
         heatmapDataLogic({ context: 'in-app' })
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const v2FiltersEnabled = !!featureFlags[FEATURE_FLAGS.HEATMAPS_V2_FILTERS]
 
     const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
 
@@ -188,6 +194,11 @@ export function FilterPanel(): JSX.Element {
                 </div>
                 <ViewportChooser />
             </div>
+            {v2FiltersEnabled ? (
+                <div className="my-2">
+                    <HeatmapUrlFilter />
+                </div>
+            ) : null}
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">
                     No data found. Try changing your filters or the URL above.

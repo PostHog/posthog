@@ -1,3 +1,6 @@
+import json
+from urllib.parse import urlencode
+
 import freezegun
 from posthog.test.base import (
     APIBaseTest,
@@ -74,7 +77,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         if params is None:
             params = {}
 
-        query_params = "&".join([f"{key}={value}" for key, value in params.items()])
+        # urlencode mirrors the browser-side behavior (percent-encoding for regex chars, etc.).
+        # Preserve the historical `None` -> literal "None" convention so legacy tests still
+        # exercise the server's rejection path for invalid values.
+        query_params = urlencode({k: str(v) for k, v in params.items()})
         response = self.client.get(f"/api/heatmap/?{query_params}")
         assert response.status_code == expected_status_code, response.data
 
@@ -605,3 +611,158 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_1", "scrolldepth", x=0, y=0)
 
         self._assert_heatmap_result_count({"date_from": "2023-03-08", "type": "scrolldepth"}, 1)
+
+    # ---- v2 url_properties filter ----
+    def _seed_orgs_dataset(self) -> None:
+        self._create_heatmap_event(
+            "org_one_home", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/orgs/1"
+        )
+        self._create_heatmap_event(
+            "org_two_home", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/orgs/2"
+        )
+        self._create_heatmap_event(
+            "org_one_projects", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/orgs/1/projects"
+        )
+        self._create_heatmap_event(
+            "org_two_projects", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/orgs/2/projects"
+        )
+        self._create_heatmap_event("home_page", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/")
+
+    @parameterized.expand(
+        [
+            (
+                "exact_current_url_only_matches_one_segment",
+                [{"key": "$current_url", "operator": "exact", "value": "https://app.example.com/orgs/1"}],
+                False,
+                1,
+            ),
+            (
+                "regex_current_url_excludes_nested_pages",
+                [{"key": "$current_url", "operator": "regex", "value": "^https://app\\.example\\.com/orgs/[^/]+$"}],
+                False,
+                2,
+            ),
+            (
+                "icontains_orgs_matches_everything_under_orgs",
+                [{"key": "$current_url", "operator": "icontains", "value": "/orgs/"}],
+                False,
+                4,
+            ),
+            (
+                "not_icontains_orgs_matches_only_home",
+                [{"key": "$current_url", "operator": "not_icontains", "value": "/orgs/"}],
+                False,
+                1,
+            ),
+            (
+                "pathname_regex_single_segment",
+                [{"key": "$pathname", "operator": "regex", "value": "^/orgs/[^/]+$"}],
+                False,
+                2,
+            ),
+            (
+                "is_set_current_url_returns_all",
+                [{"key": "$current_url", "operator": "is_set"}],
+                False,
+                5,
+            ),
+        ]
+    )
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_filter_variants(
+        self, _name: str, url_properties: list, do_path_cleaning: bool, expected_count: int
+    ) -> None:
+        self._seed_orgs_dataset()
+
+        params: dict[str, str | int | None] = {
+            "date_from": "2023-03-08",
+            "url_properties": json.dumps(url_properties),
+        }
+        if do_path_cleaning:
+            params["do_path_cleaning"] = "true"
+
+        # Seeded events share (x, y) so all matches group into a single row with count == N.
+        self._assert_heatmap_single_result_count(params, expected_count)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_with_path_cleaning_collapses_ids(self) -> None:
+        self._seed_orgs_dataset()
+
+        # Configure team-wide path cleaning to collapse `/orgs/<id>` to `/orgs/:id`
+        self.team.path_cleaning_filters = [
+            {"alias": "/orgs/:id", "regex": "/orgs/\\d+$", "order": 0},
+        ]
+        self.team.save()
+
+        params = {
+            "date_from": "2023-03-08",
+            "url_properties": json.dumps([{"key": "$pathname", "operator": "exact", "value": "/orgs/:id"}]),
+            "do_path_cleaning": "true",
+        }
+        # Both `/orgs/1` and `/orgs/2` collapse to the same alias, nested pages don't match.
+        self._assert_heatmap_single_result_count(params, 2)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_is_cleaned_path_exact_operator(self) -> None:
+        self._seed_orgs_dataset()
+
+        self.team.path_cleaning_filters = [
+            {"alias": "/orgs/:id", "regex": "/orgs/\\d+$", "order": 0},
+        ]
+        self.team.save()
+
+        # `is_cleaned_path_exact` wraps both sides in path cleaning automatically.
+        params = {
+            "date_from": "2023-03-08",
+            "url_properties": json.dumps(
+                [
+                    {
+                        "key": "$pathname",
+                        "operator": "is_cleaned_path_exact",
+                        "value": "/orgs/:id",
+                    }
+                ]
+            ),
+        }
+        self._assert_heatmap_single_result_count(params, 2)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_rejected_with_legacy_url_exact(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", current_url="https://app.example.com/")
+
+        response = self._get_heatmap(
+            {
+                "date_from": "2023-03-08",
+                "url_exact": "https://app.example.com/",
+                "url_properties": json.dumps(
+                    [{"key": "$current_url", "operator": "exact", "value": "https://app.example.com/"}]
+                ),
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
+        )
+        assert "url_properties" in str(response.data)
+
+    @parameterized.expand(
+        [
+            ("invalid_key", [{"key": "$unknown", "operator": "exact", "value": "/"}]),
+            ("invalid_operator", [{"key": "$current_url", "operator": "semver_eq", "value": "1.0.0"}]),
+            ("not_a_list", {"key": "$current_url", "operator": "exact", "value": "/"}),
+        ]
+    )
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_validation_errors(self, _name: str, payload) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00")
+
+        self._get_heatmap(
+            {"date_from": "2023-03-08", "url_properties": json.dumps(payload)},
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_properties_invalid_json(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00")
+
+        self._get_heatmap(
+            {"date_from": "2023-03-08", "url_properties": "not json"},
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
+        )

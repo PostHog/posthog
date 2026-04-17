@@ -63,7 +63,7 @@ export function HeatmapNewScene(): JSX.Element {
             <SceneDivider />
             <SceneSection
                 title="Heatmap data URL"
-                description="An exact match or a pattern for heatmap data. For example, use a pattern if you have pages with dynamic IDs. E.g. https://www.example.com/users/* will aggregate data from all pages under /users/."
+                description="An exact match or a pattern for heatmap data. For example, use a pattern if you have pages with dynamic IDs. E.g. https://www.example.com/users/* will aggregate data from all pages under /users/. To restrict the heatmap to a single path segment (e.g. /users/<id> but not /users/<id>/settings), use the URL filter on the heatmap view to add a $current_url or $pathname filter with exact or regex matching."
             >
                 <LemonInput
                     size="small"

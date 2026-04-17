@@ -1,3 +1,4 @@
+import builtins
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
@@ -8,7 +9,7 @@ from django.http import HttpResponse
 
 from rest_framework import request, response, serializers, status, viewsets
 
-from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey, PropertyOperator
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
@@ -17,6 +18,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -92,6 +94,91 @@ OFFSET {offset}
 """
 
 
+URL_PROPERTY_KEYS = frozenset({"$current_url", "$pathname"})
+
+URL_PROPERTY_OPERATORS: frozenset[PropertyOperator] = frozenset(
+    {
+        PropertyOperator.EXACT,
+        PropertyOperator.IS_NOT,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.REGEX,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.IS_SET,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.IS_CLEANED_PATH_EXACT,
+    }
+)
+
+
+def _url_column_expr(key: str) -> ast.Expr:
+    current_url = ast.Field(chain=["current_url"])
+    if key == "$pathname":
+        # ClickHouse/HogQL `path()` extracts the path from a URL string.
+        return ast.Call(name="path", args=[current_url])
+    return current_url
+
+
+def _url_filter_to_expr(column_expr: ast.Expr, operator: PropertyOperator, value: Any, *, team) -> ast.Expr:
+    if operator == PropertyOperator.IS_SET:
+        return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=column_expr, right=ast.Constant(value=None))
+    if operator == PropertyOperator.IS_NOT_SET:
+        return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=column_expr, right=ast.Constant(value=None))
+
+    scalar = _first_value(value)
+    if scalar is None:
+        raise serializers.ValidationError(f"{operator.value} requires a value")
+
+    if operator == PropertyOperator.EXACT:
+        return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=column_expr, right=ast.Constant(value=scalar))
+    if operator == PropertyOperator.IS_NOT:
+        return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=column_expr, right=ast.Constant(value=scalar))
+    if operator == PropertyOperator.ICONTAINS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike,
+            left=ast.Call(name="toString", args=[column_expr]),
+            right=ast.Constant(value=f"%{scalar}%"),
+        )
+    if operator == PropertyOperator.NOT_ICONTAINS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[column_expr]),
+            right=ast.Constant(value=f"%{scalar}%"),
+        )
+    if operator == PropertyOperator.REGEX:
+        return ast.Call(name="match", args=[ast.Call(name="toString", args=[column_expr]), ast.Constant(value=scalar)])
+    if operator == PropertyOperator.NOT_REGEX:
+        return ast.Call(
+            name="not",
+            args=[
+                ast.Call(
+                    name="match",
+                    args=[ast.Call(name="toString", args=[column_expr]), ast.Constant(value=scalar)],
+                )
+            ],
+        )
+    if operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=apply_path_cleaning(column_expr, team),
+            right=apply_path_cleaning(ast.Constant(value=scalar), team),
+        )
+
+    raise serializers.ValidationError(f"Unsupported url_properties operator: {operator.value}")
+
+
+def _first_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+class UrlPropertyFilterSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(choices=sorted(URL_PROPERTY_KEYS), required=True)
+    operator = serializers.ChoiceField(choices=[op.value for op in URL_PROPERTY_OPERATORS], required=True)
+    value = serializers.JSONField(required=False, allow_null=True)
+
+
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(required=False)
     viewport_width_max = serializers.IntegerField(required=False)
@@ -100,6 +187,12 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     date_to = serializers.CharField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
+    url_properties = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="JSON-encoded list of url property filters on $current_url or $pathname.",
+    )
+    do_path_cleaning = serializers.BooleanField(required=False, default=False)
     aggregation = serializers.ChoiceField(
         required=False,
         choices=["unique_visitors", "total_count"],
@@ -154,9 +247,32 @@ class HeatmapsRequestSerializer(serializers.Serializer):
 
         return validated_value
 
+    def validate_url_properties(self, value: str | None) -> list[dict] | None:
+        if value is None or value == "":
+            return None
+
+        try:
+            raw = loads(value)
+        except JSONDecodeError:
+            raise serializers.ValidationError("url_properties must be valid JSON")
+
+        if not isinstance(raw, list):
+            raise serializers.ValidationError("url_properties must be a JSON array")
+
+        filter_serializer = UrlPropertyFilterSerializer(data=raw, many=True)
+        filter_serializer.is_valid(raise_exception=True)
+        return list(filter_serializer.validated_data)
+
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
+        url_properties = values.get("url_properties", None)
+
+        if url_properties and (isinstance(url_exact, str) or isinstance(url_pattern, str)):
+            raise serializers.ValidationError(
+                "url_properties cannot be combined with url_exact or url_pattern — use one filtering style."
+            )
+
         if isinstance(url_exact, str) and isinstance(url_pattern, str):
             if url_exact == url_pattern:
                 values.pop("url_pattern")
@@ -239,6 +355,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
+        url_properties = request_serializer.validated_data.pop("url_properties", None)
+        do_path_cleaning = request_serializer.validated_data.pop("do_path_cleaning", False)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -247,6 +365,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
+        if url_properties:
+            exprs.extend(self._url_property_expressions(url_properties, do_path_cleaning=do_path_cleaning))
 
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
@@ -321,6 +441,26 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return predicate_expressions
 
+    def _url_property_expressions(
+        self,
+        url_properties: builtins.list[dict],
+        *,
+        do_path_cleaning: bool,  # noqa: UP006
+    ) -> List[ast.Expr]:  # noqa: UP006
+        exprs: list[ast.Expr] = []
+        for url_property in url_properties:
+            key = url_property["key"]
+            operator = PropertyOperator(url_property["operator"])
+            value = url_property.get("value")
+
+            column_expr = _url_column_expr(key)
+            if do_path_cleaning:
+                column_expr = apply_path_cleaning(column_expr, self.team)
+
+            exprs.append(_url_filter_to_expr(column_expr, operator, value, team=self.team))
+
+        return exprs
+
     @staticmethod
     def _return_heatmap_coordinates_response(query_response: HogQLQueryResponse) -> response.Response:
         data = [
@@ -371,11 +511,15 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
         validated_data.pop("hide_zero_coordinates", None)
+        url_properties = validated_data.pop("url_properties", None)
+        do_path_cleaning = validated_data.pop("do_path_cleaning", False)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
 
         exprs = self._predicate_expressions(placeholders)
+        if url_properties:
+            exprs.extend(self._url_property_expressions(url_properties, do_path_cleaning=do_path_cleaning))
 
         # Build OR condition for each exact point
         # Each point must match the exact aggregation grouping used in DEFAULT_QUERY

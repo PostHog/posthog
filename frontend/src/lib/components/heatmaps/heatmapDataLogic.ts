@@ -24,7 +24,7 @@ import { dateFilterToText } from 'lib/utils'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
-import { FilterType } from '~/types'
+import { AnyPropertyFilter, FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
 
@@ -55,6 +55,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapColorPalette: (palette: string | null) => ({ palette }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
+        setUrlProperties: (urlProperties: AnyPropertyFilter[]) => ({ urlProperties }),
+        setDoPathCleaning: (doPathCleaning: boolean) => ({ doPathCleaning }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
         setIsReady: (isReady: boolean) => ({ isReady }),
         // Click-to-view-events actions
@@ -73,6 +75,20 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             'exact' as HrefMatchType,
             {
                 setHrefMatchType: (_, { matchType }) => matchType,
+            },
+        ],
+        urlProperties: [
+            [] as AnyPropertyFilter[],
+            { persist: true },
+            {
+                setUrlProperties: (_, { urlProperties }) => urlProperties,
+            },
+        ],
+        doPathCleaning: [
+            false as boolean,
+            { persist: true },
+            {
+                setDoPathCleaning: (_, { doPathCleaning }) => doPathCleaning,
             },
         ],
         commonFilters: [
@@ -163,7 +179,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 loadHeatmap: async (_, breakpoint) => {
                     await breakpoint(150)
 
-                    if (!values.href || !values.href.trim().length) {
+                    const hasUrlProperties = values.urlProperties.length > 0
+                    if (!hasUrlProperties && (!values.href || !values.href.trim().length)) {
                         return null
                     }
                     if (!values.heatmapFilters.enabled) {
@@ -181,8 +198,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
-                            url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
-                            url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
+                            url_exact: !hasUrlProperties && values.hrefMatchType === 'exact' ? values.href : undefined,
+                            url_pattern:
+                                !hasUrlProperties && values.hrefMatchType === 'pattern' ? values.href : undefined,
+                            url_properties: hasUrlProperties ? JSON.stringify(values.urlProperties) : undefined,
+                            do_path_cleaning: hasUrlProperties && values.doPathCleaning ? 'true' : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
@@ -218,7 +238,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             {
                 loadAreaEvents: async (_, breakpoint) => {
                     const area = values.selectedArea
-                    if (!area || !values.href) {
+                    if (!area || (values.urlProperties.length === 0 && !values.href)) {
                         return null
                     }
 
@@ -227,13 +247,18 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type } = values.heatmapFilters
 
+                    const hasUrlProperties = values.urlProperties.length > 0
+
                     const apiURL = `/api/heatmap/events/${encodeParams(
                         {
                             type,
                             date_from,
                             date_to,
-                            url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
-                            url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
+                            url_exact: !hasUrlProperties && values.hrefMatchType === 'exact' ? values.href : undefined,
+                            url_pattern:
+                                !hasUrlProperties && values.hrefMatchType === 'pattern' ? values.href : undefined,
+                            url_properties: hasUrlProperties ? JSON.stringify(values.urlProperties) : undefined,
+                            do_path_cleaning: hasUrlProperties && values.doPathCleaning ? 'true' : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             filter_test_accounts,
@@ -397,6 +422,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHref: () => {
             actions.loadHeatmap()
         },
+        setUrlProperties: () => {
+            actions.loadHeatmap()
+        },
+        setDoPathCleaning: () => {
+            actions.loadHeatmap()
+        },
         setWindowWidthOverride: () => {
             actions.loadHeatmap()
         },
@@ -409,7 +440,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         loadMoreAreaEvents: async () => {
             const area = values.selectedArea
             const currentEvents = values.areaEvents
-            if (!area || !values.href || !currentEvents?.results) {
+            const hasUrlProperties = values.urlProperties.length > 0
+            if (!area || (!hasUrlProperties && !values.href) || !currentEvents?.results) {
                 return
             }
 
@@ -422,8 +454,10 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     type,
                     date_from,
                     date_to,
-                    url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
-                    url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
+                    url_exact: !hasUrlProperties && values.hrefMatchType === 'exact' ? values.href : undefined,
+                    url_pattern: !hasUrlProperties && values.hrefMatchType === 'pattern' ? values.href : undefined,
+                    url_properties: hasUrlProperties ? JSON.stringify(values.urlProperties) : undefined,
+                    do_path_cleaning: hasUrlProperties && values.doPathCleaning ? 'true' : undefined,
                     viewport_width_min: values.viewportRange.min,
                     viewport_width_max: values.viewportRange.max,
                     filter_test_accounts,
