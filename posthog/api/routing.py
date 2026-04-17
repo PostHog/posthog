@@ -32,6 +32,7 @@ from posthog.permissions import (
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
+from posthog.permissions_guest import GuestAccessPermission
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
@@ -69,6 +70,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     scope_object: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
+    guest_enabled_actions: list[str] = []
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -113,7 +115,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
+        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission, GuestAccessPermission]
 
         if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
