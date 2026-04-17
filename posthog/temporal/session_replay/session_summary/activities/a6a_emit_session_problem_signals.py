@@ -213,11 +213,16 @@ def _build_segment_event_history(
 
     entries: list[dict] = []
     for row in events:
+
         event_ts = row[col_index["timestamp"]]
         if isinstance(event_ts, str):
-            event_ts = datetime.datetime.fromisoformat(event_ts)
+            try:
+                event_ts = datetime.datetime.fromisoformat(event_ts)
+            except (ValueError, TypeError):
+                continue
         if not isinstance(event_ts, datetime.datetime):
             continue
+
         if event_ts < segment_start_abs or event_ts > segment_end_abs:
             continue
 
