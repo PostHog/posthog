@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronRight, IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
@@ -179,10 +179,36 @@ function PromptOutline({
             const target = container.querySelector(`#${CSS.escape(slug)}`)
             if (target) {
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                // Update URL hash so the current section can be deep-linked / shared
+                window.history.replaceState(null, '', `#${slug}`)
             }
         },
         [containerRef]
     )
+
+    // On mount (and when the hash changes), scroll to the heading referenced by the URL hash.
+    // This enables deep links like /llm-analytics/prompts/<name>#research-agent.
+    useEffect(() => {
+        const scrollToHash = (): void => {
+            const rawHash = window.location.hash.slice(1)
+            if (!rawHash) {
+                return
+            }
+            const slug = decodeURIComponent(rawHash)
+            const container = containerRef.current
+            if (!container) {
+                return
+            }
+            const target = container.querySelector(`#${CSS.escape(slug)}`)
+            if (target) {
+                target.scrollIntoView({ block: 'start' })
+            }
+        }
+
+        scrollToHash()
+        window.addEventListener('hashchange', scrollToHash)
+        return () => window.removeEventListener('hashchange', scrollToHash)
+    }, [containerRef, promptText])
 
     if (headings.length === 0) {
         return null
