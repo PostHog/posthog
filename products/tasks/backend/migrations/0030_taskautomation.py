@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1066_alter_insight_saved"),
-        ("tasks", "0028_sandboxenvironment_internal"),
+        ("tasks", "0029_task_ci_prompt"),
     ]
 
     operations = [

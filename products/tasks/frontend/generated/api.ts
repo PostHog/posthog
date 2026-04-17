@@ -31,7 +31,7 @@ import type {
     TaskRunArtifactsUploadResponseApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
-    TaskRunCreateRequestApi,
+    TaskRunCreateRequestSchemaApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
@@ -315,14 +315,14 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
 export const tasksRunCreate = async (
     projectId: string,
     id: string,
-    taskRunCreateRequestApi: TaskRunCreateRequestApi,
+    taskRunCreateRequestSchemaApi: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunCreateRequestApi),
+        body: JSON.stringify(taskRunCreateRequestSchemaApi),
     })
 }
 
@@ -665,33 +665,5 @@ export const tasksRepositoryReadinessRetrieve = async (
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-/**
- * GET /api/seats/?product_key= -> GET /api/v2/seats/
- */
-export const getSeatsRetrieveUrl = () => {
-    return `/api/seats/`
-}
-
-export const seatsRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSeatsRetrieveUrl(), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * POST /api/seats/ -> POST /api/v2/seats/
- */
-export const getSeatsCreateUrl = () => {
-    return `/api/seats/`
-}
-
-export const seatsCreate = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSeatsCreateUrl(), {
-        ...options,
-        method: 'POST',
     })
 }

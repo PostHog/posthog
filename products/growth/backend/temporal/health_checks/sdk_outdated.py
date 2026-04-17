@@ -6,7 +6,7 @@ import structlog
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
+from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
@@ -82,7 +82,7 @@ class SdkOutdatedCheck(HealthCheck):
     name = "sdk_outdated"
     kind = "sdk_outdated"
     owner = JobOwners.TEAM_GROWTH
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
+    policy = HealthExecutionPolicy(batch_size=25, max_concurrent=1)
     schedule = "0 8 * * *"
     active_since_days = 30
 

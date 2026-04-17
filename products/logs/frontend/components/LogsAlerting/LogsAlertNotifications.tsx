@@ -100,7 +100,7 @@ export function LogsAlertNotifications(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <p className="text-xs text-muted-alt m-0">
-                Each destination delivers notifications for all alert events — firing and resolved.
+                Each destination delivers notifications for all alert events — firing, resolved, and broken.
             </p>
             {(existingHogFunctionsLoading || destinationGroups.length > 0) && (
                 <div>

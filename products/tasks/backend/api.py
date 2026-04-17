@@ -61,6 +61,7 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -250,6 +251,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={

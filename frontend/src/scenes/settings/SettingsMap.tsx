@@ -769,7 +769,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Remove or mask common personally identifiable information from log payloads during ingestion.',
                 component: <LogsPiiScrubSettings />,
-                flag: 'LOGS_SETTINGS',
+                flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
             },
             {
