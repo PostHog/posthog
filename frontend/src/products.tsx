@@ -345,9 +345,22 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and analyze your error tracking data to understand and fix issues.',
         settingsSection: 'environment-error-tracking',
     },
-    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
-    ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
-    FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
+    ErrorTrackingIssue: {
+        projectBased: true,
+        name: 'Error tracking issue',
+        layout: 'app-raw',
+        settingsSection: 'environment-error-tracking',
+    },
+    ErrorTrackingIssueFingerprints: {
+        projectBased: true,
+        name: 'Error tracking issue fingerprints',
+        settingsSection: 'environment-error-tracking',
+    },
+    FeatureFlagTemplates: {
+        projectBased: true,
+        name: 'Feature flag templates',
+        settingsSection: 'environment-feature-flags',
+    },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     Links: {
