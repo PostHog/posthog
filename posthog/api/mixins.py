@@ -211,6 +211,8 @@ def validated_request(
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
                 serialized: serializers.BaseSerializer[Any]
 
+                serializer_class: type[serializers.BaseSerializer[Any]]
+
                 # Handle both class and instance to match DRF Spectacular's behavior
                 if isinstance(response_serializer, serializers.ListSerializer):
                     # ListSerializer wraps the real serializer - reconstruct with child

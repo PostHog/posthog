@@ -1,4 +1,5 @@
 import os
+from typing import Any, cast
 
 import dagster
 from clickhouse_driver import Client
@@ -16,8 +17,10 @@ from posthog.models.web_preaggregated.team_selection import (
 )
 from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
 
+DagsterContext = dagster.OpExecutionContext | dagster.AssetExecutionContext
 
-def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
+
+def validate_team_ids(context: DagsterContext, team_ids: set[int]) -> set[int]:
     if not team_ids:
         return team_ids
 
@@ -38,7 +41,7 @@ def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -
         return team_ids
 
 
-def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
+def get_team_ids_from_sources(context: DagsterContext) -> list[int]:
     all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
 
     enabled_strategy_names = os.getenv(
@@ -58,7 +61,7 @@ def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
         strategy = strategy_registry.get_strategy(strategy_name)
         if strategy:
             try:
-                strategy_teams = strategy.get_teams(context)
+                strategy_teams = strategy.get_teams(cast(dagster.OpExecutionContext, context))
                 all_team_ids.update(strategy_teams)
             except Exception as e:
                 context.log.warning(f"Strategy '{strategy_name}' failed: {e}")
@@ -72,7 +75,7 @@ def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
 
 
 def store_team_selection_in_clickhouse(
-    context: dagster.OpExecutionContext,
+    context: DagsterContext,
     team_ids: list[int],
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> list[int]:
@@ -205,7 +208,7 @@ def web_analytics_high_volume_team_candidates(
         )
     context.log.info(f"Total estimated weekly pageviews across all candidates: {total_avg_weekly_pageviews:,}")
 
-    metadata: dict[str, str | int] = {
+    metadata = {
         "team_count": len(team_candidates),
         "team_ids": str(team_ids),
         "threshold": threshold,
@@ -213,7 +216,7 @@ def web_analytics_high_volume_team_candidates(
         "team_details": str(team_candidates),
     }
 
-    return dagster.MaterializeResult(metadata=metadata)
+    return dagster.MaterializeResult(metadata=cast(Any, metadata))
 
 
 web_analytics_team_candidates_job = dagster.define_asset_job(

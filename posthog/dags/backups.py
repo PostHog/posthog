@@ -113,7 +113,7 @@ class Backup:
         return "inc" if self.incremental else "full"
 
     @property
-    def path(self):
+    def path(self) -> str:
         base_path = f"{self.database}"
         shard_path = self.shard if self.shard else NO_SHARD_PATH
         if self.table:
@@ -121,7 +121,7 @@ class Backup:
 
         return f"{base_path}/{shard_path}/{self.backup_type_prefix}-{self.date}"
 
-    def _bucket_base_path(self, bucket: str):
+    def _bucket_base_path(self, bucket: str) -> str:
         return f"https://{bucket}.s3.amazonaws.com"
 
     @classmethod
@@ -143,6 +143,10 @@ class Backup:
         )
 
     def create(self, client: Client):
+        bucket = settings.CLICKHOUSE_BACKUPS_BUCKET
+        if bucket is None:
+            raise ValueError("CLICKHOUSE_BACKUPS_BUCKET must be configured to run backups")
+
         backup_settings = {
             "async": "1",
             "max_backup_bandwidth": settings.CLICKHOUSE_BACKUPS_MAX_BANDWIDTH,
@@ -152,7 +156,7 @@ class Backup:
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
-                bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
+                bucket_base_path=self._bucket_base_path(bucket),
                 path=self.base_backup.path,
             )
 
@@ -161,7 +165,7 @@ class Backup:
         TO S3('{bucket_base_path}/{path}')
         SETTINGS {settings}
         """.format(
-            bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
+            bucket_base_path=self._bucket_base_path(bucket),
             path=self.path,
             object="TABLE" if self.table else "DATABASE",
             name=self.table if self.table else self.database,
@@ -195,6 +199,7 @@ class Backup:
                 error=error,
                 event_time_microseconds=event_time_microseconds,
             )
+        return None
 
     def has_lock_file(self, s3_client, bucket: str) -> bool:
         """Check if this backup has a .lock file indicating an incomplete/crashed backup."""
@@ -259,6 +264,7 @@ def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatu
     statuses = [status for status in statuses if status is not None]
     if statuses:
         return max(statuses, key=lambda x: x.event_time_microseconds)
+    return None
 
 
 @dagster.op(out=dagster.DynamicOut())
@@ -349,7 +355,7 @@ def get_latest_successful_backup(
     """
     if not latest_backups or not config.incremental:
         context.log.info("No latest backup found or a full backup was requested. Skipping status check.")
-        return
+        return None
 
     def map_hosts(func: Callable[[Client], Any]):
         if latest_backup.shard:
@@ -550,6 +556,9 @@ def cleanup_old_backups(
             return
 
     # Delete everything older than the latest successful full backup.
+    if latest_full is None:
+        return None
+
     backups_to_delete = [b for b in sorted_backups if b.date < latest_full.date]
 
     # Also delete any failed or locked backups that are newer than latest_full (e.g. failed incrementals).
@@ -614,7 +623,7 @@ def sharded_backup():
         completed_backup = wait_for_backup(backup=new_backup)
         cleanup_old_backups(backup=completed_backup, all_backups=all_backups)
 
-    shards: dagster.DynamicOutput = get_shards()
+    shards = get_shards()
     shards.map(run_backup_for_shard)
 
 

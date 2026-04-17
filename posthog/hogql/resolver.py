@@ -682,7 +682,7 @@ class Resolver(CloningVisitor):
             else:
                 select_nodes.append(new_expr)
 
-        columns_with_visible_alias = {}
+        columns_with_visible_alias: dict[str, bool] = {}
         for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
@@ -703,10 +703,10 @@ class Resolver(CloningVisitor):
                 # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
                     if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
-                        node_type.columns[alias] = new_expr.type
+                        node_type.columns[alias] = new_expr.type or ast.UnknownType()
                         columns_with_visible_alias[alias] = False
                 else:
-                    node_type.columns[alias] = new_expr.type
+                    node_type.columns[alias] = new_expr.type or ast.UnknownType()
                     columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
@@ -1650,7 +1650,7 @@ class Resolver(CloningVisitor):
         if not type:
             if self.context.globals is not None and name in self.context.globals:
                 parsed_chain: list[str] = []
-                value = self.context.globals
+                value: Any = self.context.globals
                 for link in node.chain:
                     parsed_chain.append(str(link))
                     if isinstance(value, dict):
@@ -1826,46 +1826,42 @@ class Resolver(CloningVisitor):
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         node = super().visit_between_expr(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
         node = super().visit_is_distinct_from(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
-        if node is None:
-            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(
-            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+            nullable=any(
+                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
+            )
         )
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(
-            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+            nullable=any(
+                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
+            )
         )
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
+        node.type = ast.BooleanType(
+            nullable=(node.expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable
+        )
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):

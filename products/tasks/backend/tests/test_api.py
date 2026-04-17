@@ -349,6 +349,74 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("default",),
+            ("acceptEdits",),
+            ("plan",),
+            ("bypassPermissions",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_initial_permission_mode(self, mode, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"initial_permission_mode": mode, "runtime_adapter": "claude", "model": "claude-sonnet-4-6"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["initial_permission_mode"] == mode
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_omits_initial_permission_mode_when_not_set(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert "initial_permission_mode" not in (task_run.state or {})
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_invalid_initial_permission_mode(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"initial_permission_mode": "invalid_mode"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_combines_pending_user_message_and_initial_permission_mode(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "pending_user_message": "Start with this",
+                "initial_permission_mode": "plan",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-6",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pending_user_message"] == "Start with this"
+        assert task_run.state["initial_permission_mode"] == "plan"
+        mock_workflow.assert_called_once()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
@@ -2363,6 +2431,64 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["closed"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_permission_response(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "permission_response")
+        self.assertEqual(call_kwargs["json"]["params"]["requestId"], "perm-1")
+        self.assertEqual(call_kwargs["json"]["params"]["optionId"], "allow")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_set_config_option(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-5", "result": {"updated": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "mode", "value": "plan"},
+                "id": "req-5",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
+        self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
+        self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
     def test_command_fails_without_sandbox_url(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -2388,6 +2514,30 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("unknown_method", {"jsonrpc": "2.0", "method": "unknown_method", "params": {}}),
             ("user_message_empty_content", {"jsonrpc": "2.0", "method": "user_message", "params": {"content": ""}}),
             ("user_message_missing_content", {"jsonrpc": "2.0", "method": "user_message", "params": {}}),
+            (
+                "permission_response_missing_requestId",
+                {"jsonrpc": "2.0", "method": "permission_response", "params": {"optionId": "allow"}},
+            ),
+            (
+                "permission_response_missing_optionId",
+                {"jsonrpc": "2.0", "method": "permission_response", "params": {"requestId": "req-1"}},
+            ),
+            (
+                "permission_response_empty_params",
+                {"jsonrpc": "2.0", "method": "permission_response", "params": {}},
+            ),
+            (
+                "set_config_option_missing_configId",
+                {"jsonrpc": "2.0", "method": "set_config_option", "params": {"value": "plan"}},
+            ),
+            (
+                "set_config_option_missing_value",
+                {"jsonrpc": "2.0", "method": "set_config_option", "params": {"configId": "mode"}},
+            ),
+            (
+                "set_config_option_empty_params",
+                {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
+            ),
         ]
     )
     def test_command_rejects_invalid_payloads(self, _name, payload):
