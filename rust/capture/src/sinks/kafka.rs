@@ -362,7 +362,11 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// by the pipeline). This function does not consult any limiter — it is
     /// pure mechanism. DLQ and custom-topic redirects take priority over
     /// overflow routing, matching the pre-refactor ordering.
-    async fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
+    ///
+    /// Not `async`: post-refactor there are no await points, and keeping it
+    /// synchronous lets `send_batch`'s serial fast path call it inline without
+    /// any runtime indirection.
+    fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
         let payload = serde_json::to_string(&event).map_err(|e| {
@@ -435,10 +439,12 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     } else {
                         match &overflow_reason {
                             Some(OverflowReason::ForceLimited) => {
-                                // Pipeline already sets skip_person_processing
-                                // for this case, but keep this belt-and-braces
-                                // header write in case a caller stamps the
-                                // reason without the side-effect.
+                                // Redundant with the generic skip-person path
+                                // above (the pipeline stamps
+                                // `metadata.skip_person_processing = true`
+                                // alongside `OverflowReason::ForceLimited`), but
+                                // kept as defense against a future caller that
+                                // stamps the reason without the side-effect.
                                 headers.set_force_disable_person_processing(true);
                                 (&self.topics.overflow_topic, None)
                             }
@@ -511,17 +517,24 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
     /// the `Event::send` impl stays unchanged; `send_batch` uses prepare_record
     /// and enqueue_record directly to parallelize the prep phase.
-    async fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let record = self.prepare_record(event).await?;
+    fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
+        let record = self.prepare_record(event)?;
         self.enqueue_record(record)
     }
 }
+
+/// Batches below this size take the serial fast path in `send_batch`: spawning
+/// N `JoinSet` tasks to run `prepare_record` in parallel is net-negative when
+/// each task does only a `serde_json::to_string` and a header build — the
+/// scheduler overhead dominates the CPU savings. Scatter-gather kicks in at
+/// or above this threshold where parallel prep wins back its spawn cost.
+pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
 
 #[async_trait]
 impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let ack_future = self.kafka_send(event).await?;
+        let ack_future = self.kafka_send(event)?;
         histogram!("capture_event_batch_size").record(1.0);
         ack_future.instrument(info_span!("ack_wait_one")).await
     }
@@ -534,6 +547,53 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // Matches the single-event `send` path which records before any await.
         histogram!("capture_event_batch_size").record(batch_size as f64);
 
+        // Small-batch fast path. For batches under `SCATTER_GATHER_MIN_BATCH`
+        // the JoinSet spawn overhead dominates any parallel-prep win, so we
+        // stay single-threaded. We keep the scatter-gather path's semantic
+        // "prep error -> no records produced" by prepping all events first
+        // into a Vec, then doing the serial enqueue phase only if all prep
+        // succeeded. Both duration histograms are recorded so dashboards
+        // keep a faithful view of the fast path.
+        if batch_size < SCATTER_GATHER_MIN_BATCH {
+            let prep_start = Instant::now();
+            let mut prepared: Vec<ProduceRecord> = Vec::with_capacity(batch_size);
+            for event in events {
+                match self.prepare_record(event) {
+                    Ok(record) => prepared.push(record),
+                    Err(err) => {
+                        histogram!("capture_kafka_batch_prep_duration_seconds")
+                            .record(prep_start.elapsed().as_secs_f64());
+                        return Err(err);
+                    }
+                }
+            }
+            histogram!("capture_kafka_batch_prep_duration_seconds")
+                .record(prep_start.elapsed().as_secs_f64());
+
+            let enqueue_start = Instant::now();
+            let mut ack_set = JoinSet::new();
+            for record in prepared {
+                match self.enqueue_record(record) {
+                    Ok(ack_future) => {
+                        ack_set.spawn(ack_future);
+                    }
+                    Err(err) => {
+                        // Dropping ack_set aborts any in-flight spawned ack
+                        // futures; DeliveryAckFuture::drop records the
+                        // "dropped" outcome on capture_kafka_produce_ack_duration_ms.
+                        // Mirror of phase-2 behavior in the scatter-gather path.
+                        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+                            .record(enqueue_start.elapsed().as_secs_f64());
+                        return Err(err);
+                    }
+                }
+            }
+            histogram!("capture_kafka_batch_enqueue_duration_seconds")
+                .record(enqueue_start.elapsed().as_secs_f64());
+
+            return drain_acks(ack_set).await;
+        }
+
         // Phase 1: parallel prep across tokio workers. Each task returns its
         // input index so we can reassemble results in the original event order
         // before the serial enqueue phase. This is where the CPU win lives:
@@ -544,15 +604,23 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         for (idx, event) in events.into_iter().enumerate() {
             let this = self.clone();
             prep_set.spawn(
-                async move { (idx, this.prepare_record(event).await) }
+                async move { (idx, this.prepare_record(event)) }
                     .instrument(info_span!("prepare_record")),
             );
         }
 
-        let mut prepared: Vec<Option<ProduceRecord>> = (0..batch_size).map(|_| None).collect();
+        // Collect into a (idx, record) Vec and sort rather than indexing into
+        // a `Vec<Option<ProduceRecord>>`. Encodes the "every slot filled"
+        // invariant in the type: no `Option`, no unreachable `expect`, no
+        // N-element `None` preallocation. Our only cancellation source is
+        // `prep_set.abort_all()` below, invoked only from an already-errored
+        // branch, so any `JoinError` observed during normal drain implies a
+        // panic inside `prepare_record` — counted separately so it's alertable.
+        let mut prepared: Vec<(usize, ProduceRecord)> = Vec::with_capacity(batch_size);
         while let Some(join_result) = prep_set.join_next().await {
             let (idx, result) = match join_result {
                 Err(err) => {
+                    counter!("capture_kafka_prep_panic_total").increment(1);
                     error!("join error while preparing Kafka record: {err:#}");
                     // Drain remaining prep tasks before returning so they can't
                     // leak records into librdkafka after we've already failed.
@@ -566,7 +634,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
                 Ok(inner) => inner,
             };
             match result {
-                Ok(record) => prepared[idx] = Some(record),
+                Ok(record) => prepared.push((idx, record)),
                 Err(err) => {
                     prep_set.abort_all();
                     histogram!("capture_kafka_batch_prep_duration_seconds")
@@ -575,6 +643,8 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
                 }
             }
         }
+        prepared.sort_unstable_by_key(|(idx, _)| *idx);
+        debug_assert_eq!(prepared.len(), batch_size);
         histogram!("capture_kafka_batch_prep_duration_seconds")
             .record(prep_start.elapsed().as_secs_f64());
 
@@ -585,8 +655,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // must survive so e.g. $identify lands before subsequent events.
         let enqueue_start = Instant::now();
         let mut ack_set = JoinSet::new();
-        for slot in prepared {
-            let record = slot.expect("prep slot not filled");
+        for (_, record) in prepared {
             match self.enqueue_record(record) {
                 Ok(ack_future) => {
                     ack_set.spawn(ack_future);
@@ -594,6 +663,11 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
                 Err(err) => {
                     // Record enqueue duration on the error path too so slow-fail
                     // cases (e.g. QueueFull after a long stall) stay observable.
+                    // Dropping `ack_set` when we return Err aborts any already
+                    // spawned ack futures for this batch; DeliveryAckFuture::drop
+                    // then records the "dropped" outcome on
+                    // capture_kafka_produce_ack_duration_ms. This is the phase-2
+                    // mirror of phase-1's explicit `prep_set.abort_all()`.
                     histogram!("capture_kafka_batch_enqueue_duration_seconds")
                         .record(enqueue_start.elapsed().as_secs_f64());
                     return Err(err);
@@ -603,33 +677,39 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         histogram!("capture_kafka_batch_enqueue_duration_seconds")
             .record(enqueue_start.elapsed().as_secs_f64());
 
-        // Phase 3: concurrent ack drain, fail-fast on first ack error.
-        async move {
-            while let Some(res) = ack_set.join_next().await {
-                match res {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(err)) => {
-                        ack_set.abort_all();
-                        return Err(err);
-                    }
-                    Err(err) => {
-                        ack_set.abort_all();
-                        error!("join error while waiting on Kafka ACK: {err:#}");
-                        return Err(CaptureError::RetryableSinkError);
-                    }
-                }
-            }
-            Ok(())
-        }
-        .instrument(info_span!("ack_wait_many"))
-        .await?;
-
-        Ok(())
+        drain_acks(ack_set).await
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
         self.producer.flush().map_err(|e| anyhow::anyhow!(e))
     }
+}
+
+/// Phase 3 of `send_batch`: concurrent ack drain, fail-fast on first ack error.
+/// Shared between the scatter-gather path and the small-batch serial fast path
+/// so both converge on the same fail-fast + abort-siblings semantics. Dropping
+/// the JoinSet on error aborts remaining spawned ack futures; DeliveryAckFuture
+/// Drop then records the "dropped" outcome on capture_kafka_produce_ack_duration_ms.
+async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<(), CaptureError> {
+    async move {
+        while let Some(res) = ack_set.join_next().await {
+            match res {
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => {
+                    ack_set.abort_all();
+                    return Err(err);
+                }
+                Err(err) => {
+                    ack_set.abort_all();
+                    error!("join error while waiting on Kafka ACK: {err:#}");
+                    return Err(CaptureError::RetryableSinkError);
+                }
+            }
+        }
+        Ok(())
+    }
+    .instrument(info_span!("ack_wait_many"))
+    .await
 }
 
 #[cfg(test)]
@@ -984,7 +1064,7 @@ mod tests {
     #[cfg(test)]
     mod topic_routing {
         use super::*;
-        use crate::sinks::kafka::{KafkaSinkBase, KafkaTopicConfig};
+        use crate::sinks::kafka::{KafkaSinkBase, KafkaTopicConfig, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
@@ -2195,6 +2275,266 @@ mod tests {
                 "no records should reach the producer when prep phase fails; got {} records",
                 records.len()
             );
+        }
+
+        // ==================== send_batch fast-path + mid-batch failure tests ====================
+
+        /// Mock producer whose Nth `send()` call returns Err. All other calls
+        /// capture the record like `MockKafkaProducer`. Used to exercise the
+        /// phase-2 mid-batch enqueue failure path.
+        #[derive(Clone)]
+        struct FailAtIndexProducer {
+            records: std::sync::Arc<std::sync::Mutex<Vec<crate::sinks::producer::ProduceRecord>>>,
+            fail_at: usize,
+            counter: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        }
+
+        impl FailAtIndexProducer {
+            fn new(fail_at: usize) -> Self {
+                Self {
+                    records: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+                    fail_at,
+                    counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                }
+            }
+
+            fn get_records(&self) -> Vec<crate::sinks::producer::ProduceRecord> {
+                self.records.lock().unwrap().clone()
+            }
+        }
+
+        impl crate::sinks::producer::KafkaProducer for FailAtIndexProducer {
+            type AckFuture = std::future::Ready<Result<(), CaptureError>>;
+
+            fn send(
+                &self,
+                record: crate::sinks::producer::ProduceRecord,
+            ) -> Result<Self::AckFuture, CaptureError> {
+                let idx = self
+                    .counter
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if idx == self.fail_at {
+                    return Err(CaptureError::RetryableSinkError);
+                }
+                self.records.lock().unwrap().push(record);
+                Ok(std::future::ready(Ok(())))
+            }
+
+            fn flush(&self) -> Result<(), rdkafka::error::KafkaError> {
+                Ok(())
+            }
+        }
+
+        /// Builds N AnalyticsMain events with sequential distinct_ids so each
+        /// record is individually identifiable in the mock producer's output.
+        fn build_batch(n: usize) -> Vec<ProcessedEvent> {
+            (0..n)
+                .map(|i| {
+                    let mut e = create_test_event(&EventInput::default());
+                    e.event.distinct_id = format!("user_{i}");
+                    e
+                })
+                .collect()
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn send_batch_mid_enqueue_failure_preserves_earlier_records() {
+            // Fail at phase-2 send #3 (0-indexed): events [0, 1, 2] should land
+            // in the mock, send_batch must return Err, and no event at index
+            // >= 3 should ever hit the producer. Batch size is well above the
+            // scatter-gather threshold so phase 2 runs post-parallel-prep.
+            const BATCH: usize = 10;
+            const FAIL_IDX: usize = 3;
+            let producer = FailAtIndexProducer::new(FAIL_IDX);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+
+            let events = build_batch(BATCH);
+            let input_distinct_ids: Vec<String> =
+                events.iter().map(|e| e.event.distinct_id.clone()).collect();
+
+            let res = sink.send_batch(events).await;
+            match res {
+                Err(CaptureError::RetryableSinkError) => {}
+                Err(other) => panic!("expected RetryableSinkError, got {other:?}"),
+                Ok(()) => panic!("expected send_batch to fail on enqueue #{FAIL_IDX}"),
+            }
+
+            let records = producer.get_records();
+            assert_eq!(
+                records.len(),
+                FAIL_IDX,
+                "expected exactly {FAIL_IDX} records to reach producer before failure"
+            );
+
+            // Output distinct_ids should match input[..FAIL_IDX] in order:
+            // phase-2 is serial in input order, so the earlier records must
+            // be the first FAIL_IDX events of the input batch.
+            let output_distinct_ids: Vec<String> = records
+                .iter()
+                .map(|r| {
+                    let v: serde_json::Value =
+                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                    v.get("distinct_id")
+                        .and_then(|u| u.as_str())
+                        .expect("distinct_id field present")
+                        .to_string()
+                })
+                .collect();
+            assert_eq!(
+                output_distinct_ids,
+                input_distinct_ids[..FAIL_IDX],
+                "earlier records must preserve input order on mid-batch failure"
+            );
+        }
+
+        #[tokio::test]
+        async fn send_batch_single_event_via_batch_path() {
+            // batch_size=1 exercises the serial fast path (1 < SCATTER_GATHER_MIN_BATCH)
+            // and verifies the loop handles a single-element batch correctly.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+
+            let events = build_batch(1);
+            sink.send_batch(events).await.expect("send_batch failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1, "expected exactly one record");
+            assert_eq!(records[0].topic, MAIN_TOPIC);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn send_batch_just_below_threshold_uses_serial_path() {
+            // batch_size = SCATTER_GATHER_MIN_BATCH - 1 takes the serial fast
+            // path. We can't observe "which path ran" directly, so we assert
+            // behavioral equivalence: N records, correct topic, input order.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+
+            let size = SCATTER_GATHER_MIN_BATCH - 1;
+            let events = build_batch(size);
+            let input_distinct_ids: Vec<String> =
+                events.iter().map(|e| e.event.distinct_id.clone()).collect();
+
+            sink.send_batch(events).await.expect("send_batch failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), size);
+            let output: Vec<String> = records
+                .iter()
+                .map(|r| {
+                    let v: serde_json::Value =
+                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                    v["distinct_id"].as_str().unwrap().to_string()
+                })
+                .collect();
+            assert_eq!(output, input_distinct_ids, "serial path must preserve order");
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn send_batch_at_threshold_uses_scatter_gather_path() {
+            // batch_size = SCATTER_GATHER_MIN_BATCH takes the scatter-gather
+            // path. Behavioral equivalence with the serial path must hold:
+            // same N records, same order, same topics.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+
+            let size = SCATTER_GATHER_MIN_BATCH;
+            let events = build_batch(size);
+            let input_distinct_ids: Vec<String> =
+                events.iter().map(|e| e.event.distinct_id.clone()).collect();
+
+            sink.send_batch(events).await.expect("send_batch failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), size);
+            let output: Vec<String> = records
+                .iter()
+                .map(|r| {
+                    let v: serde_json::Value =
+                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                    v["distinct_id"].as_str().unwrap().to_string()
+                })
+                .collect();
+            assert_eq!(
+                output, input_distinct_ids,
+                "scatter-gather path must preserve input order after sort_unstable_by_key"
+            );
+        }
+
+        /// Per-event-type topic routing is covered by `assert_routing` for
+        /// the single-event path. This test verifies routing survives the
+        /// batch path for a mixed batch of data types plus one force_overflow
+        /// AnalyticsMain — exercised on both the serial fast path (5 events)
+        /// and the scatter-gather path (10 events).
+        async fn mixed_datatypes_routing_for_batch(pad_to: usize) {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+
+            // Core 5-event diverse batch.
+            let mut events: Vec<ProcessedEvent> = vec![
+                create_test_event(&EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    ..EventInput::default()
+                }),
+                create_test_event(&EventInput {
+                    data_type: DataType::HeatmapMain,
+                    ..EventInput::default()
+                }),
+                create_test_event(&EventInput {
+                    data_type: DataType::ExceptionErrorTracking,
+                    ..EventInput::default()
+                }),
+                create_test_event(&EventInput {
+                    data_type: DataType::ClientIngestionWarning,
+                    ..EventInput::default()
+                }),
+                create_test_event(&EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    ..EventInput::default()
+                }),
+            ];
+
+            // Pad with AnalyticsMain events if caller wants to push the batch
+            // over SCATTER_GATHER_MIN_BATCH. Padding goes at the end so the
+            // first 5 per-event assertions line up regardless of batch size.
+            while events.len() < pad_to {
+                events.push(create_test_event(&EventInput::default()));
+            }
+
+            sink.send_batch(events).await.expect("send_batch failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), pad_to.max(5));
+
+            // Per-index topic assertions (order-preserving: phase-2 is serial
+            // in input order on both paths).
+            assert_eq!(records[0].topic, MAIN_TOPIC, "event[0]: AnalyticsMain");
+            assert_eq!(records[1].topic, HEATMAPS_TOPIC, "event[1]: HeatmapMain");
+            assert_eq!(
+                records[2].topic, ERROR_TRACKING_TOPIC,
+                "event[2]: ExceptionErrorTracking"
+            );
+            assert_eq!(
+                records[3].topic, CLIENT_INGESTION_WARNING_TOPIC,
+                "event[3]: ClientIngestionWarning"
+            );
+            assert_eq!(
+                records[4].topic, OVERFLOW_TOPIC,
+                "event[4]: AnalyticsMain + force_overflow"
+            );
+        }
+
+        #[tokio::test]
+        async fn send_batch_mixed_datatypes_serial_path() {
+            // 5 events < SCATTER_GATHER_MIN_BATCH => serial fast path.
+            mixed_datatypes_routing_for_batch(5).await;
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn send_batch_mixed_datatypes_scatter_gather_path() {
+            // 10 events >= SCATTER_GATHER_MIN_BATCH => scatter-gather path.
+            mixed_datatypes_routing_for_batch(10).await;
         }
     }
 }
