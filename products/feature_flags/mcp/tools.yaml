@@ -309,3 +309,6 @@ tools:
     feature-flags-versions-retrieve:
         operation: feature_flags_versions_retrieve
         enabled: false
+    feature-flags-test-evaluation-create:
+        operation: feature_flags_test_evaluation_create
+        enabled: false
