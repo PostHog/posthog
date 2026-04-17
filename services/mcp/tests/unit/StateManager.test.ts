@@ -106,7 +106,7 @@ describe('StateManager', () => {
             )
         })
 
-        it("should use user's active org and team when no scoped restrictions", async () => {
+        it("should use user's first org and active team when no scoped restrictions", async () => {
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
@@ -118,7 +118,7 @@ describe('StateManager', () => {
             expect(await cache.get('projectId')).toBe('456')
         })
 
-        it("should use user's active org and team when org is in scoped list", async () => {
+        it("should use user's first listed org when it is in the scoped list", async () => {
             const scopedOrgApiKey = {
                 ...mockApiKey,
                 scoped_organizations: ['org-2', 'org-1'],
@@ -129,11 +129,12 @@ describe('StateManager', () => {
 
             const result = await stateManager.setDefaultOrganizationAndProject()
 
+            // Uses org-1 because it's the user's first listed org and is in the scoped list
             expect(result.organizationId).toBe('org-1')
             expect(result.projectId).toBe(456)
         })
 
-        it("should use first scoped org when user's active org not in scoped list", async () => {
+        it("should use first scoped org when user's first org is not in scoped list", async () => {
             const scopedOrgApiKey = {
                 ...mockApiKey,
                 scoped_organizations: ['org-3'],
@@ -159,6 +160,36 @@ describe('StateManager', () => {
 
             expect(result.organizationId).toBe('org-3')
             expect(result.projectId).toBe(789)
+        })
+
+        it('should not depend on browser-active org when user switches orgs', async () => {
+            // User's browser-active org is org-2, but their first listed org is org-1
+            const userWithDifferentActiveOrg: ApiUser = {
+                ...mockUser,
+                organization: { id: 'org-2' },
+                team: { id: 789, organization: 'org-2' },
+            }
+
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithDifferentActiveOrg)
+
+            const mockApi = stateManager as any
+            mockApi._api = {
+                organizations: () => ({
+                    projects: () => ({
+                        list: vi.fn().mockResolvedValue({
+                            success: true,
+                            data: [456],
+                        }),
+                    }),
+                }),
+            }
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            // Should use org-1 (first in the user's org list), not org-2 (browser-active)
+            expect(result.organizationId).toBe('org-1')
+            expect(result.projectId).toBe(456)
         })
 
         it('should throw error when no projects available for scoped org', async () => {

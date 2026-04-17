@@ -92,7 +92,6 @@ export class StateManager {
         projectId: number
     }> {
         const { scoped_organizations, scoped_teams } = await this.getApiKey()
-        const { organization: activeOrganization, team: activeTeam } = await this.getUser()
 
         if (scoped_teams.length > 0) {
             // Keys scoped to projects should only be scoped to one project
@@ -107,12 +106,33 @@ export class StateManager {
             return { projectId }
         }
 
-        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
-            return { organizationId: activeOrganization.id, projectId: activeTeam.id }
+        const user = await this.getUser()
+
+        // Pick the org deterministically from token scopes or the user's org list,
+        // NOT from user.organization which reflects the browser-active org and
+        // changes when the user switches orgs in the PostHog UI.
+        let organizationId: string
+
+        if (scoped_organizations.length > 0) {
+            // Token is scoped to specific orgs — pick deterministically.
+            // Prefer the user's first listed org if it's in the scoped list, otherwise use the first scoped org.
+            const userFirstOrg = user.organizations[0]?.id
+            organizationId =
+                userFirstOrg && scoped_organizations.includes(userFirstOrg)
+                    ? userFirstOrg
+                    : scoped_organizations[0]!
+        } else {
+            // Token has access to all orgs — use the first org from the user's stable org list.
+            organizationId = user.organizations[0]?.id ?? user.organization.id
         }
 
-        const organizationId = scoped_organizations[0]!
+        // If the user's active team belongs to the chosen org, use it directly
+        // to avoid an extra API call
+        if (user.team.organization === organizationId) {
+            return { organizationId, projectId: user.team.id }
+        }
 
+        // Otherwise, fetch projects for the chosen org
         const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
 
         if (!projectsResult.success) {
