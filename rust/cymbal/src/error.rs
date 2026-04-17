@@ -59,6 +59,10 @@ pub enum UnhandledError {
 
 #[derive(Debug, Error)]
 pub enum RemoteError {
+    #[error("DNS lookup failed for headless service: {0}")]
+    DnsError(std::io::Error),
+    #[error("DNS lookup returned no addresses")]
+    NoEndpoints,
     #[error("request timed out")]
     Timeout,
     #[error("request failed: {0}")]
@@ -66,7 +70,9 @@ pub enum RemoteError {
     #[error("unexpected status {0}")]
     BadStatus(reqwest::StatusCode),
     #[error("invalid response body: {0}")]
-    InvalidResponse(reqwest::Error),
+    InvalidResponseBody(reqwest::Error),
+    #[error("invalid response: {0}")]
+    InvalidResponse(String),
 }
 
 impl RemoteError {
@@ -74,15 +80,6 @@ impl RemoteError {
         match self {
             RemoteError::Timeout => "timeout",
             _ => "error",
-        }
-    }
-
-    pub fn fallback_label(&self) -> &'static str {
-        match self {
-            RemoteError::Timeout => "timeout",
-            RemoteError::RequestFailed(_) => "request_error",
-            RemoteError::BadStatus(_) => "bad_status",
-            RemoteError::InvalidResponse(_) => "invalid_response",
         }
     }
 }

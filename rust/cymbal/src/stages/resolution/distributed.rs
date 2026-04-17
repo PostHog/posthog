@@ -8,10 +8,10 @@ use crate::{
     },
     error::UnhandledError,
     frames::Frame,
-    metric_consts::{DISTRIBUTED_FALLBACK_TOTAL, RESOLUTION_STAGE},
+    metric_consts::RESOLUTION_STAGE,
     stages::{
         pipeline::ExceptionEventPipelineItem,
-        resolution::{frame::FrameResolver, properties::PropertiesResolver},
+        resolution::properties::PropertiesResolver,
     },
     types::{
         batch::Batch,
@@ -50,7 +50,7 @@ impl Stage for DistributedResolutionStage {
             let results = self.context.resolve_tasks(tasks).await?;
 
             apply_results_to_states(&mut states, &bindings, results)?;
-            materialize_resolved_frames(&mut states, &self.context).await?;
+            materialize_resolved_frames(&mut states)?;
 
             for state in states {
                 output[state.batch_index] = Ok(state.event);
@@ -129,15 +129,12 @@ fn apply_results_to_states(
         };
 
         let Some(state) = states.get_mut(binding.state_index) else {
-            metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "merge_error").increment(1);
             continue;
         };
 
         match result {
             ResolveTaskResult::Frame { frames, .. } => {
                 let Some(frame_index) = binding.location.frame_index else {
-                    metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "merge_error")
-                        .increment(1);
                     continue;
                 };
 
@@ -157,9 +154,6 @@ fn apply_results_to_states(
                 {
                     exception.module = module;
                     exception.exception_type = exception_type;
-                } else {
-                    metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "merge_error")
-                        .increment(1);
                 }
             }
             ResolveTaskResult::DartException { exception_type, .. } => {
@@ -169,9 +163,6 @@ fn apply_results_to_states(
                     .get_mut(binding.location.exception_index)
                 {
                     exception.exception_type = exception_type;
-                } else {
-                    metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "merge_error")
-                        .increment(1);
                 }
             }
         }
@@ -180,10 +171,7 @@ fn apply_results_to_states(
     Ok(())
 }
 
-async fn materialize_resolved_frames(
-    states: &mut [EventState],
-    ctx: &DistributedContext,
-) -> Result<(), UnhandledError> {
+fn materialize_resolved_frames(states: &mut [EventState]) -> Result<(), UnhandledError> {
     for state in states.iter_mut() {
         for exception_index in 0..state.event.exception_list.len() {
             let Some(Stacktrace::Raw { frames: raw_frames }) =
@@ -193,38 +181,23 @@ async fn materialize_resolved_frames(
             };
 
             let mut merged_frames = Vec::new();
-            let mut complete = true;
 
             for frame_index in 0..raw_frames.len() {
-                if let Some(mut frames) = state
+                let Some(mut frames) = state
                     .frame_overrides
                     .remove(&(exception_index, frame_index))
-                {
-                    merged_frames.append(&mut frames);
-                } else {
-                    complete = false;
-                    break;
-                }
+                else {
+                    return Err(UnhandledError::Other(format!(
+                        "missing resolved frames for exception {} frame {}",
+                        exception_index, frame_index
+                    )));
+                };
+                merged_frames.append(&mut frames);
             }
 
-            if complete {
-                state.event.exception_list[exception_index].stack =
-                    Some(Stacktrace::Resolved {
-                        frames: merged_frames,
-                    });
-                continue;
-            }
-
-            metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "merge_error").increment(1);
-            let unresolved = state.event.exception_list[exception_index].clone();
-            let resolved = FrameResolver::resolve_exception_frames(
-                state.event.team_id,
-                unresolved,
-                &state.event.debug_images,
-                ctx.resolution.clone(),
-            )
-            .await?;
-            state.event.exception_list[exception_index] = resolved;
+            state.event.exception_list[exception_index].stack = Some(Stacktrace::Resolved {
+                frames: merged_frames,
+            });
         }
     }
 

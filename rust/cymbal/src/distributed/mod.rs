@@ -11,8 +11,8 @@ use tracing::warn;
 use crate::{
     error::{RemoteError, UnhandledError},
     metric_consts::{
-        DISTRIBUTED_FALLBACK_TOTAL, DISTRIBUTED_REMOTE_REQUEST_DURATION_SECONDS,
-        DISTRIBUTED_TASKS_TOTAL, INTERNAL_RESOLVE_TASKS_TOTAL,
+        DISTRIBUTED_REMOTE_REQUEST_DURATION_SECONDS, DISTRIBUTED_TASKS_TOTAL,
+        INTERNAL_RESOLVE_TASKS_TOTAL,
     },
     stages::resolution::LocalResolutionStage,
 };
@@ -58,14 +58,14 @@ impl DistributedContext {
             return self.execute_local_tasks(tasks).await;
         }
 
-        let endpoints = self.resolve_endpoints().await;
+        let endpoints = self.resolve_endpoints().await?;
         let local_ip = self.local_ip();
 
         let mut local_tasks = Vec::new();
         let mut remote_tasks: HashMap<String, Vec<ResolveTask>> = HashMap::new();
 
         for task in tasks {
-            match route_task(&task, endpoints.as_deref(), local_ip) {
+            match route_task(&task, &endpoints, local_ip) {
                 Route::Local(reason) => {
                     metrics::counter!(
                         DISTRIBUTED_TASKS_TOTAL,
@@ -133,42 +133,24 @@ impl DistributedContext {
         }
     }
 
-    async fn resolve_endpoints(&self) -> Option<Vec<String>> {
-        let lookup_result =
-            tokio::net::lookup_host((self.distributed_headless_host.as_str(), self.port)).await;
+    async fn resolve_endpoints(&self) -> Result<Vec<String>, RemoteError> {
+        let addrs =
+            tokio::net::lookup_host((self.distributed_headless_host.as_str(), self.port))
+                .await
+                .map_err(RemoteError::DnsError)?;
 
-        match lookup_result {
-            Err(e) => {
-                warn!(
-                    host = %self.distributed_headless_host,
-                    error = %e,
-                    "DNS lookup failed for headless service"
-                );
-                metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "dns_error")
-                    .increment(1);
-                None
-            }
-            Ok(addrs) => {
-                let mut endpoints: Vec<String> = addrs
-                    .map(|addr| addr.ip().to_string())
-                    .collect::<std::collections::HashSet<_>>()
-                    .into_iter()
-                    .collect();
+        let mut endpoints: Vec<String> = addrs
+            .map(|addr| addr.ip().to_string())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
 
-                if endpoints.is_empty() {
-                    warn!(
-                        host = %self.distributed_headless_host,
-                        "DNS lookup returned no addresses"
-                    );
-                    metrics::counter!(DISTRIBUTED_FALLBACK_TOTAL, "reason" => "dns_error")
-                        .increment(1);
-                    return None;
-                }
-
-                endpoints.sort();
-                Some(endpoints)
-            }
+        if endpoints.is_empty() {
+            return Err(RemoteError::NoEndpoints);
         }
+
+        endpoints.sort();
+        Ok(endpoints)
     }
 
     async fn execute_task_plan(
@@ -196,49 +178,30 @@ impl DistributedContext {
         let remote_outcomes = futures::future::join_all(remote_futures).await;
 
         for (destination_ip, outcome, tasks) in remote_outcomes {
-            match outcome {
-                Ok(remote_results) => {
-                    let mut remote_map: HashMap<u64, ResolveTaskResult> = remote_results
-                        .into_iter()
-                        .map(|result| (result.task_id(), result))
-                        .collect();
+            let remote_results = outcome.map_err(|err| {
+                warn!(
+                    destination = %destination_ip,
+                    error = %err,
+                    task_count = tasks.len(),
+                    "remote resolution failed"
+                );
+                err
+            })?;
 
-                    for task in tasks {
-                        if let Some(result) = remote_map.remove(&task.task_id()) {
-                            results.insert(task.task_id(), result);
-                        } else {
-                            warn!(
-                                task_id = task.task_id(),
-                                destination = %destination_ip,
-                                "remote pod did not return result for task, falling back to local"
-                            );
-                            metrics::counter!(
-                                DISTRIBUTED_FALLBACK_TOTAL,
-                                "reason" => "missing_result"
-                            )
-                            .increment(1);
-                            let result = self.execute_task_locally(&task).await?;
-                            results.insert(task.task_id(), result);
-                        }
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        destination = %destination_ip,
-                        error = %err,
-                        task_count = tasks.len(),
-                        "remote resolution failed, falling back to local"
-                    );
-                    metrics::counter!(
-                        DISTRIBUTED_FALLBACK_TOTAL,
-                        "reason" => err.fallback_label()
-                    )
-                    .increment(1);
-                    for task in tasks {
-                        let result = self.execute_task_locally(&task).await?;
-                        results.insert(task.task_id(), result);
-                    }
-                }
+            let mut remote_map: HashMap<u64, ResolveTaskResult> = remote_results
+                .into_iter()
+                .map(|result| (result.task_id(), result))
+                .collect();
+
+            for task in tasks {
+                let result = remote_map.remove(&task.task_id()).ok_or_else(|| {
+                    RemoteError::InvalidResponse(format!(
+                        "remote pod {} did not return result for task {}",
+                        destination_ip,
+                        task.task_id()
+                    ))
+                })?;
+                results.insert(task.task_id(), result);
             }
         }
 
@@ -249,10 +212,16 @@ impl DistributedContext {
         &self,
         tasks: Vec<ResolveTask>,
     ) -> Result<HashMap<u64, ResolveTaskResult>, UnhandledError> {
+        let futs: Vec<_> = tasks
+            .iter()
+            .map(|task| self.execute_task_locally(task))
+            .collect();
+
+        let outcomes = futures::future::join_all(futs).await;
+
         let mut results = HashMap::new();
-        for task in tasks {
-            let result = self.execute_task_locally(&task).await?;
-            results.insert(task.task_id(), result);
+        for (task, outcome) in tasks.iter().zip(outcomes) {
+            results.insert(task.task_id(), outcome?);
         }
         Ok(results)
     }
@@ -303,7 +272,7 @@ impl DistributedContext {
             .json::<ResolveBatchResponse>()
             .await
             .map(|r| r.results)
-            .map_err(RemoteError::InvalidResponse)
+            .map_err(RemoteError::InvalidResponseBody)
     }
 
     async fn execute_task_locally(
@@ -322,22 +291,10 @@ enum Route {
     Remote(String),
 }
 
-fn route_task(
-    task: &ResolveTask,
-    endpoints: Option<&[String]>,
-    local_ip: Option<&str>,
-) -> Route {
+fn route_task(task: &ResolveTask, endpoints: &[String], local_ip: Option<&str>) -> Route {
     let Some(routing_ref) = task.routing_ref() else {
         return Route::Local("no_ref");
     };
-
-    let Some(endpoints) = endpoints else {
-        return Route::Local("no_endpoints");
-    };
-
-    if endpoints.is_empty() {
-        return Route::Local("no_endpoints");
-    }
 
     let destination = endpoint_for_ref(task.team_id(), routing_ref, endpoints);
     if local_ip == Some(destination.as_str()) {
@@ -393,17 +350,10 @@ mod test {
     }
 
     #[test]
-    fn route_task_local_when_no_endpoints() {
-        let task = test_task(Some("ref"));
-        let route = route_task(&task, None, Some("10.0.0.1"));
-        assert!(matches!(route, Route::Local(_)));
-    }
-
-    #[test]
     fn route_task_remote_without_local_ip() {
         let task = test_task(Some("ref"));
         let endpoints = vec!["10.0.0.1".to_string()];
-        let route = route_task(&task, Some(&endpoints), None);
+        let route = route_task(&task, &endpoints, None);
         assert!(matches!(route, Route::Remote(_)));
     }
 
@@ -411,7 +361,7 @@ mod test {
     fn route_task_local_when_no_routing_ref() {
         let task = test_task(None);
         let endpoints = vec!["10.0.0.1".to_string()];
-        let route = route_task(&task, Some(&endpoints), None);
+        let route = route_task(&task, &endpoints, None);
         assert!(matches!(route, Route::Local("no_ref")));
     }
 

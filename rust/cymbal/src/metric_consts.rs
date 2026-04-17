@@ -59,7 +59,6 @@ pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 pub const DISTRIBUTED_TASKS_TOTAL: &str = "cymbal_distributed_tasks_total";
 pub const DISTRIBUTED_REMOTE_REQUEST_DURATION_SECONDS: &str =
     "cymbal_distributed_remote_request_duration_seconds";
-pub const DISTRIBUTED_FALLBACK_TOTAL: &str = "cymbal_distributed_fallback_total";
 pub const INTERNAL_RESOLVE_TASKS_TOTAL: &str = "cymbal_internal_resolve_tasks_total";
 
 // Spike detection metrics
