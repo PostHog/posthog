@@ -36,7 +36,13 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
-from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
+from .automation_service import (
+    delete_automation_schedule,
+    run_task_automation,
+    sync_automation_schedule,
+    update_automation_run_result,
+)
+from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -46,6 +52,7 @@ from .serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
+    TaskAutomationSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -210,7 +217,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return qs
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         logger.info(f"Creating task with data: {serializer.validated_data}")
@@ -386,6 +393,42 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
 
+@extend_schema(tags=["task-automations"])
+class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = TaskAutomationSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    scope_object = "task"
+    queryset = TaskAutomation.objects.all()
+    filter_rewrite_rules = {"team_id": "task__team_id"}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
+
+    def perform_create(self, serializer):
+        automation = serializer.save()
+        sync_automation_schedule(automation)
+
+    def perform_update(self, serializer):
+        automation = serializer.save()
+        sync_automation_schedule(automation)
+
+    def perform_destroy(self, instance):
+        automation = cast(TaskAutomation, instance)
+        delete_automation_schedule(automation)
+        automation.delete()
+
+    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
+    def run(self, request, pk=None, **kwargs):
+        automation = cast(TaskAutomation, self.get_object())
+        run_task_automation(str(automation.id))
+        automation.refresh_from_db()
+        return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
+
+
 @extend_schema(tags=["task-runs"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -499,6 +542,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task_run.save()
             task_run.publish_stream_state_event()
 
+        update_automation_run_result(task_run)
+
         # Signal Temporal and post Slack updates after commit to avoid
         # holding the row lock during external calls.
         if new_status in terminal_statuses and old_status != new_status:
@@ -584,7 +629,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team=self.team, task_id=task_id)
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         task_id = self.kwargs.get("parent_lookup_task_id")

@@ -3485,11 +3485,11 @@ importers:
   services/stripe-app:
     dependencies:
       '@stripe/ui-extension-sdk':
-        specifier: 9.2.0-alpha.4
-        version: 9.2.0-alpha.4(stripe@21.0.1(@types/node@22.18.8))
+        specifier: 9.2.0-alpha.6
+        version: 9.2.0-alpha.6(stripe@20.4.1(@types/node@22.18.8))
       stripe:
-        specifier: ^21.0.1
-        version: 21.0.1(@types/node@22.18.8)
+        specifier: ^20.4.1
+        version: 20.4.1(@types/node@22.18.8)
     devDependencies:
       '@stripe/ui-extension-tools':
         specifier: ^0.0.1
@@ -10828,8 +10828,8 @@ packages:
     resolution: {integrity: sha512-dMOzc58AOlsF20nYM/avzV8RFhO/vgYTY7ajLMH6mjlnZysnOHZxsECQvjEmL8Q/ukPwHkOnxSPW/QGCCnp7XA==}
     engines: {node: '>=12.16'}
 
-  '@stripe/ui-extension-sdk@9.2.0-alpha.4':
-    resolution: {integrity: sha512-I6f+DYYT4nfAyRlA759fr8kMfZM1tZNg8egtO8tCF0R+bokgSXXuh140tPtCAlOmzNGdpPFfyvEKR7ntqjmoCg==}
+  '@stripe/ui-extension-sdk@9.2.0-alpha.6':
+    resolution: {integrity: sha512-CVrHqJ4AeLP6yQ+01PfffzzicDgJp5O7oFZFUIUDVgCW6N5r+UCMl+G7j74v43gZU0xI8ZbnL3tr2DrBKegtfw==}
     peerDependencies:
       stripe: '>= 8.195.0'
 
@@ -21848,11 +21848,11 @@ packages:
   strip-literal@3.1.0:
     resolution: {integrity: sha512-8r3mkIM/2+PpjHoOtiAW8Rg3jJLHaV7xPwG+YRGrv6FP0wwk/toTpATxWYOW0BKdWwl82VT2tFYi5DlROa0Mxg==}
 
-  stripe@21.0.1:
-    resolution: {integrity: sha512-ocv0j7dWttswDWV2XL/kb6+yiLpDXNXL3RQAOB5OB2kr49z0cEatdQc12+zP/j5nrXk6rAsT4N3y/NUvBbK7Pw==}
-    engines: {node: '>=18'}
+  stripe@20.4.1:
+    resolution: {integrity: sha512-axCguHItc8Sxt0HC6aSkdVRPffjYPV7EQqZRb2GkIa8FzWDycE7nHJM19C6xAIynH1Qp1/BHiopSi96jGBxT0w==}
+    engines: {node: '>=16'}
     peerDependencies:
-      '@types/node': '>=18'
+      '@types/node': '>=16'
     peerDependenciesMeta:
       '@types/node':
         optional: true
@@ -34705,7 +34705,7 @@ snapshots:
 
   '@stripe/stripe-js@4.5.0': {}
 
-  '@stripe/ui-extension-sdk@9.2.0-alpha.4(stripe@21.0.1(@types/node@22.18.8))':
+  '@stripe/ui-extension-sdk@9.2.0-alpha.6(stripe@20.4.1(@types/node@22.18.8))':
     dependencies:
       '@remote-ui/core': 2.2.5
       '@remote-ui/react': 5.0.5(react-reconciler@0.29.0(react@18.3.1))(react@18.3.1)
@@ -34715,7 +34715,7 @@ snapshots:
       invariant: 2.2.4
       react: 18.3.1
       react-reconciler: 0.29.0(react@18.3.1)
-      stripe: 21.0.1(@types/node@22.18.8)
+      stripe: 20.4.1(@types/node@22.18.8)
 
   '@stripe/ui-extension-tools@0.0.1(@babel/core@7.29.0)(babel-jest@27.5.1(@babel/core@7.29.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.8.3))':
     dependencies:
@@ -48715,7 +48715,7 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
-  stripe@21.0.1(@types/node@22.18.8):
+  stripe@20.4.1(@types/node@22.18.8):
     optionalDependencies:
       '@types/node': 22.18.8
 
