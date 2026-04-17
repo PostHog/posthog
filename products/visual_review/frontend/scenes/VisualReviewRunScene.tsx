@@ -153,9 +153,9 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved && reviewPending > 0 ? (
+                    !run.approved && (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
                         <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
-                            Approve all changes
+                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
                         </LemonButton>
                     ) : undefined
                 }

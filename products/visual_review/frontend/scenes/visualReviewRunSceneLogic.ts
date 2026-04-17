@@ -134,9 +134,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (snapshots): SnapshotApi[] => snapshots.filter((s) => s.result !== 'unchanged'),
         ],
         hasChanges: [(s) => [s.changedSnapshots], (changedSnapshots): boolean => changedSnapshots.length > 0],
-        unapprovedChangesCount: [
+        unreviewedChangesCount: [
             (s) => [s.changedSnapshots],
-            (changedSnapshots): number => changedSnapshots.filter((s) => s.review_state !== 'approved').length,
+            (changedSnapshots): number =>
+                changedSnapshots.filter((s) => s.review_state !== 'approved' && s.review_state !== 'tolerated').length,
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
         breadcrumbs: [
@@ -228,8 +229,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/visual_review/runs/:runId': (_params, _searchParams, { snapshot }) => {
+    urlToAction(({ actions, values, props }) => ({
+        '/visual_review/runs/:runId': ({ runId }, _searchParams, { snapshot }) => {
+            if (runId !== props.runId) {
+                return
+            }
             if (snapshot && snapshot !== values.selectedSnapshotId) {
                 actions.setSelectedSnapshotId(snapshot)
             }

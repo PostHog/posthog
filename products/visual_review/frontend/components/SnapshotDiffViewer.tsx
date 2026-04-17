@@ -94,8 +94,12 @@ export function SnapshotDiffViewer({
 
                         {needsAction && (
                             <>
-                                <LemonButton type="primary" size="small" onClick={onApprove}>
-                                    Accept change
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    disabledReason="Leaving a snapshot unreviewed already blocks the PR. To fix it, update your code and rerun CI."
+                                >
+                                    Reject
                                 </LemonButton>
                                 {snapshot.result === 'changed' && (
                                     <LemonButton
@@ -118,6 +122,9 @@ export function SnapshotDiffViewer({
                                         Tolerate
                                     </LemonButton>
                                 )}
+                                <LemonButton type="primary" size="small" onClick={onApprove}>
+                                    Accept change
+                                </LemonButton>
                             </>
                         )}
                     </div>
