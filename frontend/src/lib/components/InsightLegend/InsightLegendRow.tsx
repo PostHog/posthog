@@ -110,7 +110,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                                     hideIcon
                                     showSingleName
                                 />
-                                {parseAliasToReadable(formattedBreakdownValue)}
+                                <span className="inline-flex">{parseAliasToReadable(formattedBreakdownValue)}</span>
                             </div>
                         ) : (
                             <InsightLabel
