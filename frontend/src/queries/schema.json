@@ -26431,6 +26431,7 @@
                 "session_replay",
                 "site_apps",
                 "subscriptions",
+                "streamlit_apps",
                 "surveys",
                 "tasks",
                 "teams",

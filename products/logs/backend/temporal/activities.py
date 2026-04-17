@@ -15,6 +15,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.exceptions_capture import capture_exception
 
 from products.logs.backend.alert_check_query import AlertCheckQuery
+from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertSnapshot,
@@ -126,17 +127,20 @@ def _evaluate_single_alert(
             query_duration_ms=query_result.query_duration_ms,
         )
     except Exception as e:
+        classified = classify_alert_error(e)
+        capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(
             "Alert check query failed",
             alert_id=str(alert.id),
             alert_name=alert.name,
             team_id=alert.team_id,
             error=str(e),
+            classification=classified.code,
         )
         check_result = CheckResult(
             result_count=None,
             threshold_breached=False,
-            error_message=str(e),
+            error_message=classified.user_message,
         )
 
     snapshot = AlertSnapshot(
