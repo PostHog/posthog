@@ -23,6 +23,7 @@ from ..facade.contracts import (
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
+    ToleratedHashEntry,
     UpdateRepoRequestInput,
     UploadTarget,
 )
@@ -123,6 +124,15 @@ class ApproveRunInputSerializer(DataclassSerializer):
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     class Meta:
         dataclass = SnapshotHistoryEntry
+
+
+class ToleratedHashEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ToleratedHashEntry
+
+
+class MarkToleratedInputSerializer(serializers.Serializer):
+    snapshot_id = serializers.UUIDField()
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

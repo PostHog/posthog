@@ -74,21 +74,6 @@
             "readOnlyHint": false
         }
     },
-    "activity-logs-list": {
-        "description": "List recent activity logs for the project. Shows who changed what and when — includes feature flag updates, insight creations, dashboard modifications, experiment launches, and other project changes. Use scope parameter to filter by resource type (e.g. \"FeatureFlag\", \"Insight\", \"Dashboard\", \"Experiment\", \"Survey\", \"Cohort\"). Use item_id to filter changes for a specific resource. Returns results ordered by most recent first. Each result includes: user (who performed the action with first_name and email), activity (e.g. \"created\", \"updated\", \"deleted\"), scope (entity type like \"FeatureFlag\"), item_id (ID of the affected resource), detail (structured JSON with name, short_id, and a changes array where each change has type, action, field, before, and after values), and created_at timestamp.",
-        "category": "Activity logs",
-        "feature": "activity_logs",
-        "summary": "List activity logs",
-        "title": "List activity logs",
-        "required_scopes": ["activity_log:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "alerts-list": {
         "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID via query parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
         "category": "Alerts",
@@ -479,8 +464,113 @@
             "readOnlyHint": false
         }
     },
+    "conversations-tickets-list": {
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "List support tickets",
+        "title": "List support tickets",
+        "required_scopes": ["ticket:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-retrieve": {
+        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Get support ticket",
+        "title": "Get support ticket",
+        "required_scopes": ["ticket:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-update": {
+        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Update support ticket",
+        "title": "Update support ticket",
+        "required_scopes": ["ticket:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-list": {
+        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List subscriptions",
+        "title": "List subscriptions",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-create": {
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create subscription",
+        "title": "Create subscription",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-retrieve": {
+        "description": "Get a specific subscription by ID. Returns the full subscription configuration including target type and value, schedule details, next delivery date, and associated insight or dashboard.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get subscription",
+        "title": "Get subscription",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-partial-update": {
+        "description": "Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update subscription",
+        "title": "Update subscription",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboards-get-all": {
-        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get all dashboards",
@@ -495,7 +585,7 @@
         }
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -510,7 +600,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
@@ -525,7 +615,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -552,6 +642,21 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "dashboard-insights-run": {
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Run dashboard insights",
+        "title": "Run dashboard insights",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "dashboard-reorder-tiles": {
@@ -914,6 +1019,36 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-assignment-rules-list": {
+        "description": "List error tracking assignment rules for the current project. Returns rules in evaluation order with their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking assignment rules",
+        "title": "List error tracking assignment rules",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-assignment-rules-create": {
+        "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking assignment rule",
+        "title": "Create error tracking assignment rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
@@ -965,6 +1100,21 @@
         "feature": "error_tracking",
         "summary": "Merge error tracking issues",
         "title": "Merge error tracking issues",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-issues-split-create": {
+        "description": "Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required `fingerprint` and optional `name` or `description`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Split error tracking issue fingerprints",
+        "title": "Split error tracking issue fingerprints",
         "required_scopes": ["error_tracking:write"],
         "new_mcp": true,
         "annotations": {
@@ -1531,7 +1681,7 @@
         }
     },
     "query-logs": {
-        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.\n\nUse 'logs-list-attributes' and 'logs-list-attribute-values' to discover available attributes before building filters.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-list-attributes` to discover available attribute keys** before building filters.\n- **Use `logs-list-attribute-values` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-list-attribute-values` with `key: \"service.name\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-list-attributes` and `logs-list-attribute-values` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.\n5. **Only then query logs.** Once you have confirmed the service name, volume looks right, and relevant filters are set, call `query-logs` with `serviceNames` and any additional filters.\n\n10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Query logs",
@@ -1546,7 +1696,7 @@
         }
     },
     "logs-attributes-list": {
-        "description": "List available log attribute names for filtering. Use attribute_type \"log\" for log-level attributes or \"resource\" for resource-level attributes (e.g. k8s labels).",
+        "description": "List available log attribute names for filtering. Defaults to attribute_type \"log\" (log-level attributes). To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass attribute_type: \"resource\" — it will NOT return resource attributes unless you do. Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
         "category": "Logs",
         "feature": "logs",
         "summary": "List log attributes",
@@ -1561,11 +1711,26 @@
         }
     },
     "logs-attribute-values-list": {
-        "description": "List values for a specific log attribute key. Use to discover what values exist for a given attribute before building filters.",
+        "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
         "category": "Logs",
         "feature": "logs",
         "summary": "List log attribute values",
         "title": "List log attribute values",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "logs-sparkline-query": {
+        "description": "Get a time-bucketed sparkline of log volume, broken down by severity or service. Use this to understand log volume patterns before querying individual log entries — it is much cheaper than a full log query.\n\nAll parameters must be nested inside a `query` object.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the sparkline. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.searchTerm\n\nFull-text search across log bodies.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n## query.sparklineBreakdownBy\n\nBreak down the sparkline by `\"severity\"` (default) or `\"service\"`. Use `\"service\"` to see which services are producing the most logs.\n\n# Examples\n\n## Error volume over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Log volume by service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"service\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Log volume by severity\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"severity\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Query logs sparkline",
+        "title": "Query logs sparkline",
         "required_scopes": ["logs:read"],
         "new_mcp": true,
         "annotations": {
@@ -1971,6 +2136,36 @@
         "feature": "platform_features",
         "summary": "List members of a role.",
         "title": "List members of a role.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organizations-list": {
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organizations.",
+        "title": "List organizations.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-get": {
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get organization details.",
+        "title": "Get organization details.",
         "required_scopes": ["organization:read"],
         "new_mcp": true,
         "annotations": {
@@ -2557,6 +2752,21 @@
         "summary": "Get LLM trace",
         "title": "Get LLM trace",
         "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends-actors": {
+        "description": "List the persons behind a specific data point in a trends insight. Use this to answer \"who were the users that did X on day Y?\" or \"which users are in this breakdown bucket?\".\n\nPair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.\n\nSelectors:\n\n- `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.\n- `series`: 0-based index of the series to drill into when the trends query has multiple series.\n- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: [\"Opera\"]`. Multiple dimensions: `breakdown: [\"Opera\", \"en-US\"]`.\n- `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `count` (number of matching events for that actor). Results are limited to the top 100 actors ordered by event count; pagination will be added later.\n\nGuidance:\n\n- Keep the `source` trends query minimal — only include the filters/breakdowns needed to identify the cell.\n- If the user wants \"all users who did X\", omit `day`/`series`/`breakdown` to broaden the drill-down.\n- For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons behind a trends data point",
+        "title": "List persons behind a trends data point",
+        "required_scopes": ["query:read", "person:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
@@ -222,6 +223,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
+        assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
@@ -480,6 +482,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
+        assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
     def test_cannot_assign_holdout_from_another_team(self):
@@ -750,8 +753,10 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        assert experiment_to_saved_metric is not None
         self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        assert saved_metric is not None
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
             saved_metric.query,
@@ -794,11 +799,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 2)
-        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.all()
-        self.assertEqual(experiment_to_saved_metric[0].metadata, {"type": "secondary"})
-        self.assertEqual(experiment_to_saved_metric[1].metadata, {"type": "tertiary"})
-        saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.all()
-        self.assertEqual(sorted([saved_metric[0].id, saved_metric[1].id]), [saved_metric_id, saved_metric_2_id])
+        experiment_to_saved_metrics = list(Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.all())
+        self.assertEqual(experiment_to_saved_metrics[0].metadata, {"type": "secondary"})
+        self.assertEqual(experiment_to_saved_metrics[1].metadata, {"type": "tertiary"})
+        saved_metrics = list(Experiment.objects.get(pk=exp_id).saved_metrics.all())
+        self.assertEqual(sorted([saved_metrics[0].id, saved_metrics[1].id]), [saved_metric_id, saved_metric_2_id])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
@@ -2618,11 +2623,13 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Verify that Experiment.parameters.feature_flag_variants reflects the updated FeatureFlag.filters.multivariate.variants
         experiment = Experiment.objects.get(id=experiment_id)
+        assert experiment.parameters is not None
+        parameters = cast(dict[str, Any], experiment.parameters)
         self.assertEqual(
-            experiment.parameters["feature_flag_variants"],
+            parameters["feature_flag_variants"],
             [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
         )
-        self.assertEqual(experiment.parameters["aggregation_group_type_index"], 1)
+        self.assertEqual(parameters["aggregation_group_type_index"], 1)
 
         # Update the experiment with an unrelated change
         response = self.client.patch(
@@ -2666,7 +2673,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Verify that aggregation_group_type_index is removed from experiment parameters
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertNotIn("aggregation_group_type_index", experiment.parameters)
+        assert experiment.parameters is not None
+        self.assertNotIn("aggregation_group_type_index", cast(dict[str, Any], experiment.parameters))
 
     def test_update_experiment_exposure_config_valid(self):
         feature_flag = FeatureFlag.objects.create(
@@ -2700,10 +2708,13 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         experiment = Experiment.objects.get(id=experiment.id)
-        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], True)
-        self.assertEqual(experiment.exposure_criteria["exposure_config"]["event"], "$pageview")
+        assert experiment.exposure_criteria is not None
+        exposure_criteria = cast(dict[str, Any], experiment.exposure_criteria)
+        exposure_config = cast(dict[str, Any], exposure_criteria["exposure_config"])
+        self.assertEqual(exposure_criteria["filterTestAccounts"], True)
+        self.assertEqual(exposure_config["event"], "$pageview")
         self.assertEqual(
-            experiment.exposure_criteria["exposure_config"]["properties"],
+            exposure_config["properties"],
             [{"key": "plan", "operator": "is_not", "value": "free", "type": "event"}],
         )
 

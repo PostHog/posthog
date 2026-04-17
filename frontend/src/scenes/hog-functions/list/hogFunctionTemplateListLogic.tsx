@@ -11,7 +11,6 @@ import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { createFuse } from 'lib/utils/fuseSearch'
-import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,6 +22,8 @@ import {
     HogFunctionTypeType,
     UserType,
 } from '~/types'
+
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'

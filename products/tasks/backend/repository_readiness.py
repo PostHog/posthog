@@ -13,7 +13,7 @@ import requests
 
 from posthog.models.integration import GitHubIntegration, Integration
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
 
@@ -450,8 +450,8 @@ def compute_repository_readiness(
         deleted=False,
     ).count()
 
-    # Team-scoped intentionally: ErrorTrackingIssue has no repository field
-    error_issue_count = ErrorTrackingIssue.objects.filter(team=team, created_at__gte=since).count()
+    # Team-scoped intentionally: Error tracking issues do not currently have a repository field
+    error_issue_count = error_tracking_api.count_issues_created_since(team_id=team.id, since=since)
 
     # Tracking
     if not applicability["tracking"]:

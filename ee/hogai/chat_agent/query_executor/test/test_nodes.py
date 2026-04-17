@@ -103,7 +103,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             name="test insight",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=AssistantTrendsQuery(series=[]), name="test insight", description="test description"
+                query=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
+                name="test insight",
+                description="test description",
             ).model_dump(),
             conversation=self.conversation,
             team=self.team,

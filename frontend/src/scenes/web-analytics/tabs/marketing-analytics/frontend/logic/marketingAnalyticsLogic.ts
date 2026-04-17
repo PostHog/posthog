@@ -4,8 +4,6 @@ import { actionToUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -32,6 +30,9 @@ import {
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
 import { ChartDisplayType } from '~/types'
+
+import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import { defaultConversionGoalFilter } from '../components/settings/constants'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -197,13 +198,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
             ['sources_map', 'conversion_goals'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
             ['featureFlags'],
         ],
         actions: [
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['loadSources', 'loadSourcesSuccess', 'loadDatabase'],
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],

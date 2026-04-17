@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
@@ -15,6 +16,7 @@ from posthog.temporal.common.client import async_connect
 from products.tasks.backend.services.custom_prompt_executor import extract_json_from_text
 from products.tasks.backend.services.custom_prompt_runner import (
     CustomPromptSandboxContext,
+    EmptyAgentTurnError,
     OutputFn,
     _create_task_and_trigger,
     _poll_for_turn,
@@ -22,6 +24,10 @@ from products.tasks.backend.services.custom_prompt_runner import (
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 logger = logging.getLogger(__name__)
+
+# Nudge appended to a resent prompt when the agent emits an empty end_turn.
+# Kept short to avoid meaningfully changing the cached prefix.
+_EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching the schema above."
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -71,8 +77,14 @@ class MultiTurnSession:
             output_fn=output_fn,
             _workflow_handle=workflow_handle,
         )
+        started_at = time.monotonic()
         last_message, _, session.log_lines_seen, session.printed_lines = await _poll_for_turn(
             task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
+        )
+        logger.info(
+            "multi_turn: initial turn completed run=%s duration=%.2fs",
+            task_run.id,
+            time.monotonic() - started_at,
         )
         parsed = cls._parse_and_validate(last_message, model, label="initial turn")
         return session, parsed
@@ -87,18 +99,64 @@ class MultiTurnSession:
         """Send a follow-up message and wait for the agent's next response."""
         if not self._workflow_handle:
             raise RuntimeError("Workflow handle is not available in this session.")
-        await self._workflow_handle.signal(ProcessTaskWorkflow.send_followup_message, message)
-        logger.info("multi_turn: sent followup run=%s label=%s", self.task_run.id, label)
-        last_message, _, self.log_lines_seen, self.printed_lines = await _poll_for_turn(
-            self.task_run,
-            skip_lines=self.log_lines_seen,
-            printed_lines=self.printed_lines,
-            verbose=self.verbose,
-            output_fn=self.output_fn,
-            workflow_handle=self._workflow_handle,
+        started_at = time.monotonic()
+        last_message = await self._send_and_poll(message, label=label, attempt=1)
+        if last_message is None:
+            # First attempt was an empty end_turn. Resend with a small nudge to keep the agent going
+            retry_message = message + _EMPTY_TURN_RETRY_NUDGE
+            last_message = await self._send_and_poll(retry_message, label=label, attempt=2)
+            if last_message is None:
+                # If the follow-up didn't help - raise
+                raise EmptyAgentTurnError(
+                    f"Agent produced empty end_turn twice for run={self.task_run.id} label={label}",
+                    total_lines=self.log_lines_seen,
+                    printed_lines=self.printed_lines,
+                )
+        logger.info(
+            "multi_turn: followup completed run=%s label=%s duration=%.2fs",
+            self.task_run.id,
+            label,
+            time.monotonic() - started_at,
         )
         parsed = self._parse_and_validate(last_message, model, label=label or "followup")
         return parsed
+
+    async def _send_and_poll(self, message: str, *, label: str, attempt: int) -> str | None:
+        """Signal the followup and poll for the next turn. Returns None on empty end_turn."""
+        assert self._workflow_handle is not None
+        await self._workflow_handle.signal(ProcessTaskWorkflow.send_followup_message, message)
+        logger.info(
+            "multi_turn: sent followup run=%s label=%s attempt=%d",
+            self.task_run.id,
+            label,
+            attempt,
+        )
+        try:
+            last_message, _, self.log_lines_seen, self.printed_lines = await _poll_for_turn(
+                self.task_run,
+                skip_lines=self.log_lines_seen,
+                printed_lines=self.printed_lines,
+                verbose=self.verbose,
+                output_fn=self.output_fn,
+                workflow_handle=self._workflow_handle,
+            )
+            return last_message
+        # Catch empty turns, raise everything else
+        except EmptyAgentTurnError as e:
+            # Advance log offsets to read from the current tail instead of re-reading the empty-turn lines
+            self.log_lines_seen = e.total_lines
+            self.printed_lines = e.printed_lines
+            logger.exception(
+                "multi_turn: empty end_turn run=%s label=%s attempt=%d — will %s",
+                self.task_run.id,
+                label,
+                attempt,
+                "retry once" if attempt == 1 else "give up",
+            )
+            if self.output_fn:
+                action = "retrying..." if attempt == 1 else "giving up"
+                self.output_fn(f"Agent returned empty response for {label or 'followup'}, {action}")
+            return None
 
     @staticmethod
     def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:

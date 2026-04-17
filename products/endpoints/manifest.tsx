@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -87,7 +87,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,

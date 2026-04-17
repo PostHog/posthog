@@ -238,6 +238,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage = models.JSONField(null=True, blank=True)
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
+
+    if TYPE_CHECKING:
+        oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 

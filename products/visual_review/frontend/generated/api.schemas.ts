@@ -52,6 +52,7 @@ export interface RunSummaryApi {
     new: number
     removed: number
     unchanged: number
+    tolerated_matched?: number
 }
 
 export type RunApiMetadata = { [key: string]: unknown }
@@ -196,6 +197,7 @@ export interface SnapshotApi {
     id: string
     identifier: string
     result: string
+    classification_reason: string
     /** @nullable */
     diff_percentage: number | null
     /** @nullable */
@@ -204,6 +206,8 @@ export interface SnapshotApi {
     /** @nullable */
     reviewed_at: string | null
     approved_hash: string
+    /** @nullable */
+    tolerated_hash_id?: string | null
     metadata?: SnapshotApiMetadata
 }
 
@@ -214,6 +218,29 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export interface MarkToleratedInputApi {
+    snapshot_id: string
+}
+
+export interface ToleratedHashEntryApi {
+    id: string
+    alternate_hash: string
+    baseline_hash: string
+    reason: string
+    created_at: string
+    /** @nullable */
+    source_run_id: string | null
+}
+
+export interface PaginatedToleratedHashEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ToleratedHashEntryApi[]
 }
 
 export interface ReviewStateCountsApi {
@@ -265,6 +292,21 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

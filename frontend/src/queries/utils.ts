@@ -436,8 +436,9 @@ export function shouldQueryBeAsync(query: Node): boolean {
     return (
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
-        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
-        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+        isTracesQuery(query) ||
+        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
+        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
     )
 }
 
