@@ -31,7 +31,12 @@ DEFAULT_ANOMALY_DETECTOR_CONFIG: dict[str, Any] = {
             "method": "largest",
             "preprocessing": DEFAULT_PREPROCESSING,
         },
-        {"type": "pca", "threshold": 0.95, "preprocessing": DEFAULT_PREPROCESSING},
+        {
+            "type": "isolation_forest",
+            "threshold": 0.95,
+            "n_estimators": 100,
+            "preprocessing": DEFAULT_PREPROCESSING,
+        },
     ],
 }
 
