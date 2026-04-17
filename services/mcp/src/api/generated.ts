@@ -35030,6 +35030,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
+    };
+
+    export type MembersUpdateParams = {
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
+    };
+
+    export type MembersPartialUpdateParams = {
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
+    };
+
+    export type MembersDestroyParams = {
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
+    };
+
+    export type MembersScopedApiKeysRetrieveParams = {
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
     };
 
     export type OauthApplicationsListParams = {
