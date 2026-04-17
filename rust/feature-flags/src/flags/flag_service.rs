@@ -1177,4 +1177,229 @@ mod tests {
             );
         }
     }
+
+    // =========================================================================
+    // FlagDefinitionsCache integration: exercises the real (non-disabled) cache
+    // through FlagService so the Arc-share path and fingerprint invalidation
+    // survive the full hypercache round-trip (serde_json → pickle → Redis →
+    // pickle → serde_json → fingerprint). Unit tests in flag_definitions_cache
+    // cover the cache in isolation; these pin the service boundary.
+    // =========================================================================
+
+    /// Builds a single-flag wrapper with a Regex operator so the cache hit path
+    /// has to pre-compile an actual fancy_regex pattern.
+    fn single_regex_flag_wrapper(team_id: i32, pattern: &str) -> FeatureFlagList {
+        use crate::mock;
+        use crate::properties::property_models::PropertyFilter;
+        use crate::utils::mock::MockInto;
+
+        let flag = mock!(FeatureFlag,
+            team_id: team_id,
+            name: "Regex Flag".mock_into(),
+            key: "regex_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!(pattern)),
+                operator: Some(OperatorType::Regex),
+            )
+            .mock_into(),
+        );
+        let evaluation_metadata = EvaluationMetadata::single_stage(std::slice::from_ref(&flag));
+        FeatureFlagList {
+            flags: vec![flag].into(),
+            evaluation_metadata,
+            ..Default::default()
+        }
+    }
+
+    fn real_cache() -> Arc<FlagDefinitionsCache> {
+        // Default 128 MB / 90 s — same as production. Matters here only insofar
+        // as entries must not be evicted between the two fetches in each test.
+        Arc::new(FlagDefinitionsCache::new(None, None))
+    }
+
+    /// End-to-end Arc sharing: two `get_flags_from_cache_or_pg` calls for the
+    /// same team, against identical hypercache content, must return the same
+    /// `Arc<PreparedFlagDefinitions>`. Regressions here (e.g. a stray clone in
+    /// FlagService or a fingerprint that shifts between calls) would restore
+    /// per-request regex compilation without failing any existing test.
+    #[tokio::test]
+    async fn test_flag_service_cache_hit_reuses_arc() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("insert team");
+
+        let mock_flags = single_regex_flag_wrapper(team.id, r"^user@.*\.com$");
+        update_flags_in_hypercache(redis_client.clone(), team.id, &mock_flags, None)
+            .await
+            .expect("write hypercache");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            setup_team_hypercache_reader(redis_client.clone()).await,
+            setup_hypercache_reader(redis_client.clone()).await,
+            real_cache(),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let first = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("first fetch");
+        let second = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("second fetch");
+
+        assert!(
+            Arc::ptr_eq(&first.prepared, &second.prepared),
+            "second fetch must return the cached Arc, not recompile"
+        );
+        // The cached path must produce compiled regex — otherwise evaluation
+        // falls back to on-the-fly compilation and the caching is useless.
+        let re = &first.prepared.flags[0].filters.groups[0]
+            .properties
+            .as_ref()
+            .unwrap()[0]
+            .compiled_regex;
+        assert!(
+            matches!(
+                re,
+                Some(crate::properties::property_models::CompiledRegex::Compiled(
+                    _
+                ))
+            ),
+            "cached flag must carry a compiled regex, got {re:?}"
+        );
+    }
+
+    /// A hypercache rewrite with different content must produce a fresh Arc
+    /// (fingerprint invalidation works across the pickle+JSON round-trip).
+    /// Guards against a fingerprint computed over something more abstract than
+    /// the actual flag content — e.g. only over flag IDs.
+    #[tokio::test]
+    async fn test_flag_service_content_change_invalidates_cache() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("insert team");
+
+        update_flags_in_hypercache(
+            redis_client.clone(),
+            team.id,
+            &single_regex_flag_wrapper(team.id, r"^v1@.*$"),
+            None,
+        )
+        .await
+        .expect("write v1");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            setup_team_hypercache_reader(redis_client.clone()).await,
+            setup_hypercache_reader(redis_client.clone()).await,
+            real_cache(),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let v1 = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("v1 fetch");
+
+        // Rewrite the same flag id with a different regex pattern.
+        update_flags_in_hypercache(
+            redis_client.clone(),
+            team.id,
+            &single_regex_flag_wrapper(team.id, r"^v2@.*$"),
+            None,
+        )
+        .await
+        .expect("write v2");
+
+        let v2 = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("v2 fetch");
+
+        assert!(
+            !Arc::ptr_eq(&v1.prepared, &v2.prepared),
+            "content change must produce a new Arc (fingerprint must shift)"
+        );
+        let re_v2 = &v2.prepared.flags[0].filters.groups[0]
+            .properties
+            .as_ref()
+            .unwrap()[0]
+            .compiled_regex;
+        match re_v2 {
+            Some(crate::properties::property_models::CompiledRegex::Compiled(r)) => {
+                assert_eq!(
+                    r.as_str(),
+                    r"^v2@.*$",
+                    "v2 fetch must carry the v2 pattern, not a stale compile"
+                );
+            }
+            other => panic!("expected compiled v2 regex, got {other:?}"),
+        }
+    }
+
+    /// Fingerprint stability across the Django-path round-trip: write, fetch,
+    /// rewrite byte-identical content, fetch again — must return the same Arc.
+    /// This is the real guarantee we lean on when recommending caching (no
+    /// spurious cache misses from serializer quirks); without it the
+    /// fingerprint could shift on every Django cache refresh and the cache
+    /// would effectively always miss.
+    #[tokio::test]
+    async fn test_fingerprint_round_trips_through_hypercache_encoding() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("insert team");
+
+        let flags = single_regex_flag_wrapper(team.id, r"^user@.*\.com$");
+
+        // First write + fetch.
+        update_flags_in_hypercache(redis_client.clone(), team.id, &flags, None)
+            .await
+            .expect("write #1");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            setup_team_hypercache_reader(redis_client.clone()).await,
+            setup_hypercache_reader(redis_client.clone()).await,
+            real_cache(),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let first = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("first fetch");
+
+        // Rewrite identical content. This exercises a fresh pickle+JSON path
+        // producing bytes that — when deserialized — must fingerprint equal
+        // to the previous wrapper.
+        update_flags_in_hypercache(redis_client.clone(), team.id, &flags, None)
+            .await
+            .expect("write #2");
+
+        let second = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("second fetch after identical rewrite");
+
+        assert!(
+            Arc::ptr_eq(&first.prepared, &second.prepared),
+            "identical content re-written through pickle+JSON must fingerprint equal"
+        );
+    }
 }

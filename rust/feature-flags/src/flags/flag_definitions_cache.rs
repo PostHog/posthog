@@ -199,6 +199,14 @@ impl<H: Hasher> io::Write for HashWriter<H> {
 /// inner values. No other collection in the serialized types has
 /// non-deterministic ordering.
 ///
+/// Numeric stability: `PropertyFilter.value` is `serde_json::Value`. serde_json
+/// preserves the originating numeric type (integer vs float) through
+/// deserialize, so `{"value": 5}` and `{"value": 5.0}` fingerprint differently.
+/// This is load-bearing only if the cache writer (Django today) ever flips
+/// representation for the same semantic value; Django's `json.dumps` is stable
+/// on this. `test_fingerprint_round_trips_through_hypercache_encoding` pins the
+/// Django-path round-trip (pickle → JSON → serde_json::Value → re-serialize).
+///
 /// xxhash3-64 is non-cryptographic but collision-resistant enough for this use
 /// case (birthday bound ~2^32 distinct entries); we only need equality on
 /// identical content, not adversarial resistance.
@@ -220,10 +228,10 @@ fn fingerprint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flags::flag_models::{
-        EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
-    };
-    use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
+    use crate::flags::flag_models::{EvaluationMetadata, FeatureFlag};
+    use crate::mock;
+    use crate::properties::property_models::{OperatorType, PropertyFilter};
+    use crate::utils::mock::MockInto;
     use serde_json::json;
 
     fn make_test_wrapper(flags: Vec<FeatureFlag>) -> HypercacheFlagsWrapper {
@@ -236,28 +244,17 @@ mod tests {
     }
 
     fn make_flag_with_regex(id: i32, pattern: &str) -> FeatureFlag {
-        FeatureFlag {
-            id,
-            team_id: 1,
-            name: Some(format!("Flag {id}")),
+        mock!(FeatureFlag,
+            id: id,
+            name: format!("Flag {id}").mock_into(),
             key: format!("flag_{id}"),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: Some(json!(pattern)),
-                        operator: Some(OperatorType::Regex),
-                        prop_type: PropertyType::Person,
-                        ..Default::default()
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-            active: true,
-            ..Default::default()
-        }
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!(pattern)),
+                operator: Some(OperatorType::Regex),
+            )
+            .mock_into(),
+        )
     }
 
     #[tokio::test]
@@ -543,27 +540,17 @@ mod tests {
     /// its configured capacity for teams with large cohort-in-flag filters.
     #[test]
     fn test_weigher_accounts_for_property_value_json() {
-        let make_flag = |value: serde_json::Value| FeatureFlag {
-            id: 1,
-            team_id: 1,
-            name: None,
-            key: "k".into(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "prop".into(),
-                        value: Some(value),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: PropertyType::Person,
-                        ..Default::default()
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-            active: true,
-            ..Default::default()
+        let make_flag = |value: serde_json::Value| {
+            mock!(FeatureFlag,
+                name: None,
+                key: "k".mock_into(),
+                filters: mock!(PropertyFilter,
+                    key: "prop".mock_into(),
+                    value: Some(value),
+                    operator: Some(OperatorType::Exact),
+                )
+                .mock_into(),
+            )
         };
         let small = Arc::new(PreparedFlagDefinitions {
             flags: Arc::from([make_flag(json!("x"))]),
