@@ -5,7 +5,7 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 
 const buttonVariants = cva(
-    "group/button cursor-pointer inline-flex shrink-0 items-center justify-center rounded-sm border border-transparent bg-clip-padding text-xs/relaxed font-medium whitespace-nowrap outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 -focus-visible:ring-offset-2 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 not-disabled:active:translate-y-px [&_kbd]:-mr-1 has-data-[slot=dot]:ps-1.5",
+    "group/button cursor-pointer inline-flex shrink-0 items-center justify-center rounded-sm border border-transparent bg-clip-padding text-xs/relaxed font-medium whitespace-nowrap outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 not-disabled:active:translate-y-px [&_kbd]:-mr-1 has-data-[slot=dot]:ps-1.5",
     {
         variants: {
             variant: {
