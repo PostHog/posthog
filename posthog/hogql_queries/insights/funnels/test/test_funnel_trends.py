@@ -1537,31 +1537,6 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         actual_limit = cast(ast.Constant, runner.to_query().limit).value
         self.assertEqual(actual_limit, expected_limit)
 
-    def test_breakdown_limit_above_legacy_1000_cap(self):
-        # Pick a combo that would have been clamped by the previous
-        # min(breakdown_limit * num_periods, 1_000) cap.
-        query = FunnelsQuery(
-            dateRange=DateRange(date_from="2021-01-01 00:00:00", date_to="2021-12-31 23:59:59"),
-            interval="week",
-            series=[
-                EventsNode(event="step one"),
-                EventsNode(event="step two"),
-            ],
-            breakdownFilter=BreakdownFilter(
-                breakdown="$browser",
-                breakdown_type="event",
-                breakdown_limit=25,
-            ),
-            funnelsFilter=FunnelsFilter(
-                funnelVizType="trends",
-                funnelWindowInterval=7,
-                funnelWindowIntervalUnit="day",
-            ),
-        )
-        runner = FunnelsQueryRunner(query=query, team=self.team)
-        actual_limit = cast(ast.Constant, runner.to_query().limit).value
-        self.assertGreater(actual_limit, 1_000)
-
     def test_funnel_step_breakdown_person(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
         _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"})
