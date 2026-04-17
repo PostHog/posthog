@@ -51,10 +51,18 @@ macro_rules! delegate {
 }
 
 impl ResolveTask {
-    pub fn task_id(&self) -> u64 { delegate!(self, task_id) }
-    pub fn team_id(&self) -> i32 { delegate!(self, team_id) }
-    pub fn task_type_label(&self) -> &'static str { delegate!(self, task_type_label) }
-    pub fn routing_ref(&self) -> Option<&str> { delegate!(self, routing_ref) }
+    pub fn task_id(&self) -> u64 {
+        delegate!(self, task_id)
+    }
+    pub fn team_id(&self) -> i32 {
+        delegate!(self, team_id)
+    }
+    pub fn task_type_label(&self) -> &'static str {
+        delegate!(self, task_type_label)
+    }
+    pub fn routing_ref(&self) -> Option<&str> {
+        delegate!(self, routing_ref)
+    }
 
     pub async fn execute(
         &self,

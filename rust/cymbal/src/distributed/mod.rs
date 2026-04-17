@@ -134,10 +134,9 @@ impl DistributedContext {
     }
 
     async fn resolve_endpoints(&self) -> Result<Vec<String>, RemoteError> {
-        let addrs =
-            tokio::net::lookup_host((self.distributed_headless_host.as_str(), self.port))
-                .await
-                .map_err(RemoteError::DnsError)?;
+        let addrs = tokio::net::lookup_host((self.distributed_headless_host.as_str(), self.port))
+            .await
+            .map_err(RemoteError::DnsError)?;
 
         let mut endpoints: Vec<String> = addrs
             .map(|addr| addr.ip().to_string())

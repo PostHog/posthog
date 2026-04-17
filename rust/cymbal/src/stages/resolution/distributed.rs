@@ -9,10 +9,7 @@ use crate::{
     error::UnhandledError,
     frames::Frame,
     metric_consts::RESOLUTION_STAGE,
-    stages::{
-        pipeline::ExceptionEventPipelineItem,
-        resolution::properties::PropertiesResolver,
-    },
+    stages::{pipeline::ExceptionEventPipelineItem, resolution::properties::PropertiesResolver},
     types::{
         batch::Batch,
         stage::{Stage, StageResult},
