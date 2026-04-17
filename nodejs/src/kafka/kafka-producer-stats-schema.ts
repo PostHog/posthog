@@ -12,27 +12,8 @@ import { z } from 'zod'
  * break the parse.
  */
 
-const windowQuantilesSchema = z
-    .object({
-        p50: z.number().optional(),
-        p90: z.number().optional(),
-        p95: z.number().optional(),
-        p99: z.number().optional(),
-    })
-    .optional()
-
 const brokerStatsSchema = z.object({
     state: z.string().optional(),
-    outbuf_cnt: z.number().optional(),
-    outbuf_msg_cnt: z.number().optional(),
-    waitresp_cnt: z.number().optional(),
-    txerrs: z.number().optional(),
-    txretries: z.number().optional(),
-    req_timeouts: z.number().optional(),
-    disconnects: z.number().optional(),
-    rxerrs: z.number().optional(),
-    rtt: windowQuantilesSchema,
-    throttle: windowQuantilesSchema,
 })
 
 const topicStatsSchema = z.object({
