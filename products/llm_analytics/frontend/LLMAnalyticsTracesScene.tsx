@@ -44,6 +44,12 @@ export function LLMAnalyticsTraces(): JSX.Element {
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
 
+    const baseContext = useTracesQueryContext()
+    const context: QueryContext<DataTableNode> = {
+        ...baseContext,
+        customActions: <TracesOptionsMenu key="traces-options-menu" />,
+    }
+
     return (
         <div data-attr="llm-trace-table">
             <DataTable
@@ -65,7 +71,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
                         setPropertyFilters(newPropertyFilters)
                     }
                 }}
-                context={useTracesQueryContext()}
+                context={context}
                 uniqueKey="llm-analytics-traces"
             />
         </div>
@@ -118,7 +124,6 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
-        customActions: <TracesOptionsMenu key="traces-options-menu" />,
         columns: {
             id: {
                 title: 'ID',
