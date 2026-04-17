@@ -144,9 +144,13 @@ class MprocsGenerator(ConfigGenerator):
             # Copy config to avoid mutating registry's internal state
             proc_config = proc_config.copy()
 
-            # Remove metadata fields - not mprocs config
-            proc_config.pop("capability", None)
+            # Inject display group from capability when process doesn't declare its own
+            capability = proc_config.pop("capability", None)
             proc_config.pop("ask_skip", None)
+            if "groups" not in proc_config and capability:
+                display_group = resolved.capability_display_groups.get(capability)
+                if display_group:
+                    proc_config["groups"] = display_group
 
             # Set autostart: false for skipped processes
             if name in resolved.skip_autostart:

@@ -559,6 +559,94 @@ class TestInfoProcess:
         assert "hogli dev:explain" in shell
 
 
+class TestDisplayGroupInjection:
+    """Test that display_group on capabilities is injected as groups into generated config."""
+
+    def _make_fixtures(self):
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities={
+                "core_infra": Capability(name="core_infra", description="Core", requires=[]),
+                "celery_workers": Capability(
+                    name="celery_workers",
+                    description="Celery",
+                    requires=["core_infra"],
+                    display_group={"layer": "Processing", "tech": "Python"},
+                ),
+                "event_ingestion": Capability(
+                    name="event_ingestion",
+                    description="Event pipeline",
+                    requires=["core_infra"],
+                ),
+            },
+            intents={
+                "analytics": Intent(
+                    name="analytics",
+                    description="Analytics",
+                    capabilities=["event_ingestion", "celery_workers"],
+                ),
+            },
+            always_required=["backend"],
+        )
+        registry = MockRegistry(
+            {
+                "core_infra": ["docker-compose"],
+                "celery_workers": ["celery-worker"],
+                "event_ingestion": ["nodejs"],
+            }
+        )
+        registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": None}
+        return intent_map, registry
+
+    def test_groups_injected_from_capability(self) -> None:
+        intent_map, registry = self._make_fixtures()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.procs["celery-worker"]["groups"] == {"layer": "Processing", "tech": "Python"}
+
+    def test_no_groups_when_capability_has_no_display_group(self) -> None:
+        intent_map, registry = self._make_fixtures()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert "groups" not in config.procs["nodejs"]
+
+    def test_process_groups_override_capability(self) -> None:
+        intent_map, registry = self._make_fixtures()
+        registry._processes["celery-worker"]["groups"] = {"layer": "Custom", "tech": "Custom"}
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.procs["celery-worker"]["groups"] == {"layer": "Custom", "tech": "Custom"}
+
+    def test_no_groups_for_process_without_capability(self) -> None:
+        intent_map, registry = self._make_fixtures()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert "groups" not in config.procs["backend"]
+
+    def test_capability_display_groups_in_resolved(self) -> None:
+        intent_map, registry = self._make_fixtures()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["analytics"])
+
+        assert "celery_workers" in resolved.capability_display_groups
+        assert resolved.capability_display_groups["celery_workers"] == {"layer": "Processing", "tech": "Python"}
+        assert "event_ingestion" not in resolved.capability_display_groups
+
+    def test_real_intent_map_display_groups(self) -> None:
+        intent_map = load_intent_map()
+        assert intent_map.capabilities["celery_workers"].display_group == {"layer": "Processing", "tech": "Python"}
+        assert intent_map.capabilities["personhog"].display_group == {"layer": "Product services", "tech": "Rust"}
+        assert intent_map.capabilities["event_ingestion"].display_group == {}
+
+
 class TestMprocsGeneratorRegression:
     """Regression tests for generator behavior with the real intent map."""
 

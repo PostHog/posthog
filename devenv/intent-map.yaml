@@ -12,36 +12,46 @@ version: '1.0'
 # Capabilities are stable abstractions over processes
 # - requires: dependencies resolved transitively
 # - docker_profiles: docker compose profiles to activate (see docker-compose.profiles.yml)
+# - display_group: optional {layer, tech} for visual grouping in phrocs sidebar
+#   Processes inherit their capability's display_group; per-process `groups` in
+#   mprocs.yaml overrides this when a capability has multiple implementors with
+#   different groupings.
 # - Processes are NOT listed here - they declare their capability in mprocs.yaml
 capabilities:
     core_infra:
         description: 'Essential infrastructure (docker, postgres, clickhouse)'
         docker_profiles: []
+        display_group: { layer: Infrastructure, tech: Migrations }
 
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Ingestion pipeline, tech: Node }
 
     property_definitions:
         description: 'Track and define event/person properties'
         requires: [event_ingestion]
         docker_profiles: []
+        display_group: { layer: Ingestion pipeline, tech: Rust }
 
     replay_storage:
         description: 'Session replay blob storage and capture'
         requires: [event_ingestion]
         docker_profiles: [replay]
+        display_group: { layer: Ingestion pipeline, tech: Rust }
 
     error_symbolication:
         description: 'Error stack trace symbolication service'
         requires: [event_ingestion]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Rust }
 
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Rust }
 
     coordination:
         description: 'etcd-based coordination for PersonHog and Kafka partition assignment'
@@ -52,41 +62,49 @@ capabilities:
         description: 'Celery background job processing'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Processing, tech: Python }
 
     celery_scheduler:
         description: 'Celery beat scheduler for periodic tasks'
         requires: [celery_workers]
         docker_profiles: []
+        display_group: { layer: Processing, tech: Python }
 
     temporal_workflows:
         description: 'Temporal workflow orchestration'
         requires: [core_infra]
         docker_profiles: [temporal]
+        display_group: { layer: Processing, tech: Python }
 
     recording_rasterizer:
         description: 'Temporal worker that records session replays to video'
         requires: [temporal_workflows]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Other }
 
     dagster_pipelines:
         description: 'Dagster data pipeline orchestration'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Processing, tech: Python }
 
     llm_gateway:
         description: 'LLM gateway for AI features'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Python }
 
     ai_capture:
         description: 'AI event capture service'
         requires: [event_ingestion, llm_gateway]
         docker_profiles: []
+        display_group: { layer: Ingestion pipeline, tech: Rust }
 
     embedding_service:
         description: 'Vector embedding worker for AI features'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Rust }
 
     llm_analytics_sentiment:
         description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
@@ -98,11 +116,13 @@ capabilities:
         description: 'Real-time event streaming'
         requires: [event_ingestion]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Other }
 
     cyclotron:
         description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Processing, tech: Rust }
 
     # Node.js capability groups - control which consumers run to reduce event loop contention
     nodejs_cdp:
@@ -124,16 +144,19 @@ capabilities:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
         docker_profiles: [replay]
+        display_group: { layer: Ingestion pipeline, tech: Node }
 
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
         requires: [event_ingestion]
         docker_profiles: [observability]
+        display_group: { layer: Ingestion pipeline, tech: Node }
 
     nodejs_traces:
         description: 'Node.js Traces - trace ingestion'
         requires: [event_ingestion]
         docker_profiles: [observability]
+        display_group: { layer: Ingestion pipeline, tech: Node }
 
     nodejs_feature_flags:
         description: 'Node.js Feature Flags - evaluation scheduler'
@@ -144,16 +167,19 @@ capabilities:
         description: 'Node.js Error Tracking - exception event ingestion'
         requires: [event_ingestion]
         docker_profiles: []
+        display_group: { layer: Ingestion pipeline, tech: Node }
 
     batch_imports:
         description: 'Batch data import worker'
         requires: [event_ingestion]
         docker_profiles: []
+        display_group: { layer: Ingestion pipeline, tech: Rust }
 
     personhog:
         description: 'PersonHog gRPC service (router + replica + leader) for person data access'
         requires: [core_infra, coordination]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Rust }
 
     observability:
         description: 'OpenTelemetry tracing with Jaeger'
@@ -169,16 +195,19 @@ capabilities:
         description: 'MCP server for AI assistant integration'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Python }
 
     stripe_app:
         description: 'Stripe app for PostHog integration'
         requires: [core_infra]
         docker_profiles: []
+        display_group: { layer: Product services, tech: Python }
 
     stripe_mock:
         description: 'Local Stripe mock API for data warehouse import testing'
         requires: []
         docker_profiles: []
+        display_group: { layer: Product services, tech: Python }
 
     duckgres:
         description: 'Duckgres query server (DuckDB with Postgres wire protocol)'

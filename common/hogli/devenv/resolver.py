@@ -35,6 +35,7 @@ class Capability:
     requires: list[str] = field(default_factory=list)
     docker_profiles: list[str] = field(default_factory=list)
     uv_groups: list[str] = field(default_factory=list)
+    display_group: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -78,6 +79,7 @@ class IntentMap:
                 requires=cap_data.get("requires", []),
                 docker_profiles=cap_data.get("docker_profiles", []),
                 uv_groups=cap_data.get("uv_groups", []),
+                display_group=cap_data.get("display_group", {}),
             )
 
         intents = {}
@@ -109,6 +111,7 @@ class ResolvedEnvironment:
     unit_provenance: dict[str, str] = field(default_factory=dict)  # unit -> reason
     skip_autostart: set[str] = field(default_factory=set)  # units to include but not auto-start
     enable_autostart: set[str] = field(default_factory=set)  # units to enable autostart (override source)
+    capability_display_groups: dict[str, dict[str, str]] = field(default_factory=dict)  # capability -> {layer, tech}
 
     def get_unit_list(self) -> list[str]:
         """Get sorted list of units for consistent output."""
@@ -224,6 +227,9 @@ class IntentResolver:
         if exclude_units:
             overrides_applied["excluded"] = exclude_units
 
+        # 8. Collect display groups from capabilities
+        capability_display_groups = self._capabilities_to_display_groups(expanded_capabilities)
+
         return ResolvedEnvironment(
             units=units,
             capabilities=expanded_capabilities,
@@ -234,6 +240,7 @@ class IntentResolver:
             unit_provenance=unit_provenance,
             skip_autostart=set(skip_autostart),
             enable_autostart=set(enable_autostart),
+            capability_display_groups=capability_display_groups,
         )
 
     def _intents_to_capabilities(self, intents: list[str]) -> set[str]:
@@ -330,6 +337,15 @@ class IntentResolver:
             capability = self.intent_map.capabilities[cap_name]
             groups.update(capability.uv_groups)
 
+        return groups
+
+    def _capabilities_to_display_groups(self, capabilities: set[str]) -> dict[str, dict[str, str]]:
+        """Map capabilities to their display groups for visual grouping in phrocs."""
+        groups: dict[str, dict[str, str]] = {}
+        for cap_name in capabilities:
+            capability = self.intent_map.capabilities[cap_name]
+            if capability.display_group:
+                groups[cap_name] = dict(capability.display_group)
         return groups
 
     def get_available_intents(self) -> list[tuple[str, str]]:
