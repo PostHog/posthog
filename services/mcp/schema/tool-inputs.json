@@ -841,14 +841,6 @@
             },
             "required": ["projectId"]
         },
-        "OrganizationGetAllSchema": {
-            "type": "object",
-            "properties": {}
-        },
-        "OrganizationGetDetailsSchema": {
-            "type": "object",
-            "properties": {}
-        },
         "OrganizationSetActiveSchema": {
             "type": "object",
             "properties": {

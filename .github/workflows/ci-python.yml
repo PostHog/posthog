@@ -66,8 +66,13 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        name: Python code quality (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
 
         steps:
             - uses: actions/checkout@v6
@@ -153,7 +158,8 @@ jobs:
                   mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
+              # Shadow restores the saved cache for apples-to-apples timing.
+              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: .mypy_cache
@@ -176,7 +182,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !matrix.is_shadow
               with:
                   name: junit-results-hogli
                   path: junit-hogli.xml
@@ -188,7 +194,7 @@ jobs:
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !matrix.is_shadow
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml

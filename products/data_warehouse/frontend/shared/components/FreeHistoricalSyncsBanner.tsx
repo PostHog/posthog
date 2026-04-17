@@ -14,24 +14,22 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
     return (
         <>
             <LemonBanner type="info" className="min-h-[auto] my-2">
-                <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm">
-                            Sync all your historical data from any new source for free during the first 7 days (100M
-                            rows limit for the free plan)
-                        </span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-sm">
+                        Sync all your historical data from any new source for free during the first 7 days (100M rows
+                        limit for the free plan)
+                    </span>
 
-                        <LemonButton
-                            type="primary"
-                            size="xsmall"
-                            onClick={() => {
-                                posthog.capture('historical_sync_banner_learn_more_clicked')
-                                setShowModal(true)
-                            }}
-                        >
-                            Learn more
-                        </LemonButton>
-                    </div>
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        onClick={() => {
+                            posthog.capture('historical_sync_banner_learn_more_clicked')
+                            setShowModal(true)
+                        }}
+                    >
+                        Learn more
+                    </LemonButton>
                 </div>
             </LemonBanner>
 

@@ -876,9 +876,23 @@ class BetweenExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class WithFillExpr(Expr):
+    from_value: Optional[Expr] = None
+    to_value: Optional[Expr] = None
+    step_value: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
+class InterpolateExpr(Expr):
+    expr: Expr
+    value: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
+    with_fill: Optional[WithFillExpr] = None
 
     def __post_init__(self):
         if self.order not in ("ASC", "DESC"):
@@ -1135,6 +1149,7 @@ class SelectQuery(Expr):
     group_by: Optional[list[Expr]] = None
     group_by_mode: Optional[str] = None  # None, "all", "grouping_sets", "cube", "rollup"
     order_by: Optional[list[OrderExpr]] = None
+    interpolate: Optional[list[InterpolateExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None

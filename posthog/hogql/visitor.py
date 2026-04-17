@@ -110,6 +110,21 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
+        if node.with_fill is not None:
+            self.visit(node.with_fill)
+
+    def visit_with_fill_expr(self, node: ast.WithFillExpr):
+        if node.from_value is not None:
+            self.visit(node.from_value)
+        if node.to_value is not None:
+            self.visit(node.to_value)
+        if node.step_value is not None:
+            self.visit(node.step_value)
+
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        self.visit(node.expr)
+        if node.value is not None:
+            self.visit(node.value)
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         self.visit(node.tuple)
@@ -226,6 +241,8 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr3)
         for expr4 in node.order_by or []:
             self.visit(expr4)
+        for expr_interp in node.interpolate or []:
+            self.visit(expr_interp)
         self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
@@ -643,6 +660,26 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             order=node.order,
+            with_fill=self.visit(node.with_fill) if node.with_fill is not None else None,
+        )
+
+    def visit_with_fill_expr(self, node: ast.WithFillExpr):
+        return ast.WithFillExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            from_value=self.visit(node.from_value) if node.from_value is not None else None,
+            to_value=self.visit(node.to_value) if node.to_value is not None else None,
+            step_value=self.visit(node.step_value) if node.step_value is not None else None,
+        )
+
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        return ast.InterpolateExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            value=self.visit(node.value) if node.value is not None else None,
         )
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -862,6 +899,7 @@ class CloningVisitor(Visitor[Any]):
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             group_by_mode=node.group_by_mode,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
+            interpolate=[self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
