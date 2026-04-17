@@ -59,6 +59,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
             try {
                 if (response?.status === 403) {
+                    // Guest users should never trigger fire-and-forget endpoints they can't access,
+                    // but if a future component regresses and does, we swallow the 403 handler here
+                    // rather than showing reauth/2FA modals. This is a safety net — the authoritative
+                    // fix is to add an `isGuest` early-return in the offending kea logic.
+                    if (userLogic.findMounted()?.values.user?.is_guest_in_current_project) {
+                        return
+                    }
                     const responseData = await response?.json()
                     if (responseData.code === 'sensitive_action_required_reauth') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
