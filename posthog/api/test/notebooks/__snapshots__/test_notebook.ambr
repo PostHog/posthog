@@ -1199,6 +1199,7 @@
          "posthog_activitylog"."user_id",
          "posthog_activitylog"."was_impersonated",
          "posthog_activitylog"."is_system",
+         "posthog_activitylog"."client",
          "posthog_activitylog"."activity",
          "posthog_activitylog"."item_id",
          "posthog_activitylog"."scope",
