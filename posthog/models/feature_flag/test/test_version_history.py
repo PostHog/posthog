@@ -282,7 +282,6 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
             ("current_version", timedelta(hours=1), 3, 3),
             ("before_creation", timedelta(hours=-1), 1, None),
             ("at_creation", timedelta(0), 1, 1),
-            ("no_version", timedelta(hours=1), None, None),
         ]
     )
     def test_find_version_at_timestamp_boundary(self, _name, offset, flag_version, expected):
@@ -290,15 +289,59 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
         timestamp = flag.created_at + offset if _name != "current_version" else datetime.now(UTC)
         assert find_version_at_timestamp(flag, timestamp, self.team.id) == expected
 
+    def test_find_version_at_timestamp_no_version_raises(self):
+        flag = self._create_flag(version=None)
+        timestamp = datetime.now(UTC)
+        with self.assertRaises(VersionHistoryIncomplete) as cm:
+            find_version_at_timestamp(flag, timestamp, self.team.id)
+        assert f"Flag {flag.id} is missing version metadata" in str(cm.exception)
+
+    def test_find_version_at_timestamp_naive_timestamp_raises(self):
+        flag = self._create_flag(version=1)
+        naive_timestamp = datetime(2024, 1, 1, 12, 0, 0)  # No timezone
+        with self.assertRaises(ValueError) as cm:
+            find_version_at_timestamp(flag, naive_timestamp, self.team.id)
+        assert "timezone-aware" in str(cm.exception)
+
     def test_find_version_at_timestamp_with_updates(self):
+        """Test version lookup between multiple updates to exercise activity log scanning."""
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
         flag = self._create_flag(name="V1", version=1)
 
-        # Simulate an update first
+        # Simulate first update
         self._simulate_update(flag, {"name": ("V1", "V2")})
+        # Fix timestamp for version 2 entries
+        first_update_time = flag.created_at + timedelta(minutes=10)
+        ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            detail__changes__contains=[{"field": "version", "after": 2}],
+        ).update(created_at=first_update_time)
 
-        # Now check version at flag creation time (should be version 1)
+        # Simulate second update
+        self._simulate_update(flag, {"name": ("V2", "V3")})
+        # Fix timestamp for version 3 entries
+        second_update_time = flag.created_at + timedelta(minutes=20)
+        ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            detail__changes__contains=[{"field": "version", "after": 3}],
+        ).update(created_at=second_update_time)
+
+        # Query at creation time (should be version 1)
         version = find_version_at_timestamp(flag, flag.created_at, self.team.id)
         assert version == 1
+
+        # Query at a time between the two updates - should return version 2
+        # This exercises the main activity log scanning path
+        between_updates_time = flag.created_at + timedelta(minutes=15)
+        assert first_update_time < between_updates_time < second_update_time
+
+        version = find_version_at_timestamp(flag, between_updates_time, self.team.id)
+        assert version == 2
 
     def test_reconstruct_flag_at_timestamp_success(self):
         flag = self._create_flag(name="Original", active=True, version=1)
@@ -334,12 +377,24 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
 
     def test_find_version_at_timestamp_skips_entries_without_version(self):
         """Test that entries without version information (like bulk deletes) are skipped."""
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        # Create flag normally without time mocking
         flag = self._create_flag(name="V1", version=1)
 
         # Simulate normal update with version change
+        first_update_time = flag.created_at + timedelta(minutes=10)
         self._simulate_update(flag, {"name": ("V1", "V2")})
+        # Fix the timestamps for version 2 entries
+        ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            detail__changes__contains=[{"field": "version", "after": 2}],
+        ).update(created_at=first_update_time)
 
-        # Simulate a bulk delete activity log entry without version info (like posthog/api/feature_flag.py:2844)
+        # Simulate activity log entry without version info between the two updates
+        activity_without_version_time = flag.created_at + timedelta(minutes=20)
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -347,18 +402,36 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
             was_impersonated=False,
             item_id=flag.id,
             scope="FeatureFlag",
-            activity="deleted",
+            activity="updated",  # Not a delete - just an update without version bump
             detail=Detail(changes=[], name=flag.key),  # Empty changes, no version info
         )
+        # Fix the timestamp for the activity without version
+        ActivityLog.objects.filter(
+            team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id), detail__changes__exact=[]
+        ).update(created_at=activity_without_version_time)
 
-        # Query for version at creation time should still return 1, not be confused by the delete entry
+        # Simulate second normal update with version change - this should be AFTER our query time
+        second_update_time = flag.created_at + timedelta(minutes=30)
+        self._simulate_update(flag, {"name": ("V2", "V3")})
+        # Fix the timestamps for version 3 entries
+        ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            detail__changes__contains=[{"field": "version", "after": 3}],
+        ).update(created_at=second_update_time)
+
+        # Query for version at creation time should return 1
         version = find_version_at_timestamp(flag, flag.created_at, self.team.id)
         assert version == 1
 
-        # Query for version between update and delete should return 2
-
-        between_timestamp = flag.created_at + timedelta(minutes=30)
-        version = find_version_at_timestamp(flag, between_timestamp, self.team.id)
+        # Query at a time between the activity-without-version entry and the second update
+        # Since the activity-without-version entry has no version info, the function should skip it and
+        # find the most recent versioned entry before this time (version 2 from first update)
+        query_time = activity_without_version_time + timedelta(
+            minutes=1
+        )  # After activity-without-version, before second update
+        version = find_version_at_timestamp(flag, query_time, self.team.id)
         assert version == 2
 
     def test_find_version_at_timestamp_soft_deleted_flag(self):

@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
@@ -11,6 +13,12 @@ class VersionNotFound(Exception):
 
 class VersionHistoryIncomplete(Exception):
     pass
+
+
+def _validate_aware_timestamp(timestamp: datetime) -> None:
+    """Validate that the timestamp is timezone-aware to avoid comparison errors."""
+    if not timezone.is_aware(timestamp):
+        raise ValueError("timestamp must be timezone-aware")
 
 
 def _get_reconstructable_fields() -> frozenset[str]:
@@ -183,9 +191,14 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
 
     This ensures historical evaluation treats soft-deleted flags consistently
     with flags that never existed at the given time.
+
+    Raises:
+        VersionHistoryIncomplete: If the flag exists but is missing version metadata.
+        ValueError: If the timestamp is not timezone-aware.
     """
+    _validate_aware_timestamp(timestamp)
     if flag.version is None:
-        return None
+        raise VersionHistoryIncomplete(f"Flag {flag.id} is missing version metadata")
 
     # If timestamp is before flag creation, flag didn't exist
     if timestamp < flag.created_at:
@@ -262,7 +275,7 @@ def reconstruct_flag_at_timestamp(
     Reconstruct a feature flag's state at a given timestamp.
 
     This is a convenience wrapper around find_version_at_timestamp + reconstruct_flag_at_version
-    to avoid duplicating database queries and logic.
+    to avoid duplicating orchestration and reconstruction logic.
     """
     # Find the version that was active at the timestamp
     target_version = find_version_at_timestamp(flag, timestamp, team_id)
