@@ -9,13 +9,22 @@ interface AnomalyChartProps {
 }
 
 export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
-    const { data, dates, anomaly_index } = anomaly.data_snapshot
+    const { data, dates, anomaly_indices } = anomaly.data_snapshot
+    const indices = anomaly_indices ?? []
+    // The most recent anomaly is the last entry (indices are sorted asc).
+    // Drawn bright red and slightly larger so a scanner's eye lands on it
+    // first; older anomalies on the same series are rendered muted for
+    // context without competing for attention.
+    const latestIndex = indices.length ? indices[indices.length - 1] : null
+    const anomalySet = new Set(indices)
 
     const { canvasRef } = useChart({
         getConfig: () => {
             const lineColor = getSeriesColor(0)
             const anomalyColor = getColorVar('danger')
             const pointBorder = getColorVar('color-bg-primary')
+            // Muted shade for past anomalies: same danger hue at ~45% alpha.
+            const pastAnomalyColor = `${anomalyColor}73`
             return {
                 type: 'line' as const,
                 data: {
@@ -25,13 +34,13 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
                             data,
                             borderColor: lineColor,
                             borderWidth: 1.75,
-                            pointRadius: data.map((_, i) => (i === anomaly_index ? 6 : 0)),
+                            pointRadius: data.map((_, i) => (i === latestIndex ? 6 : anomalySet.has(i) ? 4 : 0)),
                             pointBackgroundColor: data.map((_, i) =>
-                                i === anomaly_index ? anomalyColor : 'transparent'
+                                i === latestIndex ? anomalyColor : anomalySet.has(i) ? pastAnomalyColor : 'transparent'
                             ),
-                            pointBorderColor: data.map((_, i) => (i === anomaly_index ? pointBorder : 'transparent')),
-                            pointBorderWidth: data.map((_, i) => (i === anomaly_index ? 2 : 0)),
-                            pointHoverRadius: data.map((_, i) => (i === anomaly_index ? 8 : 3)),
+                            pointBorderColor: data.map((_, i) => (anomalySet.has(i) ? pointBorder : 'transparent')),
+                            pointBorderWidth: data.map((_, i) => (i === latestIndex ? 2 : anomalySet.has(i) ? 1 : 0)),
+                            pointHoverRadius: data.map((_, i) => (i === latestIndex ? 8 : anomalySet.has(i) ? 6 : 3)),
                             fill: {
                                 target: 'origin',
                                 above: `${lineColor}14`, // append alpha ~8% (hex 14)
@@ -60,8 +69,13 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
                                     return dayjs(dates[idx]).format('MMM D, YYYY')
                                 },
                                 label: (item) => {
-                                    const isAnomaly = item.dataIndex === anomaly_index
-                                    const prefix = isAnomaly ? '⚠ anomaly  ' : 'value  '
+                                    const isAnomaly = anomalySet.has(item.dataIndex)
+                                    const isLatest = item.dataIndex === latestIndex
+                                    const prefix = isLatest
+                                        ? '⚠ anomaly (latest)  '
+                                        : isAnomaly
+                                          ? '⚠ anomaly  '
+                                          : 'value  '
                                     return `${prefix}${item.parsed.y}`
                                 },
                             },
@@ -78,7 +92,7 @@ export function AnomalyChart({ anomaly }: AnomalyChartProps): JSX.Element {
                 },
             }
         },
-        deps: [data, anomaly_index, dates],
+        deps: [data, indices.join(','), dates],
     })
 
     return (

@@ -1,4 +1,6 @@
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -49,6 +51,83 @@ WINDOW_DELTAS = {
 }
 
 
+def _timestamp_to_date_key(ts: datetime, interval: str) -> str:
+    """Format a score's timestamp to match the `dates[]` strings in data_snapshot.
+
+    The trends query engine emits `dates[i]` as `"YYYY-MM-DD"` for daily/weekly/
+    monthly series and `"YYYY-MM-DD HH:MM:SS"` for hourly. We re-create that
+    exact format so we can look up a score's position in the sparkline.
+    """
+    ts = ts.astimezone(UTC)
+    if interval == "hour":
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
+    return ts.strftime("%Y-%m-%d")
+
+
+def _build_series_rows(scores: list[AnomalyScore]) -> list[dict[str, Any]]:
+    """Aggregate raw AnomalyScore rows into one entry per (insight, series).
+
+    Each series is represented by its *latest* score (that record's sparkline
+    becomes the chart's data). All anomalous scores for that series whose
+    timestamps fall inside the sparkline's date range are mapped to indices
+    and returned as `data_snapshot.anomaly_indices` (sorted, oldest → newest).
+    Series with zero anomalies in the window are dropped.
+
+    Rows are sorted by max score in the window (descending) so the most
+    anomalous series surfaces first — matching the "sorted by score" UI hint.
+    """
+    grouped: dict[tuple[int, int], list[AnomalyScore]] = defaultdict(list)
+    for score in scores:
+        grouped[(score.insight_id, score.series_index)].append(score)
+
+    rows: list[dict[str, Any]] = []
+    for group in grouped.values():
+        anomalous = [s for s in group if s.is_anomalous]
+        if not anomalous:
+            continue
+
+        latest = max(group, key=lambda s: s.timestamp)
+        max_score = max(s.score for s in anomalous)
+        latest_anomaly = max(anomalous, key=lambda s: s.timestamp)
+
+        snapshot = dict(latest.data_snapshot or {})
+        dates: list[str] = snapshot.get("dates") or []
+        date_index = {d: i for i, d in enumerate(dates)}
+        anomaly_indices: list[int] = []
+        for s in anomalous:
+            key = _timestamp_to_date_key(s.timestamp, s.interval or latest.interval)
+            idx = date_index.get(key)
+            if idx is not None and idx not in anomaly_indices:
+                anomaly_indices.append(idx)
+        anomaly_indices.sort()
+        snapshot["anomaly_indices"] = anomaly_indices
+        # Keep the legacy singular key pointing at the most recent mark so
+        # older clients keep rendering a dot.
+        snapshot["anomaly_index"] = anomaly_indices[-1] if anomaly_indices else None
+
+        insight = latest.insight
+        rows.append(
+            {
+                "id": f"{latest.insight_id}:{latest.series_index}",
+                "insight_id": latest.insight_id,
+                "insight_name": insight.name or insight.derived_name or f"Insight {insight.short_id}",
+                "insight_short_id": insight.short_id,
+                "series_index": latest.series_index,
+                "series_label": latest.series_label,
+                "timestamp": latest_anomaly.timestamp.isoformat(),
+                "score": max_score,
+                "is_anomalous": True,
+                "interval": latest.interval,
+                "data_snapshot": snapshot,
+                "scored_at": latest.scored_at.isoformat(),
+                "anomaly_count": len(anomalous),
+            }
+        )
+
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    return rows
+
+
 class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Anomaly detection scores for time-series insights."""
 
@@ -57,7 +136,9 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet | None = None) -> QuerySet:
         return (
-            AnomalyScore.objects.filter(team_id=self.team_id).select_related("insight").order_by("-score", "-scored_at")
+            AnomalyScore.objects.filter(team_id=self.team_id)
+            .select_related("insight")
+            .order_by("-timestamp", "-scored_at")
         )
 
     @extend_schema(
@@ -95,44 +176,49 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Aggregation is one row per (insight, series) within the window.
+        # We need BOTH anomalous and non-anomalous scores in that window so
+        # the latest score's sparkline covers the full chart context — then
+        # we filter the anomalous ones to produce the marker indices.
         queryset = self.safely_get_queryset()
 
-        # Window filter
         window = request.query_params.get("window", "7d")
         delta = WINDOW_DELTAS.get(window, timedelta(days=7))
         cutoff = datetime.now(UTC) - delta
         queryset = queryset.filter(scored_at__gte=cutoff)
 
-        # Min score filter
-        min_score = request.query_params.get("min_score")
-        if min_score:
-            try:
-                queryset = queryset.filter(score__gte=float(min_score))
-            except (ValueError, TypeError):
-                pass
-
-        # Anomalous only (default true)
-        anomalous_only = request.query_params.get("anomalous_only", "true").lower()
-        if anomalous_only in ("true", "1", "yes"):
-            queryset = queryset.filter(is_anomalous=True)
-
-        # Search
         search = request.query_params.get("search")
         if search:
             queryset = queryset.filter(Q(insight__name__icontains=search) | Q(series_label__icontains=search))
 
-        # Interval filter
         interval = request.query_params.get("interval")
         if interval and interval in ("hour", "day", "week", "month"):
             queryset = queryset.filter(interval=interval)
 
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        # Cap raw rows fetched: with replays enabled a series can easily have
+        # hundreds of scores. We only need enough to find the latest + the
+        # anomalous ones; 5000 covers ~160 series worth of 30d daily replay.
+        scores = list(queryset[:5000])
+        rows = _build_series_rows(scores)
 
-        serializer = self.get_serializer(queryset[:100], many=True)
-        return Response(serializer.data)
+        # Row-level filters that only apply to the aggregated view.
+        min_score = request.query_params.get("min_score")
+        if min_score:
+            try:
+                threshold = float(min_score)
+                rows = [r for r in rows if r["score"] >= threshold]
+            except (ValueError, TypeError):
+                pass
+
+        # `anomalous_only` is implicit — _build_series_rows already drops
+        # series with no anomalies in window. We accept the param for API
+        # compatibility but it no longer changes results.
+
+        page = self.paginate_queryset(rows)
+        if page is not None:
+            return self.get_paginated_response(page)
+
+        return Response(rows[:100])
 
     @action(methods=["POST"], detail=False, url_path="exclude")
     def exclude(self, request: Request, *args, **kwargs) -> Response:

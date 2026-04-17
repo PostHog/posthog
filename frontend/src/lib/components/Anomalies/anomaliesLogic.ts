@@ -88,7 +88,11 @@ export const anomaliesLogic = kea<anomaliesLogicType>([
                 series_label: anomaly.series_label,
                 score: anomaly.score,
                 interval: anomaly.interval,
+                // Feedback targets the most recent anomaly on the series; the
+                // count tells us whether the user is judging a one-off or a
+                // pattern.
                 anomaly_timestamp: anomaly.timestamp,
+                anomaly_count: anomaly.anomaly_count,
                 scored_at: anomaly.scored_at,
             })
         },

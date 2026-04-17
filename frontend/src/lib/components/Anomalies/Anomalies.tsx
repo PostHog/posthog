@@ -94,6 +94,11 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyScoreType }): JSX.Element {
                     <LemonTag type="muted" size="small">
                         {intervalLabel(anomaly.interval)}
                     </LemonTag>
+                    {anomaly.anomaly_count > 1 && (
+                        <LemonTag type="danger" size="small" title={`${anomaly.anomaly_count} anomalies in window`}>
+                            ×{anomaly.anomaly_count}
+                        </LemonTag>
+                    )}
                     {anomaly.timestamp && (
                         <span className="ml-auto font-mono text-[10px] font-semibold tabular-nums text-danger">
                             {dayjs(anomaly.timestamp).format('MMM D')}
@@ -191,9 +196,9 @@ export function Anomalies(): JSX.Element {
                 <div className="ml-auto flex items-center gap-1 text-xs text-muted">
                     <IconSparkles className="text-warning" />
                     <span className="font-mono tabular-nums">{filteredAnomalies.length}</span>
-                    <span>anomal{filteredAnomalies.length === 1 ? 'y' : 'ies'}</span>
+                    <span>series</span>
                     <span className="text-border-bold">·</span>
-                    <span>sorted by score</span>
+                    <span>sorted by top score</span>
                 </div>
             </div>
 
