@@ -23,7 +23,7 @@ from products.tasks.backend.services.mts_example.schemas import CursedItemCandid
 
 logger = logging.getLogger(__name__)
 
-MAX_CURSED_ITEMS = 20
+MAX_CURSED_ITEMS = 10
 
 # Shape mirrors what Signals consumes: findings + actionability + (priority | None) + presentation.
 CursedResearchResult = tuple[

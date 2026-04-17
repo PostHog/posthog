@@ -13,7 +13,7 @@ Minimal working example of a **custom research agent** on top of `MultiTurnSessi
 Finds cursed identifiers and stale comments in `PostHog/posthog`, researches each (git blame + required PostHog MCP lookup), emits the Signals shape.
 
 ```text
-discovery → research ×N (up to 20) → actionability → priority? → presentation
+discovery → research ×N (up to 10) → actionability → priority? → presentation
 ```
 
 ## Output shape

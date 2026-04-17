@@ -26,6 +26,6 @@ class CursedItem(BaseModel):
 
 class CursedItemCandidates(BaseModel):
     items: list[CursedItem] = Field(
-        max_length=20,
-        description="Up to 20 cursed items, ordered most-cursed first.",
+        max_length=10,
+        description="Up to 10 cursed items, ordered most-cursed first.",
     )
