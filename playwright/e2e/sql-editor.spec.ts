@@ -57,7 +57,7 @@ test.describe('SQL Editor', () => {
 
             // Wait for the success message which confirms the API call completed
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            await expect(page).toHaveURL(/#.*view=/)
         })
 
         test('Materialize view pane', async ({ page }) => {

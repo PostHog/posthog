@@ -342,11 +342,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 require_ssl=require_ssl,
             )
             try:
+                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
                 return validate_cdc_prerequisites(
                     conn=conn,
                     management_mode=management_mode,  # type: ignore[arg-type]
                     tables=tables,
-                    schema=config.schema,
+                    schema=schema,
                     slot_name=slot_name,
                     publication_name=publication_name,
                 )
