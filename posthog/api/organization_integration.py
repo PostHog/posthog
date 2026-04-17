@@ -72,7 +72,7 @@ class OrganizationIntegrationViewSet(
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
         is_marketplace = instance.config.get("type") != "connectable"
 
-        if is_marketplace:
+        if is_marketplace and instance.integration_id:
             try:
                 from ee.vercel.integration import VercelIntegration
 

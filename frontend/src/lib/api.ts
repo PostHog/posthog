@@ -1582,6 +1582,10 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('integrations')
     }
 
+    public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
+        return this.organizationIntegrations().addPathComponent(id)
+    }
+
     // # Organization OAuth Applications
     public organizationOAuthApplications(): ApiRequest {
         return this.organizations().current().addPathComponent('oauth_applications')
@@ -5638,7 +5642,7 @@ const api = {
             return await new ApiRequest().organizationIntegrations().get()
         },
         async delete(id: IntegrationType['id']): Promise<void> {
-            await new ApiRequest().organizationIntegrations().addPathComponent(`${id}`).delete()
+            await new ApiRequest().organizationIntegrationsDetail(id).delete()
         },
     },
 
