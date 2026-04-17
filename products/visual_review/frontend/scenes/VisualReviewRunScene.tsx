@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -33,11 +34,13 @@ function SnapshotThumbnail({
     const parts = snapshot.identifier.split('--')
     const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
 
+    const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
+
     return (
         <button
             type="button"
             onClick={onClick}
-            className="flex flex-col items-center gap-1 shrink-0 rounded p-1.5 transition-colors"
+            className="relative flex flex-col items-center gap-1 shrink-0 rounded overflow-hidden p-1.5 transition-colors"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 background: isSelected ? 'var(--primary-3000-button-bg)' : 'transparent',
@@ -46,6 +49,20 @@ function SnapshotThumbnail({
                 boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
             }}
         >
+            {isReviewed && (
+                <>
+                    <span
+                        className={`absolute top-0 right-0 w-6 h-6 z-10 ${
+                            snapshot.review_state === 'approved' ? 'bg-success' : 'bg-muted'
+                        }`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
+                    />
+                    <span className="absolute top-[3px] right-[2px] z-10 text-white text-[9px] leading-none font-bold">
+                        {snapshot.review_state === 'approved' ? '✓' : '~'}
+                    </span>
+                </>
+            )}
             <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
                 {snapshot.current_artifact?.download_url ? (
                     <img src={snapshot.current_artifact.download_url} alt="" className="w-full h-full object-contain" />
@@ -58,7 +75,7 @@ function SnapshotThumbnail({
             <div className="flex items-center gap-1 max-w-[108px]">
                 <SnapshotStatusIndicator
                     result={snapshot.result || 'unchanged'}
-                    reviewState={snapshot.review_state}
+                    reviewState=""
                     classificationReason={snapshot.classification_reason}
                     compact
                 />
@@ -153,13 +170,26 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved && (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                    !run.approved &&
+                    !run.is_stale &&
+                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
                         <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
                             {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
                         </LemonButton>
                     ) : undefined
                 }
             />
+
+            {run.is_stale && (
+                <LemonBanner type="warning" className="mb-4">
+                    This run has been superseded by a newer run.{' '}
+                    {run.superseded_by_id && (
+                        <Link to={`/visual_review/runs/${run.superseded_by_id}`} className="font-semibold">
+                            View latest run
+                        </Link>
+                    )}
+                </LemonBanner>
+            )}
 
             {/* Snapshots panel — thumbnail strip as nav, diff viewer as body */}
             <div className="border rounded-lg overflow-hidden">
@@ -196,7 +226,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                     </span>
                                 ),
                                 diffNew > 0 && (
-                                    <span key="new" className="text-primary-dark">
+                                    <span key="new" className="text-success">
                                         {diffNew} added
                                     </span>
                                 ),
@@ -246,6 +276,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
+                            runType={run.run_type}
                         />
                     ) : snapshotsLoading ? (
                         <div className="space-y-3 py-4">

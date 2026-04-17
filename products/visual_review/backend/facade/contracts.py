@@ -178,6 +178,7 @@ class Run:
     created_at: datetime
     completed_at: datetime | None
     is_stale: bool = False
+    superseded_by_id: UUID | None = None
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 

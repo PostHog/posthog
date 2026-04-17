@@ -92,6 +92,7 @@ def _to_run(run) -> contracts.Run:
         created_at=run.created_at,
         completed_at=run.completed_at,
         is_stale=logic.is_run_stale(run),
+        superseded_by_id=run.superseded_by_id,
         metadata=run.metadata or {},
     )
 

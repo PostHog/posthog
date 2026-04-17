@@ -24,6 +24,7 @@ interface SnapshotDiffViewerProps {
     commitSha?: string
     prNumber?: number | null
     repoFullName?: string | null
+    runType?: string
 }
 
 export function SnapshotDiffViewer({
@@ -43,6 +44,7 @@ export function SnapshotDiffViewer({
     commitSha,
     prNumber,
     repoFullName,
+    runType,
 }: SnapshotDiffViewerProps): JSX.Element {
     const baselineUrl = snapshot.baseline_artifact?.download_url
     const currentUrl = snapshot.current_artifact?.download_url
@@ -153,8 +155,16 @@ export function SnapshotDiffViewer({
             {/* Right sidebar — flat, no nested cards */}
             <div className="w-52 shrink-0 border-l pl-4 space-y-4">
                 {/* Run context */}
-                {(commitSha || prNumber) && (
+                {(runType || commitSha || prNumber) && (
                     <div className="space-y-2">
+                        {runType && (
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted">Type</span>
+                                <LemonTag type="muted" size="small" className="uppercase">
+                                    {runType}
+                                </LemonTag>
+                            </div>
+                        )}
                         {commitSha && (
                             <div className="flex items-center justify-between text-xs">
                                 <span className="text-muted">Commit</span>
@@ -205,7 +215,7 @@ export function SnapshotDiffViewer({
                     {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-muted">Diff</span>
-                            <span className="font-mono">{snapshot.diff_percentage}%</span>
+                            <span className="font-mono">{Number(snapshot.diff_percentage.toFixed(2))}%</span>
                         </div>
                     )}
                     {snapshot.baseline_artifact?.content_hash && (
@@ -247,20 +257,7 @@ export function SnapshotDiffViewer({
                             {snapshotHistory.map((entry) => (
                                 <div key={entry.run_id} className="flex items-center justify-between text-xs">
                                     <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
-                                    <LemonTag
-                                        type={
-                                            entry.result === 'changed'
-                                                ? 'warning'
-                                                : entry.result === 'new'
-                                                  ? 'highlight'
-                                                  : entry.result === 'removed'
-                                                    ? 'danger'
-                                                    : 'muted'
-                                        }
-                                        size="small"
-                                    >
-                                        {entry.result}
-                                    </LemonTag>
+                                    <SnapshotStatusIndicator result={entry.result} reviewState="" size="medium" />
                                 </div>
                             ))}
                         </div>
