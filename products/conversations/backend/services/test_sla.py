@@ -449,3 +449,16 @@ class TestReturnsUtc(SimpleTestCase):
             business_hours={"days": WEEKDAYS_ONLY, "time": ["09:00", "17:00"], "timezone": "Europe/Berlin"},
         )
         self.assertEqual(result.utcoffset(), timedelta(0))
+
+
+class TestIterationCap(SimpleTestCase):
+    def test_extreme_amount_raises_value_error(self):
+        """Single working day + huge amount must raise ValueError, not RuntimeError,
+        so the API serializer layer returns 400 instead of 500."""
+        with self.assertRaises(ValueError):
+            compute_sla_deadline(
+                now=_dt(2026, 1, 5, 10, 0),
+                amount=3000,
+                unit="hour",
+                business_hours={"days": ["monday"], "time": ["09:00", "17:00"], "timezone": "UTC"},
+            )

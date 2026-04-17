@@ -221,4 +221,6 @@ def compute_sla_deadline(
         next_day = cursor_wall + timedelta(days=1)
         cursor_wall = next_day.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
 
-    raise RuntimeError("compute_sla_deadline: exceeded iteration cap — invalid business-hours config?")
+    raise ValueError(
+        f"SLA amount is too large for the configured business hours (exceeded {_MAX_DAY_ITERATIONS}-day walk cap)"
+    )

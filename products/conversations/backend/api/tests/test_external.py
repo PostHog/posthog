@@ -240,12 +240,12 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_patch_sla_amount_calendar_hours(self):
+        from datetime import UTC, datetime
+
         from unittest.mock import patch
 
-        from django.utils import timezone
-
         # 2026-01-05 10:00 UTC is a Monday.
-        frozen_now = timezone.datetime(2026, 1, 5, 10, 0, tzinfo=timezone.utc)
+        frozen_now = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
         with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
             response = self.client.patch(
                 self.url,
@@ -259,11 +259,11 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-05T14:00:00+00:00")
 
     def test_patch_sla_amount_business_hours(self):
+        from datetime import UTC, datetime
+
         from unittest.mock import patch
 
-        from django.utils import timezone
-
-        frozen_now = timezone.datetime(2026, 1, 8, 16, 0, tzinfo=timezone.utc)  # Thursday 16:00 UTC
+        frozen_now = datetime(2026, 1, 8, 16, 0, tzinfo=UTC)  # Thursday 16:00 UTC
         with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
             response = self.client.patch(
                 self.url,
