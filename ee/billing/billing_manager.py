@@ -225,6 +225,8 @@ class BillingManager:
         try:
             distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
 
+            # nosemgrep: organization-membership-regular-manager
+            # Billing lookup needs the specific owner membership (level=15); guests cannot be owners anyway.
             first_owner_membership = (
                 OrganizationMembership.objects.filter(organization=organization, level=15)
                 .order_by("-joined_at")

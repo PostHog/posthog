@@ -145,6 +145,8 @@ class TeamManager(models.Manager):
         # For large orgs, dispatch async to avoid request timeouts
         from posthog.tasks.tasks import sync_user_product_lists_for_new_team
 
+        # nosemgrep: organization-membership-regular-manager
+        # Threshold check needs the full membership count (guests included) to avoid under-counting large orgs.
         user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
         if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
             sync_user_product_lists_for_new_team.delay(team.id)
@@ -1018,6 +1020,9 @@ class Team(UUIDTClassicModel):
 
         if not team_is_private:
             # If team is not private, all organization members have access
+            # nosemgrep: organization-membership-regular-manager
+            # Guests are included: for non-private teams, access is granted via GuestResourceGrant
+            # and they still appear in the UserProductList to see their granted resources.
             user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
                 "user_id", flat=True
             )

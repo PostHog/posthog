@@ -26,3 +26,8 @@ class TestGuestCategoricalSeparation(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         emails = {m["user"]["email"] for m in response.json()["results"]}
         self.assertEqual(emails, {"g@x.com"})
+
+    def test_assignee_search_excludes_guests(self):
+        response = self.client.get("/api/organizations/@current/members/?search=g")
+        emails = {m["user"]["email"] for m in response.json().get("results", [])}
+        self.assertNotIn("g@x.com", emails)

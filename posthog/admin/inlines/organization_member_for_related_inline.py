@@ -35,6 +35,8 @@ class _OrganizationMemberFormSet(PaginationFormSetBase, BaseInlineFormSet):
         # Django's admin template reads formset.save_as_new.
         self.save_as_new = save_as_new
         if instance and hasattr(instance, "organization_id"):
+            # nosemgrep: organization-membership-regular-manager
+            # Admin inline intentionally shows all members including guests for full visibility.
             qs = (
                 OrganizationMembership.objects.filter(organization_id=instance.organization_id)
                 .select_related("user")

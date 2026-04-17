@@ -473,6 +473,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             BillingManager(get_cached_instance_license(), self).update_billing_organization_users(organization)
 
     def get_analytics_metadata(self):
+        # nosemgrep: organization-membership-regular-manager
+        # Analytics metadata counts every membership including guests; changing billing semantics is a follow-up.
         team_member_count_all: int = (
             OrganizationMembership.objects.filter(organization__in=self.organizations.all())
             .values("user_id")

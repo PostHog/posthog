@@ -44,7 +44,7 @@ def query_org_teams(organization: Organization) -> QuerySet:
 
 def query_org_members(organization: Organization) -> QuerySet:
     return (
-        OrganizationMembership.objects.filter(organization_id=organization.id)
+        OrganizationMembership.regular.filter(organization_id=organization.id)
         .select_related("user")
         .only("id", "user__distinct_id", "user__first_name", "user__email")
     ).order_by("id")

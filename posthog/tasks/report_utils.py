@@ -24,6 +24,8 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     ).first()
     if not membership:
         # If no owner membership is present, pick the first membership association we can find
+        # nosemgrep: organization-membership-regular-manager
+        # Fallback to any membership (including guests) to find a report recipient when no owner exists.
         membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
     if hasattr(membership, "user"):
         membership = cast(OrganizationMembership, membership)
