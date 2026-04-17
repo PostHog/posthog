@@ -22,7 +22,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
 from posthog.models.person.person import get_distinct_ids_for_subquery
-from posthog.models.person.util import get_person_by_pk_or_uuid
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
 COLUMN_COMMENT_SEPARATOR = " -- "
@@ -113,6 +113,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         needs_person_join = self._needs_person_join()
+        needs_person_enrichment = self._needs_person_enrichment()
         select_input: list[str] = []
         for col in self.select_input_raw():
             col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
@@ -127,7 +128,12 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 )
                 select_input.append(f"tuple({', '.join(fields)})")
             elif col_name == "person_display_name":
-                select_input.append(self._build_person_display_name_expr())
+                if needs_person_enrichment:
+                    # Skip the expensive SQL person join — fetch distinct_id now,
+                    # enrich with person data from Postgres post-query.
+                    select_input.append("distinct_id")
+                else:
+                    select_input.append(self._build_person_display_name_expr())
             elif col_name.startswith("person.properties."):
                 select_input.append(self._transform_person_property_col(col))
             elif col_name.startswith("session."):
@@ -140,20 +146,38 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         ]
 
     def _needs_person_join(self) -> bool:
-        """Check if any selected column, orderBy, or filter requires person join."""
+        """Check if filters, orderBy, or person.properties columns require the SQL person join.
+
+        person_display_name in SELECT alone does NOT trigger the join — it's
+        resolved via post-query Postgres enrichment instead, avoiding the
+        expensive full-table person_distinct_id2 + person scans.
+        """
+        # person.properties.X in SELECT requires the join (can't enrich arbitrary properties post-query easily)
         for col in self.select_input_raw():
             col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
-            if col_name == "person_display_name" or col_name.startswith("person.properties."):
+            if col_name.startswith("person.properties."):
                 return True
+        # person columns in orderBy require the join (sort must happen in SQL)
         if self.query.orderBy:
             for col in self.query.orderBy:
                 col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
                 if col_name == "person_display_name" or col_name.startswith("person.properties."):
                     return True
+        # person property filters require the join
         if self.query.properties:
             for prop in self.query.properties:
                 if hasattr(prop, "type") and prop.type == "person":
                     return True
+        return False
+
+    def _needs_person_enrichment(self) -> bool:
+        """Check if person_display_name is in SELECT but the SQL join is NOT being used."""
+        if self._needs_person_join():
+            return False
+        for col in self.select_input_raw():
+            col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
+            if col_name == "person_display_name":
+                return True
         return False
 
     def _transform_person_property_col(self, col: str) -> str:
@@ -586,17 +610,21 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     new_result = dict(zip(SELECT_STAR_FROM_SESSIONS_FIELDS, select))
                     self.paginator.results[index][star_idx] = new_result
 
-        # Convert person_display_name tuple to dict
+        # Convert person_display_name to dict — either from SQL tuple or post-query enrichment
         for column_index, col in enumerate(self.select_input_raw()):
             if col.split(COLUMN_COMMENT_SEPARATOR)[0].strip() == "person_display_name":
-                for index, result in enumerate(self.paginator.results):
-                    row = list(self.paginator.results[index])
-                    row[column_index] = {
-                        "display_name": result[column_index][0],
-                        "id": str(result[column_index][1]),
-                        "distinct_id": str(result[column_index][2]),
-                    }
-                    self.paginator.results[index] = row
+                if self._needs_person_enrichment():
+                    self._enrich_person_display_name(column_index)
+                else:
+                    # SQL join returned a (display_name, person_id, distinct_id) tuple
+                    for index, result in enumerate(self.paginator.results):
+                        row = list(self.paginator.results[index])
+                        row[column_index] = {
+                            "display_name": result[column_index][0],
+                            "id": str(result[column_index][1]),
+                            "distinct_id": str(result[column_index][2]),
+                        }
+                        self.paginator.results[index] = row
 
         return SessionsQueryResponse(
             results=self.paginator.results,
@@ -607,6 +635,50 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def _enrich_person_display_name(self, column_index: int) -> None:
+        """Batch-fetch person data from Postgres for the result rows and build
+        person_display_name dicts. Called when the SQL query skipped the person
+        join and returned distinct_id in the person_display_name slot instead."""
+        if not self.paginator.results:
+            return
+
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        distinct_ids = list({row[column_index] for row in self.paginator.results if row[column_index]})
+
+        distinct_to_person: dict[str, Person] = {}
+        for i in range(0, len(distinct_ids), 1000):
+            batch = distinct_ids[i : i + 1000]
+            requested = set(batch)
+            for person in get_persons_by_distinct_ids(self.team.pk, batch):
+                if person:
+                    for pid in person.distinct_ids:
+                        if pid in requested:
+                            distinct_to_person[pid] = person
+
+        for index, result in enumerate(self.paginator.results):
+            row = list(result)
+            distinct_id = row[column_index]
+            person = distinct_to_person.get(distinct_id)
+            if person:
+                display_name = None
+                for key in property_keys:
+                    val = (person.properties or {}).get(key)
+                    if val:
+                        display_name = str(val)
+                        break
+                row[column_index] = {
+                    "display_name": display_name or distinct_id,
+                    "id": str(person.uuid),
+                    "distinct_id": distinct_id,
+                }
+            else:
+                row[column_index] = {
+                    "display_name": distinct_id,
+                    "id": "",
+                    "distinct_id": distinct_id,
+                }
+            self.paginator.results[index] = row
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         if dashboard_filter.date_to or dashboard_filter.date_from:
