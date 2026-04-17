@@ -1625,9 +1625,18 @@ export const ShortcutPositionEnumApi = {
     Hidden: 'hidden',
 } as const
 
-export type UserApiNotificationSettings = { [key: string]: unknown }
+/**
+ * Shape of each item in UserSerializer.pending_invites.
+ */
+export interface PendingInviteApi {
+    id: string
+    target_email: string
+    organization_id: string
+    organization_name: string
+    created_at: string
+}
 
-export type UserApiPendingInvitesItem = { [key: string]: unknown }
+export type UserApiNotificationSettings = { [key: string]: unknown }
 
 export interface UserApi {
     readonly date_joined: string
@@ -1687,8 +1696,7 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
-    /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
-    readonly pending_invites: readonly UserApiPendingInvitesItem[]
+    readonly pending_invites: readonly PendingInviteApi[]
 }
 
 export interface PaginatedUserListApi {
@@ -1701,8 +1709,6 @@ export interface PaginatedUserListApi {
 }
 
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
-
-export type PatchedUserApiPendingInvitesItem = { [key: string]: unknown }
 
 export interface PatchedUserApi {
     readonly date_joined?: string
@@ -1762,8 +1768,7 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
-    /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
-    readonly pending_invites?: readonly PatchedUserApiPendingInvitesItem[]
+    readonly pending_invites?: readonly PendingInviteApi[]
 }
 
 export type SubscriptionsDeliveriesListParams = {

@@ -23505,9 +23505,18 @@ export namespace Schemas {
       Hidden: 'hidden',
     } as const;
 
-    export type UserNotificationSettings = {[key: string]: unknown};
+    /**
+     * Shape of each item in UserSerializer.pending_invites.
+     */
+    export interface PendingInvite {
+      id: string;
+      target_email: string;
+      organization_id: string;
+      organization_name: string;
+      created_at: string;
+    }
 
-    export type UserPendingInvitesItem = {[key: string]: unknown};
+    export type UserNotificationSettings = {[key: string]: unknown};
 
     export interface User {
       readonly date_joined: string;
@@ -23567,8 +23576,7 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
-      /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
-      readonly pending_invites: readonly UserPendingInvitesItem[];
+      readonly pending_invites: readonly PendingInvite[];
     }
 
     export interface PaginatedUserList {
@@ -27811,8 +27819,6 @@ export namespace Schemas {
 
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
 
-    export type PatchedUserPendingInvitesItem = {[key: string]: unknown};
-
     export interface PatchedUser {
       readonly date_joined?: string;
       readonly uuid?: string;
@@ -27871,8 +27877,7 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
-      /** Non-expired organization invites matching the user's email for orgs they aren't already in. */
-      readonly pending_invites?: readonly PatchedUserPendingInvitesItem[];
+      readonly pending_invites?: readonly PendingInvite[];
     }
 
     export interface PatchedUserInterview {
