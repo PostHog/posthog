@@ -133,17 +133,20 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 			eventTypes = strings.Split(eventType, ",")
 		}
 
+		propertyFilters := parsePropertyFilters(c.QueryParams()["property"])
+
 		subscription := events.Subscription{
-			SubID:         atomic.AddUint64(&subID, 1),
-			TeamId:        teamID,
-			Token:         token,
-			DistinctId:    distinctId,
-			Geo:           geoOnly,
-			Columns:       columns,
-			EventTypes:    eventTypes,
-			EventChan:     make(chan interface{}, 100),
-			ShouldClose:   &atomic.Bool{},
-			DroppedEvents: &atomic.Uint64{},
+			SubID:           atomic.AddUint64(&subID, 1),
+			TeamId:          teamID,
+			Token:           token,
+			DistinctId:      distinctId,
+			Geo:             geoOnly,
+			Columns:         columns,
+			EventTypes:      eventTypes,
+			PropertyFilters: propertyFilters,
+			EventChan:       make(chan interface{}, 100),
+			ShouldClose:     &atomic.Bool{},
+			DroppedEvents:   &atomic.Uint64{},
 		}
 
 		subChan <- subscription
@@ -183,6 +186,24 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 			}
 		}
 	}
+}
+
+func parsePropertyFilters(raw []string) map[string][]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(raw))
+	for _, entry := range raw {
+		k, v, ok := strings.Cut(entry, "=")
+		if !ok || k == "" {
+			continue
+		}
+		out[k] = append(out[k], v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error {

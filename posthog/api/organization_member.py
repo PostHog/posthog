@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
@@ -66,13 +66,13 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
         # If we add other forms of 2FA we need to use default_device here instead
         # But not using that here as it increased the number of queries we did by a lot
-        return len(instance.user.totpdevice_set.all()) > 0
+        return TOTPDevice.objects.filter(user=instance.user).exists()
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
 
-    def update(self, updated_membership, validated_data, **kwargs):
-        updated_membership = cast(OrganizationMembership, updated_membership)
+    def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
+        updated_membership = instance
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             organization=updated_membership.organization,
@@ -81,7 +81,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         level_changed = False
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_update(updated_membership, value)
+                requesting_membership.validate_update(updated_membership, cast(Any, value))
                 level_changed = True
             setattr(updated_membership, attr, value)
         updated_membership.save()

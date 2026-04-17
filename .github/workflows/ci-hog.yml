@@ -108,7 +108,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
-                  curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
+                  curl --fail --location https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar || curl --fail --location https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
                   export PWD=`pwd`
                   echo '#!/bin/bash' > antlr
                   echo "java -jar $PWD/antlr.jar \$*" >> antlr

@@ -11,7 +11,13 @@ describe('Tool Filtering - Features', () => {
         {
             features: undefined,
             description: 'all tools when no features specified',
-            expectedTools: ['feature-flag-get-definition', 'dashboard-create', 'insights-get-all', 'organizations-get'],
+            expectedTools: [
+                'feature-flag-get-definition',
+                'dashboard-create',
+                'insights-list',
+                'organizations-list',
+                'organization-get',
+            ],
         },
         {
             features: [],
@@ -30,20 +36,14 @@ describe('Tool Filtering - Features', () => {
             ],
         },
         {
-            features: ['dashboards', 'insights'],
+            features: ['dashboards', 'product_analytics'],
             description: 'dashboard and insight tools',
-            expectedTools: ['dashboard-create', 'dashboards-get-all', 'insights-get-all', 'insight-create-from-query'],
+            expectedTools: ['dashboard-create', 'dashboards-get-all', 'insights-list', 'insight-create'],
         },
         {
             features: ['workspace'],
             description: 'workspace tools',
-            expectedTools: [
-                'organizations-get',
-                'switch-organization',
-                'projects-get',
-                'switch-project',
-                'property-definitions',
-            ],
+            expectedTools: ['switch-organization', 'projects-get', 'switch-project', 'property-definitions'],
         },
         {
             features: ['error_tracking'],
@@ -144,7 +144,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(tools).toContain('dashboard-get')
 
             // Should not include unrelated tools
-            expect(tools).not.toContain('insights-get-all')
+            expect(tools).not.toContain('insights-list')
         })
 
         it('should still apply readOnly on top of tools filter', () => {
@@ -212,7 +212,7 @@ describe('Tool Filtering - API Scopes', () => {
 
         expect(toolNames).toContain('dashboard-create')
         expect(toolNames).toContain('create-feature-flag')
-        expect(toolNames).toContain('insight-create-from-query')
+        expect(toolNames).toContain('insight-query')
         expect(toolNames.length).toBeGreaterThan(25)
     })
 
@@ -227,7 +227,7 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-reorder-tiles')
 
         expect(toolNames).not.toContain('create-feature-flag')
-        expect(toolNames).not.toContain('organizations-get')
+        expect(toolNames).not.toContain('organizations-list')
     })
 
     it('should include read tools when user has write scope', async () => {
@@ -243,14 +243,13 @@ describe('Tool Filtering - API Scopes', () => {
     })
 
     it('should only return read tools when user has read scope', async () => {
-        const context = createMockContext(['insight:read'])
+        const context = createMockContext(['insight:read', 'query:read'])
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        expect(toolNames).toContain('insights-get-all')
-        expect(toolNames).toContain('insight-get')
+        // insight-query is in the hand-written TOOL_MAP and requires query:read
+        expect(toolNames).toContain('insight-query')
 
-        expect(toolNames).not.toContain('insight-create-from-query')
         expect(toolNames).not.toContain('dashboard-create')
     })
 
@@ -261,10 +260,10 @@ describe('Tool Filtering - API Scopes', () => {
 
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('create-feature-flag')
-        expect(toolNames).toContain('organization-details-get')
+        expect(toolNames).toContain('organization-get')
 
         expect(toolNames).not.toContain('dashboard-create')
-        expect(toolNames).not.toContain('insight-create-from-query')
+        expect(toolNames).not.toContain('insight-create')
     })
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
@@ -319,13 +318,13 @@ describe('Tool Filtering - excludeTools', () => {
             excludeTools: ['switch-organization', 'switch-project'],
             description: 'excludes both switch tools when project ID is provided',
             expectedExcluded: ['switch-organization', 'switch-project'],
-            expectedIncluded: ['organizations-get', 'projects-get'],
+            expectedIncluded: ['organizations-list', 'projects-get'],
         },
         {
             excludeTools: ['switch-organization'],
             description: 'excludes only switch-organization when org ID is provided',
             expectedExcluded: ['switch-organization'],
-            expectedIncluded: ['switch-project', 'organizations-get', 'projects-get'],
+            expectedIncluded: ['switch-project', 'organizations-list', 'projects-get'],
         },
         {
             excludeTools: [],
@@ -362,7 +361,6 @@ describe('Tool Filtering - excludeTools', () => {
         })
         const toolNames = tools.map((t) => t.name)
 
-        expect(toolNames).toContain('organizations-get')
         expect(toolNames).toContain('projects-get')
         expect(toolNames).not.toContain('switch-organization')
         expect(toolNames).not.toContain('switch-project')
@@ -393,9 +391,9 @@ describe('Tool Filtering - AI Consent', () => {
     })
 
     it('should combine aiConsentGiven with feature filtering', () => {
-        const tools = getToolsForFeatures({ features: ['insights'], aiConsentGiven: false })
+        const tools = getToolsForFeatures({ features: ['insights', 'product_analytics'], aiConsentGiven: false })
         expect(tools).not.toContain('query-generate-hogql-from-question')
-        expect(tools).toContain('insights-get-all')
+        expect(tools).toContain('insights-list')
     })
 
     it('should filter AI consent tools via getToolsFromContext when org denies consent', async () => {
@@ -460,10 +458,10 @@ describe('Tool Filtering - Read-Only Mode', () => {
 
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('dashboards-get-all')
-        expect(tools).toContain('insights-get-all')
+        expect(tools).toContain('insights-list')
         expect(tools).not.toContain('dashboard-create')
         expect(tools).not.toContain('dashboard-delete')
-        expect(tools).not.toContain('insight-create-from-query')
+        expect(tools).not.toContain('insight-create')
     })
 
     it('should return all tools when readOnly is false', () => {

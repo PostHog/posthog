@@ -697,6 +697,10 @@ tools:
         bin_script: ci-wait-for-docker
         description: Launch Docker Compose services in CI and later wait for readiness
         hidden: true
+    ci:find_affected_stories:
+        bin_script: find-affected-stories
+        description: Compute the set of stories affected by changed files during storybook builds
+        hidden: true
 utilities:
     nuke:
         steps:
@@ -756,10 +760,6 @@ environment:
     telemetry:status:
         description: Show current telemetry settings
     sandbox:
-        bin_script: sandbox
-        description: Manage isolated dev sandboxes
-        hidden: true
-    sandybox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
     start:stripe:mock:

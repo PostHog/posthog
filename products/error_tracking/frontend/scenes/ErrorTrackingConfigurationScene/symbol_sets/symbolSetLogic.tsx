@@ -114,7 +114,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                     iconType: 'error_tracking',
                 },
                 {
-                    key: Scene.ErrorTrackingConfiguration,
+                    key: 'error-tracking-configuration',
                     name: 'Configuration',
                     iconType: 'error_tracking',
                 },

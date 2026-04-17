@@ -28,7 +28,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
         ],
         actions: [
             llmAnalyticsSharedLogic({ tabId: props.tabId }),
-            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),
 
@@ -70,6 +70,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
 
@@ -90,6 +91,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
 
@@ -110,6 +112,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
 
@@ -123,6 +126,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => ({}),
                 setPropertyFilters: () => ({}),
                 setShouldFilterTestAccounts: () => ({}),
+                applyUrlState: () => ({}),
             },
         ],
 
@@ -136,6 +140,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => ({}),
                 setPropertyFilters: () => ({}),
                 setShouldFilterTestAccounts: () => ({}),
+                applyUrlState: () => ({}),
             },
         ],
 
@@ -185,6 +190,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
 
@@ -200,6 +206,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
     }),

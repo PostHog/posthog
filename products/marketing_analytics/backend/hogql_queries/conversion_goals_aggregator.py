@@ -102,9 +102,13 @@ class ConversionGoalsAggregator:
         id_field_expr = ast.Field(chain=[subquery_alias, self.config.id_field])
         source_field_expr = ast.Field(chain=[subquery_alias, self.config.source_field])
 
-        if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # At channel/source level, the individual processor queries already compute
-            # channel_type or source_name into campaign_field. Just group by that.
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
             final_select: list[ast.Expr] = [
                 ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr),
                 ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
@@ -341,12 +345,23 @@ class ConversionGoalsAggregator:
         level = self.config.drill_down_level
         group_by_fields = self.config.group_by_fields
 
-        if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # At channel/source level both CTEs store the grouping value (channel/source) in campaign_field.
-            # group_by_fields[0] differs per level (campaign_field vs source_field), but the unified
-            # conversion CTE always writes the value into campaign_field, so we must reference that.
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
             campaign_field = self.config.campaign_field
-            fallback = "Unknown" if level == MarketingAnalyticsDrillDownLevel.CHANNEL else self.config.organic_source
+            # "Unknown" = DefaultChannelTypes.UNKNOWN; "(none)" = BREAKDOWN_NULL_DISPLAY for UTM fields.
+            fallback_map = {
+                MarketingAnalyticsDrillDownLevel.CHANNEL: "Unknown",
+                MarketingAnalyticsDrillDownLevel.SOURCE: self.config.organic_source,
+                MarketingAnalyticsDrillDownLevel.MEDIUM: "(none)",
+                MarketingAnalyticsDrillDownLevel.CONTENT: "(none)",
+                MarketingAnalyticsDrillDownLevel.TERM: "(none)",
+            }
+            fallback = fallback_map[level]
             campaign_alias = self.config.get_campaign_column_alias()
             campaign_args = [
                 ast.Call(

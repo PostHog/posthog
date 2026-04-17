@@ -127,6 +127,7 @@ export interface HubServices {
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
+    monitoringProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -270,6 +271,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -283,7 +285,6 @@ export interface Team {
     anonymize_ips: boolean
     api_token: string
     secret_api_token: string | null
-    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null

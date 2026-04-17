@@ -36,5 +36,12 @@ export type DefaultProducer = typeof DEFAULT_PRODUCER
 export const WARPSTREAM_PRODUCER = 'WARPSTREAM' as const
 export type WarpstreamProducer = typeof WARPSTREAM_PRODUCER
 
+/**
+ * INGESTION targets the dedicated Kafka cluster for topics between capture and
+ * ingestion — used for overflow, DLQ, and async topics.
+ */
+export const INGESTION_PRODUCER = 'INGESTION' as const
+export type IngestionProducer = typeof INGESTION_PRODUCER
+
 /** Union of all known producer names. Extend this as new producers are added. */
-export type ProducerName = DefaultProducer | WarpstreamProducer
+export type ProducerName = DefaultProducer | WarpstreamProducer | IngestionProducer

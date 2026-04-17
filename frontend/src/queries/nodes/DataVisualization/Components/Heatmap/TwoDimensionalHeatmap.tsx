@@ -161,7 +161,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
     const { xAxisColumn, yAxisColumn, valueColumn, nullLabel, nullValue } = heatmapSettings
     const sorting = useMemo(
         () => getSortingFromHeatmapSettings(heatmapSettings),
-        [heatmapSettings.sortColumn, heatmapSettings.sortOrder]
+        [heatmapSettings.sortColumn, heatmapSettings.sortOrder, heatmapSettings]
     )
     const selectedColumns = [xAxisColumn, yAxisColumn, valueColumn]
     const rows =

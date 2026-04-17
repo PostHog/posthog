@@ -30,7 +30,6 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -340,9 +339,15 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             ) : node.data.config.type === 'manual' ? (
                 <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'schedule' ? (
-                <LemonField.Pure error={validationResult?.errors?.schedule}>
-                    <RecurringSchedulePicker />
-                </LemonField.Pure>
+                <div className="flex flex-col gap-2 w-full">
+                    <p className="text-xs text-muted mb-0">
+                        Schedule triggers run without a person or event. If your workflow needs to target specific
+                        users, use a batch trigger instead.
+                    </p>
+                    <LemonField.Pure error={validationResult?.errors?.schedule}>
+                        <RecurringSchedulePicker />
+                    </LemonField.Pure>
+                </div>
             ) : node.data.config.type === 'batch' ? (
                 <StepTriggerConfigurationBatch action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
@@ -533,7 +538,6 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="flex flex-col gap-2 my-2 w-full">
@@ -575,7 +579,7 @@ function StepTriggerConfigurationBatch({
                 />
             </div>
 
-            {featureFlags[FEATURE_FLAGS.WORKFLOWS_RECURRING_SCHEDULES] && <BatchScheduleSection />}
+            <BatchScheduleSection />
         </div>
     )
 }
