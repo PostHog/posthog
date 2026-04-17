@@ -175,12 +175,12 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
     const comparisonTable = (
         <div>
             {/* Header row */}
-            <div className="grid bg-surface-secondary border-t border-primary" style={gridColsStyle}>
-                <div className="px-3 py-2 text-xs uppercase font-semibold text-secondary tracking-wide">Feature</div>
+            <div className="grid" style={gridColsStyle}>
+                <div className="px-4 py-4 text-xs uppercase font-semibold text-secondary tracking-wide">Feature</div>
                 {comparableAddons.map((addon) => (
                     <div
                         key={addon.type}
-                        className="px-3 py-2 text-xs uppercase font-semibold text-secondary tracking-wide text-center border-l border-primary"
+                        className="px-4 py-4 text-xs uppercase font-semibold text-secondary tracking-wide text-center border-l border-primary"
                     >
                         {addon.name}
                     </div>
@@ -189,16 +189,16 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
             {/* Feature rows */}
             {features.map((feature) => (
                 <div key={feature.key} className="grid border-t border-primary" style={gridColsStyle}>
-                    <div className="px-3 py-3">
+                    <div className="px-4 py-4">
                         <div className="text-sm font-semibold">{feature.name}</div>
                         {feature.description && (
-                            <div className="text-xs text-secondary mt-0.5">{feature.description}</div>
+                            <div className="text-xs text-secondary mt-1">{feature.description}</div>
                         )}
                     </div>
                     {comparableAddons.map((addon) => (
                         <div
                             key={addon.type}
-                            className="px-3 py-3 flex items-center justify-center text-center border-l border-primary"
+                            className="px-4 py-4 flex items-center justify-center text-center border-l border-primary"
                         >
                             {formatCellValue(feature.includedIn.get(addon.type))}
                         </div>
