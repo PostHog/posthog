@@ -203,53 +203,16 @@ tools:
         description: >
             List all members of the current organization with their names, emails, membership levels (member, admin,
             owner), and last login times.
-    roles-list:
-        operation: roles_list
-        enabled: true
-        scopes:
-            - organization:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List organization roles.
-        description: >
-            List all roles defined in the organization. Roles group members and can be used in approval policies and
-            access control rules.
-    role-get:
-        operation: roles_retrieve
-        enabled: true
-        scopes:
-            - organization:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a specific role.
-        description: |
-            Get details of a specific role including its name, creation date, and creator.
-    role-members-list:
-        operation: roles_role_memberships_list
-        enabled: true
-        scopes:
-            - organization:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List members of a role.
-        description: |
-            List all members assigned to a specific role. Shows who has which role in the organization.
     organizations-list:
         operation: list
         enabled: true
-        list: true
         scopes:
             - organization:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List organizations.
         description: >
             List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID
@@ -275,10 +238,10 @@ tools:
             no ID is provided, returns the active organization.
         param_overrides:
             id:
+                description: |
+                    Organization ID. If omitted, uses the active organization.
                 optional: true
                 fallback: orgId
-                description: >
-                    Organization ID. If omitted, uses the active organization.
         response:
             include:
                 - id
@@ -352,25 +315,4 @@ tools:
         enabled: false
     members-scoped-api-keys:
         operation: members_scoped_api_keys_retrieve
-        enabled: false
-    roles-create:
-        operation: roles_create
-        enabled: false
-    roles-update:
-        operation: roles_update
-        enabled: false
-    roles-partial-update:
-        operation: roles_partial_update
-        enabled: false
-    roles-destroy:
-        operation: roles_destroy
-        enabled: false
-    role-memberships-create:
-        operation: roles_role_memberships_create
-        enabled: false
-    role-membership-get:
-        operation: roles_role_memberships_retrieve
-        enabled: false
-    role-memberships-destroy:
-        operation: roles_role_memberships_destroy
         enabled: false

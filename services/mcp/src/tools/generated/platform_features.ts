@@ -15,10 +15,6 @@ import {
     ListQueryParams,
     MembersListQueryParams,
     RetrieveParams,
-    RolesListQueryParams,
-    RolesRetrieveParams,
-    RolesRoleMembershipsListParams,
-    RolesRoleMembershipsListQueryParams,
 } from '@/generated/platform_features/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -305,61 +301,6 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
     },
 })
 
-const RolesListSchema = RolesListQueryParams
-
-const rolesList = (): ToolBase<typeof RolesListSchema, Schemas.PaginatedRoleList> => ({
-    name: 'roles-list',
-    schema: RolesListSchema,
-    handler: async (context: Context, params: z.infer<typeof RolesListSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedRoleList>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/roles/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return result
-    },
-})
-
-const RoleGetSchema = RolesRetrieveParams.omit({ organization_id: true })
-
-const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
-    name: 'role-get',
-    schema: RoleGetSchema,
-    handler: async (context: Context, params: z.infer<typeof RoleGetSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.Role>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/roles/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const RoleMembersListSchema = RolesRoleMembershipsListParams.omit({ organization_id: true }).extend(
-    RolesRoleMembershipsListQueryParams.shape
-)
-
-const roleMembersList = (): ToolBase<typeof RoleMembersListSchema, Schemas.PaginatedRoleMembershipList> => ({
-    name: 'role-members-list',
-    schema: RoleMembersListSchema,
-    handler: async (context: Context, params: z.infer<typeof RoleMembersListSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedRoleMembershipList>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/roles/${encodeURIComponent(String(params.role_id))}/role_memberships/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return result
-    },
-})
-
 const OrganizationsListSchema = ListQueryParams
 
 const organizationsList = (): ToolBase<
@@ -434,9 +375,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'advanced-activity-logs-list': advancedActivityLogsList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'org-members-list': orgMembersList,
-    'roles-list': rolesList,
-    'role-get': roleGet,
-    'role-members-list': roleMembersList,
     'organizations-list': organizationsList,
     'organization-get': organizationGet,
 }

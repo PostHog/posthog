@@ -119,24 +119,6 @@ tools:
     rotate-secret-token-partial-update:
         operation: rotate_secret_token_partial_update
         enabled: false
-    roles-list:
-        operation: roles_list
-        enabled: false
-    roles-create:
-        operation: roles_create
-        enabled: false
-    roles-retrieve:
-        operation: roles_retrieve
-        enabled: false
-    roles-update:
-        operation: roles_update
-        enabled: false
-    roles-partial-update:
-        operation: roles_partial_update
-        enabled: false
-    roles-destroy:
-        operation: roles_destroy
-        enabled: false
     annotations-list:
         operation: annotations_list
         enabled: false
@@ -440,87 +422,6 @@ tools:
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
         enabled: false
-    subscriptions-list:
-        operation: subscriptions_list
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List subscriptions
-        description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook
-            deliveries of insight or dashboard snapshots. Each subscription includes its
-            schedule (frequency, interval, byweekday), next_delivery_date, and a
-            human-readable summary.
-    subscriptions-create:
-        operation: subscriptions_create
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create subscription
-        description: >
-            Create a new subscription to receive scheduled deliveries of an insight or dashboard.
-            Requires either an insight ID or dashboard ID. Set target_type to email, slack, or
-            webhook and target_value to the recipient(s). For email: comma-separated addresses.
-            For slack: requires an integration_id for a connected Slack workspace plus a channel
-            name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly)
-            and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
-            also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-retrieve:
-        operation: subscriptions_retrieve
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get subscription
-        description: >
-            Get a specific subscription by ID. Returns the full subscription configuration
-            including target type and value, schedule details, next delivery date, and
-            associated insight or dashboard.
-    subscriptions-update:
-        operation: subscriptions_update
-        enabled: false
-    subscriptions-partial-update:
-        operation: subscriptions_partial_update
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Update subscription
-        description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency,
-            interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to
-            true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value
-            triggers notifications to new recipients.
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-destroy:
-        operation: subscriptions_destroy
-        enabled: false
     users-list:
         operation: users_list
         enabled: false
@@ -611,18 +512,9 @@ tools:
     property-definitions-bulk-update-tags-create:
         operation: property_definitions_bulk_update_tags_create
         enabled: false
-    subscriptions-test-delivery-create:
-        operation: subscriptions_test_delivery_create
-        enabled: false
     users-github-login-retrieve:
         operation: users_github_login_retrieve
         enabled: false
     dashboards-run-insights-retrieve:
         operation: dashboards_run_insights_retrieve
-        enabled: false
-    subscriptions-deliveries-list:
-        operation: subscriptions_deliveries_list
-        enabled: false
-    subscriptions-deliveries-retrieve:
-        operation: subscriptions_deliveries_retrieve
         enabled: false

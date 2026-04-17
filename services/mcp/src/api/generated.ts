@@ -4907,36 +4907,6 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
-    /**
-     * * `product_analytics` - product_analytics
-    * `sql` - sql
-    * `session_replay` - session_replay
-    * `error_tracking` - error_tracking
-    * `plan` - plan
-    * `execution` - execution
-    * `survey` - survey
-    * `research` - research
-    * `flags` - flags
-    * `llm_analytics` - llm_analytics
-    * `sandbox` - sandbox
-     */
-    export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
-
-
-    export const AgentModeEnum = {
-      ProductAnalytics: 'product_analytics',
-      Sql: 'sql',
-      SessionReplay: 'session_replay',
-      ErrorTracking: 'error_tracking',
-      Plan: 'plan',
-      Execution: 'execution',
-      Survey: 'survey',
-      Research: 'research',
-      Flags: 'flags',
-      LlmAnalytics: 'llm_analytics',
-      Sandbox: 'sandbox',
-    } as const;
-
     export interface InsightsThresholdBounds {
       /**
        * Alert fires when the value drops below this number.
@@ -6958,28 +6928,6 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
-    /**
-     * * `monday` - Monday
-    * `tuesday` - Tuesday
-    * `wednesday` - Wednesday
-    * `thursday` - Thursday
-    * `friday` - Friday
-    * `saturday` - Saturday
-    * `sunday` - Sunday
-     */
-    export type ByweekdayEnum = typeof ByweekdayEnum[keyof typeof ByweekdayEnum];
-
-
-    export const ByweekdayEnum = {
-      Monday: 'monday',
-      Tuesday: 'tuesday',
-      Wednesday: 'wednesday',
-      Thursday: 'thursday',
-      Friday: 'friday',
-      Saturday: 'saturday',
-      Sunday: 'sunday',
-    } as const;
-
     export interface CalendarHeatmapFilter {
       /** @nullable */
       dummy?: string | null;
@@ -8204,112 +8152,6 @@ export namespace Schemas {
       token: string;
     }
 
-    export type ConversationMessagesItem = {[key: string]: unknown};
-
-    export type ConversationPendingApprovalsItem = {[key: string]: unknown};
-
-    /**
-     * * `idle` - Idle
-    * `in_progress` - In progress
-    * `canceling` - Canceling
-     */
-    export type ConversationStatus = typeof ConversationStatus[keyof typeof ConversationStatus];
-
-
-    export const ConversationStatus = {
-      Idle: 'idle',
-      InProgress: 'in_progress',
-      Canceling: 'canceling',
-    } as const;
-
-    /**
-     * * `assistant` - Assistant
-    * `tool_call` - Tool call
-    * `deep_research` - Deep research
-    * `slack` - Slack
-     */
-    export type ConversationType = typeof ConversationType[keyof typeof ConversationType];
-
-
-    export const ConversationType = {
-      Assistant: 'assistant',
-      ToolCall: 'tool_call',
-      DeepResearch: 'deep_research',
-      Slack: 'slack',
-    } as const;
-
-    export interface Conversation {
-      readonly id: string;
-      readonly status: ConversationStatus;
-      /**
-       * Title of the conversation.
-       * @nullable
-       */
-      readonly title: string | null;
-      readonly user: UserBasic;
-      /** @nullable */
-      readonly created_at: string | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly type: ConversationType;
-      /**
-       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-       * @nullable
-       */
-      readonly is_internal: boolean | null;
-      /**
-       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-       * @nullable
-       */
-      readonly slack_thread_key: string | null;
-      /**
-       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-       * @nullable
-       */
-      readonly slack_workspace_domain: string | null;
-      readonly messages: readonly ConversationMessagesItem[];
-      readonly has_unsupported_content: boolean;
-      /** @nullable */
-      readonly agent_mode: string | null;
-      readonly is_sandbox: boolean;
-      /** Return pending approval cards as structured data.
-
-    Combines metadata from conversation.approval_decisions with payload from checkpoint
-    interrupts (single source of truth for payload data). */
-      readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
-    }
-
-    export interface ConversationMinimal {
-      readonly id: string;
-      readonly status: ConversationStatus;
-      /**
-       * Title of the conversation.
-       * @nullable
-       */
-      readonly title: string | null;
-      readonly user: UserBasic;
-      /** @nullable */
-      readonly created_at: string | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly type: ConversationType;
-      /**
-       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-       * @nullable
-       */
-      readonly is_internal: boolean | null;
-      /**
-       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-       * @nullable
-       */
-      readonly slack_thread_key: string | null;
-      /**
-       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-       * @nullable
-       */
-      readonly slack_workspace_domain: string | null;
-    }
-
     export type ConversionGoalFilter1Kind = typeof ConversionGoalFilter1Kind[keyof typeof ConversionGoalFilter1Kind];
 
 
@@ -9058,20 +8900,6 @@ export namespace Schemas {
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
-    }
-
-    export interface DashboardCollaborator {
-      readonly id: string;
-      readonly dashboard_id: number;
-      readonly user: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
-      level: DashboardRestrictionLevel;
-      readonly added_at: string;
-      readonly updated_at: string;
-      user_uuid: string;
     }
 
     export interface DashboardFilter {
@@ -16682,22 +16510,6 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
-    /**
-     * * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly
-     */
-    export type FrequencyEnum = typeof FrequencyEnum[keyof typeof FrequencyEnum];
-
-
-    export const FrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
-
     export type GenerateRequestStepsItem = {[key: string]: unknown};
 
     export interface GenerateRequest {
@@ -19991,27 +19803,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    /**
-     * * `pending` - Pending
-    * `completed` - Completed
-    * `skipped` - Skipped
-     */
-    export type ScrapingStatusEnum = typeof ScrapingStatusEnum[keyof typeof ScrapingStatusEnum];
-
-
-    export const ScrapingStatusEnum = {
-      Pending: 'pending',
-      Completed: 'completed',
-      Skipped: 'skipped',
-    } as const;
-
-    export interface MaxCoreMemory {
-      readonly id: string;
-      /** @maxLength 10000 */
-      text: string;
-      scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
-    }
-
     export type MembershipLevelEnum = typeof MembershipLevelEnum[keyof typeof MembershipLevelEnum];
 
 
@@ -20020,28 +19811,6 @@ export namespace Schemas {
       Number8: 8,
       Number15: 15,
     } as const;
-
-    export type MessageContextualTools = {[key: string]: unknown};
-
-    /**
-     * Serializer for appending a message to an existing conversation without triggering AI processing.
-     */
-    export interface Message {
-      /**
-       * @maxLength 40000
-       * @nullable
-       */
-      content: string | null;
-      conversation: string;
-      contextual_tools?: MessageContextualTools;
-      ui_context?: unknown;
-      billing_context?: unknown;
-      trace_id: string;
-      session_id?: string;
-      agent_mode?: AgentModeEnum;
-      is_sandbox?: boolean;
-      resume_payload?: unknown | null;
-    }
 
     export interface MessageCategory {
       readonly id: string;
@@ -20057,14 +19826,6 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       deleted?: boolean;
-    }
-
-    /**
-     * Serializer for appending a message to an existing conversation without triggering AI processing.
-     */
-    export interface MessageMinimal {
-      /** @maxLength 10000 */
-      content: string;
     }
 
     export type MessageSentimentScores = {[key: string]: number};
@@ -20790,15 +20551,6 @@ export namespace Schemas {
       results: Comment[];
     }
 
-    export interface PaginatedConversationMinimalList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ConversationMinimal[];
-    }
-
     export interface PaginatedCoreEventList {
       count: number;
       /** @nullable */
@@ -21382,15 +21134,6 @@ export namespace Schemas {
       results: MaterializedColumnSlot[];
     }
 
-    export interface PaginatedMaxCoreMemoryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MaxCoreMemory[];
-    }
-
     export interface PaginatedMessageCategoryList {
       count: number;
       /** @nullable */
@@ -21863,47 +21606,6 @@ export namespace Schemas {
       results: ReviewQueue[];
     }
 
-    export type RoleMembersItem = {[key: string]: unknown};
-
-    export interface Role {
-      readonly id: string;
-      /** @maxLength 200 */
-      name: string;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** Members assigned to this role */
-      readonly members: readonly RoleMembersItem[];
-      readonly is_default: boolean;
-    }
-
-    export interface PaginatedRoleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Role[];
-    }
-
-    export interface RoleMembership {
-      readonly id: string;
-      readonly role_id: string;
-      readonly organization_member: OrganizationMember;
-      readonly user: UserBasic;
-      readonly joined_at: string;
-      readonly updated_at: string;
-      user_uuid: string;
-    }
-
-    export interface PaginatedRoleMembershipList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: RoleMembership[];
-    }
-
     export interface PaginatedRunList {
       count: number;
       /** @nullable */
@@ -22309,196 +22011,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
-    }
-
-    /**
-     * * `starting` - Starting
-    * `completed` - Completed
-    * `failed` - Failed
-    * `skipped` - Skipped
-     */
-    export type SubscriptionDeliveryStatusEnum = typeof SubscriptionDeliveryStatusEnum[keyof typeof SubscriptionDeliveryStatusEnum];
-
-
-    export const SubscriptionDeliveryStatusEnum = {
-      Starting: 'starting',
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-    } as const;
-
-    export interface SubscriptionDelivery {
-      /** Primary key for this delivery row. */
-      readonly id: string;
-      /** Parent subscription id. */
-      readonly subscription: number;
-      /** Temporal workflow id for this delivery run. */
-      readonly temporal_workflow_id: string;
-      /** Dedupes activity retries for the same logical run. */
-      readonly idempotency_key: string;
-      /** Why the run started (e.g. scheduled, manual, target_change). */
-      readonly trigger_type: string;
-      /**
-       * Planned send time when applicable.
-       * @nullable
-       */
-      readonly scheduled_at: string | null;
-      /** Channel snapshot at send time (email, slack, webhook). */
-      readonly target_type: string;
-      /** Destination snapshot at send time (emails, channel id, URL). */
-      readonly target_value: string;
-      /** ExportedAsset ids generated for this send. */
-      readonly exported_asset_ids: readonly number[];
-      /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
-      readonly content_snapshot: unknown;
-      /** Per-destination outcomes; items use status success, failed, or partial. */
-      readonly recipient_results: unknown;
-      /** Overall run status: starting, completed, failed, or skipped.
-
-    * `starting` - Starting
-    * `completed` - Completed
-    * `failed` - Failed
-    * `skipped` - Skipped */
-      readonly status: SubscriptionDeliveryStatusEnum;
-      /** Top-level failure payload when status is failed, if any. */
-      readonly error: unknown | null;
-      /** When the delivery row was created. */
-      readonly created_at: string;
-      /** Last ORM update to this row. */
-      readonly last_updated_at: string;
-      /**
-       * When the run finished, if applicable.
-       * @nullable
-       */
-      readonly finished_at: string | null;
-    }
-
-    export interface PaginatedSubscriptionDeliveryList {
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SubscriptionDelivery[];
-    }
-
-    /**
-     * * `email` - Email
-    * `slack` - Slack
-    * `webhook` - Webhook
-     */
-    export type TargetTypeEnum = typeof TargetTypeEnum[keyof typeof TargetTypeEnum];
-
-
-    export const TargetTypeEnum = {
-      Email: 'email',
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
-    /**
-     * Standard Subscription serializer.
-     */
-    export interface Subscription {
-      readonly id: number;
-      /**
-       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-       * @nullable
-       */
-      dashboard?: number | null;
-      /**
-       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-       * @nullable
-       */
-      insight?: number | null;
-      /** @nullable */
-      readonly insight_short_id: string | null;
-      /** @nullable */
-      readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
-      dashboard_export_insights?: number[];
-      /** Delivery channel: email, slack, or webhook.
-
-    * `email` - Email
-    * `slack` - Slack
-    * `webhook` - Webhook */
-      target_type: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
-      target_value: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
-
-    * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly */
-      frequency: FrequencyEnum;
-      /**
-       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
-      interval?: number;
-      /**
-       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-       * @nullable
-       */
-      byweekday?: ByweekdayEnum[] | null;
-      /**
-       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
-      bysetpos?: number | null;
-      /**
-       * Total number of deliveries before the subscription stops. Null for unlimited.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
-      count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
-      start_date: string;
-      /**
-       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-       * @nullable
-       */
-      until_date?: string | null;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
-      deleted?: boolean;
-      /**
-       * Human-readable name for this subscription.
-       * @maxLength 100
-       * @nullable
-       */
-      title?: string | null;
-      /** Human-readable schedule summary, e.g. 'sent daily'. */
-      readonly summary: string;
-      /** @nullable */
-      readonly next_delivery_date: string | null;
-      /**
-       * ID of a connected Slack integration. Required when target_type is slack.
-       * @nullable
-       */
-      integration_id?: number | null;
-      /**
-       * Optional message included in the invitation email when adding new recipients.
-       * @nullable
-       */
-      invite_message?: string | null;
-      summary_enabled?: boolean;
-      /** @maxLength 500 */
-      summary_prompt_guide?: string;
-    }
-
-    export interface PaginatedSubscriptionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Subscription[];
     }
 
     /**
@@ -23900,51 +23412,6 @@ export namespace Schemas {
       scope?: string;
       /** @nullable */
       source_comment?: string | null;
-    }
-
-    export type PatchedConversationMessagesItem = {[key: string]: unknown};
-
-    export type PatchedConversationPendingApprovalsItem = {[key: string]: unknown};
-
-    export interface PatchedConversation {
-      readonly id?: string;
-      readonly status?: ConversationStatus;
-      /**
-       * Title of the conversation.
-       * @nullable
-       */
-      readonly title?: string | null;
-      readonly user?: UserBasic;
-      /** @nullable */
-      readonly created_at?: string | null;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      readonly type?: ConversationType;
-      /**
-       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-       * @nullable
-       */
-      readonly is_internal?: boolean | null;
-      /**
-       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-       * @nullable
-       */
-      readonly slack_thread_key?: string | null;
-      /**
-       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-       * @nullable
-       */
-      readonly slack_workspace_domain?: string | null;
-      readonly messages?: readonly PatchedConversationMessagesItem[];
-      readonly has_unsupported_content?: boolean;
-      /** @nullable */
-      readonly agent_mode?: string | null;
-      readonly is_sandbox?: boolean;
-      /** Return pending approval cards as structured data.
-
-    Combines metadata from conversation.approval_decisions with payload from checkpoint
-    interrupts (single source of truth for payload data). */
-      readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
     }
 
     export interface PatchedCoreEvent {
@@ -25543,13 +25010,6 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
-    export interface PatchedMaxCoreMemory {
-      readonly id?: string;
-      /** @maxLength 10000 */
-      text?: string;
-      scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
-    }
-
     export interface PatchedMessageCategory {
       readonly id?: string;
       /** @maxLength 64 */
@@ -26114,19 +25574,6 @@ export namespace Schemas {
       name?: string;
     }
 
-    export type PatchedRoleMembersItem = {[key: string]: unknown};
-
-    export interface PatchedRole {
-      readonly id?: string;
-      /** @maxLength 200 */
-      name?: string;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      /** Members assigned to this role */
-      readonly members?: readonly PatchedRoleMembersItem[];
-      readonly is_default?: boolean;
-    }
-
     export interface PatchedSandboxEnvironment {
       readonly id?: string;
       /** @maxLength 255 */
@@ -26376,103 +25823,6 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly status?: string | null;
-    }
-
-    /**
-     * Standard Subscription serializer.
-     */
-    export interface PatchedSubscription {
-      readonly id?: number;
-      /**
-       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-       * @nullable
-       */
-      dashboard?: number | null;
-      /**
-       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-       * @nullable
-       */
-      insight?: number | null;
-      /** @nullable */
-      readonly insight_short_id?: string | null;
-      /** @nullable */
-      readonly resource_name?: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
-      dashboard_export_insights?: number[];
-      /** Delivery channel: email, slack, or webhook.
-
-    * `email` - Email
-    * `slack` - Slack
-    * `webhook` - Webhook */
-      target_type?: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
-      target_value?: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
-
-    * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly */
-      frequency?: FrequencyEnum;
-      /**
-       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
-      interval?: number;
-      /**
-       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-       * @nullable
-       */
-      byweekday?: ByweekdayEnum[] | null;
-      /**
-       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
-      bysetpos?: number | null;
-      /**
-       * Total number of deliveries before the subscription stops. Null for unlimited.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
-      count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
-      start_date?: string;
-      /**
-       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-       * @nullable
-       */
-      until_date?: string | null;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
-      deleted?: boolean;
-      /**
-       * Human-readable name for this subscription.
-       * @maxLength 100
-       * @nullable
-       */
-      title?: string | null;
-      /** Human-readable schedule summary, e.g. 'sent daily'. */
-      readonly summary?: string;
-      /** @nullable */
-      readonly next_delivery_date?: string | null;
-      /**
-       * ID of a connected Slack integration. Required when target_type is slack.
-       * @nullable
-       */
-      integration_id?: number | null;
-      /**
-       * Optional message included in the invitation email when adding new recipients.
-       * @nullable
-       */
-      invite_message?: string | null;
-      summary_enabled?: boolean;
-      /** @maxLength 500 */
-      summary_prompt_guide?: string;
     }
 
     /**
@@ -31281,20 +30631,6 @@ export namespace Schemas {
       readonly team: number;
     }
 
-    export interface SessionSummaries {
-      /**
-       * List of session IDs to summarize (max 300)
-       * @minItems 1
-       * @maxItems 300
-       */
-      session_ids: string[];
-      /**
-       * Optional focus area for the summarization
-       * @maxLength 500
-       */
-      focus_area?: string;
-    }
-
     /**
      * * `trace` - trace
     * `debug` - debug
@@ -34222,62 +33558,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsSubscriptionsListParams = {
-    /**
-     * Filter by creator user UUID.
-     */
-    created_by?: string;
-    /**
-     * Filter by dashboard ID.
-     */
-    dashboard?: number;
-    /**
-     * Filter by insight ID.
-     */
-    insight?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * Filter by subscription resource: insight vs dashboard export.
-     */
-    resource_type?: EnvironmentsSubscriptionsListResourceType;
-    /**
-     * A search term.
-     */
-    search?: string;
-    /**
-     * Filter by delivery channel (email, Slack, or webhook).
-     */
-    target_type?: EnvironmentsSubscriptionsListTargetType;
-    };
-
-    export type EnvironmentsSubscriptionsListResourceType = typeof EnvironmentsSubscriptionsListResourceType[keyof typeof EnvironmentsSubscriptionsListResourceType];
-
-
-    export const EnvironmentsSubscriptionsListResourceType = {
-      Dashboard: 'dashboard',
-      Insight: 'insight',
-    } as const;
-
-    export type EnvironmentsSubscriptionsListTargetType = typeof EnvironmentsSubscriptionsListTargetType[keyof typeof EnvironmentsSubscriptionsListTargetType];
-
-
-    export const EnvironmentsSubscriptionsListTargetType = {
-      Email: 'email',
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
     export type EnvironmentsUserProductListListParams = {
     /**
      * Number of results to return per page.
@@ -34386,17 +33666,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type ConversationsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -34409,17 +33678,6 @@ export namespace Schemas {
     };
 
     export type CoreEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -35048,27 +34306,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus;
-    };
-
-    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
-
-
-    export const SubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
-    } as const;
-
     export type UserInterviewsListParams = {
     /**
      * Number of results to return per page.
@@ -35201,28 +34438,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type RolesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type RolesRoleMembershipsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type ActionsListParams = {
@@ -38031,62 +37246,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type SubscriptionsListParams = {
-    /**
-     * Filter by creator user UUID.
-     */
-    created_by?: string;
-    /**
-     * Filter by dashboard ID.
-     */
-    dashboard?: number;
-    /**
-     * Filter by insight ID.
-     */
-    insight?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * Filter by subscription resource: insight vs dashboard export.
-     */
-    resource_type?: SubscriptionsListResourceType;
-    /**
-     * A search term.
-     */
-    search?: string;
-    /**
-     * Filter by delivery channel (email, Slack, or webhook).
-     */
-    target_type?: SubscriptionsListTargetType;
-    };
-
-    export type SubscriptionsListResourceType = typeof SubscriptionsListResourceType[keyof typeof SubscriptionsListResourceType];
-
-
-    export const SubscriptionsListResourceType = {
-      Dashboard: 'dashboard',
-      Insight: 'insight',
-    } as const;
-
-    export type SubscriptionsListTargetType = typeof SubscriptionsListTargetType[keyof typeof SubscriptionsListTargetType];
-
-
-    export const SubscriptionsListTargetType = {
-      Email: 'email',
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
 
     export type SurveysListParams = {
     archived?: boolean;
