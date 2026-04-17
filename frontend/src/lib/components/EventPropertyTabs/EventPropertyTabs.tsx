@@ -39,6 +39,7 @@ type EventPropertyTabKey =
     | 'debug_properties'
     | 'metadata'
     | 'survey_response'
+    | 'recording_properties'
 
 export const EventPropertyTabs = ({
     event,
@@ -80,12 +81,29 @@ export const EventPropertyTabs = ({
     const featureFlagProperties: Record<string, any> = {}
     const errorProperties: Record<string, any> = {}
     const debugProperties: Record<string, any> = {}
+    const recordingProperties: Record<string, any> = {}
     let setProperties: Record<string, any> = {}
     let setOnceProperties: Record<string, any> = {}
 
+    const isRecordingProperty = (key: string): boolean =>
+        key === '$session_id' ||
+        key === '$has_recording' ||
+        key === '$recording_status' ||
+        key.startsWith('$session_recording') ||
+        key.startsWith('$replay_') ||
+        key.startsWith('$sdk_debug_replay_') ||
+        key === '$sdk_debug_current_session_duration' ||
+        key === '$sdk_debug_recording_script_not_loaded' ||
+        key === '$session_is_sampled' ||
+        key === '$sdk_debug_session_start' ||
+        key === '$first_full_snapshot_timestamp' ||
+        key === '$configured_session_timeout_ms'
+
     for (const key of Object.keys(event.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.used_for_debug) {
+            if (isRecordingProperty(key)) {
+                recordingProperties[key] = event.properties[key]
+            } else if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.used_for_debug) {
                 debugProperties[key] = event.properties[key]
             } else if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = event.properties[key]
@@ -154,6 +172,18 @@ export const EventPropertyTabs = ({
             label: 'Flags',
             content: tabContentComponentFn({ event, properties: featureFlagProperties, promotedKeys, tabKey: 'flags' }),
         },
+        Object.keys(recordingProperties).length > 0
+            ? {
+                  key: 'recording_properties',
+                  label: 'Recordings',
+                  content: tabContentComponentFn({
+                      event,
+                      properties: recordingProperties,
+                      promotedKeys,
+                      tabKey: 'recording_properties',
+                  }),
+              }
+            : null,
         event.elements && event.elements.length > 0
             ? {
                   key: 'elements',
