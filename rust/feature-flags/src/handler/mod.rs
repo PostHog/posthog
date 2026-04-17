@@ -191,7 +191,7 @@ async fn process_request_inner(
             } else {
                 None
             };
-            
+
             let filtered_flags = flags::fetch_and_filter(
                 &flag_service,
                 team.id,
