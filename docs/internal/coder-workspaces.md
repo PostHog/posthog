@@ -12,8 +12,8 @@ Use this when you want a remote PostHog dev environment instead of running the f
 
 ## Prerequisites
 
-- Access to the PostHog Tailscale tailnet
-- Access to the internal Coder deployment at `https://coder.hedgehog-kitefin.ts.net`
+- Access to the PostHog Tailscale tailnet (with subnet routes accepted)
+- Access to the internal Coder deployment at `https://coder.dev.posthog.dev`
 - `hogli` available locally
 
 ## First-time setup
@@ -26,8 +26,8 @@ hogli devbox:setup
 
 This does the host-side setup only:
 
-- verifies Tailscale connectivity
-- installs the `coder` CLI with Homebrew if needed
+- verifies Tailscale connectivity and enables subnet route acceptance
+- installs the Coder CLI into `~/.hogli/bin/` from the deployment's install script
 - logs you into the Coder deployment
 - optionally runs `coder config-ssh` for local SSH/editor access
 
@@ -46,6 +46,60 @@ After connecting with `hogli devbox:ssh`, run `claude` directly in the workspace
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 
+## Sharing workspaces
+
+You can share your devbox with other team members:
+
+```bash
+# List available Coder users
+hogli devbox:users
+
+# Share your workspace with another user
+hogli devbox:share --user <username>
+
+# Share with admin access (can start/stop the workspace)
+hogli devbox:share --user <username> --role admin
+
+# See who has access to your workspace
+hogli devbox:share --list
+
+# Revoke access
+hogli devbox:unshare --user <username>
+```
+
+To access a workspace shared with you:
+
+```bash
+# Connect to another user's workspace
+hogli devbox:ssh @username
+
+# Connect to a specific labeled workspace
+hogli devbox:ssh @username/label
+
+# List workspaces (shows workspaces shared with you)
+hogli devbox:list
+```
+
+The `@user` and `@user/label` syntax works across all `devbox:*` commands (ssh, open, forward, status, etc.).
+
+After revoking access with `devbox:unshare`, restart the workspace for changes to take effect.
+
+## Selecting workspaces
+
+If you have multiple workspaces, specify which one to use:
+
+```bash
+# Use a labeled workspace
+hogli devbox:ssh api
+
+# Equivalent using --name flag
+hogli devbox:ssh --name api
+# or
+hogli devbox:ssh -n api
+```
+
+When you have only one workspace, it is selected automatically.
+
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and optional `coder config-ssh`
@@ -53,4 +107,4 @@ If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 - Do not set up SSH Git inside the workspace
 - Claude auth for the workspace is passed through the `claude_oauth_token` Coder parameter, not AI Bridge
 
-`go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.hedgehog-kitefin.ts.net`.
+`go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.
