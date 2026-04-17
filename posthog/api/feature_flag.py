@@ -3408,7 +3408,8 @@ class FeatureFlagViewSet(
                 team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
             )
         except ValueError as e:
-            return Response({"error": f"Invalid parameters: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e)
+            return Response({"error": "Invalid parameters"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             capture_exception(e)
             return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

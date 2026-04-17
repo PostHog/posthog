@@ -1440,17 +1440,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             debug_params: dict[str, Any] = {}
             point_in_time_properties: dict[str, Any]
             if debug and settings.DEBUG:
-                result = build_person_properties_at_time(
+                point_in_time_properties = build_person_properties_at_time(
                     team_id=self.team_id,
                     timestamp=timestamp,
                     distinct_ids=distinct_ids_queried,
                     include_set_once=include_set_once,
-                    return_debug_info=True,
                 )
-                # Type cast to help mypy understand the tuple unpacking
-                point_in_time_properties, debug_rows, debug_query, debug_params = cast(
-                    tuple[dict[str, Any], list[Any], str, dict[str, Any]], result
-                )
+                # Debug info not available from current function implementation
+                debug_rows = []
+                debug_query = ""
             else:
                 point_in_time_properties = cast(
                     dict[str, Any],
