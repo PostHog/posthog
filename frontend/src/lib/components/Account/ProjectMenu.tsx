@@ -30,10 +30,10 @@ export function PendingInviteDot({ className }: { className?: string }): JSX.Ele
     return (
         <span
             aria-label="Pending invitation"
-            className={cn('relative flex items-center justify-center size-2 shrink-0', className)}
+            className={cn('relative flex items-center justify-center size-1.5 shrink-0', className)}
         >
-            <span className="absolute inset-0 rounded-full bg-danger opacity-60 animate-ping" />
-            <span className="relative size-2 rounded-full bg-danger" />
+            <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
+            <span className="relative size-1.5 rounded-full bg-accent" />
         </span>
     )
 }
