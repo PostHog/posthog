@@ -2,7 +2,7 @@ import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconEnvelope, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -303,7 +303,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
                                                     tooltipPlacement="right"
                                                 >
-                                                    <IconEnvelope className="text-warning" />
+                                                    <IconLetter className="text-warning" />
                                                     <span className="truncate flex-1">
                                                         {item.invite.organization_name}
                                                     </span>

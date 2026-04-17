@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconEnvelope, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconLetter, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -160,7 +160,7 @@ export function ProjectCombobox(): JSX.Element | null {
                                             disableClientSideRouting
                                             data-attr="tree-navbar-project-dropdown-pending-invite-button"
                                         >
-                                            <IconEnvelope className="text-warning" />
+                                            <IconLetter className="text-warning" />
                                             <span className="truncate flex-1">{invite.organization_name}</span>
                                             <span className="text-xxs text-tertiary shrink-0 ml-1">Pending invite</span>
                                         </Link>
