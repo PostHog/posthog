@@ -163,15 +163,12 @@ class TestUserAPI(APIBaseTest):
         from posthog.models import OrganizationInvite
 
         other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
-        invite = OrganizationInvite.objects.create(
-            organization=other_org,
-            target_email=self.user.email,
-            created_by=self.user,
-        )
-        # Backdate the invite past the validity window without triggering save() hooks.
-        OrganizationInvite.objects.filter(pk=invite.pk).update(
-            created_at=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)
-        )
+        with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
+            OrganizationInvite.objects.create(
+                organization=other_org,
+                target_email=self.user.email,
+                created_by=self.user,
+            )
 
         response = self.client.get("/api/users/@me/pending_invites/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
