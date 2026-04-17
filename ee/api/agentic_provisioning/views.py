@@ -1054,7 +1054,16 @@ def provisioning_resources_create(request: Request) -> Response:
     _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
+        _capture_provisioning_event(
+            "resource_created",
+            "error",
+            error_code="requires_payment_credentials",
+            service_id=resolved_service_id,
+            team_id=team.id,
+            has_spt=has_spt,
+        )
         return Response(
             {
                 "status": "error",
@@ -1070,7 +1079,14 @@ def provisioning_resources_create(request: Request) -> Response:
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team.id)
+    _capture_provisioning_event(
+        "resource_created",
+        "success",
+        service_id=resolved_service_id,
+        team_id=team.id,
+        has_spt=has_spt,
+        billing_result=str(billing_result),
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
@@ -1215,7 +1231,16 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
+        _capture_provisioning_event(
+            "update_service",
+            "error",
+            error_code="billing_activation_failed",
+            service_id=service_id,
+            team_id=team_id,
+            has_spt=has_spt,
+        )
         return _error_response(
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
@@ -1227,7 +1252,14 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("update_service", "success", service_id=service_id, team_id=team_id)
+    _capture_provisioning_event(
+        "update_service",
+        "success",
+        service_id=service_id,
+        team_id=team_id,
+        has_spt=has_spt,
+        billing_result=str(billing_result),
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
