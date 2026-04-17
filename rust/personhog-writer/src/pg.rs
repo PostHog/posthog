@@ -3,7 +3,7 @@ use metrics::{counter, histogram};
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
 use sqlx::QueryBuilder;
-use tracing::error;
+use tracing::{error, warn};
 
 pub struct PgWriter {
     pool: PgPool,
@@ -38,6 +38,30 @@ impl PgWriter {
             return Ok(());
         }
 
+        // Filter out persons with invalid UUIDs to avoid unique constraint
+        // violations from multiple nil UUIDs in the same batch.
+        let valid_persons: Vec<&Person> = persons
+            .iter()
+            .filter(|p| match uuid::Uuid::parse_str(&p.uuid) {
+                Ok(_) => true,
+                Err(e) => {
+                    counter!("personhog_writer_invalid_uuid_total").increment(1);
+                    warn!(
+                        team_id = p.team_id,
+                        person_id = p.id,
+                        uuid = %p.uuid,
+                        error = %e,
+                        "skipping person with invalid UUID"
+                    );
+                    false
+                }
+            })
+            .collect();
+
+        if valid_persons.is_empty() {
+            return Ok(());
+        }
+
         let mut qb: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
             "INSERT INTO personhog_person (
                 id, team_id, uuid, properties, properties_last_updated_at,
@@ -46,8 +70,8 @@ impl PgWriter {
             ) ",
         );
 
-        qb.push_values(persons, |mut b, person| {
-            let uuid = parse_uuid(&person.uuid);
+        qb.push_values(&valid_persons, |mut b, person| {
+            let uuid = uuid::Uuid::parse_str(&person.uuid).unwrap();
             let properties = parse_jsonb(&person.properties);
             let properties_last_updated_at =
                 parse_optional_jsonb(&person.properties_last_updated_at);
@@ -95,10 +119,6 @@ impl PgWriter {
     }
 }
 
-fn parse_uuid(s: &str) -> uuid::Uuid {
-    uuid::Uuid::parse_str(s).unwrap_or_default()
-}
-
 fn parse_jsonb(bytes: &[u8]) -> serde_json::Value {
     if bytes.is_empty() {
         return serde_json::Value::Object(serde_json::Map::new());
@@ -122,18 +142,6 @@ fn epoch_secs_to_datetime(epoch_secs: i64) -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_uuid_valid() {
-        let uuid = parse_uuid("00000000-0000-0000-0000-000000000042");
-        assert_eq!(uuid.to_string(), "00000000-0000-0000-0000-000000000042");
-    }
-
-    #[test]
-    fn parse_uuid_invalid_returns_nil() {
-        let uuid = parse_uuid("not-a-uuid");
-        assert_eq!(uuid, uuid::Uuid::nil());
-    }
 
     #[test]
     fn parse_jsonb_valid() {

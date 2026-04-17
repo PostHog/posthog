@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS personhog_person (
     properties_last_updated_at JSONB,
     properties_last_operation JSONB,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    version BIGINT,
+    version BIGINT NOT NULL DEFAULT 0,
     is_identified BOOLEAN NOT NULL DEFAULT false,
     last_seen_at TIMESTAMP WITH TIME ZONE
 ) PARTITION BY HASH (team_id);

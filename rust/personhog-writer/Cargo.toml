@@ -15,7 +15,6 @@ lifecycle = { path = "../common/lifecycle" }
 axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
-futures = { workspace = true }
 metrics = { workspace = true }
 prost = { workspace = true }
 rdkafka = { workspace = true }

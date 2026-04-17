@@ -105,6 +105,37 @@ async fn writer_batch_upserts_multiple_persons() {
     cleanup_team(&pool, team_id).await;
 }
 
+#[tokio::test]
+async fn writer_skips_invalid_uuids_without_failing_batch() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_004;
+    cleanup_team(&pool, team_id).await;
+
+    let writer = PgWriter::new(pool.clone(), 500);
+
+    let valid_person = make_person(team_id as i64, 1, 1);
+    let mut bad_person = make_person(team_id as i64, 2, 1);
+    bad_person.uuid = "not-a-valid-uuid".to_string();
+    let another_valid = make_person(team_id as i64, 3, 1);
+
+    // Batch contains one invalid UUID -- it should be skipped,
+    // and the valid persons should still be written.
+    writer
+        .batch_upsert(&[valid_person, bad_person, another_valid])
+        .await
+        .unwrap();
+
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM personhog_person WHERE team_id = $1")
+        .bind(team_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(count.0, 2);
+
+    cleanup_team(&pool, team_id).await;
+}
+
 // ============================================================
 // Consumer + Writer: channel flow with mock Kafka
 // ============================================================
