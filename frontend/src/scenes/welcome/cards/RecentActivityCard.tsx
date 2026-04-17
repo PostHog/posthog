@@ -46,7 +46,7 @@ export function RecentActivityCard(): JSX.Element | null {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="p-6">
+        <LemonCard hoverEffect={false} className="p-4">
             <h2 className="text-lg font-semibold mb-4">What your team has been doing</h2>
             <ol className="flex flex-col gap-3 m-0 p-0 list-none">
                 {recentActivity.map((item, index) => {

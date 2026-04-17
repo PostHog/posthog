@@ -16,7 +16,7 @@ export function ProductsInUseCard(): JSX.Element | null {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="p-6">
+        <LemonCard hoverEffect={false} className="p-4">
             <h2 className="text-lg font-semibold mb-1">Products your team uses</h2>
             <p className="text-xs text-muted mb-3 m-0">Click to read the docs.</p>
             <div className="flex flex-wrap gap-2">

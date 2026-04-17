@@ -71,7 +71,7 @@ export function WelcomeDialog(): JSX.Element | null {
                     <Spinner />
                 </div>
             ) : (
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3">
                     {welcomeDataError ? (
                         <LemonBanner type="warning">
                             We couldn't load your team's activity. You can still explore PostHog from here.
@@ -79,12 +79,14 @@ export function WelcomeDialog(): JSX.Element | null {
                     ) : (
                         <p className="text-muted text-sm m-0">{introCopy}</p>
                     )}
-                    <TeamMembersCard />
+                    {/* Quick orientation first: products in use, AI helper, suggested next steps. */}
+                    <ProductsInUseCard />
+                    <AskMaxCard />
+                    <SuggestedNextStepsCard />
+                    {/* Then deeper context about what's been happening. */}
                     <RecentActivityCard />
                     <PopularDashboardsCard />
-                    <ProductsInUseCard />
-                    <SuggestedNextStepsCard />
-                    <AskMaxCard />
+                    <TeamMembersCard />
                 </div>
             )}
         </LemonModal>

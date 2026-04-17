@@ -17,7 +17,7 @@ export function SuggestedNextStepsCard(): JSX.Element | null {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="p-6">
+        <LemonCard hoverEffect={false} className="p-4">
             <h2 className="text-lg font-semibold mb-3">Suggested next steps</h2>
             <ul className="flex flex-col gap-3 m-0 p-0 list-none">
                 {suggestedNextSteps.map((step, index) => {
