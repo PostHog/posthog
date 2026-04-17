@@ -231,7 +231,7 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
     & _ON_PR
     & Q(purpose=RunPurpose.REVIEW),
     "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
-    "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
+    "processing": Q(status=RunStatus.PROCESSING) & _CURRENT,
     "stale": Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
 }
 

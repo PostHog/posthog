@@ -381,7 +381,7 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
 }
 
 async function runComplete(options: RunCompleteOptions): Promise<number> {
-    const { client } = makeClient(options)
+    const { client, api, team } = makeClient(options)
     const baselinePath = resolve(options.baseline)
 
     log(`Completing run ${options.runId}`)
@@ -413,7 +413,8 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
     // Exit code: 1 if changes detected, 0 if clean
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
-        log('Visual changes detected — review required')
+        const reviewUrl = `${api}/project/${team}/visual_review/runs/${options.runId}`
+        log(`Visual changes detected — review and approve at: ${reviewUrl}`)
         return 1
     }
 
@@ -638,7 +639,8 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // Without --auto-approve, unapproved changes exit 1 (gating)
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
-        log('Visual changes detected — review required')
+        const reviewUrl = `${api}/project/${team}/visual_review/runs/${result.run_id}`
+        log(`Visual changes detected — review and approve at: ${reviewUrl}`)
         return 1
     }
 

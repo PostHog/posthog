@@ -133,7 +133,7 @@ export function SnapshotDiffViewer({
                 </div>
 
                 {/* Snapshot title */}
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-baseline gap-2 mb-4">
                     <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
                     {variant && (
                         <span className="text-sm text-muted">
@@ -144,12 +144,14 @@ export function SnapshotDiffViewer({
                 </div>
 
                 <VisualImageDiffViewer
+                    key={snapshot.id}
                     baselineUrl={baselineUrl || null}
                     currentUrl={currentUrl || null}
                     diffUrl={snapshot.diff_artifact?.download_url || null}
                     diffPercentage={snapshot.diff_percentage ?? null}
                     result={(snapshot.result || 'unchanged') as VisualDiffResult}
                     imageWidth={width ?? undefined}
+                    className="min-h-[200px]"
                 />
             </div>
 
