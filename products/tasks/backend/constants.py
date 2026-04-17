@@ -1,3 +1,15 @@
+from typing import Literal, get_args
+
+ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+CodexPermissionMode = Literal["auto", "read-only", "full-access"]
+InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
+
+INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
+CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermissionMode))
+ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
+    arg for member in get_args(InitialPermissionMode) for arg in get_args(member)
+]
+
 DEFAULT_TRUSTED_DOMAINS = [
     # PostHog Services
     "posthog.com",

@@ -8,6 +8,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
+from .constants import (
+    ALL_INITIAL_PERMISSION_MODE_CHOICES,
+    CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    INITIAL_PERMISSION_MODE_CHOICES,
+)
 from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
@@ -22,13 +27,6 @@ from .temporal.process_task.utils import (
 )
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
-
-INITIAL_PERMISSION_MODE_CHOICES = ["default", "acceptEdits", "plan", "bypassPermissions"]
-CODEX_INITIAL_PERMISSION_MODE_CHOICES = ["auto", "read-only", "full-access"]
-ALL_INITIAL_PERMISSION_MODE_CHOICES = [
-    *INITIAL_PERMISSION_MODE_CHOICES,
-    *CODEX_INITIAL_PERMISSION_MODE_CHOICES,
-]
 
 
 class TaskSerializer(serializers.ModelSerializer):

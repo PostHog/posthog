@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -14,6 +14,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
+from products.tasks.backend.constants import InitialPermissionMode
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
@@ -153,18 +154,7 @@ class RunState(BaseModel, extra="allow"):
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
     pending_user_message_ts: str | None = None
-    initial_permission_mode: (
-        Literal[
-            "default",
-            "acceptEdits",
-            "plan",
-            "bypassPermissions",
-            "auto",
-            "read-only",
-            "full-access",
-        ]
-        | None
-    ) = None
+    initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
