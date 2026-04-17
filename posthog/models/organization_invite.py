@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models
 from django.utils import timezone
@@ -125,7 +125,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        membership = user.join(organization=self.organization, level=self.level)
+        membership = user.join(organization=self.organization, level=cast(OrganizationMembership.Level, self.level))
         if self.created_by_id is not None:
             # Persist inviter so the welcome dialog can attribute it after this invite row is deleted below.
             membership.invited_by_id = self.created_by_id

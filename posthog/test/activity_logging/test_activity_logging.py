@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
-from posthog.models.activity_logging.utils import activity_visibility_manager
+from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
 from posthog.models.utils import UUIDT
 
 
@@ -54,6 +54,59 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    def test_client_is_populated_from_activity_storage(self) -> None:
+        activity_storage.set_client("posthog-js/1.234.0")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=7,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_client()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.client, "posthog-js/1.234.0")
+
+    def test_explicit_client_overrides_storage(self) -> None:
+        activity_storage.set_client("storage-client")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=8,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+                client="explicit-client",
+            )
+        finally:
+            activity_storage.clear_client()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.client, "explicit-client")
+
+    def test_client_defaults_to_none_when_unset(self) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=9,
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(),
+        )
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertIsNone(log.client)
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(

@@ -301,6 +301,7 @@ async def _maybe_autostart_task_for_report(
         repository=repository,
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
+        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
     )
     task_run = await task.runs.order_by("-created_at").afirst()
     if task_run is None:

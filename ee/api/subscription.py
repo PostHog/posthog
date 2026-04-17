@@ -14,7 +14,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
@@ -187,6 +187,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         prompt_guide = attrs.get("summary_prompt_guide")
         if prompt_guide and len(prompt_guide) > 500:
             raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+
+        if attrs.get("summary_enabled"):
+            organization = self.context["get_organization"]()
+            if not organization.is_ai_data_processing_approved:
+                raise exceptions.PermissionDenied(
+                    "AI data processing must be approved by your organization before enabling AI summaries"
+                )
 
         return attrs
 

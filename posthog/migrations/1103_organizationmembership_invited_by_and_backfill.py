@@ -21,7 +21,7 @@ def reverse_backfill(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1101_organizationmembership_welcome_screen_seen_at"),
+        ("posthog", "1102_organizationmembership_welcome_screen_seen_at"),
     ]
 
     operations = [

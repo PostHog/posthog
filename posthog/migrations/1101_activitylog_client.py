@@ -8,8 +8,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="organizationmembership",
-            name="welcome_screen_seen_at",
-            field=models.DateTimeField(blank=True, default=None, null=True),
+            model_name="activitylog",
+            name="client",
+            field=models.CharField(blank=True, max_length=32, null=True),
         ),
     ]
