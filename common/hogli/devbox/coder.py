@@ -21,8 +21,10 @@ from typing import Any, NoReturn
 
 import yaml
 import click
+import requests
 from hogli.core.manifest import load_manifest
 
+_MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
@@ -80,18 +82,22 @@ def _normalize_version(version: str) -> str:
     return version.lstrip("v").split("+")[0]
 
 
-def get_expected_coder_version() -> str:
-    """Return the expected Coder CLI version from env or manifest."""
+def get_server_version() -> str:
+    """Query the Coder deployment for its running version."""
     if version := os.environ.get("HOGLI_DEVBOX_CODER_VERSION"):
-        return _normalize_version(version)
+        return version
 
-    manifest = load_manifest()
-    metadata = manifest.get("metadata", {})
-    devbox_metadata = metadata.get("devbox", {})
-    if isinstance(devbox_metadata, dict) and isinstance(devbox_metadata.get("coder_version"), str):
-        return _normalize_version(devbox_metadata["coder_version"])
+    coder_url = get_coder_url()
+    try:
+        resp = requests.get(f"{coder_url}/api/v2/buildinfo", timeout=5)
+        data = resp.json()
+        raw = data.get("version", "")
+        if raw:
+            return _normalize_version(raw)
+    except Exception:
+        pass
 
-    raise RuntimeError("Missing `metadata.devbox.coder_version` in common/hogli/manifest.yaml.")
+    raise RuntimeError(f"Could not determine server version from {coder_url}/api/v2/buildinfo.")
 
 
 def _coder_bin() -> str:
@@ -199,6 +205,60 @@ def _run_with_rich_parameters(
         file_path.unlink(missing_ok=True)
 
 
+def _resolve_tailscale() -> str | None:
+    """Return path to the tailscale CLI, checking PATH then the macOS app bundle."""
+    if path := shutil.which("tailscale"):
+        return path
+    if sys.platform == "darwin" and os.path.isfile(_MACOS_TAILSCALE_CLI):
+        return _MACOS_TAILSCALE_CLI
+    return None
+
+
+def _tailscale_env(tailscale_path: str) -> dict[str, str] | None:
+    """Return extra env vars needed when invoking the macOS app bundle CLI."""
+    if tailscale_path == _MACOS_TAILSCALE_CLI:
+        return {**os.environ, "TAILSCALE_BE_CLI": "1"}
+    return None
+
+
+def _tailscale_status() -> dict[str, Any] | None:
+    """Return parsed `tailscale status --json` output when available."""
+    tailscale_path = _resolve_tailscale()
+    if not tailscale_path:
+        return None
+
+    result = subprocess.run(
+        [tailscale_path, "status", "--json"],
+        capture_output=True,
+        text=True,
+        env=_tailscale_env(tailscale_path),
+    )
+    if result.returncode != 0:
+        return None
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def tailscale_connected() -> bool:
+    """Check if Tailscale is running and connected."""
+    status = _tailscale_status()
+    return bool(status and status.get("BackendState") == "Running")
+
+
+def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
+    """Fail fast when the Coder deployment is not reachable on the tailnet."""
+    if tailscale_connected():
+        return
+
+    if _resolve_tailscale():
+        _fail(f"Tailscale is not connected. Connect to the PostHog tailnet, then {setup_hint}")
+
+    _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
+
+
 def _config_ssh_args() -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
     args = ["coder", "config-ssh"]
@@ -240,7 +300,7 @@ def get_installed_coder_version() -> str | None:
 def _warn_version_mismatch() -> None:
     """Warn if the installed Coder CLI doesn't match the expected version."""
     try:
-        expected = get_expected_coder_version()
+        expected = get_server_version()
     except RuntimeError:
         return
 
@@ -248,18 +308,21 @@ def _warn_version_mismatch() -> None:
     if installed is None or installed == expected:
         return
 
+    coder_url = get_coder_url()
     click.echo(
         click.style(
-            f"Coder CLI v{installed} does not match expected v{expected}.\n  Run `hogli devbox:setup` to reinstall.",
+            f"Coder CLI v{installed} does not match server v{expected}.\n"
+            f"  Run `hogli devbox:setup` or: curl -fsSL {coder_url}/install.sh | sh",
             fg="yellow",
         )
     )
 
 
 def _install_coder_cli(*, verbose: bool = False) -> None:
-    """Install the Coder CLI into ~/.hogli/bin from the public Coder install script."""
+    """Install the Coder CLI into ~/.hogli/bin from the deployment's install script."""
+    coder_url = get_coder_url()
     try:
-        version = get_expected_coder_version()
+        version = get_server_version()
         click.echo(f"Installing coder CLI v{version}...")
     except RuntimeError:
         version = None
@@ -267,8 +330,7 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
 
     prefix = _MANAGED_CODER_DIR.parent
     prefix.mkdir(parents=True, exist_ok=True)
-    version_flag = f" --version {shlex.quote(version)}" if version else ""
-    cmd = f"curl -fsSL https://coder.com/install.sh | sh -s -- --prefix {shlex.quote(str(prefix))}{version_flag}"
+    cmd = f"curl -fsSL {coder_url}/install.sh | sh -s -- --prefix {shlex.quote(str(prefix))}"
     result = subprocess.run(["sh", "-c", cmd], text=True, capture_output=not verbose)
     if result.returncode != 0:
         if not verbose:
@@ -293,14 +355,14 @@ def ensure_coder_installed(*, verbose: bool = False) -> None:
         return
 
     try:
-        expected = get_expected_coder_version()
+        expected = get_server_version()
     except RuntimeError:
         click.echo("coder CLI is installed.")
         return
 
     installed = get_installed_coder_version()
     if installed is not None and installed != expected:
-        click.echo(f"coder CLI v{installed} does not match expected v{expected}.")
+        click.echo(f"coder CLI v{installed} does not match server v{expected}.")
         _install_coder_cli(verbose=verbose)
     else:
         click.echo("coder CLI is installed.")
@@ -339,6 +401,8 @@ def ensure_coder_authenticated() -> None:
 
 def ensure_runtime_ready() -> None:
     """Verify runtime prerequisites without mutating host setup."""
+    ensure_tailscale_connected()
+
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
 

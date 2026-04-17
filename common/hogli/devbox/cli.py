@@ -29,6 +29,7 @@ from .coder import (
     ensure_coder_authenticated,
     ensure_coder_installed,
     ensure_runtime_ready,
+    ensure_tailscale_connected,
     extract_workspace_label,
     get_coder_user_info,
     get_default_git_identity,
@@ -438,6 +439,7 @@ def devbox_setup(
     verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
+    ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)

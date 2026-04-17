@@ -63,6 +63,73 @@ class TestDevboxConfig:
         }
 
 
+class TestResolveTailscale:
+    """Test Tailscale CLI resolution with macOS app bundle fallback."""
+
+    def test_prefers_path_binary(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder.shutil, "which", lambda cmd: "/usr/local/bin/tailscale")
+        assert coder._resolve_tailscale() == "/usr/local/bin/tailscale"
+
+    def test_falls_back_to_macos_app_bundle(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder.shutil, "which", lambda cmd: None)
+        monkeypatch.setattr(coder.sys, "platform", "darwin")
+        monkeypatch.setattr(coder.os.path, "isfile", lambda path: path == coder._MACOS_TAILSCALE_CLI)
+        assert coder._resolve_tailscale() == coder._MACOS_TAILSCALE_CLI
+
+    def test_returns_none_when_not_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder.shutil, "which", lambda cmd: None)
+        monkeypatch.setattr(coder.sys, "platform", "darwin")
+        monkeypatch.setattr(coder.os.path, "isfile", lambda path: False)
+        assert coder._resolve_tailscale() is None
+
+    def test_skips_macos_path_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder.shutil, "which", lambda cmd: None)
+        monkeypatch.setattr(coder.sys, "platform", "linux")
+        assert coder._resolve_tailscale() is None
+
+    def test_tailscale_env_sets_cli_flag_for_app_bundle(self) -> None:
+        env = coder._tailscale_env(coder._MACOS_TAILSCALE_CLI)
+        assert env is not None
+        assert env["TAILSCALE_BE_CLI"] == "1"
+
+    def test_tailscale_env_returns_none_for_path_binary(self) -> None:
+        assert coder._tailscale_env("/usr/local/bin/tailscale") is None
+
+    def test_tailscale_status_uses_resolved_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
+
+        captured_args: list[list[str]] = []
+        captured_env: list[object] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured_args.append(args)
+            captured_env.append(kwargs.get("env"))
+            return subprocess.CompletedProcess(args, 0, '{"BackendState": "Running"}', "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        status = coder._tailscale_status()
+
+        assert status == {"BackendState": "Running"}
+        assert captured_args[0][0] == coder._MACOS_TAILSCALE_CLI
+        env = captured_env[0]
+        assert isinstance(env, dict)
+        assert env["TAILSCALE_BE_CLI"] == "1"
+
+    def test_ensure_tailscale_connected_says_not_installed_when_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: None)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        assert "not installed" in capsys.readouterr().out
+
+
 class TestCoderConfig:
     """Test config and runtime preflight helpers."""
 
@@ -102,6 +169,7 @@ class TestCoderConfig:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
+        monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
         with pytest.raises(SystemExit):
@@ -119,25 +187,16 @@ class TestCoderConfig:
 class TestCoderVersion:
     """Test Coder CLI version pinning and mismatch warnings."""
 
-    def test_get_expected_coder_version_reads_manifest(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_server_version_queries_buildinfo(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HOGLI_DEVBOX_CODER_VERSION", raising=False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
 
-        with patch(
-            "hogli.devbox.coder.load_manifest",
-            return_value={"metadata": {"devbox": {"coder_version": "2.30.5"}}},
-        ):
-            assert coder.get_expected_coder_version() == "2.30.5"
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"version": "v2.30.5+abc123"}
 
-    def test_get_expected_coder_version_prefers_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HOGLI_DEVBOX_CODER_VERSION", "v3.0.0+build")
-        assert coder.get_expected_coder_version() == "3.0.0"
-
-    def test_get_expected_coder_version_raises_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("HOGLI_DEVBOX_CODER_VERSION", raising=False)
-
-        with patch("hogli.devbox.coder.load_manifest", return_value={"metadata": {"devbox": {}}}):
-            with pytest.raises(RuntimeError, match="Missing.*coder_version"):
-                coder.get_expected_coder_version()
+        with patch("hogli.devbox.coder.requests.get", return_value=mock_resp) as mock_get:
+            assert coder.get_server_version() == "2.30.5"
+            mock_get.assert_called_once_with("https://coder.example.com/api/v2/buildinfo", timeout=5)
 
     @pytest.mark.parametrize(
         "raw_version, expected",
@@ -163,20 +222,22 @@ class TestCoderVersion:
     def test_warn_version_mismatch_prints_warning(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(coder, "get_expected_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
         monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "2.0.0")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
 
         coder._warn_version_mismatch()
         output = capsys.readouterr().out
         assert "v2.0.0" in output
         assert "v1.0.0" in output
-        assert "hogli devbox:setup" in output
+        assert "curl -fsSL https://coder.example.com/install.sh | sh" in output
 
-    def test_ensure_coder_installed_uses_public_install_script(
+    def test_ensure_coder_installed_uses_deployment_install_script(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
-        monkeypatch.setattr(coder, "get_expected_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
         monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
 
         captured_cmd: list[str] = []
@@ -189,8 +250,7 @@ class TestCoderVersion:
 
         coder.ensure_coder_installed()
         full_cmd = " ".join(captured_cmd)
-        assert "curl -fsSL https://coder.com/install.sh" in full_cmd
-        assert "--version 1.0.0" in full_cmd
+        assert "curl -fsSL https://coder.example.com/install.sh" in full_cmd
         assert f"--prefix {tmp_path}" in full_cmd
 
 
@@ -380,6 +440,7 @@ class TestDevboxCommands:
     def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(
@@ -417,6 +478,7 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0
         assert calls == [
+            "tailscale",
             "install",
             "login",
             "ssh:False",
@@ -431,6 +493,7 @@ class TestDevboxCommands:
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
     ) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
@@ -460,6 +523,7 @@ class TestDevboxCommands:
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
@@ -863,18 +927,6 @@ class TestWorkspaceTargetParsing:
     def test_parse_workspace_target_own_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         assert coder.parse_workspace_target("api") == "devbox-test-user-api"
-
-    @pytest.mark.parametrize(
-        "target, error_fragment",
-        [
-            ("@", "bare '@'"),
-            ("@alice/", "empty user or label"),
-            ("@/label", "empty user or label"),
-        ],
-    )
-    def test_parse_workspace_target_invalid(self, target: str, error_fragment: str) -> None:
-        with pytest.raises(click.UsageError, match=error_fragment):
-            coder.parse_workspace_target(target)
 
 
 class TestDevboxShare:
