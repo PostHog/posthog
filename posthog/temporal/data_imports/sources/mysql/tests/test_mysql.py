@@ -194,7 +194,7 @@ def _drain_source():
         logger=MagicMock(),
         db_incremental_field_last_value=None,
     )
-    list(source.items())
+    list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
 
 
 class TestStreamingConnectionTimeouts:
