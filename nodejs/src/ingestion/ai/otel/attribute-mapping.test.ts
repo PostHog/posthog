@@ -341,20 +341,17 @@ describe('mapOtelAttributes', () => {
             expect(extractToolCallNames(event.properties!.$ai_output_choices)).toEqual(['final_result', 'get_weather'])
         })
 
-        it('infers role="tool" for gen_ai.tool.message entries without explicit role', () => {
-            const events = [
-                {
-                    content: 'Paris is the capital of France.',
-                    tool_call_id: 'call_xyz',
-                    'event.name': 'gen_ai.tool.message',
-                },
-            ]
+        it.each([
+            ['gen_ai.system.message', 'system'],
+            ['gen_ai.user.message', 'user'],
+            ['gen_ai.assistant.message', 'assistant'],
+            ['gen_ai.tool.message', 'tool'],
+        ])('infers role "%s" → "%s" when the entry has no explicit role', (eventName, expectedRole) => {
+            const events = [{ content: 'body', 'event.name': eventName }]
             const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
             mapOtelAttributes(event)
 
-            expect(event.properties!.$ai_input).toEqual([
-                { role: 'tool', content: 'Paris is the capital of France.', tool_call_id: 'call_xyz' },
-            ])
+            expect(event.properties!.$ai_input).toEqual([{ role: expectedRole, content: 'body' }])
         })
 
         it('does not throw on malformed `events` JSON and still strips the property', () => {
