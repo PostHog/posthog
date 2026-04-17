@@ -1,22 +1,6 @@
-# Table for storing the pre-attributed output of the conversion-goal pipeline.
-#
-# The previous design (conversion_goal_arrays_preaggregated) stored per-person
-# arrays and re-merged them on read with arrayFlatten(groupArray(...)). That
-# re-merge turned out to dominate read latency for small-to-medium teams,
-# cancelling the benefit of caching.
-#
-# This table instead materialises the ARRAY JOIN + single-touch attribution at
-# write time. Each row is a fully-attributed conversion: one row per
-# (team, job, person, conversion_timestamp) with scalar UTM columns resolved to
-# the touchpoint that attributed. Reads are a flat SELECT ... WHERE job_id IN
-# (...) + date filter + GROUP BY drill-down field. No array work, no re-merge.
-#
-# Trade-off: the grain now depends on attribution_mode (single-touch only here).
-# Multi-touch modes fall back to the direct path for now; a future iteration can
-# add a sibling table with per-touchpoint rows + weights.
-#
-# See products/marketing_analytics/backend/hogql_queries/LAZY_COMPUTATION_PLAN.md
-# for the full design.
+# Pre-attributed output of the conversion-goal pipeline: one row per
+# (team, job, person, conversion_timestamp) with UTM columns resolved to the
+# attributed touchpoint. Single-touch only; multi-touch falls back to direct.
 
 from django.conf import settings
 
@@ -24,9 +8,8 @@ from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 
 TABLE_BASE_NAME = "conversion_goal_attributed_preaggregated"
 
-# Keep in lockstep with TRACKED_FIELDS in
-# products/marketing_analytics/backend/hogql_queries/conversion_goal_processor.py.
-# A test in test_conversion_goal_processor_refactor.py enforces this.
+# Keep in lockstep with TRACKED_FIELDS in conversion_goal_processor.py.
+# test_conversion_goal_processor_refactor.py enforces this.
 CONVERSION_GOAL_ATTRIBUTED_TRACKED_FIELD_NAMES: list[str] = [
     "campaign",
     "source",
@@ -63,20 +46,13 @@ CREATE TABLE IF NOT EXISTS {{table_name}}
     team_id Int64,
     job_id UUID,
 
-    -- One row per conversion event, post-attribution.
     person_id UUID,
     conversion_timestamp DateTime64(6, 'UTC'),
     conversion_value Float64,
 
-    -- Attributed UTM values. For single-touch: the values from the attributed
-    -- touchpoint (or empty strings if organic — the read path applies
-    -- organic defaults before the final GROUP BY).
     {_attributed_field_columns()}
 
-    -- When this row was computed (used as ReplacingMergeTree version)
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
-
-    -- TTL: rows are automatically deleted after expires_at
     expires_at Date DEFAULT today() + INTERVAL 7 DAY
 ) ENGINE = {{engine}}
 """

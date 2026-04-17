@@ -13,11 +13,7 @@ from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
-# Cap on the thread pool size used to parallelise per-goal base-query
-# generation. Each goal's ``ensure_precomputed`` call is ~1-2s of framework
-# overhead even on a full cache hit; running them in parallel turns the total
-# from N × overhead into max(overhead). 8 is enough for any realistic goal
-# count — we rarely see dashboards with more.
+# Thread pool cap for parallel per-goal ensure_precomputed calls.
 _GOAL_PARALLELISM_LIMIT = 8
 
 
@@ -36,13 +32,8 @@ class ConversionGoalsAggregator:
         if not self.processors:
             raise ValueError("Cannot create unified CTE without conversion goal processors")
 
-        # Step 1: Generate individual conversion goal queries.
-        #
-        # Each processor's ``generate_cte_query`` can trigger
-        # ``ensure_precomputed`` which blocks on PG + Redis + ClickHouse
-        # round-trips. Those calls are independent across goals, so we run
-        # them in a thread pool to collapse the serial overhead. With N goals
-        # the dashboard pays roughly max(overhead) instead of sum(overhead).
+        # Step 1: Generate individual conversion goal queries, parallelised across goals
+        # so ensure_precomputed's PG+Redis+ClickHouse round-trips collapse to max(overhead).
         def _build_base_query(processor: ConversionGoalProcessor) -> ast.SelectQuery:
             date_field = processor.get_date_field()
             additional_conditions = additional_conditions_getter(
@@ -51,20 +42,14 @@ class ConversionGoalsAggregator:
                 date_field=date_field,
                 use_date_not_datetime=True,
             )
-            # Pass the date range so eligible goals can read from the lazy-computed
-            # table instead of scanning events (controlled by
-            # MarketingAnalyticsConfig.conversion_goal_precomputation_enabled).
             return processor.generate_cte_query(
                 additional_conditions,
                 date_from=date_range.date_from(),
                 date_to=date_range.date_to(),
             )
 
-        # Skip the pool in TEST: Django wraps tests in a transaction and gives
-        # each thread its own connection, so worker threads cannot see objects
-        # created in the main-thread test setup (Action fixtures, etc.). The
-        # data reads the workers do here are stable in prod where everything
-        # is committed before the request.
+        # Skip the pool in TEST: Django's per-thread DB connections don't see
+        # fixtures created in the main test thread.
         if not TEST and len(self.processors) > 1:
             with ThreadPoolExecutor(
                 max_workers=min(len(self.processors), _GOAL_PARALLELISM_LIMIT),

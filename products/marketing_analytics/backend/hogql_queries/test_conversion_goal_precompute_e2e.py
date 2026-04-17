@@ -1,13 +1,3 @@
-"""End-to-end equivalence test for the conversion-goal precompute path.
-
-The test seeds events into ClickHouse, runs the funnel CTE query twice —
-once going through the events table directly, once going through the
-lazy-computed preagg table — and asserts the resulting rows are identical.
-
-This catches parallel-array drift (column order mismatch between write and
-read sides) and HAVING mismatches that would silently produce wrong numbers.
-"""
-
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -44,11 +34,9 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.all().delete()
 
     def _seed_events(self):
-        """One converter with prior pageviews + one non-converter with pageviews."""
         _create_person(distinct_ids=["user_a"], team=self.team)
         _create_person(distinct_ids=["user_b"], team=self.team)
 
-        # User A: two UTM pageviews, then a purchase.
         _create_event(
             team=self.team,
             event="$pageview",
@@ -71,7 +59,6 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
             properties={"value": 100},
         )
 
-        # User B: pageview only, no conversion (should not appear in final output).
         _create_event(
             team=self.team,
             event="$pageview",
@@ -106,12 +93,10 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         date_from = datetime(2025, 1, 1, tzinfo=UTC)
         date_to = datetime(2025, 1, 31, tzinfo=UTC)
 
-        # Direct path: no precompute, no date_from/to kwargs — mirrors existing callers.
         direct_processor = self._make_processor(precompute=False)
         direct_query = direct_processor.generate_cte_query(additional_conditions=[])
         direct_rows = sorted(self._execute(direct_query))
 
-        # Precomputed path: same goal, flag on, date range provided.
         preagg_processor = self._make_processor(precompute=True)
         preagg_query = preagg_processor.generate_cte_query(
             additional_conditions=[],
@@ -120,8 +105,6 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         )
         preagg_rows = sorted(self._execute(preagg_query))
 
-        # Same shape and contents. Row set equality is the contract —
-        # parallel-array drift would show up as different numeric values here.
         assert direct_rows == preagg_rows, (
             f"Precomputed path diverged from direct path.\ndirect:   {direct_rows}\npreagg:   {preagg_rows}"
         )

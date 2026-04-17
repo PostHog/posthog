@@ -36,9 +36,7 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
-# Sentinel datetimes used to mark the time-window boundaries when printing the
-# precompute query template. Picked to never appear in real event data, with
-# distinct microseconds so the regex replacement matches them unambiguously.
+# Sentinel datetimes swapped for {time_window_min/max} placeholders after HogQL printing.
 _PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL = datetime(2099, 12, 31, 23, 59, 58, 123456, tzinfo=UTC)
 _PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL = datetime(2099, 12, 31, 23, 59, 59, 654321, tzinfo=UTC)
 
@@ -221,14 +219,7 @@ class ConversionGoalProcessor:
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
     ) -> ast.SelectQuery:
-        """
-        Generate main CTE query for conversion goal.
-
-        Routes to appropriate query type based on goal configuration. When
-        ``date_from``/``date_to`` are provided AND precomputation is enabled
-        AND the goal is eligible, the funnel path reads from the preagg
-        table; otherwise it falls back to the direct events scan.
-        """
+        """Generate main CTE query for conversion goal."""
         if self.goal.kind in ["EventsNode", "ActionsNode"]:
             return self._generate_array_based_query(additional_conditions, date_from, date_to)
         return self._generate_direct_query(additional_conditions)
@@ -245,14 +236,7 @@ class ConversionGoalProcessor:
         return self._generate_direct_query(additional_conditions)
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
-        """
-        Build the per-person array-collection subquery.
-
-        This is the upstream stage of the attribution pipeline and is the candidate
-        for lazy precomputation: its output schema is documented in
-        ``precompute_schema`` and is fully determined by the inputs returned by
-        ``get_precompute_hash_inputs()``.
-        """
+        """Build the per-person array-collection subquery (upstream stage of attribution)."""
         conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
         where_conditions = self.get_base_where_conditions()
         where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
@@ -260,15 +244,7 @@ class ConversionGoalProcessor:
         return self._build_array_collection_subquery(conversion_event, where_conditions)
 
     def build_attribution_pipeline(self, array_source: ast.SelectQuery) -> ast.SelectQuery:
-        """
-        Apply ARRAY JOIN, attribution and final aggregation on top of an
-        array-collection source.
-
-        The ``array_source`` must produce the schema documented in
-        ``precompute_schema``. Today the only producer is
-        ``build_array_collection_query``; lazy precomputation will introduce a
-        second producer (a SELECT against the precomputed table).
-        """
+        """Apply ARRAY JOIN, attribution and final aggregation on top of an array-collection source."""
         attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
 
         if self.config.is_multi_touch:
@@ -281,20 +257,10 @@ class ConversionGoalProcessor:
         return self._build_final_aggregation_query(attribution)
 
     def get_precompute_hash_inputs(self) -> dict:
-        """
-        Stable identifier of what this goal's precomputed attribution output
-        contains. Two ``ConversionGoalProcessor`` instances that return equal
-        dicts here produce equivalent rows in
-        ``conversion_goal_attributed_preaggregated`` and share cache.
+        """Stable cache key for this goal's precomputed output.
 
-        The hash includes ``attribution_mode`` because the preagg table stores
-        the resolved attribution (single-touch: the attributed touchpoint's
-        values baked into scalar columns). Switching between FIRST_TOUCH and
-        LAST_TOUCH changes which touchpoint's values are stored and therefore
-        cannot reuse cache.
-
-        ``tracked_fields`` is included so a code-side change to ``TRACKED_FIELDS``
-        invalidates prior caches — the preagg table's column layout depends on it.
+        Changing any field here invalidates prior caches — required because the preagg table
+        stores the resolved attribution with scalar UTM columns tied to TRACKED_FIELDS.
         """
         return {
             "team_id": self.team.pk,
@@ -316,9 +282,7 @@ class ConversionGoalProcessor:
     ) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window.
 
-        Uses the lazy-computed ``conversion_goal_attributed_preaggregated``
-        table when precomputation is enabled and the goal is eligible,
-        falling back to the events scan on any failure.
+        Reads the preagg table when eligible, falls back to events scan on any failure.
         """
         if self._should_use_precompute(date_from, date_to):
             try:
@@ -336,19 +300,7 @@ class ConversionGoalProcessor:
         return self.build_attribution_pipeline(array_collection)
 
     def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
-        """Decide whether this goal+request is eligible for precomputation.
-
-        Eligibility rules:
-        - Precomputation must be enabled in the config.
-        - We need an explicit date range to compute the job time window.
-        - Goal kind must be ``EventsNode`` or ``ActionsNode`` (the array
-          pipeline only handles these).
-        - Attribution must be single-touch: the preagg table stores one
-          pre-attributed touchpoint per conversion, so multi-touch modes
-          (linear, time-decay, position-based) fall back to direct.
-        - No person or cohort property filters on the goal — dynamic cohort
-          membership can change without invalidating the hash.
-        """
+        """Eligibility check: flag on, explicit date range, single-touch Events/Actions goal, no person/cohort filters."""
         if not getattr(self.config, "conversion_goal_precomputation_enabled", False):
             return False
         if date_from is None or date_to is None:
@@ -372,11 +324,9 @@ class ConversionGoalProcessor:
     def _build_attributed_source_from_precompute(
         self, date_from: datetime, date_to: datetime
     ) -> Optional[ast.SelectQuery]:
-        """Ensure precomputation exists for this goal+range and return a
-        SelectQuery reading from the preagg table with the post-attribution
-        shape (same shape as ``_build_single_touch_attribution_subquery``
-        output). Returns ``None`` if the framework reports the jobs are not
-        ready yet — the caller then falls back to the direct path.
+        """Ensure precompute exists and return a SelectQuery reading from the preagg table.
+
+        Returns None if jobs are not ready — caller falls back to direct path.
         """
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
             LazyComputationTable,
@@ -388,10 +338,6 @@ class ConversionGoalProcessor:
         result = ensure_precomputed(
             team=self.team,
             insert_query=query_string,
-            # Jobs partition the conversion range itself. The attribution-window
-            # lookback is applied inside the INSERT template, not by extending
-            # the job range — that way the preagg stores one fully-resolved row
-            # per conversion and the read path does no extra work.
             time_range_start=date_from,
             time_range_end=date_to,
             ttl_seconds={
@@ -414,20 +360,10 @@ class ConversionGoalProcessor:
         )
 
     def get_attributed_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
-        """
-        Build the HogQL query template that the lazy_computation framework runs
-        as an INSERT to materialise one job's worth of pre-attributed conversion
-        rows.
+        """Build the INSERT template that materialises one job's pre-attributed rows.
 
-        The template uses ``{time_window_min}`` / ``{time_window_max}`` to bound
-        the conversion events of the job, and relies on
-        ``build_array_collection_query`` to apply the standard
-        ``attribution_window_days`` lookback extension for pageviews. The
-        returned SELECT applies single-touch ARRAY JOIN + attribution and emits
-        one flat row per conversion.
-
-        Only single-touch modes are supported here; multi-touch goals fall back
-        to the direct path at the caller level (``_should_use_precompute``).
+        Uses {time_window_min}/{time_window_max} placeholders resolved by the framework.
+        Single-touch only.
         """
         if self.goal.kind not in ("EventsNode", "ActionsNode"):
             raise NotImplementedError(f"Precompute is not supported for goal kind {self.goal.kind!r}")
@@ -438,10 +374,6 @@ class ConversionGoalProcessor:
         if self.config.is_multi_touch:
             raise NotImplementedError("Multi-touch attribution modes are not supported by precompute yet")
 
-        # Build the array collection with the time window as additional
-        # date conditions. ``build_array_collection_query`` internally routes
-        # these through ``_build_comprehensive_where_clause`` which applies the
-        # pageview lookback extension.
         additional_conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -464,10 +396,7 @@ class ConversionGoalProcessor:
             include_campaign_id=False,
         )
 
-        # The framework's INSERT builder requires every SELECT column to be
-        # aliased. person_id is a plain Field in the direct path; wrap it here
-        # so the precompute template has aliases on all columns without
-        # affecting the direct path's SQL output.
+        # INSERT builder requires every SELECT column aliased.
         for i, col in enumerate(attribution_with_ts.select):
             if isinstance(col, ast.Field) and col.chain == ["person_id"]:
                 attribution_with_ts.select[i] = ast.Alias(alias="person_id", expr=col)
@@ -489,20 +418,11 @@ class ConversionGoalProcessor:
         date_from: datetime,
         date_to: datetime,
     ) -> ast.SelectQuery:
-        """
-        Read pre-attributed rows from ``conversion_goal_attributed_preaggregated``
-        and return a SelectQuery whose shape matches the output of
-        ``_build_single_touch_attribution_subquery``.
+        """Read pre-attributed rows from the preagg table.
 
-        The final aggregation (``_build_final_aggregation_query``) can consume
-        this directly — the only difference from the direct path is the data
-        source.
+        Output shape matches _build_single_touch_attribution_subquery so the final
+        aggregation can consume it directly.
         """
-        date_from_ts = date_from
-        date_to_ts = date_to
-
-        # Shape mirrors _build_single_touch_attribution_subquery: person_id,
-        # one *_name per TrackedField, campaign_id constant, conversion_value.
         attributed_name_lines = ",\n            ".join(f"{f.attributed_name}" for f in TRACKED_FIELDS)
 
         query_string = f"""
@@ -522,8 +442,8 @@ class ConversionGoalProcessor:
             query_string,
             placeholders={
                 "team_id": ast.Constant(value=self.team.pk),
-                "date_from": ast.Constant(value=date_from_ts),
-                "date_to": ast.Constant(value=date_to_ts),
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
                 "job_ids": ast.Constant(value=[str(jid) for jid in job_ids]),
             },
         )
@@ -1573,14 +1493,8 @@ class ConversionGoalProcessor:
     ) -> ast.SelectQuery:
         """Build subquery that applies attribution logic.
 
-        ``include_conversion_timestamp``: emits a DateTime64 ``conversion_timestamp``
-        column, needed by the INSERT template so readers can date-filter stored
-        rows.
-
-        ``include_campaign_id``: emits the always-constant ``'-' AS campaign_id``
-        column. The direct path needs it so ``_build_final_aggregation_query`` can
-        read it; the precompute INSERT omits it (nothing to store, it's a
-        constant) and the read path re-injects it at SELECT time.
+        The precompute INSERT uses include_conversion_timestamp=True and include_campaign_id=False
+        (campaign_id is always the constant '-' and is re-injected at read time).
         """
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
@@ -1612,10 +1526,7 @@ class ConversionGoalProcessor:
         )
 
         if include_conversion_timestamp:
-            # conversion_time is the per-exploded-row Unix timestamp (Int64)
-            # from the array_join stage. Use fromUnixTimestamp to cast to
-            # DateTime — toDateTime() in HogQL maps to parseDateTime64... which
-            # expects a String.
+            # fromUnixTimestamp, not toDateTime: conversion_time is Int64 and toDateTime expects String in HogQL.
             select_columns.append(
                 ast.Alias(
                     alias="conversion_timestamp",
@@ -2064,18 +1975,11 @@ class ConversionGoalProcessor:
         return False
 
 
-# Matches both HogQL (``toDateTime('...')``) and ClickHouse
-# (``toDateTime64('...', 6, 'UTC')``) forms, so the sanity check catches any
-# lingering sentinel regardless of which printer flavour produced the output.
+# Matches both HogQL toDateTime and ClickHouse toDateTime64 forms.
 _PRECOMPUTE_SENTINEL_LITERAL_RE = re.compile(r"toDateTime(?:64)?\(\s*'2099-12-31 23:59:5[89]\.\d+'")
 
 
 def _replace_sentinel_datetime(printed: str, sentinel: datetime, replacement: str) -> str:
-    """Replace the printed form of ``sentinel`` with ``replacement``.
-
-    ``to_printed_hogql`` emits ``toDateTime('YYYY-MM-DD HH:MM:SS.ffffff')`` for
-    the HogQL dialect. We match the call as a whole so nothing leaks through.
-    """
     literal = re.escape(sentinel.strftime("%Y-%m-%d %H:%M:%S.%f"))
     pattern = re.compile(rf"toDateTime(?:64)?\(\s*'{literal}'(?:\s*,\s*6(?:\s*,\s*'[^']+')?)?\s*\)")
     return pattern.sub(replacement, printed)
