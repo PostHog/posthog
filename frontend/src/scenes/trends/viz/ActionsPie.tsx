@@ -65,7 +65,9 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                             item.breakdown_value,
                             breakdownFilter,
                             allCohorts.results,
-                            formatPropertyValueForDisplay
+                            formatPropertyValueForDisplay,
+                            undefined,
+                            item.label
                         )
                     }),
                     compareLabels: visibleResults.map((item) => item.compare_label),

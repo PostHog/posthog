@@ -222,6 +222,33 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel(3, breakdownFilter2, [], identity)).toEqual('3')
     })
 
+    it('falls back to itemLabel for cohort breakdowns when cohorts are unavailable (shared dashboards)', () => {
+        // Shared/public dashboards do not load the cohort list — itemLabel provides the cohort
+        // name that the backend already baked into each series' `label` field.
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(cohort.id, breakdownFilter, [], identity, undefined, cohort.name)).toEqual(
+            cohort.name
+        )
+        // With multi-series the backend prefixes the label with the series name — we pass it
+        // through unchanged rather than falling back to the bare cohort id.
+        expect(
+            formatBreakdownLabel(cohort.id, breakdownFilter, undefined, identity, undefined, `pageview - ${cohort.name}`)
+        ).toEqual(`pageview - ${cohort.name}`)
+    })
+
+    it('prefers loaded cohort name over itemLabel when cohorts are available', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(
+            formatBreakdownLabel(cohort.id, breakdownFilter, [cohort as any], identity, undefined, 'stale label')
+        ).toEqual(cohort.name)
+    })
+
     it('handles cohort breakdowns with all users', () => {
         const breakdownFilter1: BreakdownFilter = {
             breakdown: ['all'],

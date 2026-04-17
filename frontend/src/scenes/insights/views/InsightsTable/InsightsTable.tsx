@@ -145,7 +145,8 @@ export function InsightsTable({
                   breakdownFilter,
                   allCohorts?.results,
                   formatPropertyValueForDisplay,
-                  breakdownFilter.breakdowns ? 0 : undefined
+                  breakdownFilter.breakdowns ? 0 : undefined,
+                  item.label
               )
         : undefined
 
