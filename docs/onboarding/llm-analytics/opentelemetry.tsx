@@ -120,6 +120,16 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                             },
                         ]}
                     />
+
+                    <Markdown>
+                        {dedent`
+                            PostHog identifies each event using the \`posthog.distinct_id\` attribute on the OpenTelemetry
+                            **Resource** (with \`user.id\` as a fallback, then a random UUID if neither is set). Because
+                            the Resource applies to every span in a batched export, you only need to set the distinct ID
+                            once — there's no need for a \`BaggageSpanProcessor\` or per-span propagation. Any other
+                            Resource or span attributes pass through as event properties.
+                        `}
+                    </Markdown>
                 </>
             ),
         },
@@ -192,15 +202,67 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
             ),
         },
         {
-            title: 'Send OTLP traces directly (advanced)',
+            title: 'How attributes map to event properties',
+            badge: 'recommended',
+            content: (
+                <>
+                    <Markdown>
+                        PostHog translates standard OpenTelemetry GenAI semantic convention attributes into the same
+                        `$ai_*` event properties our native SDK wrappers emit, so traces look the same in PostHog
+                        whether they arrive through OpenTelemetry or a native wrapper. The most common mappings:
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            | OpenTelemetry attribute | PostHog event property |
+                            | --- | --- |
+                            | \`gen_ai.response.model\` (or \`gen_ai.request.model\`) | \`$ai_model\` |
+                            | \`gen_ai.provider.name\` (or \`gen_ai.system\`) | \`$ai_provider\` |
+                            | \`gen_ai.input.messages\` | \`$ai_input\` |
+                            | \`gen_ai.output.messages\` | \`$ai_output_choices\` |
+                            | \`gen_ai.usage.input_tokens\` (or \`gen_ai.usage.prompt_tokens\`) | \`$ai_input_tokens\` |
+                            | \`gen_ai.usage.output_tokens\` (or \`gen_ai.usage.completion_tokens\`) | \`$ai_output_tokens\` |
+                            | \`server.address\` | \`$ai_base_url\` |
+                            | \`telemetry.sdk.name\` / \`telemetry.sdk.version\` | \`$ai_lib\` / \`$ai_lib_version\` |
+                            | Span start/end timestamps | \`$ai_latency\` (computed in seconds) |
+                            | Span name | \`$ai_span_name\` |
+                        `}
+                    </Markdown>
+
+                    <Markdown>Additional behavior worth knowing:</Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            - **Custom attributes pass through.** Any Resource or span attribute that isn't part of the known mapping is forwarded onto the event as-is, so you can add dimensions like \`conversation_id\` or \`tenant_id\` and filter on them in PostHog.
+                            - **Trace and span IDs are preserved** as \`$ai_trace_id\`, \`$ai_span_id\`, and \`$ai_parent_id\`, so multi-step traces reconstruct correctly.
+                            - **Events are classified by operation.** \`gen_ai.operation.name=chat\` becomes an \`$ai_generation\` event; \`embeddings\` becomes \`$ai_embedding\`. Spans without a recognized operation become \`$ai_span\` (or \`$ai_trace\` if they're the root of a trace).
+                            - **Vercel AI SDK, Pydantic AI, and Traceloop/OpenLLMetry** emit their own namespaces (\`ai.*\`, \`pydantic_ai.*\`, \`traceloop.*\`) and PostHog normalizes those to the same \`$ai_*\` properties.
+                            - **Noisy resource attributes are dropped.** OpenTelemetry auto-detected attributes under \`host.*\`, \`process.*\`, \`os.*\`, and \`telemetry.*\` (except \`telemetry.sdk.name\` / \`telemetry.sdk.version\`) don't pollute event properties.
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
+        {
+            title: 'Other instrumentations, direct OTLP, and troubleshooting',
             badge: 'optional',
             content: (
                 <>
                     <Markdown>
-                        If you already run an OpenTelemetry collector, or you want to export from a language other than
-                        Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint.
-                        PostHog accepts OTLP over HTTP in both `application/x-protobuf` and `application/json`,
-                        authenticated with a `Bearer` token.
+                        {dedent`
+                            **Alternative instrumentation libraries.** Any library that emits standard \`gen_ai.*\` spans (or \`ai.*\` / \`traceloop.*\` / \`pydantic_ai.*\`) works with the setup above. Swap \`@opentelemetry/instrumentation-openai\` / \`opentelemetry-instrumentation-openai-v2\` for one of these to broaden provider coverage:
+
+                            - [OpenLIT](https://github.com/openlit/openlit) — single instrumentation that covers many providers, vector DBs, and frameworks.
+                            - [OpenLLMetry](https://github.com/traceloop/openllmetry) (Traceloop) — broad provider and framework support in Python and JavaScript.
+                            - [OpenInference](https://github.com/Arize-ai/openinference) (Arize) — provider- and framework-specific instrumentations for Python and JavaScript.
+                            - [MLflow tracing](https://mlflow.org/docs/latest/llms/tracing/index.html) — if you already run MLflow.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. The endpoint is signal-specific (traces only), so use the \`OTEL_EXPORTER_OTLP_TRACES_*\` variants rather than the general \`OTEL_EXPORTER_OTLP_*\` ones (the SDK appends \`/v1/traces\` to the latter and would 404).
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -217,6 +279,19 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'yaml',
                                 file: 'Collector',
                                 code: dedent`
+                                    receivers:
+                                      otlp:
+                                        protocols:
+                                          http:
+                                            endpoint: 0.0.0.0:4318
+
+                                    processors:
+                                      batch:
+                                      memory_limiter:
+                                        check_interval: 5s
+                                        limit_mib: 1500
+                                        spike_limit_mib: 512
+
                                     exporters:
                                       otlphttp/posthog:
                                         traces_endpoint: "<ph_client_api_host>/i/v0/ai/otel"
@@ -227,7 +302,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                       pipelines:
                                         traces:
                                           receivers: [otlp]
-                                          processors: [batch]
+                                          processors: [memory_limiter, batch]
                                           exporters: [otlphttp/posthog]
                                 `,
                             },
@@ -235,9 +310,14 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                     />
 
                     <Markdown>
-                        The endpoint only ingests AI-related spans — those whose name or attribute keys start with
-                        `gen_ai.`, `llm.`, `ai.`, or `traceloop.`. Every other span is dropped server-side, so it's safe
-                        to send a mixed trace stream.
+                        {dedent`
+                            **Limits and troubleshooting.**
+
+                            - **Only AI spans are ingested.** Spans whose name and attribute keys don't start with \`gen_ai.\`, \`llm.\`, \`ai.\`, or \`traceloop.\` are dropped server-side, so it's safe to send a mixed trace stream.
+                            - **HTTP only, no gRPC.** The endpoint speaks OTLP over HTTP in either \`application/x-protobuf\` or \`application/json\`. If your collector or SDK is configured for gRPC, switch to HTTP.
+                            - **Request body is capped at 4 MB.** Large or unbounded traces (for example, long chat histories with base64-encoded images) can exceed this. Use a collector with the \`batch\` processor to keep individual exports small.
+                            - **Missing traces?** Make sure you're pointing at the traces-specific OTLP variable (\`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT\` / \`traces_endpoint\`) rather than the general one, and that your project token is set correctly in the \`Authorization: Bearer\` header.
+                        `}
                     </Markdown>
                 </>
             ),
