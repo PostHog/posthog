@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 import orjson as json
 import structlog
 import posthoganalytics
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
@@ -17,8 +17,14 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorTooManySimultaneousQueries,
+    ExposedCHQueryError,
+    classify_query_error,
+    clickhouse_error_type,
+)
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import ph_scoped_capture
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.tasks import process_query_task
 
@@ -39,6 +45,22 @@ QUERY_WAIT_TIME = Histogram(
 
 QUERY_PROCESS_TIME = Histogram(
     "query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"], buckets=CUSTOM_BUCKETS
+)
+
+QUERY_ASYNC_FAILURE_COUNTER = Counter(
+    "query_async_failure_total",
+    "Async queries that finished with an error, labelled by exception class and category",
+    labelnames=["error_type", "category"],
+)
+
+# Shown to users when an async query fails with an error that's not on the allow-list of
+# user-safe errors. Without a message here, the retrieve endpoint returns HTTP 500 with an
+# empty body, which the frontend historically surfaced as generic failure or prolonged
+# loading. A generic message plus the query_id lets the UI render a real error state and
+# gives support a handle to look the failure up.
+GENERIC_INTERNAL_ERROR_MESSAGE = (
+    "The query failed due to an internal error. Please retry. "
+    "If the problem persists, contact support with query id: {query_id}"
 )
 
 
@@ -174,6 +196,59 @@ class QueryStatusManager:
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
+def _capture_async_query_failure_event(
+    *,
+    team,
+    team_id: int,
+    user,
+    query_id: str,
+    query_json: dict,
+    query_status: QueryStatus,
+    err: Exception,
+    error_type: str,
+    error_category: str,
+    user_safe_message: bool,
+) -> None:
+    """Emit a PostHog product-analytics event for an async query failure.
+
+    Runs inside a Celery task, so we use ph_scoped_capture to get a dedicated client
+    that flushes on context-manager exit — the global client's background flush is
+    unreliable in worker processes. Exceptions here are swallowed to avoid turning a
+    telemetry failure into a query failure.
+    """
+    try:
+        with ph_scoped_capture() as capture_ph_event:
+            distinct_id = str(getattr(user, "distinct_id", None) or getattr(team, "uuid", f"team_{team_id}"))
+            query_kind = query_json.get("kind") if isinstance(query_json, dict) else None
+            if query_kind is None and isinstance(query_json, dict):
+                source = query_json.get("source")
+                if isinstance(source, dict):
+                    query_kind = source.get("kind")
+            capture_ph_event(
+                distinct_id=distinct_id,
+                event="$async_query_failed",
+                properties={
+                    "team_id": team_id,
+                    "organization_id": getattr(team, "organization_id", None),
+                    "query_id": query_id,
+                    "query_kind": query_kind,
+                    "insight_id": query_status.insight_id,
+                    "dashboard_id": query_status.dashboard_id,
+                    "error_type": error_type,
+                    "error_category": error_category,
+                    "exception_class": type(err).__name__,
+                    "user_safe_message": user_safe_message,
+                },
+            )
+    except Exception as telemetry_err:
+        logger.exception(
+            "Failed to emit $async_query_failed event",
+            team_id=team_id,
+            query_id=query_id,
+            error=telemetry_err,
+        )
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -244,12 +319,37 @@ def execute_process_query(
         from posthog.rbac.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
-        if (
+        is_user_safe_error = (
             isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
             or is_staff_user
-        ):
+        )
+        if is_user_safe_error:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
+        else:
+            # Never leave error_message empty — the /api/query/:id/ retrieve endpoint maps an
+            # empty message to HTTP 500 with no body, which surfaces to the client as either
+            # a generic failure or (worse) prolonged loading. A generic message lets the UI
+            # render a real error state and gives support a query id to look up.
+            query_status.error_message = GENERIC_INTERNAL_ERROR_MESSAGE.format(query_id=query_id)
+
+        error_type = clickhouse_error_type(err)
+        error_category = classify_query_error(err).value
+        QUERY_ASYNC_FAILURE_COUNTER.labels(error_type=error_type, category=error_category).inc()
+
+        _capture_async_query_failure_event(
+            team=team,
+            team_id=team_id,
+            user=user,
+            query_id=query_id,
+            query_json=query_json,
+            query_status=query_status,
+            err=err,
+            error_type=error_type,
+            error_category=error_category,
+            user_safe_message=is_user_safe_error,
+        )
+
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover

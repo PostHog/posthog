@@ -136,6 +136,119 @@ class TestExecuteProcessQuery(TestCase):
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
 
+    @patch("posthog.clickhouse.client.execute_async.ph_scoped_capture")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_non_safe_error_sets_generic_message_and_emits_event(
+        self, mock_process_query_dict, mock_redis_client, mock_ph_scoped
+    ):
+        # Regression test for the historical behaviour where internal errors left
+        # error_message empty, which the /api/query/:id/ endpoint mapped to HTTP 500 with an
+        # empty body — surfacing as "Loading results…" forever (or a generic failure).
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+
+        captured_events: list[dict] = []
+
+        def fake_capture(*args, **kwargs):
+            captured_events.append(kwargs)
+
+        mock_ph_scoped.return_value.__enter__.return_value = fake_capture
+        mock_ph_scoped.return_value.__exit__.return_value = None
+
+        mock_process_query_dict.side_effect = RuntimeError("something unexpected exploded")
+
+        execute_process_query(
+            self.team.id,
+            self.user.id,
+            self.query_id,
+            {"kind": "TrendsQuery", "source": {"kind": "TrendsQuery"}},
+            self.limit_context,
+        )
+
+        # Final status write must have a non-empty user-facing error message with the query_id.
+        final_payload = json.loads(mock_redis.set.call_args_list[-1].args[1])
+        self.assertTrue(final_payload["error"])
+        self.assertTrue(final_payload["complete"])
+        assert final_payload["error_message"]
+        self.assertIn(self.query_id, final_payload["error_message"])
+
+        # A telemetry event was emitted with enough context to slice failures by query kind,
+        # error type, team, and whether we surfaced a real message to the user.
+        self.assertEqual(len(captured_events), 1)
+        event = captured_events[0]
+        self.assertEqual(event["event"], "$async_query_failed")
+        props = event["properties"]
+        self.assertEqual(props["team_id"], self.team.id)
+        self.assertEqual(props["query_id"], self.query_id)
+        self.assertEqual(props["query_kind"], "TrendsQuery")
+        self.assertEqual(props["exception_class"], "RuntimeError")
+        self.assertFalse(props["user_safe_message"])
+
+    @patch("posthog.clickhouse.client.execute_async.ph_scoped_capture")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_safe_error_preserves_exact_message_and_emits_event(
+        self, mock_process_query_dict, mock_redis_client, mock_ph_scoped
+    ):
+        # Safe errors (ExposedHogQLError, ExposedCHQueryError, APIException, UserAccessControlError)
+        # must continue to expose their exact message to the user — we only replace missing
+        # messages with a generic fallback.
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+
+        captured_events: list[dict] = []
+        mock_ph_scoped.return_value.__enter__.return_value = lambda *a, **kw: captured_events.append(kw)
+        mock_ph_scoped.return_value.__exit__.return_value = None
+
+        from posthog.hogql.errors import ExposedHogQLError
+
+        mock_process_query_dict.side_effect = ExposedHogQLError("invalid cohort reference")
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, {"kind": "HogQLQuery"}, self.limit_context)
+
+        final_payload = json.loads(mock_redis.set.call_args_list[-1].args[1])
+        self.assertEqual(final_payload["error_message"], "invalid cohort reference")
+
+        self.assertEqual(len(captured_events), 1)
+        self.assertTrue(captured_events[0]["properties"]["user_safe_message"])
+
+    @patch("posthog.clickhouse.client.execute_async.logger")
+    @patch("posthog.clickhouse.client.execute_async.ph_scoped_capture")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_telemetry_failure_does_not_break_query_task(
+        self, mock_process_query_dict, mock_redis_client, mock_ph_scoped, mock_logger
+    ):
+        # A misbehaving PostHog client must never fail the Celery task — the client is
+        # already dealing with a query error, we don't want to compound that.
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_ph_scoped.side_effect = RuntimeError("ph client exploded")
+        mock_process_query_dict.side_effect = RuntimeError("actual query error")
+
+        # Must not raise — telemetry is best-effort.
+        execute_process_query(self.team.id, self.user.id, self.query_id, {"kind": "TrendsQuery"}, self.limit_context)
+
+        # The query status was still persisted with the generic user-facing message.
+        final_payload = json.loads(mock_redis.set.call_args_list[-1].args[1])
+        self.assertTrue(final_payload["error"])
+        assert final_payload["error_message"]
+        # And we logged the telemetry failure.
+        self.assertTrue(
+            any("Failed to emit" in str(call) for call in mock_logger.exception.call_args_list),
+            "expected a log entry for the telemetry failure",
+        )
+
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
