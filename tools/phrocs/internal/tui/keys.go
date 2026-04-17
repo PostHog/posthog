@@ -291,6 +291,15 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
+// updateGroupHelp updates the Group keybinding help text to reflect the current dimension.
+func (m *Model) updateGroupHelp() {
+	if dim := m.activeGroupDim(); dim != "" {
+		m.keys.Group.SetHelp("g:", "group:"+dim)
+	} else {
+		m.keys.Group.SetHelp("g:", "group")
+	}
+}
+
 // updateProcKeys enables/disables start, stop, and restart bindings
 // based on the active process state.
 func (m *Model) updateProcKeys() {
@@ -382,12 +391,17 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.focusedPane == focusServices {
-			if m.servicesCursor < len(m.services)-1 {
-				prev := m.servicesCursor
+			moved := false
+			if m.isGrouped() {
+				moved = m.nextProcEntry()
+			} else if m.servicesCursor < len(m.services)-1 {
 				m.servicesCursor++
+				moved = true
+			}
+			if moved {
 				m.ensureSidebarCursorVisible()
 				m.updateProcKeys()
-				m.dbg("proc selected: %d→%d (%s)", prev, m.servicesCursor, m.services[m.servicesCursor].Name)
+				m.dbg("proc selected: %s", m.services[m.servicesCursor].Name)
 				var loadCmds []tea.Cmd
 				m, loadCmds = m.loadActiveProc()
 				cmds = append(cmds, loadCmds...)
@@ -405,12 +419,17 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.focusedPane == focusServices {
-			if m.servicesCursor > 0 {
-				prev := m.servicesCursor
+			moved := false
+			if m.isGrouped() {
+				moved = m.prevProcEntry()
+			} else if m.servicesCursor > 0 {
 				m.servicesCursor--
+				moved = true
+			}
+			if moved {
 				m.ensureSidebarCursorVisible()
 				m.updateProcKeys()
-				m.dbg("proc selected: %d→%d (%s)", prev, m.servicesCursor, m.services[m.servicesCursor].Name)
+				m.dbg("proc selected: %s", m.services[m.servicesCursor].Name)
 				var loadCmds []tea.Cmd
 				m, loadCmds = m.loadActiveProc()
 				cmds = append(cmds, loadCmds...)
@@ -479,6 +498,13 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.sortMode = (m.sortMode + 1) % SortMode(sortModeCount)
 		m.sortServices()
 		m.dbg("sort: %s", m.sortMode)
+
+	case key.Matches(msg, m.keys.Group):
+		m.cycleGroup()
+		m.rebuildSidebarEntries()
+		m.ensureSidebarCursorVisible()
+		m.updateGroupHelp()
+		m.dbg("group: %s", m.activeGroupDim())
 
 	case key.Matches(msg, m.keys.InfoMode):
 		m.infoMode = true
