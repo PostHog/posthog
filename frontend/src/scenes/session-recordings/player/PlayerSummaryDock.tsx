@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,9 +18,14 @@ const EXPANDED_MAX_HEIGHT = 480
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { logicProps, sessionRecordingId, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummary, sessionSummaryLoading, summarizationProgress, summaryDisabledReason } = useValues(
-        playerMetaLogic(logicProps)
-    )
+    const {
+        sessionSummary,
+        sessionSummaryLoading,
+        summarizationProgress,
+        sessionSummaryError,
+        sessionSummaryHasRetried,
+        summaryDisabledReason,
+    } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { openBySessionId } = useValues(sessionSummaryProgressLogic)
     const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
@@ -41,7 +46,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
         return null
     }
 
-    const hasContentToExpand = hasSummary || sessionSummaryLoading
+    const hasContentToExpand = hasSummary || sessionSummaryLoading || !!sessionSummaryError
 
     return (
         <div
@@ -86,21 +91,42 @@ export function PlayerSummaryDock(): JSX.Element | null {
             {isOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3">
                     {sessionSummaryLoading ? (
-                        summarizationProgress ? (
-                            <SummarizationProgressView
-                                progress={summarizationProgress}
-                                sessionDurationMs={sessionPlayerData?.durationMs}
-                            />
-                        ) : (
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    Researching the session... <Spinner />
+                        <>
+                            {sessionSummaryHasRetried && (
+                                <LemonBanner type="warning" className="mb-2">
+                                    <div className="text-sm font-normal">
+                                        Transient error generating the summary. Retrying...
+                                    </div>
+                                </LemonBanner>
+                            )}
+                            {summarizationProgress ? (
+                                <SummarizationProgressView
+                                    progress={summarizationProgress}
+                                    sessionDurationMs={sessionPlayerData?.durationMs}
+                                />
+                            ) : (
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        Researching the session... <Spinner />
+                                    </div>
+                                    <div className="flex items-center gap-1 ml-auto">
+                                        <LoadingTimer />
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-1 ml-auto">
-                                    <LoadingTimer />
-                                </div>
+                            )}
+                        </>
+                    ) : sessionSummaryError ? (
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => summarizeSession(),
+                            }}
+                        >
+                            <div className="text-sm font-normal">
+                                <strong>Summary failed.</strong> {sessionSummaryError}
                             </div>
-                        )
+                        </LemonBanner>
                     ) : hasSummary ? (
                         <SessionSummary />
                     ) : null}
