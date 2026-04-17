@@ -245,6 +245,16 @@ def generate_change_summary(
     else:
         messages = build_initial_prompt_messages(current_states, subscription_title, prompt_guide, team=team)
 
+    user_message_content = next((m["content"] for m in messages if m["role"] == "user"), "")
+    logger.info(
+        "change_summary_prompt_ready",
+        team_id=team_id,
+        has_previous=bool(previous_states),
+        insight_count=len(current_states),
+        user_message_length=len(user_message_content),
+        user_message_preview=user_message_content[:1000],
+    )
+
     client = get_llm_client(product="product_analytics")
 
     instance_region = get_instance_region() or "HOBBY"

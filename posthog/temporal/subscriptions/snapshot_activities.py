@@ -1,5 +1,6 @@
 import re
 import uuid
+from typing import Any
 
 import temporalio.activity
 from prometheus_client import Counter
@@ -47,14 +48,34 @@ def _build_states_from_content_snapshot(
         insight_id = insight_snap.get("id")
         insight_name = insight_snap.get("name", f"Insight {insight_id}")
         query_results = insight_snap.get("query_results")
+        query_error = insight_snap.get("query_error") or None
 
         query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
+        result_payload = query_results.get("result") if query_results else None
+        result_shape = _describe_result_shape(result_payload)
 
-        if query_results and query_results.get("result"):
-            results_summary = build_results_summary(query_kind, query_results["result"])
+        if query_results and result_payload:
+            results_summary = build_results_summary(query_kind, result_payload)
+            fallback_reason: str | None = None
+        elif query_error:
+            results_summary = "Query failed"
+            fallback_reason = "query_error"
         else:
-            error = insight_snap.get("query_error", {})
-            results_summary = "Query failed" if error else "No results"
+            results_summary = "No results"
+            fallback_reason = "no_query_results"
+
+        LOGGER.info(
+            "subscription_summary.insight_state_built",
+            insight_id=insight_id,
+            insight_name=insight_name,
+            query_kind=query_kind,
+            result_shape=result_shape,
+            query_error_type=(query_error or {}).get("type"),
+            fallback_reason=fallback_reason,
+            results_summary_length=len(results_summary),
+            results_summary_preview=results_summary[:200],
+            timestamp=timestamp,
+        )
 
         states.append(
             {
@@ -66,6 +87,27 @@ def _build_states_from_content_snapshot(
             }
         )
     return states
+
+
+def _describe_result_shape(result: Any) -> dict[str, Any]:
+    if result is None:
+        return {"type": "none"}
+    if isinstance(result, list):
+        first_item_type: str | None = None
+        first_item_keys: list[str] | None = None
+        if result:
+            first_item_type = type(result[0]).__name__
+            if isinstance(result[0], dict):
+                first_item_keys = sorted(result[0].keys())[:15]
+        return {
+            "type": "list",
+            "length": len(result),
+            "first_item_type": first_item_type,
+            "first_item_keys": first_item_keys,
+        }
+    if isinstance(result, dict):
+        return {"type": "dict", "keys": sorted(result.keys())[:15]}
+    return {"type": type(result).__name__}
 
 
 def _get_delivery_by_id(delivery_id: str) -> SubscriptionDelivery | None:
