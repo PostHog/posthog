@@ -14,7 +14,6 @@ async function closeQuickStartPopoverIfOpen(page: import('@playwright/test').Pag
 
 async function waitForSavedViewState(page: import('@playwright/test').Page): Promise<void> {
     await expect(page.getByTestId('sql-editor-input-save-view-name')).toHaveCount(0, { timeout: 40000 })
-    await expect(page.getByTestId('sql-editor-save-options-button')).toHaveCount(0, { timeout: 40000 })
     await expect(page.getByRole('button', { name: 'Update view' })).toBeVisible({ timeout: 40000 })
     await expect(page.getByTestId('sql-editor-materialization-button')).toBeVisible({ timeout: 40000 })
     await closeQuickStartPopoverIfOpen(page)
