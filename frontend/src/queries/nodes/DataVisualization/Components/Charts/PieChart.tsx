@@ -120,6 +120,7 @@ export function PieChart({
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
     const formattingSettings = yData[0]?.settings
+    const formattingKey = JSON.stringify(formattingSettings?.formatting ?? {})
     const total = slices.reduce((sum, slice) => sum + slice.value, 0)
     const showLegend = chartSettings.showLegend ?? false
     const showPieTotal = chartSettings.showPieTotal ?? true
@@ -135,6 +136,7 @@ export function PieChart({
     const chart = (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightPieChart
+                key={formattingKey}
                 data-attr="sql-pie-chart"
                 type={GraphType.Pie}
                 labelGroupType="none"
@@ -155,6 +157,7 @@ export function PieChart({
                 ]}
                 labels={slices.map((slice) => slice.label)}
                 showValuesOnSeries={chartSettings.showValuesOnSeries ?? true}
+                valueFormatter={(value) => String(formatDataWithSettings(value, formattingSettings) ?? value)}
             />
         </BindLogic>
     )
