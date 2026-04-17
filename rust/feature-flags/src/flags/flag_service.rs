@@ -482,7 +482,7 @@ mod tests {
         ];
         let evaluation_metadata = EvaluationMetadata::single_stage(&flags_vec);
         let mock_flags = FeatureFlagList {
-            flags: flags_vec,
+            flags: flags_vec.into(),
             evaluation_metadata,
             ..Default::default()
         };
@@ -616,7 +616,7 @@ mod tests {
 
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd
         let wrapper = HypercacheFlagsWrapper {
-            flags: large_flags.flags.clone(),
+            flags: large_flags.flags.to_vec(),
             evaluation_metadata: EvaluationMetadata::single_stage(&large_flags.flags),
             cohorts: None,
         };

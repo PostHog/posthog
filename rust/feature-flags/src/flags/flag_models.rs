@@ -2,6 +2,7 @@ use serde::de::{self, Deserializer};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::cohorts::cohort_models::Cohort;
 use crate::properties::property_models::PropertyFilter;
@@ -273,21 +274,24 @@ pub struct FeatureFlagRow {
     pub bucketing_identifier: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// Request-scoped view of flag definitions plus the per-request filter set.
+///
+/// `flags` is an `Arc<[FeatureFlag]>` so each request shares the same compiled
+/// flag list from `PreparedFlagDefinitions` without a deep clone — `clone()` is
+/// just a refcount bump. `filtered_out_flag_ids` is recomputed per request from
+/// runtime/tag/survey filters, which is why it isn't part of the cached value.
+#[derive(Clone, Debug, Default)]
 pub struct FeatureFlagList {
-    pub flags: Vec<FeatureFlag>,
+    pub flags: Arc<[FeatureFlag]>,
     /// Runtime-only set of flag IDs that should be skipped during evaluation.
     /// Includes inactive, deleted, survey-excluded, runtime-mismatched, and tag-filtered flags.
-    /// Not serialized — this is a request-scoped concern, not a cache concern.
-    #[serde(skip)]
+    /// Not a cache concern — this is request-scoped.
     pub filtered_out_flag_ids: HashSet<i32>,
     /// Pre-computed dependency metadata from Django's hypercache.
-    #[serde(skip)]
     pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps),
     /// precomputed by Django at cache-write time.
     /// When present, the matcher uses these instead of querying CohortCacheManager.
-    #[serde(skip)]
     pub cohorts: Option<Vec<Cohort>>,
 }
 
@@ -295,12 +299,14 @@ pub struct FeatureFlagList {
 ///
 /// Contains deserialized flags with compiled regexes, evaluation metadata,
 /// and optional cohort definitions. Wrapped in `Arc` for zero-copy sharing
-/// across concurrent requests for the same team.
+/// across concurrent requests for the same team. `flags` itself is also
+/// `Arc<[FeatureFlag]>` so the per-request `FeatureFlagList` view can share
+/// the flag slice without copying.
 ///
 /// Excludes `filtered_out_flag_ids` since those are per-request.
 #[derive(Clone, Debug)]
 pub struct PreparedFlagDefinitions {
-    pub flags: Vec<FeatureFlag>,
+    pub flags: Arc<[FeatureFlag]>,
     pub evaluation_metadata: EvaluationMetadata,
     pub cohorts: Option<Vec<Cohort>>,
 }
@@ -309,6 +315,8 @@ impl PreparedFlagDefinitions {
     /// Estimates the heap memory footprint of this struct in bytes.
     /// Used by moka's weight-based eviction to enforce cache capacity limits.
     pub fn estimated_size_bytes(&self) -> usize {
+        use crate::utils::json_size::estimate_json_size;
+
         let base = std::mem::size_of::<Self>();
 
         let flags_size: usize = self
@@ -324,8 +332,9 @@ impl PreparedFlagDefinitions {
                     .as_ref()
                     .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
                 let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
-                // Estimate filter properties: each PropertyFilter with a compiled regex
-                // costs ~2KB for the DFA/NFA automata inside fancy_regex::Regex
+                // Each PropertyFilter with a compiled regex costs ~2KB for the
+                // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
+                // payload can dominate for cohort/group filters, so walk it.
                 let filters_size: usize = f
                     .filters
                     .groups
@@ -337,14 +346,17 @@ impl PreparedFlagDefinitions {
                                 .map(|p| {
                                     let prop_base = std::mem::size_of::<PropertyFilter>();
                                     let prop_key = p.key.len();
+                                    let prop_value = p.value.as_ref().map_or(0, estimate_json_size);
                                     let regex_overhead =
                                         if p.compiled_regex.is_some() { 2048 } else { 0 };
-                                    prop_base + prop_key + regex_overhead
+                                    prop_base + prop_key + prop_value + regex_overhead
                                 })
                                 .sum()
                         })
                     })
                     .sum();
+
+                let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
                 struct_size
                     + key_size
@@ -353,6 +365,7 @@ impl PreparedFlagDefinitions {
                     + tags_size
                     + bucketing_size
                     + filters_size
+                    + payloads_size
             })
             .sum();
 
@@ -498,7 +511,7 @@ mod mock_impls {
     impl Mock for FeatureFlagList {
         fn mock() -> Self {
             FeatureFlagList {
-                flags: vec![Mock::mock()],
+                flags: Arc::from([<FeatureFlag as Mock>::mock()]),
                 ..Default::default()
             }
         }
@@ -539,7 +552,7 @@ mod mock_impls {
         fn mock_from(flags: Vec<FeatureFlag>) -> Self {
             let evaluation_metadata = EvaluationMetadata::single_stage(&flags);
             FeatureFlagList {
-                flags,
+                flags: Arc::from(flags),
                 evaluation_metadata,
                 ..Default::default()
             }

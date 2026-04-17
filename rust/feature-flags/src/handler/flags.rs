@@ -15,6 +15,7 @@ use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{evaluation, types::FeatureFlagEvaluationContext, with_canonical_log};
@@ -182,10 +183,14 @@ pub async fn fetch_and_filter(
         );
     }
 
-    // Clone flags from the cached PreparedFlagDefinitions. This is cheap because
-    // CompiledRegex::clone() is Arc::clone() (reference count bump, no re-compilation).
+    // `prepared.flags.clone()` is an `Arc<[FeatureFlag]>` refcount bump —
+    // no deep copy, no regex re-compilation. `evaluation_metadata` still
+    // clones (a HashMap + Vec), but it's far cheaper than the old flag-vec
+    // clone that copied every FeatureFlag and all its filter properties.
+    // `cohorts.clone()` is unchanged; see TODO above `PreparedFlagDefinitions`
+    // if we want to Arc-share those too.
     let flag_list = FeatureFlagList {
-        flags: prepared.flags.clone(),
+        flags: Arc::clone(&prepared.flags),
         filtered_out_flag_ids,
         evaluation_metadata: prepared.evaluation_metadata.clone(),
         cohorts: prepared.cohorts.clone(),

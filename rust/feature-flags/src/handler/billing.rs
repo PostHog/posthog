@@ -164,7 +164,7 @@ mod tests {
         let disabled_flag = mock!(FeatureFlag, id: 1, key: "regular_flag".mock_into());
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone()],
+            flags: vec![disabled_flag.clone()].into(),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -178,7 +178,7 @@ mod tests {
         let active_flag = mock!(FeatureFlag, id: 2, key: "active_flag".mock_into());
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone(), active_flag],
+            flags: vec![disabled_flag.clone(), active_flag].into(),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -192,7 +192,7 @@ mod tests {
             mock!(FeatureFlag, id: 1, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_survey_flag.clone()],
+            flags: vec![disabled_survey_flag.clone()].into(),
             filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id])
         );
 
@@ -207,7 +207,7 @@ mod tests {
             mock!(FeatureFlag, id: 2, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone(), survey_flag],
+            flags: vec![disabled_flag.clone(), survey_flag].into(),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -245,7 +245,7 @@ mod tests {
             mock!(FeatureFlag, id: 1, key: format!("{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}tour1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_tour_flag.clone()],
+            flags: vec![disabled_tour_flag.clone()].into(),
             filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id])
         );
 

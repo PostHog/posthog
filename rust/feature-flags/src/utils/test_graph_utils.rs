@@ -1198,7 +1198,8 @@ mod precomputed_dependency_graph_tests {
             flags: vec![
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3]],
                 flags_with_missing_deps: vec![1],
@@ -1222,7 +1223,8 @@ mod precomputed_dependency_graph_tests {
             flags: vec![
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(2, "flag_b", HashSet::from([999]), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
@@ -1274,7 +1276,8 @@ mod precomputed_dependency_graph_tests {
             flags: vec![
                 flag(1, "inactive_flag", HashSet::from([999]), false),
                 flag(2, "active_flag", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             filtered_out_flag_ids: HashSet::from([1]),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2]],
@@ -1368,7 +1371,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(2, "flag_b", HashSet::from([3]), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
@@ -1410,7 +1414,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(2, "flag_b", HashSet::new(), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
@@ -1438,7 +1443,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(2, "flag_b", HashSet::from([1]), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3]], // only C, cycled flags excluded
                 flags_with_missing_deps: vec![1, 2],
@@ -1490,7 +1496,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::new(), true),
                 flag(2, "flag_b", HashSet::new(), true),
                 flag(3, "flag_c", HashSet::new(), false),
-            ],
+            ]
+            .into(),
             filtered_out_flag_ids: HashSet::from([3]),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
@@ -1515,7 +1522,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(2, "flag_b", HashSet::new(), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             filtered_out_flag_ids: HashSet::from([2]),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
@@ -1558,7 +1566,8 @@ mod precomputed_dependency_graph_tests {
                 flag(2, "flag_b", HashSet::from([3]), true),
                 flag(3, "flag_c", HashSet::new(), true),
                 flag(4, "flag_d", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
@@ -1598,7 +1607,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::new(), true),
                 flag(2, "flag_b", HashSet::new(), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2, 3]],
                 flags_with_missing_deps: vec![],
@@ -1622,7 +1632,7 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_build_with_flag_keys_precomputed_nonexistent_key() {
         let feature_flags = FeatureFlagList {
-            flags: vec![flag(1, "flag_a", HashSet::new(), true)],
+            flags: vec![flag(1, "flag_a", HashSet::new(), true)].into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1]],
                 flags_with_missing_deps: vec![],
@@ -1648,7 +1658,8 @@ mod precomputed_dependency_graph_tests {
                 flag(1, "flag_a", HashSet::from([2]), true),
                 flag(2, "flag_b", HashSet::from([999]), true),
                 flag(3, "flag_c", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
@@ -1681,7 +1692,8 @@ mod precomputed_dependency_graph_tests {
                 flag(2, "flag_b", HashSet::from([3]), true),
                 flag(3, "flag_c", HashSet::new(), true),
                 flag(4, "flag_d", HashSet::new(), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![1, 2]],
                 flags_with_missing_deps: vec![],
@@ -1729,7 +1741,7 @@ mod precomputed_dependency_graph_tests {
             flag(3, "flag_c", HashSet::new(), true),
         ];
         let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
+            flags: flags.clone().into(),
             evaluation_metadata: EvaluationMetadata::single_stage(&flags),
             ..Default::default()
         };
@@ -1755,7 +1767,8 @@ mod precomputed_dependency_graph_tests {
             flags: vec![
                 flag(1, "flag_a", HashSet::new(), true),
                 flag(2, "flag_b", HashSet::from([1]), true),
-            ],
+            ]
+            .into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![
                     vec![1, 999], // 999 is a phantom ID

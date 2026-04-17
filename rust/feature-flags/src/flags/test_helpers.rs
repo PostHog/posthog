@@ -69,7 +69,7 @@ pub async fn get_flags_from_redis(
     );
 
     Ok(FeatureFlagList {
-        flags: wrapper.flags,
+        flags: wrapper.flags.into(),
         evaluation_metadata: wrapper.evaluation_metadata,
         cohorts: wrapper.cohorts,
         ..Default::default()
@@ -91,7 +91,7 @@ pub async fn update_flags_in_hypercache(
     ttl_seconds: Option<u64>,
 ) -> Result<(), FlagError> {
     let wrapper = HypercacheFlagsWrapper {
-        flags: flags.flags.clone(),
+        flags: flags.flags.to_vec(),
         evaluation_metadata: flags.evaluation_metadata.clone(),
         cohorts: flags.cohorts.clone(),
     };

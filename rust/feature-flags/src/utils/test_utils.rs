@@ -1036,7 +1036,7 @@ pub fn flag_list_with_metadata_and_filter(
     };
 
     FeatureFlagList {
-        flags,
+        flags: flags.into(),
         filtered_out_flag_ids,
         evaluation_metadata,
         cohorts: None,

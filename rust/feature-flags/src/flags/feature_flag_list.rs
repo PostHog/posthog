@@ -9,6 +9,7 @@ use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
+use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
@@ -16,15 +17,17 @@ type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<C
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
         Self {
-            flags,
+            flags: Arc::from(flags),
             ..Default::default()
         }
     }
 
-    /// Pre-compiles all regex patterns in property filters across all flags.
-    /// Called once after deserialization, before evaluation begins.
-    pub fn prepare_regexes(&mut self) {
-        for flag in &mut self.flags {
+    /// Pre-compiles all regex patterns in property filters across a flag slice.
+    /// Operates in place so callers can prep a `Vec<FeatureFlag>` before wrapping
+    /// it in an `Arc<[FeatureFlag]>` for the in-memory cache — avoids needing
+    /// `Arc::get_mut` on a just-built Arc.
+    pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
+        for flag in flags.iter_mut() {
             Self::prepare_group_regexes(&mut flag.filters.groups);
             // super_groups currently only use Exact operators (early access enrollment),
             // so prepare_regex() will no-op for each filter. We walk them anyway for
@@ -33,6 +36,14 @@ impl FeatureFlagList {
                 Self::prepare_group_regexes(super_groups);
             }
         }
+    }
+
+    /// Pre-compiles regexes on this list. Panics if the backing `Arc<[FeatureFlag]>`
+    /// is shared — call this on a freshly-constructed list before any cloning.
+    pub fn prepare_regexes(&mut self) {
+        let slice = Arc::get_mut(&mut self.flags)
+            .expect("prepare_regexes requires a uniquely-owned Arc<[FeatureFlag]>");
+        Self::prepare_regexes_in_place(slice);
     }
 
     fn prepare_group_regexes(groups: &mut [FlagPropertyGroup]) {

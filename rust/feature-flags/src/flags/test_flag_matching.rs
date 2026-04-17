@@ -6399,7 +6399,7 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![filtered_continuity_flag, active_normal_flag],
+            flags: vec![filtered_continuity_flag, active_normal_flag].into(),
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
@@ -6493,7 +6493,7 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![base_flag, dependent_flag],
+            flags: vec![base_flag, dependent_flag].into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
@@ -6597,7 +6597,7 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: vec![flag_a, flag_b].into(),
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
@@ -6696,7 +6696,7 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: vec![flag_a, flag_b].into(),
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
@@ -6888,7 +6888,7 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([2]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b, flag_c],
+            flags: vec![flag_a, flag_b, flag_c].into(),
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2], vec![3]],
@@ -8471,7 +8471,7 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b, flag_c],
+            flags: vec![flag_a, flag_b, flag_c].into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
@@ -8564,7 +8564,7 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: vec![flag_a, flag_b].into(),
             evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
