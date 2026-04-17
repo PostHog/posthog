@@ -6,7 +6,7 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils.timezone import now
 
 import structlog
@@ -15,6 +15,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.schema import RecordingsQuery
 
@@ -50,6 +51,22 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 PLAYLIST_COUNT_REDIS_PREFIX = "@posthog/replay/playlist_filters_match_count/"
+
+# Hard cap on the list endpoint's page size to bound memory/CPU cost of the
+# batched recordings_counts precompute. Chosen well above typical UI pagination
+# (30) so we don't surprise existing callers.
+PLAYLIST_LIST_MAX_LIMIT = 500
+# Chunk size when looking up SessionRecordingViewed with a large session_id IN clause.
+CURRENT_USER_VIEWED_CHUNK_SIZE = 5000
+# Cap on how many session_ids we consume per saved-filter Redis payload when
+# building the cross-playlist watched lookup. Prevents a single oversized cached
+# entry from dominating memory.
+MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST = 1000
+
+
+class SessionRecordingPlaylistPagination(LimitOffsetPagination):
+    default_limit = 100
+    max_limit = PLAYLIST_LIST_MAX_LIMIT
 
 
 def create_synthetic_playlist_instance(
@@ -184,6 +201,39 @@ def _saved_filters_counts_from_data(data: dict, viewed_session_ids: set[str]) ->
     }
 
 
+def _batch_current_user_viewed(session_ids: set[str], user: User, team: Team) -> set[str]:
+    """Chunk SessionRecordingViewed lookups to avoid degenerate IN-clause plans."""
+    if not session_ids:
+        return set()
+    session_ids_list = list(session_ids)
+    if len(session_ids_list) <= CURRENT_USER_VIEWED_CHUNK_SIZE:
+        return current_user_viewed(session_ids_list, user, team)
+    result: set[str] = set()
+    for i in range(0, len(session_ids_list), CURRENT_USER_VIEWED_CHUNK_SIZE):
+        chunk = session_ids_list[i : i + CURRENT_USER_VIEWED_CHUNK_SIZE]
+        result |= current_user_viewed(chunk, user, team)
+    return result
+
+
+def _attach_empty_recordings_counts(playlists: list[SessionRecordingPlaylist]) -> None:
+    """Short-circuit the serializer's per-playlist fallback after a precompute failure.
+
+    The per-playlist path re-hits Postgres and Redis for every collection on the page,
+    which amplifies load during a partial outage. Attaching empty prefetched attrs
+    makes the serializer return the default empty counts fast without retrying.
+    """
+    for playlist in playlists:
+        if getattr(playlist, "_is_synthetic", False):
+            continue
+        if not hasattr(playlist, "_prefetched_collection_count"):
+            playlist._prefetched_collection_count = {  # type: ignore[attr-defined]
+                "count": None,
+                "watched_count": None,
+            }
+        if not hasattr(playlist, "_prefetched_saved_filters_count"):
+            playlist._prefetched_saved_filters_count = _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+
 def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user: User, team: Team) -> None:
     """Batch-fetch recording counts and viewed status for a page of playlists.
 
@@ -194,6 +244,10 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
     attributes on each instance so the serializer can consume them.
 
     Synthetic playlists are skipped — they have their own count path.
+
+    Prefetch contract: any list view that renders SessionRecordingPlaylistSerializer
+    with many=True should call this first, or the serializer falls back to the
+    original per-playlist queries.
     """
     db_playlists = [p for p in playlists if not getattr(p, "_is_synthetic", False)]
     if not db_playlists:
@@ -201,17 +255,26 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
 
     playlist_ids = [p.id for p in db_playlists]
 
-    # Single pass over SessionRecordingPlaylistItem — compute non-deleted counts
-    # and collect every session_id (including from soft-deleted rows, to match
-    # the historical watched-count behavior of count_collection_recordings).
-    counts_by_playlist: dict[int, int] = defaultdict(int)
+    # Defense-in-depth: the current caller (`list()`) passes team-scoped playlists
+    # from `safely_get_queryset`, but filtering here keeps the helper safe if it's
+    # ever reused by a caller that does not pre-scope.
+    base_qs = SessionRecordingPlaylistItem.objects.filter(
+        playlist_id__in=playlist_ids,
+        playlist__team_id=team.id,
+    )
+
+    # Counts via SQL aggregation — avoids materializing non-deleted rows when we
+    # only need the count. Matches `.exclude(deleted=True)` semantics on the
+    # nullable BooleanField (both True=excluded, False/NULL=included).
+    counts_by_playlist: dict[int, int] = dict(
+        base_qs.exclude(deleted=True).values("playlist_id").annotate(c=Count("id")).values_list("playlist_id", "c")
+    )
+
+    # Separate scan for session_ids — includes soft-deleted rows to preserve the
+    # watched-count semantics of the pre-change count_collection_recordings.
     session_ids_by_playlist: dict[int, list[str]] = defaultdict(list)
-    for playlist_id, session_id, deleted in SessionRecordingPlaylistItem.objects.filter(
-        playlist_id__in=playlist_ids
-    ).values_list("playlist_id", "session_id", "deleted"):
-        if not deleted:
-            counts_by_playlist[playlist_id] += 1
-        if session_id:
+    for playlist_id, session_id in base_qs.values_list("playlist_id", "session_id"):
+        if session_id is not None:
             session_ids_by_playlist[playlist_id].append(session_id)
 
     playlists_needing_saved_filters = [p for p in db_playlists if counts_by_playlist.get(p.id, 0) == 0]
@@ -219,23 +282,38 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
     saved_filter_data_by_short_id: dict[str, dict] = {}
     saved_filter_session_ids: set[str] = set()
     if playlists_needing_saved_filters:
-        redis_client = get_client()
-        keys = [f"{PLAYLIST_COUNT_REDIS_PREFIX}{p.short_id}" for p in playlists_needing_saved_filters]
-        values = redis_client.mget(keys)
+        values: list[Optional[str]]
+        try:
+            redis_client = get_client()
+            keys = [f"{PLAYLIST_COUNT_REDIS_PREFIX}{p.short_id}" for p in playlists_needing_saved_filters]
+            values = redis_client.mget(keys)
+        except Exception as e:
+            logger.warning(
+                "saved_filters_redis_mget_failed",
+                error=str(e),
+                team_id=team.id,
+                key_count=len(playlists_needing_saved_filters),
+            )
+            values = [None] * len(playlists_needing_saved_filters)
         for playlist, value in zip(playlists_needing_saved_filters, values):
             if not value:
                 continue
             try:
                 parsed = json.loads(value)
             except (TypeError, ValueError):
+                logger.warning(
+                    "saved_filters_redis_payload_malformed",
+                    team_id=team.id,
+                    playlist_short_id=playlist.short_id,
+                )
                 continue
             saved_filter_data_by_short_id[playlist.short_id] = parsed
-            id_list = parsed.get("session_ids") or []
+            id_list = (parsed.get("session_ids") or [])[:MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST]
             saved_filter_session_ids.update(id_list)
 
     collection_session_ids: set[str] = {sid for sids in session_ids_by_playlist.values() for sid in sids}
     all_session_ids = collection_session_ids | saved_filter_session_ids
-    viewed_session_ids = current_user_viewed(list(all_session_ids), user, team) if all_session_ids else set()
+    viewed_session_ids = _batch_current_user_viewed(all_session_ids, user, team)
 
     for playlist in db_playlists:
         count = counts_by_playlist.get(playlist.id, 0)
@@ -485,6 +563,7 @@ class SessionRecordingPlaylistViewSet(
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    pagination_class = SessionRecordingPlaylistPagination
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
@@ -542,17 +621,27 @@ class SessionRecordingPlaylistViewSet(
         combined = self._order_playlists(request, combined)
 
         # Enforce page size on the combined result so synthetic playlists
-        # don't cause the response to exceed the requested limit.
-        limit = int(request.GET.get("limit", 100))
+        # don't cause the response to exceed the requested limit. The paginator
+        # already caps DB-backed pages at PLAYLIST_LIST_MAX_LIMIT; clamp here too
+        # so the synthetic slice is bounded identically.
+        limit = min(int(request.GET.get("limit", 100)), PLAYLIST_LIST_MAX_LIMIT)
         combined = combined[:limit]
 
         # Batch-fetch recording counts for the page to avoid the per-playlist
         # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
-        # Failures fall through to the per-playlist path inside the serializer.
+        # On failure we log and attach empty prefetched attrs so the serializer
+        # short-circuits to default empty counts instead of retrying per-playlist
+        # (which amplifies load during a Redis/DB partial outage).
         try:
             precompute_recordings_counts(combined, cast(User, request.user), self.team)
         except Exception as e:
+            logger.exception(
+                "playlist_recordings_counts_precompute_failed",
+                team_id=self.team.id,
+                page_size=len(combined),
+            )
             posthoganalytics.capture_exception(e)
+            _attach_empty_recordings_counts(combined)
 
         serializer = self.get_serializer(combined, many=True)
 
