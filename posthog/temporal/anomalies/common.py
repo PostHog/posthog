@@ -42,6 +42,30 @@ SPARKLINE_POINTS: dict[str, int] = {
     "month": 12,
 }
 
+# How many historical points to request when training a fresh model, per
+# insight interval. Sized so each window captures enough seasonal context
+# for the ensemble to learn a realistic baseline (e.g. a full day-of-week
+# cycle on hourly, a full quarter of weekday / weekend rhythm on daily).
+# The alerts system keeps its legacy `DETECTOR_DEFAULT_WINDOW = 30` — this
+# override applies to the anomalies-tab training flow only.
+TRAIN_WINDOW_TARGET: dict[str, int] = {
+    "hour": 24 * 7 * 2,  # 2 weeks of hourly (336)
+    "day": 90,  # ~3 months of daily
+    "week": 52,  # 1 year of weekly
+    "month": 24,  # 2 years of monthly
+}
+
+# Minimum number of points required before we'll attempt to train. A series
+# with fewer points than this is skipped — the detector output would be too
+# noisy to trust, and the next training run has a chance to pick it up once
+# more history accrues.
+MIN_TRAIN_POINTS: dict[str, int] = {
+    "hour": 48,  # at least 2 days
+    "day": 14,  # at least 2 weeks
+    "week": 8,  # at least 2 months
+    "month": 6,  # at least 6 months
+}
+
 INTERVAL_DELTA: dict[str, relativedelta] = {
     "hour": relativedelta(hours=1),
     "day": relativedelta(days=1),
@@ -56,6 +80,40 @@ RETRAIN_CADENCE: dict[str, relativedelta] = {
     "week": relativedelta(weeks=4),
     "month": relativedelta(months=3),
 }
+
+
+def tune_training_config_for_interval(detector_config: dict[str, Any], interval: str) -> dict[str, Any]:
+    """Return a copy of `detector_config` with per-sub-detector `window` set
+    to match the interval's `TRAIN_WINDOW_TARGET`.
+
+    The alerts system's `_compute_min_samples_for_detector` resolves
+    `min_samples = window + 1 + lags_n + diffs_n`, then
+    `_date_range_override_for_detector` turns that into a `-{n}{unit}` query
+    window. So by fitting `window` here we steer the CH query for training
+    without touching either helper.
+
+    Falls back silently to the original config when the interval isn't
+    recognised, keeping behaviour identical for non-time-series inputs.
+    """
+    target = TRAIN_WINDOW_TARGET.get(interval)
+    if target is None:
+        return detector_config
+
+    def _with_window(sub: dict[str, Any]) -> dict[str, Any]:
+        preprocessing = sub.get("preprocessing") or {}
+        lags_n = preprocessing.get("lags_n") or 0
+        diffs_n = preprocessing.get("diffs_n") or 0
+        # Subtract preprocessing overhead so the resolved `min_samples`
+        # lands at `target`, not `target + headroom`.
+        window = max(target - 1 - lags_n - diffs_n, 1)
+        return {**sub, "window": window}
+
+    tuned = {**detector_config}
+    if detector_config.get("type") == "ensemble":
+        tuned["detectors"] = [_with_window(s) for s in detector_config.get("detectors", [])]
+    else:
+        tuned = _with_window(detector_config)
+    return tuned
 
 
 def min_points_for_scoring(detector_config: dict[str, Any]) -> int:

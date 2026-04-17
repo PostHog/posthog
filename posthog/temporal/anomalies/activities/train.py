@@ -18,9 +18,12 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, _date_range_override_for_detector
 from posthog.temporal.anomalies.common import (
     DEFAULT_ANOMALY_DETECTOR_CONFIG,
+    MIN_TRAIN_POINTS,
     RETRAIN_CADENCE,
+    interval_from_query,
     is_anomalies_enabled_for_team,
     is_time_series_trends_insight,
+    tune_training_config_for_interval,
 )
 from posthog.temporal.anomalies.model_storage import save_model
 from posthog.temporal.anomalies.trainable_ensemble import TrainableEnsemble
@@ -85,11 +88,22 @@ async def train_insight(inputs: TrainInsightActivityInputs) -> TrainInsightResul
         if not is_eligible or trends_query is None:
             return TrainInsightResult(insight_id=inputs.insight_id, error="Not eligible")
 
-        detector_config = inputs.detector_config or DEFAULT_ANOMALY_DETECTOR_CONFIG
+        raw_detector_config = inputs.detector_config or DEFAULT_ANOMALY_DETECTOR_CONFIG
+        # Size the training window to the insight's interval (e.g. 2 weeks
+        # of hourly context, 3 months of daily) so the detector learns a
+        # realistic seasonal baseline rather than the alerts system's default
+        # 30-point window.
+        interval_str = interval_from_query(trends_query)
+        detector_config = tune_training_config_for_interval(raw_detector_config, interval_str)
 
         # Heavy ClickHouse query: fetch full training window
         min_samples = _compute_min_samples_for_detector(detector_config)
         filters_override = _date_range_override_for_detector(trends_query, min_samples)
+        # Floor for "do we have enough history to bother?" Independent of the
+        # detector's statistical floor: a series can be technically trainable
+        # (≥10 points) yet still produce noisy output if we haven't covered
+        # enough of a seasonal cycle.
+        min_points_required = MIN_TRAIN_POINTS.get(interval_str, 10)
 
         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         if trends_query.interval == IntervalType.HOUR:
@@ -118,7 +132,7 @@ async def train_insight(inputs: TrainInsightActivityInputs) -> TrainInsightResul
                 continue
 
             data_list = series_result.get("data", [])
-            if len(data_list) < min_samples:
+            if len(data_list) < min_points_required:
                 continue
 
             data = np.array(data_list, dtype=float)

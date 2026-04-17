@@ -35,11 +35,13 @@ from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.temporal.anomalies.common import (
     DEFAULT_ANOMALY_DETECTOR_CONFIG,
     INTERVAL_DELTA,
+    MIN_TRAIN_POINTS,
     RETRAIN_CADENCE,
     SPARKLINE_POINTS,
     interval_from_query,
     is_time_series_trends_insight,
     min_points_for_scoring,
+    tune_training_config_for_interval,
 )
 from posthog.temporal.anomalies.model_storage import save_model
 from posthog.temporal.anomalies.trainable_ensemble import FittedEnsemble, TrainableEnsemble
@@ -258,10 +260,13 @@ def _train_at(
     virtual_now: datetime,
 ) -> dict[int, bytes] | None:
     """Fit per-series models using data up to virtual_now."""
-    min_samples = _compute_min_samples_for_detector(detector_config)
+    interval_str = interval_from_query(trends_query)
+    tuned_config = tune_training_config_for_interval(detector_config, interval_str)
+    min_samples = _compute_min_samples_for_detector(tuned_config)
     # Overshoot a bit: the query engine may return slightly fewer points than
     # the nominal window when date_to is explicit.
     date_from_iso = _absolute_date_from(virtual_now, trends_query.interval, min_samples + 10)
+    min_points_required = MIN_TRAIN_POINTS.get(interval_str, 10)
 
     filters_override = {"date_from": date_from_iso, "date_to": _iso(virtual_now)}
     execution_mode = (
@@ -281,14 +286,14 @@ def _train_at(
         return None
 
     results = cast(list[dict[str, Any]], calculation_result.result)
-    ensemble = TrainableEnsemble(detector_config)
+    ensemble = TrainableEnsemble(tuned_config)
 
     series_models: dict[int, bytes] = {}
     for series_index, series_result in enumerate(results):
         if series_result.get("compare") or series_result.get("status") is not None:
             continue
         data_list = series_result.get("data", [])
-        if len(data_list) < min_samples:
+        if len(data_list) < min_points_required:
             continue
         data = np.array(data_list, dtype=float)
         if not np.all(np.isfinite(data)):
