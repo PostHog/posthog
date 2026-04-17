@@ -19,7 +19,6 @@ from django.utils.text import slugify
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
@@ -131,40 +130,52 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
-    @parameterized.expand(
-        [
-            ("matching_email", False, False, 1),
-            ("uppercase_email", True, False, 1),
-            ("expired_invite", False, True, 0),
-        ]
-    )
-    def test_pending_invites_filtering(self, _name, uppercase_email, expired, expected_count):
+    def test_pending_invites_returns_invite_matching_user_email(self):
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email,
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/users/@me/pending_invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), 1)
+
+    def test_pending_invites_matches_email_case_insensitively(self):
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email.upper(),
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/users/@me/pending_invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), 1)
+
+    def test_pending_invites_excludes_expired(self):
         from posthog.constants import INVITE_DAYS_VALIDITY
         from posthog.models import OrganizationInvite
 
         other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
-        target_email = self.user.email.upper() if uppercase_email else self.user.email
-
-        if expired:
-            # Push created_at back beyond INVITE_DAYS_VALIDITY without needing freeze_time.
-            invite = OrganizationInvite.objects.create(
-                organization=other_org,
-                target_email=target_email,
-                created_by=self.user,
-            )
-            OrganizationInvite.objects.filter(pk=invite.pk).update(
-                created_at=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)
-            )
-        else:
-            OrganizationInvite.objects.create(
-                organization=other_org,
-                target_email=target_email,
-                created_by=self.user,
-            )
+        invite = OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email,
+            created_by=self.user,
+        )
+        # Backdate the invite past the validity window without triggering save() hooks.
+        OrganizationInvite.objects.filter(pk=invite.pk).update(
+            created_at=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)
+        )
 
         response = self.client.get("/api/users/@me/pending_invites/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()), expected_count)
+        self.assertEqual(len(response.json()), 0)
 
     def test_pending_invites_excludes_other_emails_and_existing_memberships(self):
         from posthog.models import OrganizationInvite
