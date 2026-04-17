@@ -102,7 +102,7 @@ class LabelQuery(models.Lookup):
     def as_sql(self, compiler, connection):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        params = lhs_params + rhs_params
+        params = [*lhs_params, *rhs_params]
         return "%s ~ %s" % (lhs, rhs), params  # noqa: UP031
 
 
@@ -118,7 +118,7 @@ class LabelQueryArray(models.Lookup):
     def as_sql(self, compiler, connection):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        params = lhs_params + rhs_params
+        params = [*lhs_params, *rhs_params]
         return "%s ? %s" % (lhs, rhs), params  # noqa: UP031
 
 
@@ -590,7 +590,8 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                             parent_id = parent_query.id.hex
 
                     cursor.execute(CYCLE_CHECK_QUERY, params={"team_id": team.pk, "child": label, "parent": parent_id})
-                    if cursor.fetchone()[0]:
+                    cycle_exists_row = cursor.fetchone()
+                    if cycle_exists_row is not None and cycle_exists_row[0]:
                         raise ModelPathCycleError(child=label, parent=parent_id)
 
                     cursor.execute(UPDATE_PATHS_QUERY, params={**{"child": label, "parent": parent_id}, **base_params})
