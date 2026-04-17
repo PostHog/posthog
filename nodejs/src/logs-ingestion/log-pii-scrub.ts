@@ -1,16 +1,18 @@
 /**
- * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Plain text applies Bearer-token,
- * Stripe sk_*-shaped, email, and Luhn-valid 13–19 digit (card-like) patterns. JSON bodies are parsed when possible
- * and scrubbed recursively (object keys use the same sensitive-key substrings as attribute maps); opaque bodies get
- * plain rules only. Attribute maps redact the whole value on sensitive
- * key substrings, otherwise pattern-scrub values. Map values are JSON-string cells (JSON.stringify) so ClickHouse
- * JSONExtractString matches Rust OTLP encoding. Misses: secrets without those shapes, digit runs that fail Luhn,
- * keys outside the sensitive substring list (those values still get plain-text patterns only).
+ * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}).
  *
- * The four main match rules use RE2 (via createTrackedRE2) for linear-time matching and consistency with other
- * nodejs regex paths; patterns use ASCII-explicit classes so behavior stays stable under node-re2’s Unicode mode.
+ * Bodies and plain-text metadata: one pass of regex rules (Bearer-shaped tail, Stripe sk_*,
+ * email, Luhn-valid card-like digit runs) via RE2 — no JSON parse or structured walk of the body.
+ * Under-scrub: values only protected today by JSON *key names* inside the body may remain unless
+ * they match a pattern (attribute maps still use sensitive-key redaction).
+ *
+ * Attribute maps: sensitive key → full redact; else unwrap OTLP JSON-string cells
+ * (tryDecodeJsonStringDocument — a single string literal, not a full document parse), pattern-scrub,
+ * then encodeAttributeCell for ClickHouse / Rust OTLP parity.
+ *
+ * The four main match rules use RE2 (via createTrackedRE2) for linear-time matching and consistency
+ * with other nodejs regex paths; patterns use ASCII-explicit classes under node-re2’s Unicode mode.
  */
-import { parseJSON } from '../utils/json-parse'
 import { createTrackedRE2 } from '../utils/tracked-re2'
 import type { LogRecord } from './log-record-avro'
 
@@ -45,17 +47,101 @@ export function isSensitiveAttributeKey(key: string): boolean {
     return SENSITIVE_KEY_SUBSTRINGS.some((s) => lower.includes(s))
 }
 
+/**
+ * If `raw` is a JSON document consisting of a single string literal, return its decoded Unicode value; otherwise null.
+ * Avoids JSON.parse so scrub stays off the hot parse metrics path; only handles the OTLP/CH string-cell shape.
+ */
+function tryDecodeJsonStringDocument(raw: string): string | null {
+    const s = raw.trim()
+    if (s.length < 2 || s.charCodeAt(0) !== 0x22 || s.charCodeAt(s.length - 1) !== 0x22) {
+        return null
+    }
+    let i = 1
+    const end = s.length - 1
+    let out = ''
+    while (i < end) {
+        const c = s.charCodeAt(i)
+        if (c !== 0x5c) {
+            if (c < 0x20) {
+                return null
+            }
+            out += s[i]
+            i++
+            continue
+        }
+        i++
+        if (i >= end) {
+            return null
+        }
+        const esc = s[i]
+        switch (esc) {
+            case '"':
+                out += '"'
+                i++
+                break
+            case '\\':
+                out += '\\'
+                i++
+                break
+            case '/':
+                out += '/'
+                i++
+                break
+            case 'b':
+                out += '\b'
+                i++
+                break
+            case 'f':
+                out += '\f'
+                i++
+                break
+            case 'n':
+                out += '\n'
+                i++
+                break
+            case 'r':
+                out += '\r'
+                i++
+                break
+            case 't':
+                out += '\t'
+                i++
+                break
+            case 'u': {
+                if (i + 4 >= end) {
+                    return null
+                }
+                const hex = s.slice(i + 1, i + 5)
+                if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+                    return null
+                }
+                let cp = parseInt(hex, 16)
+                i += 5
+                if (cp >= 0xd800 && cp <= 0xdbff && i + 5 < end && s[i] === '\\' && s[i + 1] === 'u') {
+                    const hexLow = s.slice(i + 2, i + 6)
+                    if (/^[0-9a-fA-F]{4}$/.test(hexLow)) {
+                        const low = parseInt(hexLow, 16)
+                        if (low >= 0xdc00 && low <= 0xdfff) {
+                            cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00)
+                            out += String.fromCodePoint(cp)
+                            i += 6
+                            break
+                        }
+                    }
+                }
+                out += String.fromCharCode(cp)
+                break
+            }
+            default:
+                return null
+        }
+    }
+    return i === end ? out : null
+}
+
 /** Rust OTLP path stores string attrs as serde_json string values; unwrap one JSON string layer if present. */
 export function unwrapAttributeCell(value: string): string {
-    try {
-        const parsed = parseJSON(value)
-        if (typeof parsed === 'string') {
-            return parsed
-        }
-    } catch {
-        // not valid JSON — treat whole cell as semantic text
-    }
-    return value
+    return tryDecodeJsonStringDocument(value) ?? value
 }
 
 /** Match Rust serde_json::Value::String(s).to_string() / CH kafka_logs_avro_mv JSONExtractString expectations. */
@@ -100,44 +186,11 @@ export function scrubPlainString(input: string): string {
     return s
 }
 
-/** Walk parsed JSON: scrub strings, recurse arrays and objects; leave numbers/bools/null unchanged. */
-function scrubJsonValue(value: unknown): unknown {
-    if (typeof value === 'string') {
-        return scrubPlainString(value)
-    }
-    if (Array.isArray(value)) {
-        return value.map(scrubJsonValue)
-    }
-    if (value !== null && typeof value === 'object') {
-        const out: Record<string, unknown> = {}
-        for (const [k, v] of Object.entries(value)) {
-            out[k] = isSensitiveAttributeKey(k) ? PII_REDACTED : scrubJsonValue(v)
-        }
-        return out
-    }
-    return value
-}
-
-/** If body is JSON object/array, scrub nested strings and re-serialize; if invalid JSON, scrub as plain text. */
 function scrubBodyField(record: LogRecord): void {
     if (record.body == null) {
         return
     }
-    const body = record.body
-    try {
-        const parsed = parseJSON(body)
-        if (parsed !== null && typeof parsed === 'object') {
-            record.body = JSON.stringify(scrubJsonValue(parsed))
-            return
-        }
-        if (typeof parsed === 'string') {
-            record.body = JSON.stringify(scrubPlainString(parsed))
-            return
-        }
-        // JSON primitives other than string (number, boolean, null): keep canonical serialization
-    } catch {
-        record.body = scrubPlainString(body)
-    }
+    record.body = scrubPlainString(record.body)
 }
 
 /** Copy string map: full redaction for sensitive keys, else pattern-scrub semantic values; CH-safe JSON cells. */

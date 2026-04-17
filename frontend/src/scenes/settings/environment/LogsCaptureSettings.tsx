@@ -103,8 +103,9 @@ export function LogsPiiScrubSettings(): JSX.Element {
                 />
             </AccessControlAction>
             <p className="text-secondary text-sm max-w-200 mt-2">
-                When enabled, common patterns (emails, card numbers, authorization headers, sensitive attribute keys)
-                are replaced with a fixed placeholder before storage. This is lossy redaction, not reversible hashing.
+                When enabled, common patterns in log text (emails, card numbers, authorization headers) and values under
+                sensitive attribute keys are replaced with a fixed placeholder before storage. This is lossy redaction,
+                not reversible hashing.
             </p>
         </>
     )
