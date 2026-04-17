@@ -58,8 +58,10 @@ export class KafkaProducerWrapper {
         'retry.backoff.ms': 500, // Backoff between retry attempts
         'socket.timeout.ms': 30000, // Timeout for socket operations
         'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
-        'statistics.interval.ms': 30000, // Emit internal statistics every 30s for observability
     }
+
+    /** Emit librdkafka stats every 30s so ProducerStatsTracker can export them as Prom metrics. */
+    private static readonly STATS_INTERVAL_MS = 30000
 
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
@@ -76,6 +78,9 @@ export class KafkaProducerWrapper {
         const producerConfig: ProducerGlobalConfig = {
             ...KafkaProducerWrapper.PRODUCER_DEFAULTS,
             'client.rack': kafkaClientRack,
+            // Only emit librdkafka stats when there's a named wrapper to consume them — avoids
+            // the per-interval serialization cost on unnamed producers that have no listener.
+            ...(name ? { 'statistics.interval.ms': KafkaProducerWrapper.STATS_INTERVAL_MS } : {}),
             ...config,
             dr_cb: true,
         }
