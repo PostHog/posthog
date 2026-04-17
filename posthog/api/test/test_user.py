@@ -1,6 +1,5 @@
 import uuid
 import datetime
-import contextlib
 from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
@@ -134,25 +133,29 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("matching_email", lambda email: email, False, 1),
-            ("uppercase_email", str.upper, False, 1),
-            ("expired_invite", lambda email: email, True, 0),
+            ("matching_email", False, False, 1),
+            ("uppercase_email", True, False, 1),
+            ("expired_invite", False, True, 0),
         ]
     )
-    def test_pending_invites_filtering(self, _name, email_transform, expired, expected_count):
+    def test_pending_invites_filtering(self, _name, uppercase_email, expired, expected_count):
         from posthog.constants import INVITE_DAYS_VALIDITY
         from posthog.models import OrganizationInvite
 
         other_org = Organization.objects.create(name="Other Organization")
-        created_at_ctx = (
-            freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1))
-            if expired
-            else contextlib.nullcontext()
-        )
-        with created_at_ctx:
+        target_email = self.user.email.upper() if uppercase_email else self.user.email
+
+        if expired:
+            with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
+                OrganizationInvite.objects.create(
+                    organization=other_org,
+                    target_email=target_email,
+                    created_by=self.user,
+                )
+        else:
             OrganizationInvite.objects.create(
                 organization=other_org,
-                target_email=email_transform(self.user.email),
+                target_email=target_email,
                 created_by=self.user,
             )
 
