@@ -78,10 +78,14 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'conversations-api'
-    | 'conversations-notifications'
-    | 'conversations-slack'
+    | 'conversations-api-key'
     | 'conversations-email'
+    | 'conversations-email-channel'
+    | 'conversations-notifications'
+    | 'conversations-public-token'
+    | 'conversations-slack'
     | 'conversations-widget'
+    | 'conversations-widget-config'
     | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
