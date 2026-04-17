@@ -309,7 +309,7 @@ const errorTrackingSuppressionRulesCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ErrorTrackingSuppressionRule>({
             method: 'POST',
-            path: `/api/environments/${projectId}/error_tracking/suppression_rules/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/suppression_rules/`,
             body,
         })
         return result
