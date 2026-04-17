@@ -184,7 +184,9 @@ async fn setup_ai_router_with_restriction(
         Some(create_mock_blob_storage()),
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,  // body_read_chunk_size_kb
+        None, // overflow_limiter
+        None, // replay_overflow_limiter
     );
 
     (router, sink_clone)
@@ -496,7 +498,9 @@ async fn setup_ai_router_with_redirect_to_topic(
         Some(create_mock_blob_storage()),
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,  // body_read_chunk_size_kb
+        None, // overflow_limiter
+        None, // replay_overflow_limiter
     );
 
     (router, sink_clone)

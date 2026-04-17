@@ -14,8 +14,11 @@ use std::sync::Arc;
 
 use chrono::DateTime;
 use common_types::{CapturedEvent, HasEventName};
+use limiters::redis::RedisLimiter;
+use metrics::{counter, histogram};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::time::Instant;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
@@ -28,7 +31,9 @@ use crate::{
     prometheus::report_dropped_events,
     sinks,
     utils::uuid_v7,
-    v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
+    v0_request::{
+        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
+    },
 };
 
 /// A recording event optimized for minimal deserialization overhead.
@@ -157,17 +162,25 @@ impl HasEventName for RawRecording {
     }
 }
 
-/// Process recording (session replay) events with optimized serialization
+/// Process recording (session replay) events with optimized serialization.
 ///
 /// This function is optimized to avoid double serialization of snapshot data:
 /// - Extract metadata fields (session_id, window_id, etc.)
 /// - Keep snapshot_data as Value (already parsed from JSON)
 /// - Serialize directly to final format using serde::Serialize
 ///
+/// Routing policy (event restrictions + replay overflow) is decided here and
+/// stamped onto `ProcessedEventMetadata`. The kafka sink is a pure mechanism
+/// layer — it reads `overflow_reason`, `force_overflow`, `redirect_to_dlq`,
+/// and `redirect_to_topic` from the metadata and picks the topic/key
+/// accordingly. `replay_overflow_limiter` is the redis-backed limiter keyed
+/// on session_id that signals rerouting to the replay overflow topic.
+///
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
 pub async fn process_replay_events(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     restriction_service: Option<EventRestrictionService>,
+    replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     events: Vec<RawRecording>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -302,15 +315,49 @@ pub async fn process_replay_events(
         }
     }
 
+    // Replay overflow routing stage. This used to live in the kafka sink;
+    // moving it here keeps the sink as a mechanism-only layer. `force_overflow`
+    // short-circuits the limiter check (same semantics as the old sink path).
+    // We preserve the old `capture_events_rerouted_overflow{reason=...}`
+    // counter labels so existing dashboards keep working, and add a new
+    // `capture_pipeline_replay_overflow_check_duration_seconds` histogram
+    // around the redis call to make the added pipeline stage observable.
+    let force_overflow = applied.force_overflow();
+    let overflow_reason = if force_overflow {
+        counter!(
+            "capture_events_rerouted_overflow",
+            "reason" => "event_restriction",
+        )
+        .increment(1);
+        // The sink sees `force_overflow = true` and routes; no overflow_reason
+        // needed in that case (None leaves room for `force_overflow` to drive
+        // the sink's routing switch without double-stamping).
+        None
+    } else if let Some(ref limiter) = replay_overflow_limiter {
+        let started = Instant::now();
+        let is_overflowing = limiter.is_limited(session_id_str).await;
+        histogram!("capture_pipeline_replay_overflow_check_duration_seconds")
+            .record(started.elapsed().as_secs_f64());
+
+        if is_overflowing {
+            Some(OverflowReason::ReplayLimited)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp),
         event_name: "$snapshot_items".to_string(),
-        force_overflow: applied.force_overflow(),
+        force_overflow,
         skip_person_processing: applied.skip_person_processing(),
         redirect_to_dlq: applied.redirect_to_dlq(),
         redirect_to_topic: applied.redirect_to_topic().map(|s| s.to_string()),
+        overflow_reason,
     };
 
     // Serialize snapshot data synchronously
@@ -561,7 +608,8 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+        let result =
+            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         assert!(events_captured.lock().unwrap().is_empty());
@@ -591,7 +639,8 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+        let result =
+            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -623,7 +672,8 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+        let result =
+            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -655,7 +705,8 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+        let result =
+            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -673,7 +724,7 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, None, vec![recording], &context).await;
+        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -710,11 +761,176 @@ mod tests {
         let recording = create_test_recording(); // has session_id "test-session-123"
         let context = create_test_context();
 
-        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+        let result =
+            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
 
         // Should NOT be dropped because session_id doesn't match filter
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
+    }
+
+    // ============ replay overflow stamping tests ============
+    // Exercise the pipeline's new replay overflow stamping stage
+    // (moved here from the kafka sink's prepare_record). The limiter is
+    // backed by a MockRedisClient primed with a specific session id.
+
+    use common_redis::MockRedisClient;
+    use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
+
+    async fn build_replay_limiter(limited_session_ids: Vec<String>) -> Arc<RedisLimiter> {
+        let client = Arc::new(
+            MockRedisClient::new()
+                .zrangebyscore_ret("@posthog/capture-overflow/replay", limited_session_ids),
+        );
+        let limiter = RedisLimiter::new(
+            Duration::from_secs(1),
+            client,
+            OVERFLOW_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Replay,
+            ServiceName::Capture,
+        )
+        .expect("failed to build test replay limiter");
+        // The limiter polls redis on a background interval; give the first
+        // tick a moment to populate the in-memory `limited` DashMap before
+        // any is_limited call.
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        Arc::new(limiter)
+    }
+
+    #[tokio::test]
+    async fn test_replay_overflow_stamp_none_when_limiter_absent() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        assert!(result.is_ok());
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+    }
+
+    #[tokio::test]
+    async fn test_replay_overflow_stamp_replay_limited_for_matching_session() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
+        let recording = create_test_recording(); // session_id = "test-session-123"
+        let context = create_test_context();
+
+        let result =
+            process_replay_events(sink, None, Some(limiter), vec![recording], &context).await;
+        assert!(result.is_ok());
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ReplayLimited)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_replay_overflow_stamp_none_for_unlimited_session() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let limiter = build_replay_limiter(vec!["some-other-session".to_string()]).await;
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result =
+            process_replay_events(sink, None, Some(limiter), vec![recording], &context).await;
+        assert!(result.is_ok());
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+    }
+
+    #[tokio::test]
+    async fn test_replay_overflow_force_overflow_short_circuits_limiter() {
+        // When event restrictions set force_overflow on a session, the pipeline
+        // must leave overflow_reason = None so the sink routes on force_overflow
+        // directly (matching the old sink precedence).
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service =
+            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        // Even though the session is in the limited set, force_overflow wins.
+        let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(
+            sink,
+            Some(service),
+            Some(limiter),
+            vec![recording],
+            &context,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.force_overflow);
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+    }
+
+    #[tokio::test]
+    async fn test_replay_overflow_multiple_snapshots_share_batch_decision() {
+        // process_replay_events folds all RawRecording items in a batch into a
+        // single ProcessedEvent keyed on session_id, so overflow applies
+        // uniformly to the batch. This guards against a regression where a
+        // per-item check might diverge from batch-level routing.
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
+        let recordings = vec![create_test_recording(), create_test_recording()];
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, None, Some(limiter), recordings, &context).await;
+        assert!(result.is_ok());
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(
+            captured.len(),
+            1,
+            "batch of snapshots must collapse to a single CapturedEvent"
+        );
+        assert_eq!(
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ReplayLimited)
+        );
     }
 }

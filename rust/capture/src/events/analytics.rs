@@ -13,6 +13,8 @@ use metrics::counter;
 use serde_json;
 use tracing::{error, instrument, warn, Span};
 
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
+
 use crate::{
     api::CaptureError,
     debug_or_info,
@@ -21,7 +23,9 @@ use crate::{
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7,
-    v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
+    v0_request::{
+        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
+    },
 };
 
 /// Process a single analytics event from RawEvent to ProcessedEvent
@@ -91,6 +95,7 @@ pub fn process_single_event(
         skip_person_processing: false,
         redirect_to_dlq: false,
         redirect_to_topic: None,
+        overflow_reason: None,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {
@@ -126,14 +131,23 @@ pub fn process_single_event(
     Ok(ProcessedEvent { metadata, event })
 }
 
-/// Process a batch of analytics events
+/// Process a batch of analytics events.
+///
+/// All routing policy lives here: token dropping, event restrictions, global
+/// rate limiting (per `token:distinct_id`), historical rerouting, and
+/// per-key overflow rerouting via [`OverflowLimiter`]. The kafka sink is a
+/// pure mechanism layer — it reads `ProcessedEventMetadata::overflow_reason`,
+/// `force_overflow`, `redirect_to_dlq`, and `redirect_to_topic` to decide
+/// which topic and key to produce to.
 #[instrument(skip_all, fields(events = events.len(), request_id))]
+#[allow(clippy::too_many_arguments)]
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -230,6 +244,59 @@ pub async fn process_events<'a>(
                 distinct_ids = %preview,
                 "events rate limited by distinct_id -- person processing disabled"
             );
+        }
+    }
+
+    // Overflow routing stage. This used to live in the kafka sink's
+    // prepare_record; moving it here keeps the sink free of policy and
+    // co-locates overflow with every other pipeline-level routing decision.
+    // We stamp `ProcessedEventMetadata::overflow_reason`; the sink reads it
+    // and picks the overflow topic / partition-key policy accordingly.
+    //
+    // `force_overflow` (set by event restrictions) short-circuits the
+    // limiter check — same semantics as before. We emit the
+    // `capture_events_rerouted_overflow` counter here at stamp time; the
+    // sink no longer emits it. Label values match the pre-refactor sink
+    // counter so existing dashboards keep working.
+    for event in events.iter_mut() {
+        if event.metadata.data_type != DataType::AnalyticsMain {
+            continue;
+        }
+
+        if event.metadata.force_overflow {
+            counter!(
+                "capture_events_rerouted_overflow",
+                "reason" => "event_restriction",
+            )
+            .increment(1);
+            continue;
+        }
+
+        let Some(ref limiter) = overflow_limiter else {
+            continue;
+        };
+
+        let event_key = event.event.key();
+        match limiter.is_limited(&event_key) {
+            OverflowLimiterResult::ForceLimited => {
+                counter!(
+                    "capture_events_rerouted_overflow",
+                    "reason" => "force_limited",
+                )
+                .increment(1);
+                event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+            }
+            OverflowLimiterResult::Limited => {
+                counter!(
+                    "capture_events_rerouted_overflow",
+                    "reason" => "rate_limited",
+                )
+                .increment(1);
+                event.metadata.overflow_reason = Some(OverflowReason::RateLimited {
+                    preserve_locality: limiter.should_preserve_locality(),
+                });
+            }
+            OverflowLimiterResult::NotLimited => {}
         }
     }
 
@@ -500,6 +567,7 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
             &events,
             &context,
         )
@@ -544,6 +612,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             &events,
             &context,
@@ -591,6 +660,7 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
             &events,
             &context,
         )
@@ -636,6 +706,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             &events,
             &context,
@@ -690,6 +761,7 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
             &events,
             &context,
         )
@@ -724,6 +796,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             &events,
             &context,
@@ -776,6 +849,7 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
             &events,
             &context,
         )
@@ -821,6 +895,7 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
             &events,
             &context,
         )
@@ -833,5 +908,274 @@ mod tests {
             captured[0].metadata.redirect_to_topic,
             Some("custom_events_topic".to_string())
         );
+    }
+
+    // ============ overflow_reason stamping tests ============
+    // These exercise the analytics pipeline's new overflow stamping stage
+    // (the logic that used to live in the kafka sink's prepare_record).
+    // Each case constructs a `process_events` call with a specific
+    // `OverflowLimiter` configuration and asserts the stamped
+    // `overflow_reason` on the sink-captured event.
+
+    use std::num::NonZeroU32;
+
+    fn build_limiter(
+        per_second: u32,
+        burst: u32,
+        keys_to_reroute: Option<String>,
+        preserve_locality: bool,
+    ) -> Arc<OverflowLimiter> {
+        Arc::new(OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            keys_to_reroute,
+            preserve_locality,
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_overflow_stamp_none_when_limiter_absent() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            None, // no overflow limiter
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+    }
+
+    #[tokio::test]
+    async fn test_overflow_stamp_force_limited_when_token_in_reroute_list() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        // test_token is in the reroute list -> ForceLimited
+        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_overflow_stamp_rate_limited_when_burst_exceeded() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        // burst of 1 -> first event passes, second event rate-limited
+        let limiter = build_limiter(1, 1, None, true);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 2);
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+        assert_eq!(
+            captured[1].metadata.overflow_reason,
+            Some(OverflowReason::RateLimited {
+                preserve_locality: true,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_overflow_stamp_preserve_locality_false_propagates() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let limiter = build_limiter(1, 1, None, false);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(
+            captured[1].metadata.overflow_reason,
+            Some(OverflowReason::RateLimited {
+                preserve_locality: false,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_overflow_stamp_force_overflow_short_circuits_limiter() {
+        // When event restrictions set force_overflow, the pipeline short-
+        // circuits the limiter check and leaves overflow_reason = None. The
+        // sink routes on force_overflow directly in this case.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        // Even with a limiter that would flag this token, force_overflow wins.
+        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.force_overflow);
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+    }
+
+    #[tokio::test]
+    async fn test_overflow_stamp_skipped_for_non_analytics_main() {
+        // Historical, heatmap, exception, etc. events should never be stamped
+        // with an overflow_reason even if the limiter would otherwise hit.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.historical_migration = true;
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::AnalyticsHistorical
+        );
+        assert_eq!(captured[0].metadata.overflow_reason, None);
     }
 }

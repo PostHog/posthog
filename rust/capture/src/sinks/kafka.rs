@@ -1,11 +1,21 @@
+//! Kafka sink (mechanism layer).
+//!
+//! This sink is pure mechanism: it serializes `ProcessedEvent`s and produces them
+//! to Kafka using `rdkafka`. All routing *policy* (overflow rerouting, DLQ
+//! redirects, custom-topic redirects, force-disable-person-processing headers) is
+//! decided *upstream* in the pipeline (`events::analytics::process_events` and
+//! `events::recordings::process_replay_events`) and stamped onto
+//! `ProcessedEventMetadata`. `KafkaSinkBase::prepare_record` reads that metadata
+//! and maps it to a concrete topic + partition key. Keeping routing policy out
+//! of the sink keeps the clone-per-spawned-task cost in the scatter-gather
+//! batch path at two `Arc::clone` calls (producer + topics) rather than deep
+//! copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
-use crate::v0_request::{DataType, ProcessedEvent};
+use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use async_trait::async_trait;
-use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
-use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
 use rdkafka::util::Timeout;
@@ -176,21 +186,24 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
     }
 }
 
-/// Generic Kafka sink that can use any producer implementation
+/// Generic Kafka sink that can use any producer implementation.
+///
+/// Holds only the producer handle and the topic config. No limiter state —
+/// overflow and replay-overflow routing decisions are stamped upstream in the
+/// pipeline onto `ProcessedEventMetadata::overflow_reason` and read here.
+/// Both fields are `Arc` so `clone()` is two atomic ref-count increments,
+/// which matters under the scatter-gather batch produce path where the sink
+/// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    partition: Option<OverflowLimiter>,
-    topics: KafkaTopicConfig,
-    replay_overflow_limiter: Option<RedisLimiter>,
+    topics: Arc<KafkaTopicConfig>,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     fn clone(&self) -> Self {
         Self {
-            producer: self.producer.clone(),
-            partition: self.partition.clone(),
-            topics: self.topics.clone(),
-            replay_overflow_limiter: self.replay_overflow_limiter.clone(),
+            producer: Arc::clone(&self.producer),
+            topics: Arc::clone(&self.topics),
         }
     }
 }
@@ -202,8 +215,6 @@ impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
         liveness: lifecycle::Handle,
-        partition: Option<OverflowLimiter>,
-        replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -320,39 +331,37 @@ impl KafkaSink {
             info!("connected to Kafka brokers");
         };
 
-        let topics = KafkaTopicConfig::from(&config);
+        let topics = Arc::new(KafkaTopicConfig::from(&config));
         let rd_producer = RdKafkaProducer::new(producer);
 
         Ok(KafkaSinkBase {
             producer: Arc::new(rd_producer),
-            partition,
             topics,
-            replay_overflow_limiter,
         })
     }
 }
 
 impl<P: KafkaProducer> KafkaSinkBase<P> {
-    /// Create a new KafkaSinkBase with a custom producer (useful for testing)
-    pub fn with_producer(
-        producer: P,
-        topics: KafkaTopicConfig,
-        partition: Option<OverflowLimiter>,
-        replay_overflow_limiter: Option<RedisLimiter>,
-    ) -> Self {
+    /// Create a new KafkaSinkBase with a custom producer (useful for testing).
+    /// No limiters — the sink is a mechanism layer; overflow stamping happens
+    /// upstream in the pipeline. See the module header for details.
+    pub fn with_producer(producer: P, topics: KafkaTopicConfig) -> Self {
         Self {
             producer: Arc::new(producer),
-            partition,
-            topics,
-            replay_overflow_limiter,
+            topics: Arc::new(topics),
         }
     }
 
-    /// CPU-bound (plus optional Redis await for SnapshotMain) prep work.
+    /// CPU-bound prep work: serialize payload + build headers + pick topic/key.
     /// Safe to run concurrently across events in a batch because it does not
     /// touch the librdkafka producer queue — phase 2 of `send_batch` is what
     /// enforces per-partition ordering by calling `enqueue_record` serially
     /// in the original event order.
+    ///
+    /// Routing policy is read from `ProcessedEventMetadata` (stamped upstream
+    /// by the pipeline). This function does not consult any limiter — it is
+    /// pure mechanism. DLQ and custom-topic redirects take priority over
+    /// overflow routing, matching the pre-refactor ordering.
     async fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
@@ -368,13 +377,14 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let skip_person_processing = metadata.skip_person_processing;
         let redirect_to_dlq = metadata.redirect_to_dlq;
         let redirect_to_topic = metadata.redirect_to_topic;
+        let overflow_reason = metadata.overflow_reason;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
-        // Apply skip_person_processing from event restrictions
+        // Apply skip_person_processing from event restrictions / upstream decisions
         if skip_person_processing {
             headers.set_force_disable_person_processing(true);
         }
@@ -407,16 +417,14 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         } else {
             match data_type {
                 DataType::AnalyticsHistorical => {
+                    // Historical events never overflow — force_overflow and
+                    // overflow_reason are deliberately ignored here.
                     (&self.topics.historical_topic, Some(event_key.as_str()))
-                } // We never trigger overflow on historical events
+                }
                 DataType::AnalyticsMain => {
-                    // Check for force_overflow from event restrictions first
+                    // Precedence: force_overflow (restrictions) -> overflow_reason
+                    // (pipeline-stamped) -> default main-topic routing.
                     if force_overflow {
-                        counter!(
-                            "capture_events_rerouted_overflow",
-                            &[("reason", "event_restriction")]
-                        )
-                        .increment(1);
                         // Drop partition key if skip_person_processing is set
                         let key = if skip_person_processing {
                             None
@@ -425,39 +433,23 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                         };
                         (&self.topics.overflow_topic, key)
                     } else {
-                        // TODO: deprecate capture-led overflow or move logic in handler
-                        let overflow_result = match &self.partition {
-                            None => OverflowLimiterResult::NotLimited,
-                            Some(partition) => partition.is_limited(&event_key),
-                        };
-
-                        match overflow_result {
-                            OverflowLimiterResult::ForceLimited => {
+                        match &overflow_reason {
+                            Some(OverflowReason::ForceLimited) => {
+                                // Pipeline already sets skip_person_processing
+                                // for this case, but keep this belt-and-braces
+                                // header write in case a caller stamps the
+                                // reason without the side-effect.
                                 headers.set_force_disable_person_processing(true);
-                                counter!(
-                                    "capture_events_rerouted_overflow",
-                                    &[("reason", "force_limited")]
-                                )
-                                .increment(1);
                                 (&self.topics.overflow_topic, None)
                             }
-                            OverflowLimiterResult::Limited => {
-                                counter!(
-                                    "capture_events_rerouted_overflow",
-                                    &[("reason", "rate_limited")]
-                                )
-                                .increment(1);
-                                if self
-                                    .partition
-                                    .as_ref()
-                                    .is_some_and(|p| p.should_preserve_locality())
-                                {
-                                    (&self.topics.overflow_topic, Some(event_key.as_str()))
-                                } else {
-                                    (&self.topics.overflow_topic, None)
-                                }
-                            }
-                            OverflowLimiterResult::NotLimited => {
+                            Some(OverflowReason::RateLimited {
+                                preserve_locality: true,
+                            }) => (&self.topics.overflow_topic, Some(event_key.as_str())),
+                            Some(OverflowReason::RateLimited {
+                                preserve_locality: false,
+                            }) => (&self.topics.overflow_topic, None),
+                            // ReplayLimited never applies to AnalyticsMain; fall through to main.
+                            Some(OverflowReason::ReplayLimited) | None => {
                                 // Drop partition key if skip_person_processing is set
                                 let key = if skip_person_processing {
                                     None
@@ -482,25 +474,16 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                         .as_deref()
                         .ok_or(CaptureError::MissingSessionId)?;
 
-                    // Check for force_overflow from event restrictions first
-                    if force_overflow {
-                        counter!(
-                            "capture_events_rerouted_overflow",
-                            &[("reason", "event_restriction")]
-                        )
-                        .increment(1);
+                    // Precedence: force_overflow (restrictions) -> overflow_reason
+                    // (pipeline-stamped ReplayLimited) -> default main-topic
+                    // routing. Partition key is always session_id for replay
+                    // to keep per-session ordering on the overflow topic.
+                    if force_overflow
+                        || matches!(overflow_reason, Some(OverflowReason::ReplayLimited))
+                    {
                         (&self.topics.replay_overflow_topic, Some(session_id))
                     } else {
-                        let is_overflowing = match &self.replay_overflow_limiter {
-                            None => false,
-                            Some(limiter) => limiter.is_limited(session_id).await,
-                        };
-
-                        if is_overflowing {
-                            (&self.topics.replay_overflow_topic, Some(session_id))
-                        } else {
-                            (&self.topics.main_topic, Some(session_id))
-                        }
+                        (&self.topics.main_topic, Some(session_id))
                     }
                 }
             }
@@ -656,15 +639,13 @@ mod tests {
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
-    use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+    use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::DefaultProducerContext;
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
-    use std::num::NonZeroU32;
     use tokio_util::sync::CancellationToken;
 
     async fn start_on_mocked_sink(
@@ -682,12 +663,6 @@ mod tests {
                 .with_liveness_deadline(std::time::Duration::from_secs(30)),
         );
         let _monitor = manager.monitor_background();
-        let limiter = Some(OverflowLimiter::new(
-            NonZeroU32::new(10).unwrap(),
-            NonZeroU32::new(10).unwrap(),
-            None,
-            false,
-        ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_producer_linger_ms: 0,
@@ -725,7 +700,7 @@ mod tests {
             kafka_socket_send_buffer_bytes: 0,
             kafka_socket_receive_buffer_bytes: 0,
         };
-        let sink = KafkaSink::new(config, handle, limiter, None)
+        let sink = KafkaSink::new(config, handle)
             .await
             .expect("failed to create sink");
         (cluster, sink)
@@ -762,6 +737,7 @@ mod tests {
             skip_person_processing: false,
             redirect_to_dlq: false,
             redirect_to_topic: None,
+            overflow_reason: None,
         };
 
         let event = ProcessedEvent {
@@ -1041,6 +1017,20 @@ mod tests {
             skip_person_processing: bool,
             redirect_to_dlq: bool,
             redirect_to_topic: Option<String>,
+            overflow_reason: Option<OverflowReason>,
+        }
+
+        impl Default for EventInput {
+            fn default() -> Self {
+                Self {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                }
+            }
         }
 
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
@@ -1068,6 +1058,7 @@ mod tests {
                 skip_person_processing: input.skip_person_processing,
                 redirect_to_dlq: input.redirect_to_dlq,
                 redirect_to_topic: input.redirect_to_topic.clone(),
+                overflow_reason: input.overflow_reason.clone(),
             };
 
             ProcessedEvent { event, metadata }
@@ -1081,8 +1072,7 @@ mod tests {
 
         async fn assert_routing(input: EventInput, expected: ExpectedRouting<'_>) {
             let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
 
             let event = create_test_event(&input);
             sink.send(event).await.unwrap();
@@ -1129,6 +1119,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1148,6 +1139,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
@@ -1168,6 +1160,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
@@ -1188,6 +1181,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1207,6 +1201,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1227,6 +1222,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1246,6 +1242,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1266,6 +1263,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1288,6 +1286,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1308,6 +1307,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1327,6 +1327,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1346,6 +1347,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1366,6 +1368,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1387,6 +1390,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1406,6 +1410,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
@@ -1426,6 +1431,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
@@ -1445,6 +1451,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1464,6 +1471,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1483,6 +1491,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1505,6 +1514,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1524,6 +1534,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1543,6 +1554,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1562,6 +1574,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1584,6 +1597,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
@@ -1603,6 +1617,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
@@ -1622,6 +1637,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
@@ -1641,6 +1657,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1663,6 +1680,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1682,6 +1700,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1701,6 +1720,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1720,6 +1740,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1742,6 +1763,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
@@ -1761,6 +1783,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1780,6 +1803,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
@@ -1799,6 +1823,7 @@ mod tests {
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
@@ -1818,6 +1843,7 @@ mod tests {
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
@@ -1835,8 +1861,7 @@ mod tests {
         #[tokio::test]
         async fn dlq_headers_set_when_redirect_to_dlq() {
             let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::AnalyticsMain,
@@ -1844,6 +1869,7 @@ mod tests {
                 skip_person_processing: false,
                 redirect_to_dlq: true,
                 redirect_to_topic: None,
+                overflow_reason: None,
             });
             sink.send(event).await.unwrap();
 
@@ -1867,8 +1893,7 @@ mod tests {
         #[tokio::test]
         async fn dlq_headers_absent_for_normal_analytics() {
             let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::AnalyticsMain,
@@ -1876,6 +1901,7 @@ mod tests {
                 skip_person_processing: false,
                 redirect_to_dlq: false,
                 redirect_to_topic: None,
+                overflow_reason: None,
             });
             sink.send(event).await.unwrap();
 
@@ -1884,6 +1910,172 @@ mod tests {
             assert_eq!(headers.dlq_reason, None);
             assert_eq!(headers.dlq_step, None);
             assert_eq!(headers.dlq_timestamp, None);
+        }
+
+        // ==================== overflow_reason routing tests ====================
+        // The pipeline stamps ProcessedEventMetadata::overflow_reason upstream;
+        // the sink is a pure mechanism layer that switches on it. These cover
+        // each variant: ForceLimited, RateLimited { preserve_locality }, and
+        // ReplayLimited. `force_overflow` coexistence is covered by the
+        // analytics_main_force_overflow / snapshot_main_force_overflow cases
+        // above (force_overflow short-circuits the overflow_reason branch).
+
+        #[tokio::test]
+        async fn overflow_reason_force_limited_routes_to_overflow_with_null_key_and_flag() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    overflow_reason: Some(OverflowReason::ForceLimited),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: OVERFLOW_TOPIC,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_rate_limited_preserves_key_when_preserve_locality() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    overflow_reason: Some(OverflowReason::RateLimited {
+                        preserve_locality: true,
+                    }),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: OVERFLOW_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_rate_limited_drops_key_when_not_preserve_locality() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    overflow_reason: Some(OverflowReason::RateLimited {
+                        preserve_locality: false,
+                    }),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: OVERFLOW_TOPIC,
+                    has_key: false,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_ignored_for_analytics_historical() {
+            // historical events never go through overflow routing even if the
+            // upstream pipeline accidentally stamps one — be defensive.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsHistorical,
+                    overflow_reason: Some(OverflowReason::RateLimited {
+                        preserve_locality: false,
+                    }),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: HISTORICAL_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_replay_limited_routes_snapshot_to_replay_overflow() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    overflow_reason: Some(OverflowReason::ReplayLimited),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: REPLAY_OVERFLOW_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_force_overflow_short_circuits_overflow_reason() {
+            // Precedence check: force_overflow set by event restrictions wins
+            // over any overflow_reason stamped by the governor. This ensures
+            // the event_restriction counter label stays distinct from
+            // force_limited / rate_limited labels.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    overflow_reason: Some(OverflowReason::RateLimited {
+                        preserve_locality: false,
+                    }),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: OVERFLOW_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_redirect_to_dlq_wins_over_overflow_reason() {
+            // DLQ routing is the highest-priority routing decision: it wins
+            // over both force_overflow and overflow_reason.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    redirect_to_dlq: true,
+                    overflow_reason: Some(OverflowReason::ForceLimited),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn overflow_reason_redirect_to_topic_wins_over_overflow_reason() {
+            // Custom topic redirect (set by event restrictions) also wins over
+            // overflow_reason since overflow decisions cannot compose with a
+            // hard-coded topic override.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: Some(OverflowReason::ForceLimited),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
         }
 
         // ==================== send_batch ordering + error tests ====================
@@ -1895,8 +2087,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn send_batch_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
 
             // 20 events, all sharing the same distinct_id (so they hash to the
             // same partition via murmur2), each with a unique UUID so we can
@@ -1909,6 +2100,7 @@ mod tests {
                         skip_person_processing: false,
                         redirect_to_dlq: false,
                         redirect_to_topic: None,
+                        overflow_reason: None,
                     })
                 })
                 .collect();
@@ -1956,8 +2148,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn send_batch_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
 
             // Build a batch where event #3 is a SnapshotMain with session_id=None,
             // which causes prepare_record to return MissingSessionId. The other
@@ -1972,6 +2163,7 @@ mod tests {
                         skip_person_processing: false,
                         redirect_to_dlq: false,
                         redirect_to_topic: None,
+                        overflow_reason: None,
                     })
                 })
                 .collect();
@@ -1985,6 +2177,7 @@ mod tests {
                 skip_person_processing: false,
                 redirect_to_dlq: false,
                 redirect_to_topic: None,
+                overflow_reason: None,
             });
             bad.metadata.session_id = None;
             events[2] = bad;
