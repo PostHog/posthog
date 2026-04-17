@@ -146,7 +146,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
-    if (recordingStatus === 'sampled' || startReason === 'sampled_out') {
+    if (startReason === 'sampled_out') {
         return {
             verdict: 'sampled_out',
             headline: 'This session was excluded by sampling',

@@ -24,7 +24,7 @@ const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
     buffering:
         'The SDK initialized but is waiting (for a trigger, duration, or remote config) before producing snapshots.',
     disabled: 'Recording is turned off — either in project settings or via SDK config at runtime.',
-    sampled: 'This session was randomly excluded by the configured replay sample rate.',
+    sampled: 'This session was included by the configured replay sample rate — recording started.',
     paused: 'Recording is temporarily paused for this session.',
 }
 
