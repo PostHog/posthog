@@ -20,7 +20,7 @@ export class RetryError extends Error {
             : this.name
     }
 
-    toString(): string {
+    override toString(): string {
         return this.message ? `${this.nameWithAttempts}: ${this.message}` : this.nameWithAttempts
     }
 }

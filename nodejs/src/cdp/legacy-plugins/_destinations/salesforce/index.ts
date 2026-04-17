@@ -244,10 +244,8 @@ export async function setupPlugin(meta: SalesforceMeta): Promise<void> {
 function configToMatchingEvents(config: SalesforcePluginConfig): string[] {
     if (config.eventsToInclude) {
         return config.eventsToInclude.split(',').map((e: string) => e.trim())
-    } else {
-        return Object.keys(parseJSON(config.eventEndpointMapping)).map((e: string) => e.trim())
     }
-    return []
+    return Object.keys(parseJSON(config.eventEndpointMapping)).map((e: string) => e.trim())
 }
 
 export function shouldSendEvent(event: ProcessedPluginEvent, meta: SalesforceMeta): boolean {
