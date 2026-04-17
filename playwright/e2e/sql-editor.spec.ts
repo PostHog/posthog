@@ -1,6 +1,8 @@
 import { expect, test } from '../utils/workspace-test-base'
 import type { PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 
+test.describe.configure({ mode: 'serial' })
+
 async function closeQuickStartPopoverIfOpen(page: import('@playwright/test').Page): Promise<void> {
     const quickStartPopover = page.getByRole('dialog', { name: 'Quick start guide' })
     if (await quickStartPopover.isVisible().catch(() => false)) {
@@ -51,6 +53,23 @@ async function saveView(page: import('@playwright/test').Page, viewName: string)
     await waitForSavedViewState(page)
 }
 
+async function dismissProductSetupPopoverIfVisible(page: import('@playwright/test').Page): Promise<void> {
+    const quickstartButton = page.getByTestId('global-product-setup-button')
+    const minimizeButton = page.getByText('Minimize', { exact: true })
+
+    if (!(await quickstartButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+        return
+    }
+
+    if (!(await minimizeButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+        await quickstartButton.click()
+    }
+
+    await expect(minimizeButton).toBeVisible({ timeout: 10000 })
+    await minimizeButton.click()
+    await expect(minimizeButton).not.toBeVisible({ timeout: 10000 })
+}
+
 test.describe('SQL Editor', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
@@ -97,6 +116,7 @@ test.describe('SQL Editor', () => {
             await runBasicQuery(page)
             await saveView(page, uniqueViewName)
 
+            await dismissProductSetupPopoverIfVisible(page)
             await page.getByTestId('sql-editor-materialization-button').click()
             await expect(page.getByTestId('sql-editor-sidebar-query-info-pane')).toBeVisible()
         })
