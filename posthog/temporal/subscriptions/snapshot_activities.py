@@ -23,6 +23,10 @@ SUBSCRIPTION_SUMMARY_FAILURE = Counter(
     "AI summary generation failed for a subscription delivery",
     ["reason"],
 )
+SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
+    "posthog_subscription_ai_summary_skipped_no_ai_consent_total",
+    "AI summary skipped because the organization has not approved AI data processing",
+)
 
 
 def _get_query_kind_from_insight(insight: Insight) -> str:
@@ -105,11 +109,20 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("team").get,
+        Subscription.objects.select_related("team__organization").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
     if not subscription.summary_enabled:
+        return SnapshotInsightsResult()
+
+    if not subscription.team.organization.is_ai_data_processing_approved:
+        SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT.inc()
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.skipped_no_ai_consent",
+            subscription_id=inputs.subscription_id,
+            organization_id=str(subscription.team.organization_id),
+        )
         return SnapshotInsightsResult()
 
     if not inputs.delivery_id:
