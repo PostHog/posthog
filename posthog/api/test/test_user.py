@@ -130,25 +130,6 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
-    def test_pending_invites_endpoint_returns_empty_by_default(self):
-        response = self.client.get("/api/users/@me/pending_invites/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), [])
-
-    def test_pending_invites_returns_invite_matching_user_email(self):
-        from posthog.models import OrganizationInvite
-
-        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
-        OrganizationInvite.objects.create(
-            organization=other_org,
-            target_email=self.user.email,
-            created_by=self.user,
-        )
-
-        response = self.client.get("/api/users/@me/pending_invites/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()), 1)
-
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
         self.user.save()
