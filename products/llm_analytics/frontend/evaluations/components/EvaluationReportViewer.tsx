@@ -5,12 +5,7 @@ import { LemonBadge, LemonButton, LemonCollapse, LemonDivider } from '@posthog/l
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import type {
-    EvaluationReportMetrics,
-    EvaluationReportRun,
-    EvaluationReportRunContent,
-    EvaluationReportSection,
-} from '../types'
+import type { EvaluationReportMetrics, EvaluationReportRun, EvaluationReportSection } from '../types'
 
 // Match any UUID in the content — surrounding punctuation (backticks, angle brackets, etc.)
 // is stripped so we don't depend on how the LLM formats references.
@@ -138,7 +133,7 @@ export function EvaluationReportViewer({
     /** When true, hides the header/close row — useful when the parent already provides framing (e.g. an expanded table row). */
     compact?: boolean
 }): JSX.Element {
-    const content = reportRun.content as EvaluationReportRunContent
+    const content = reportRun.content
     const sections = content.sections ?? []
     const metrics = content.metrics
 

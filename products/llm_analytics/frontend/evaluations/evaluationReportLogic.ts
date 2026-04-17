@@ -17,9 +17,14 @@ export interface EvaluationReportLogicProps {
     evaluationId: string
 }
 
-export interface PendingReportConfig {
+/** Draft state for the report config form — used for both the create-new-evaluation path
+ * (keyed as 'new') and the edit-existing-evaluation path (keyed by the real evaluation id). */
+export interface ReportConfigDraft {
     enabled: boolean
     frequency: EvaluationReportFrequency
+    rrule: string
+    startsAt: string | null
+    timezoneName: string
     emailValue: string
     slackIntegrationId: number | null
     slackChannelValue: string
@@ -27,14 +32,54 @@ export interface PendingReportConfig {
     triggerThreshold: number
 }
 
-const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
+export const TRIGGER_THRESHOLD_DEFAULT = 100
+export const DEFAULT_RRULE = 'FREQ=DAILY'
+export const DEFAULT_TIMEZONE = 'UTC'
+
+const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     enabled: true,
     frequency: 'every_n',
+    rrule: '',
+    startsAt: null,
+    timezoneName: DEFAULT_TIMEZONE,
     emailValue: '',
     slackIntegrationId: null,
     slackChannelValue: '',
     reportPromptGuidance: '',
-    triggerThreshold: 100,
+    triggerThreshold: TRIGGER_THRESHOLD_DEFAULT,
+}
+
+function draftFromReport(report: EvaluationReport): ReportConfigDraft {
+    const emailTarget = report.delivery_targets.find((t) => t.type === 'email')
+    const slackTarget = report.delivery_targets.find((t) => t.type === 'slack')
+    return {
+        enabled: true,
+        frequency: report.frequency,
+        rrule: report.rrule ?? '',
+        startsAt: report.starts_at ?? null,
+        timezoneName: report.timezone_name ?? DEFAULT_TIMEZONE,
+        emailValue: emailTarget?.value ?? '',
+        slackIntegrationId: slackTarget?.integration_id ?? null,
+        slackChannelValue: slackTarget?.channel ?? '',
+        reportPromptGuidance: report.report_prompt_guidance ?? '',
+        triggerThreshold: report.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT,
+    }
+}
+
+export function buildDeliveryTargets(draft: ReportConfigDraft): EvaluationReportDeliveryTarget[] {
+    const targets: EvaluationReportDeliveryTarget[] = []
+    const email = draft.emailValue.trim()
+    if (email.length > 0) {
+        targets.push({ type: 'email', value: email })
+    }
+    if (draft.slackIntegrationId !== null && draft.slackChannelValue.length > 0) {
+        targets.push({
+            type: 'slack',
+            integration_id: draft.slackIntegrationId,
+            channel: draft.slackChannelValue,
+        })
+    }
+    return targets
 }
 
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
@@ -46,44 +91,62 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
     }),
 
     actions({
-        // Pending config for new evaluations
-        setPendingEnabled: (enabled: boolean) => ({ enabled }),
-        setPendingFrequency: (frequency: EvaluationReportFrequency) => ({ frequency }),
-        setPendingEmailValue: (emailValue: string) => ({ emailValue }),
-        setPendingSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
-        setPendingSlackChannelValue: (channelValue: string) => ({ channelValue }),
-        setPendingReportPromptGuidance: (reportPromptGuidance: string) => ({ reportPromptGuidance }),
-        setPendingTriggerThreshold: (triggerThreshold: number) => ({ triggerThreshold }),
-        createPendingReport: (evaluationId: string) => ({ evaluationId }),
+        setDraftEnabled: (enabled: boolean) => ({ enabled }),
+        setDraftFrequency: (frequency: EvaluationReportFrequency) => ({ frequency }),
+        setDraftRrule: (rrule: string) => ({ rrule }),
+        setDraftStartsAt: (startsAt: string | null) => ({ startsAt }),
+        setDraftTimezoneName: (timezoneName: string) => ({ timezoneName }),
+        setDraftEmailValue: (emailValue: string) => ({ emailValue }),
+        setDraftSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
+        setDraftSlackChannelValue: (channelValue: string) => ({ channelValue }),
+        setDraftReportPromptGuidance: (reportPromptGuidance: string) => ({ reportPromptGuidance }),
+        setDraftTriggerThreshold: (triggerThreshold: number) => ({ triggerThreshold }),
+        seedDraftFromReport: (report: EvaluationReport) => ({ report }),
+        resetDraft: true,
 
-        // Existing report actions
+        /** Save the current draft against the active report — creates if none exists, updates otherwise. */
+        saveDraft: true,
+
         selectReportRun: (reportRun: EvaluationReportRun | null) => ({ reportRun }),
     }),
 
     reducers({
-        pendingConfig: [
-            DEFAULT_PENDING_CONFIG as PendingReportConfig,
+        configDraft: [
+            DEFAULT_CONFIG_DRAFT as ReportConfigDraft,
             {
-                setPendingEnabled: (state, { enabled }) => ({ ...state, enabled }),
-                setPendingFrequency: (state, { frequency }) => ({ ...state, frequency }),
-                setPendingEmailValue: (state, { emailValue }) => ({ ...state, emailValue }),
-                setPendingSlackIntegrationId: (state, { integrationId }) => ({
+                setDraftEnabled: (state, { enabled }) => ({ ...state, enabled }),
+                setDraftFrequency: (state, { frequency }) => {
+                    // Seed a default rrule when switching into scheduled mode for the first time so
+                    // the Save button can commit without forcing the user to fill the field manually.
+                    const rrule = frequency === 'scheduled' && !state.rrule ? DEFAULT_RRULE : state.rrule
+                    const startsAt = frequency === 'scheduled' && !state.startsAt ? new Date().toISOString() : state.startsAt
+                    return { ...state, frequency, rrule, startsAt }
+                },
+                setDraftRrule: (state, { rrule }) => ({ ...state, rrule }),
+                setDraftStartsAt: (state, { startsAt }) => ({ ...state, startsAt }),
+                setDraftTimezoneName: (state, { timezoneName }) => ({ ...state, timezoneName }),
+                setDraftEmailValue: (state, { emailValue }) => ({ ...state, emailValue }),
+                setDraftSlackIntegrationId: (state, { integrationId }) => ({
                     ...state,
                     slackIntegrationId: integrationId,
+                    // Clear channel when switching Slack workspaces so we don't send a
+                    // channel id from a different workspace.
                     slackChannelValue: integrationId !== state.slackIntegrationId ? '' : state.slackChannelValue,
                 }),
-                setPendingSlackChannelValue: (state, { channelValue }) => ({
+                setDraftSlackChannelValue: (state, { channelValue }) => ({
                     ...state,
                     slackChannelValue: channelValue,
                 }),
-                setPendingReportPromptGuidance: (state, { reportPromptGuidance }) => ({
+                setDraftReportPromptGuidance: (state, { reportPromptGuidance }) => ({
                     ...state,
                     reportPromptGuidance,
                 }),
-                setPendingTriggerThreshold: (state, { triggerThreshold }) => ({
+                setDraftTriggerThreshold: (state, { triggerThreshold }) => ({
                     ...state,
                     triggerThreshold,
                 }),
+                seedDraftFromReport: (_, { report }) => draftFromReport(report),
+                resetDraft: () => DEFAULT_CONFIG_DRAFT,
             },
         ],
         selectedReportRun: [
@@ -110,6 +173,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 createReport: async (params: {
                     evaluationId: string
                     frequency: EvaluationReportFrequency
+                    rrule?: string
+                    starts_at?: string | null
+                    timezone_name?: string
                     delivery_targets: EvaluationReportDeliveryTarget[]
                     report_prompt_guidance?: string
                     trigger_threshold?: number | null
@@ -117,10 +183,14 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     const body: Record<string, unknown> = {
                         evaluation: params.evaluationId,
                         frequency: params.frequency,
-                        start_date: new Date().toISOString(),
                         delivery_targets: params.delivery_targets,
                         report_prompt_guidance: params.report_prompt_guidance ?? '',
                         enabled: true,
+                    }
+                    if (params.frequency === 'scheduled') {
+                        body.rrule = params.rrule ?? ''
+                        body.starts_at = params.starts_at ?? null
+                        body.timezone_name = params.timezone_name ?? DEFAULT_TIMEZONE
                     }
                     if (params.frequency === 'every_n' && params.trigger_threshold != null) {
                         body.trigger_threshold = params.trigger_threshold
@@ -179,15 +249,41 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 return reports.find((r: EvaluationReport) => r.enabled && !r.deleted) || null
             },
         ],
+        isConfigDirty: [
+            (s) => [s.activeReport, s.configDraft],
+            (activeReport, draft): boolean => {
+                if (!activeReport) {
+                    // No report yet: draft is "dirty" if it has any savable content.
+                    return buildDeliveryTargets(draft).length > 0 || draft.reportPromptGuidance.trim().length > 0
+                }
+                const baseline = draftFromReport(activeReport)
+                const scheduleDirty =
+                    draft.frequency === 'scheduled' &&
+                    (baseline.rrule !== draft.rrule ||
+                        baseline.startsAt !== draft.startsAt ||
+                        baseline.timezoneName !== draft.timezoneName)
+                return (
+                    baseline.frequency !== draft.frequency ||
+                    baseline.emailValue !== draft.emailValue.trim() ||
+                    baseline.slackIntegrationId !== draft.slackIntegrationId ||
+                    baseline.slackChannelValue !== draft.slackChannelValue ||
+                    baseline.reportPromptGuidance !== draft.reportPromptGuidance ||
+                    (draft.frequency === 'every_n' && baseline.triggerThreshold !== draft.triggerThreshold) ||
+                    scheduleDirty
+                )
+            },
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
-        loadReportsSuccess: ({ reports }: { reports: EvaluationReport[] }) => {
+    listeners(({ actions, values, props }) => ({
+        loadReportsSuccess: ({ reports }) => {
             // Auto-load the run history for the active report so the Reports tab knows
             // whether to render itself and can show data immediately.
             const active = reports.find((r: EvaluationReport) => r.enabled && !r.deleted)
             if (active) {
                 actions.loadReportRuns(active.id)
+                // Seed the draft so the config form reflects the saved report instead of defaults.
+                actions.seedDraftFromReport(active)
             }
         },
         generateReportSuccess: () => {
@@ -202,32 +298,34 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         updateReportSuccess: () => {
             actions.loadReports()
         },
-        createPendingReport: ({ evaluationId }) => {
-            const { pendingConfig } = values
-            if (!pendingConfig.enabled) {
-                return
-            }
-            const targets: EvaluationReportDeliveryTarget[] = []
-            if (pendingConfig.emailValue.trim()) {
-                targets.push({ type: 'email', value: pendingConfig.emailValue.trim() })
-            }
-            if (pendingConfig.slackIntegrationId && pendingConfig.slackChannelValue) {
-                targets.push({
-                    type: 'slack',
-                    integration_id: pendingConfig.slackIntegrationId,
-                    channel: pendingConfig.slackChannelValue,
-                })
-            }
-            // The backend auto-creates a default report config on eval creation.
-            // If the user configured delivery targets or custom settings, update
-            // the auto-created report after creation via the existing reports list.
-            if (targets.length > 0 || pendingConfig.reportPromptGuidance.trim()) {
-                actions.createReport({
-                    evaluationId,
-                    frequency: pendingConfig.frequency,
+        saveDraft: () => {
+            const { configDraft, activeReport } = values
+            const targets = buildDeliveryTargets(configDraft)
+            if (activeReport) {
+                const data: Record<string, unknown> = {
+                    frequency: configDraft.frequency,
                     delivery_targets: targets,
-                    report_prompt_guidance: pendingConfig.reportPromptGuidance,
-                    trigger_threshold: pendingConfig.frequency === 'every_n' ? pendingConfig.triggerThreshold : null,
+                    report_prompt_guidance: configDraft.reportPromptGuidance,
+                }
+                if (configDraft.frequency === 'scheduled') {
+                    data.rrule = configDraft.rrule
+                    data.starts_at = configDraft.startsAt
+                    data.timezone_name = configDraft.timezoneName
+                }
+                if (configDraft.frequency === 'every_n') {
+                    data.trigger_threshold = configDraft.triggerThreshold
+                }
+                actions.updateReport({ reportId: activeReport.id, data })
+            } else {
+                actions.createReport({
+                    evaluationId: props.evaluationId,
+                    frequency: configDraft.frequency,
+                    rrule: configDraft.rrule,
+                    starts_at: configDraft.startsAt,
+                    timezone_name: configDraft.timezoneName,
+                    delivery_targets: targets,
+                    report_prompt_guidance: configDraft.reportPromptGuidance,
+                    trigger_threshold: configDraft.frequency === 'every_n' ? configDraft.triggerThreshold : null,
                 })
             }
         },

@@ -86,7 +86,7 @@ export interface HogTestResult {
     error: string | null
 }
 
-export type EvaluationReportFrequency = 'hourly' | 'daily' | 'weekly' | 'every_n'
+export type EvaluationReportFrequency = 'scheduled' | 'every_n'
 
 export interface EvaluationReportDeliveryTarget {
     type: 'email' | 'slack'
@@ -99,8 +99,12 @@ export interface EvaluationReport {
     id: string
     evaluation: string
     frequency: EvaluationReportFrequency
-    byweekday: string[] | null
-    start_date: string
+    /** RFC 5545 RRULE string (empty for every_n). */
+    rrule: string
+    /** Anchor datetime for rrule expansion (null for every_n). */
+    starts_at: string | null
+    /** IANA timezone for expanding rrule occurrences. */
+    timezone_name: string
     next_delivery_date: string | null
     delivery_targets: EvaluationReportDeliveryTarget[]
     max_sample_size: number

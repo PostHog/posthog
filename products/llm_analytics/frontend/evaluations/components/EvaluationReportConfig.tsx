@@ -1,28 +1,94 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonDialog,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { evaluationReportLogic } from '../evaluationReportLogic'
-import type { EvaluationReportDeliveryTarget, EvaluationReportFrequency } from '../types'
+import { buildDeliveryTargets, evaluationReportLogic, TRIGGER_THRESHOLD_DEFAULT } from '../evaluationReportLogic'
 
 const GUIDANCE_PLACEHOLDER =
     "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
 
 const FREQUENCY_OPTIONS = [
-    { value: 'hourly' as const, label: 'Hourly' },
-    { value: 'daily' as const, label: 'Daily' },
-    { value: 'weekly' as const, label: 'Weekly' },
     { value: 'every_n' as const, label: 'Every N evaluations' },
+    { value: 'scheduled' as const, label: 'On a schedule' },
 ]
+
+const RRULE_PLACEHOLDER = 'FREQ=DAILY'
+const RRULE_EXAMPLES = 'Examples: FREQ=DAILY · FREQ=WEEKLY;BYDAY=MO,FR · FREQ=HOURLY;INTERVAL=6'
 
 const TRIGGER_THRESHOLD_MIN = 10
 const TRIGGER_THRESHOLD_MAX = 10_000
-const TRIGGER_THRESHOLD_DEFAULT = 100
+
+/** RRULE + starts_at + timezone inputs shown when frequency is 'scheduled'.
+ * Accepts a raw RRULE string (RFC 5545) — matches the HogFlowSchedule contract in
+ * products/workflows. A richer picker (RecurringSchedulePicker) can replace this later. */
+function ScheduleConfig({
+    rrule,
+    startsAt,
+    timezoneName,
+    onRruleChange,
+    onStartsAtChange,
+    onTimezoneChange,
+}: {
+    rrule: string
+    startsAt: string | null
+    timezoneName: string
+    onRruleChange: (value: string) => void
+    onStartsAtChange: (value: string | null) => void
+    onTimezoneChange: (value: string) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3">
+            <div>
+                <label className="font-semibold text-sm">Schedule (RRULE)</label>
+                <LemonInput
+                    value={rrule}
+                    onChange={onRruleChange}
+                    placeholder={RRULE_PLACEHOLDER}
+                    fullWidth
+                />
+                <p className="text-xs text-muted mt-1">{RRULE_EXAMPLES}</p>
+            </div>
+            <div>
+                <label className="font-semibold text-sm">Starts at</label>
+                <LemonCalendarSelectInput
+                    buttonProps={{ fullWidth: true }}
+                    format="MMMM D, YYYY h:mm A"
+                    clearable
+                    value={startsAt ? dayjs(startsAt) : null}
+                    onChange={(d) => onStartsAtChange(d ? d.toISOString() : null)}
+                    granularity="minute"
+                    showTimeToggle={false}
+                />
+                <p className="text-xs text-muted mt-1">
+                    Anchor datetime used when expanding the RRULE. Used as the first occurrence for plain frequencies.
+                </p>
+            </div>
+            <div>
+                <label className="font-semibold text-sm">Timezone</label>
+                <LemonInput
+                    value={timezoneName}
+                    onChange={onTimezoneChange}
+                    placeholder="UTC"
+                    fullWidth
+                />
+                <p className="text-xs text-muted mt-1">IANA timezone name (e.g. UTC, America/New_York).</p>
+            </div>
+        </div>
+    )
+}
 
 /** Threshold config shown when frequency is 'every_n' */
 function ThresholdConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
@@ -63,6 +129,8 @@ function DeliveryTargetsConfig({
     onSlackChannelChange: (value: string) => void
 }): JSX.Element {
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
+    const selectedIntegration =
+        slackIntegrationId !== null ? integrations?.find((i) => i.id === slackIntegrationId) : undefined
 
     return (
         <>
@@ -92,17 +160,13 @@ function DeliveryTargetsConfig({
                                 onSlackIntegrationChange(newValue)
                             }}
                         />
-                        {slackIntegrationId &&
-                            (() => {
-                                const selectedIntegration = integrations?.find((i) => i.id === slackIntegrationId)
-                                return selectedIntegration ? (
-                                    <SlackChannelPicker
-                                        value={slackChannelValue}
-                                        onChange={(val) => onSlackChannelChange(val || '')}
-                                        integration={selectedIntegration}
-                                    />
-                                ) : null
-                            })()}
+                        {selectedIntegration && (
+                            <SlackChannelPicker
+                                value={slackChannelValue}
+                                onChange={(val) => onSlackChannelChange(val || '')}
+                                integration={selectedIntegration}
+                            />
+                        )}
                     </div>
                 )}
             </div>
@@ -110,18 +174,103 @@ function DeliveryTargetsConfig({
     )
 }
 
+/** Shared form body used by both the create-evaluation and edit-existing-evaluation paths.
+ * All state is backed by `evaluationReportLogic.configDraft` keyed by evaluationId. */
+function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Element {
+    const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
+    const {
+        setDraftFrequency,
+        setDraftRrule,
+        setDraftStartsAt,
+        setDraftTimezoneName,
+        setDraftEmailValue,
+        setDraftSlackIntegrationId,
+        setDraftSlackChannelValue,
+        setDraftReportPromptGuidance,
+        setDraftTriggerThreshold,
+    } = useActions(evaluationReportLogic({ evaluationId }))
+
+    return (
+        <div className="space-y-4 mt-4">
+            <div>
+                <label className="font-semibold text-sm">Frequency</label>
+                <LemonSelect
+                    value={configDraft.frequency}
+                    onChange={(val) => val && setDraftFrequency(val)}
+                    options={FREQUENCY_OPTIONS}
+                    fullWidth
+                />
+            </div>
+            {configDraft.frequency === 'every_n' && (
+                <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
+            )}
+            {configDraft.frequency === 'scheduled' && (
+                <ScheduleConfig
+                    rrule={configDraft.rrule}
+                    startsAt={configDraft.startsAt}
+                    timezoneName={configDraft.timezoneName}
+                    onRruleChange={setDraftRrule}
+                    onStartsAtChange={setDraftStartsAt}
+                    onTimezoneChange={setDraftTimezoneName}
+                />
+            )}
+            <DeliveryTargetsConfig
+                emailValue={configDraft.emailValue}
+                onEmailChange={setDraftEmailValue}
+                slackIntegrationId={configDraft.slackIntegrationId}
+                onSlackIntegrationChange={setDraftSlackIntegrationId}
+                slackChannelValue={configDraft.slackChannelValue}
+                onSlackChannelChange={setDraftSlackChannelValue}
+            />
+            <div>
+                <label className="font-semibold text-sm">Report agent guidance (optional)</label>
+                <LemonTextArea
+                    value={configDraft.reportPromptGuidance}
+                    onChange={setDraftReportPromptGuidance}
+                    placeholder={GUIDANCE_PLACEHOLDER}
+                    rows={3}
+                />
+                <p className="text-xs text-muted mt-1">
+                    Steers the agent's focus, section choices, or scope. Appended to the base prompt.
+                </p>
+            </div>
+        </div>
+    )
+}
+
+/** Save button for the edit path. Disabled based on draft dirtiness and target presence. */
+function SaveReportButton({ evaluationId }: { evaluationId: string }): JSX.Element {
+    const logic = evaluationReportLogic({ evaluationId })
+    const { configDraft, isConfigDirty, reportsLoading } = useValues(logic)
+    const { saveDraft } = useActions(logic)
+
+    const hasAnyTarget = buildDeliveryTargets(configDraft).length > 0
+
+    return (
+        <div className="flex justify-end">
+            <LemonButton
+                type="primary"
+                size="small"
+                loading={reportsLoading}
+                onClick={() => saveDraft()}
+                disabledReason={
+                    !isConfigDirty
+                        ? 'No changes to save'
+                        : !hasAnyTarget
+                          ? 'Add at least one delivery target'
+                          : undefined
+                }
+            >
+                Save changes
+            </LemonButton>
+        </div>
+    )
+}
+
 /** Inline config shown during new evaluation creation */
 function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
-    const { pendingConfig } = useValues(evaluationReportLogic({ evaluationId }))
-    const {
-        setPendingEnabled,
-        setPendingFrequency,
-        setPendingEmailValue,
-        setPendingSlackIntegrationId,
-        setPendingSlackChannelValue,
-        setPendingReportPromptGuidance,
-        setPendingTriggerThreshold,
-    } = useActions(evaluationReportLogic({ evaluationId }))
+    const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
+    const { setDraftEnabled } = useActions(evaluationReportLogic({ evaluationId }))
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -134,49 +283,13 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
                     </p>
                 </div>
                 <LemonSwitch
-                    checked={pendingConfig.enabled}
-                    onChange={setPendingEnabled}
+                    checked={configDraft.enabled}
+                    onChange={setDraftEnabled}
                     bordered
-                    label={pendingConfig.enabled ? 'Enabled' : 'Disabled'}
+                    label={configDraft.enabled ? 'Enabled' : 'Disabled'}
                 />
             </div>
-
-            {pendingConfig.enabled && (
-                <div className="space-y-4 mt-4">
-                    <div>
-                        <label className="font-semibold text-sm">Frequency</label>
-                        <LemonSelect
-                            value={pendingConfig.frequency}
-                            onChange={(val) => val && setPendingFrequency(val)}
-                            options={FREQUENCY_OPTIONS}
-                            fullWidth
-                        />
-                    </div>
-                    {pendingConfig.frequency === 'every_n' && (
-                        <ThresholdConfig value={pendingConfig.triggerThreshold} onChange={setPendingTriggerThreshold} />
-                    )}
-                    <DeliveryTargetsConfig
-                        emailValue={pendingConfig.emailValue}
-                        onEmailChange={setPendingEmailValue}
-                        slackIntegrationId={pendingConfig.slackIntegrationId}
-                        onSlackIntegrationChange={setPendingSlackIntegrationId}
-                        slackChannelValue={pendingConfig.slackChannelValue}
-                        onSlackChannelChange={setPendingSlackChannelValue}
-                    />
-                    <div>
-                        <label className="font-semibold text-sm">Report agent guidance (optional)</label>
-                        <LemonTextArea
-                            value={pendingConfig.reportPromptGuidance}
-                            onChange={setPendingReportPromptGuidance}
-                            placeholder={GUIDANCE_PLACEHOLDER}
-                            rows={3}
-                        />
-                        <p className="text-xs text-muted mt-1">
-                            Steers the agent's focus, section choices, or scope. Appended to the base prompt.
-                        </p>
-                    </div>
-                </div>
-            )}
+            {configDraft.enabled && <ReportFormFields evaluationId={evaluationId} />}
         </div>
     )
 }
@@ -184,44 +297,15 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
 /** Toggle-based report management for existing evaluations */
 function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
-    const { activeReport, reportsLoading } = useValues(logic)
-    const { updateReport, deleteReport, createReport } = useActions(logic)
+    const { activeReport, reportsLoading, configDraft } = useValues(logic)
+    const { deleteReport, saveDraft, setDraftEnabled } = useActions(logic)
 
-    // Local state: toggle controls form visibility, Save button creates the report.
-    // All fields are local-first so the user can change multiple things before saving.
-    const [formEnabled, setFormEnabled] = useState(false)
-    const [frequency, setFrequency] = useState<EvaluationReportFrequency>('daily')
-    const [emailValue, setEmailValue] = useState('')
-    const [slackIntegrationId, setSlackIntegrationId] = useState<number | null>(null)
-    const [slackChannelValue, setSlackChannelValue] = useState('')
-    const [guidance, setGuidance] = useState('')
-    const [triggerThreshold, setTriggerThreshold] = useState(TRIGGER_THRESHOLD_DEFAULT)
-
-    // Seed local form state from the active report so the user can edit
-    // any field without having to disable + recreate the schedule.
-    useEffect(() => {
-        if (!activeReport) {
-            return
-        }
-        const emailTarget = activeReport.delivery_targets.find(
-            (t: EvaluationReportDeliveryTarget) => t.type === 'email'
-        )
-        const slackTarget = activeReport.delivery_targets.find(
-            (t: EvaluationReportDeliveryTarget) => t.type === 'slack'
-        )
-        setFrequency(activeReport.frequency)
-        setEmailValue(emailTarget?.value ?? '')
-        setSlackIntegrationId(slackTarget?.integration_id ?? null)
-        setSlackChannelValue(slackTarget?.channel ?? '')
-        setGuidance(activeReport.report_prompt_guidance ?? '')
-        setTriggerThreshold(activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT)
-    }, [activeReport])
-
-    const isEnabled = !!activeReport || formEnabled
+    const isEnabled = !!activeReport || configDraft.enabled
+    const hasAnyTarget = buildDeliveryTargets(configDraft).length > 0
 
     const handleToggle = (checked: boolean): void => {
         if (checked) {
-            setFormEnabled(true)
+            setDraftEnabled(true)
         } else if (activeReport) {
             LemonDialog.open({
                 title: 'Disable scheduled reports?',
@@ -234,29 +318,8 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                 secondaryButton: { children: 'Cancel' },
             })
         } else {
-            setFormEnabled(false)
+            setDraftEnabled(false)
         }
-    }
-
-    const hasEmail = emailValue.trim().length > 0
-    const hasSlack = slackIntegrationId !== null && slackChannelValue.length > 0
-
-    const handleSave = (): void => {
-        const targets: EvaluationReportDeliveryTarget[] = []
-        if (hasEmail) {
-            targets.push({ type: 'email', value: emailValue.trim() })
-        }
-        if (hasSlack) {
-            targets.push({ type: 'slack', integration_id: slackIntegrationId!, channel: slackChannelValue })
-        }
-        createReport({
-            evaluationId,
-            frequency,
-            delivery_targets: targets,
-            report_prompt_guidance: guidance,
-            trigger_threshold: frequency === 'every_n' ? triggerThreshold : null,
-        })
-        setFormEnabled(false)
     }
 
     return (
@@ -279,172 +342,40 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
             </div>
 
             {activeReport ? (
-                <div className="space-y-4 mt-4">
-                    <div>
-                        <label className="font-semibold text-sm">Frequency</label>
-                        <LemonSelect
-                            value={frequency}
-                            onChange={(val) => val && setFrequency(val)}
-                            options={FREQUENCY_OPTIONS}
-                            fullWidth
-                        />
-                    </div>
-
-                    {frequency === 'every_n' && (
-                        <ThresholdConfig value={triggerThreshold} onChange={setTriggerThreshold} />
-                    )}
-
-                    <DeliveryTargetsConfig
-                        emailValue={emailValue}
-                        onEmailChange={setEmailValue}
-                        slackIntegrationId={slackIntegrationId}
-                        onSlackIntegrationChange={setSlackIntegrationId}
-                        slackChannelValue={slackChannelValue}
-                        onSlackChannelChange={setSlackChannelValue}
-                    />
-
-                    <div>
-                        <label className="font-semibold text-sm">Report agent guidance (optional)</label>
-                        <LemonTextArea
-                            value={guidance}
-                            onChange={setGuidance}
-                            placeholder={GUIDANCE_PLACEHOLDER}
-                            rows={3}
-                        />
-                        <p className="text-xs text-muted mt-1">
-                            Steers the agent's focus, section choices, or scope. Appended to the base prompt.
-                        </p>
-                    </div>
-
-                    {(() => {
-                        const currentEmail =
-                            activeReport.delivery_targets.find(
-                                (t: EvaluationReportDeliveryTarget) => t.type === 'email'
-                            )?.value ?? ''
-                        const currentSlack = activeReport.delivery_targets.find(
-                            (t: EvaluationReportDeliveryTarget) => t.type === 'slack'
-                        )
-                        const currentSlackIntegrationId: number | null = currentSlack?.integration_id ?? null
-                        const currentSlackChannel = currentSlack?.channel ?? ''
-                        const currentGuidance = activeReport.report_prompt_guidance ?? ''
-                        const currentThreshold = activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT
-                        const frequencyDirty = frequency !== activeReport.frequency
-                        const targetsDirty =
-                            emailValue.trim() !== currentEmail ||
-                            slackIntegrationId !== currentSlackIntegrationId ||
-                            slackChannelValue !== currentSlackChannel
-                        const guidanceDirty = guidance !== currentGuidance
-                        const thresholdDirty = frequency === 'every_n' && triggerThreshold !== currentThreshold
-                        const isDirty = frequencyDirty || targetsDirty || guidanceDirty || thresholdDirty
-                        const hasAnyTarget = hasEmail || hasSlack
-                        return (
-                            <div className="flex justify-end">
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    loading={reportsLoading}
-                                    disabledReason={
-                                        !isDirty
-                                            ? 'No changes to save'
-                                            : !hasAnyTarget
-                                              ? 'Add at least one delivery target'
-                                              : undefined
-                                    }
-                                    onClick={() => {
-                                        const targets: EvaluationReportDeliveryTarget[] = []
-                                        if (hasEmail) {
-                                            targets.push({ type: 'email', value: emailValue.trim() })
-                                        }
-                                        if (hasSlack) {
-                                            targets.push({
-                                                type: 'slack',
-                                                integration_id: slackIntegrationId!,
-                                                channel: slackChannelValue,
-                                            })
-                                        }
-                                        const data: Record<string, unknown> = {
-                                            frequency,
-                                            delivery_targets: targets,
-                                            report_prompt_guidance: guidance,
-                                        }
-                                        if (frequency === 'every_n') {
-                                            data.trigger_threshold = triggerThreshold
-                                        }
-                                        updateReport({
-                                            reportId: activeReport.id,
-                                            data,
-                                        })
-                                    }}
-                                >
-                                    Save changes
-                                </LemonButton>
-                            </div>
-                        )
-                    })()}
-
-                    {frequency === 'every_n' ? (
-                        <div className="text-sm text-muted">
+                <>
+                    <ReportFormFields evaluationId={evaluationId} />
+                    <SaveReportButton evaluationId={evaluationId} />
+                    {configDraft.frequency === 'every_n' ? (
+                        <div className="text-sm text-muted mt-4">
                             A report will be generated when{' '}
                             {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation results arrive.
                             Checked every 5 minutes.
                         </div>
                     ) : (
                         activeReport.next_delivery_date && (
-                            <div className="text-sm text-muted">
+                            <div className="text-sm text-muted mt-4">
                                 Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
                             </div>
                         )
                     )}
-
-                    <p className="text-xs text-muted m-0">Generated reports appear in the Reports tab.</p>
-                </div>
+                    <p className="text-xs text-muted m-0 mt-2">Generated reports appear in the Reports tab.</p>
+                </>
             ) : (
-                formEnabled && (
-                    <div className="space-y-4 mt-4">
-                        <div>
-                            <label className="font-semibold text-sm">Frequency</label>
-                            <LemonSelect
-                                value={frequency}
-                                onChange={(val) => val && setFrequency(val)}
-                                options={FREQUENCY_OPTIONS}
-                                fullWidth
-                            />
-                        </div>
-                        {frequency === 'every_n' && (
-                            <ThresholdConfig value={triggerThreshold} onChange={setTriggerThreshold} />
-                        )}
-                        <DeliveryTargetsConfig
-                            emailValue={emailValue}
-                            onEmailChange={setEmailValue}
-                            slackIntegrationId={slackIntegrationId}
-                            onSlackIntegrationChange={setSlackIntegrationId}
-                            slackChannelValue={slackChannelValue}
-                            onSlackChannelChange={setSlackChannelValue}
-                        />
-                        <div>
-                            <label className="font-semibold text-sm">Report agent guidance (optional)</label>
-                            <LemonTextArea
-                                value={guidance}
-                                onChange={setGuidance}
-                                placeholder={GUIDANCE_PLACEHOLDER}
-                                rows={3}
-                            />
-                            <p className="text-xs text-muted mt-1">
-                                Steers the agent's focus, section choices, or scope. Appended to the base prompt.
-                            </p>
-                        </div>
-                        <div className="flex justify-end">
+                configDraft.enabled && (
+                    <>
+                        <ReportFormFields evaluationId={evaluationId} />
+                        <div className="flex justify-end mt-4">
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={handleSave}
+                                onClick={() => saveDraft()}
                                 loading={reportsLoading}
-                                disabledReason={!hasEmail && !hasSlack ? 'Add at least one delivery target' : undefined}
+                                disabledReason={!hasAnyTarget ? 'Add at least one delivery target' : undefined}
                             >
                                 Save report schedule
                             </LemonButton>
                         </div>
-                    </div>
+                    </>
                 )
             )}
         </div>
