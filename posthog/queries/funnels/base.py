@@ -125,7 +125,7 @@ class ClickhouseFunnelBase(ABC):
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action(self._team.pk).name
         else:
-            name = str(step.id) if step.id is not None else ""
+            name = str(step.id) if step.id is not None else None
 
         return {
             "action_id": step.id,
