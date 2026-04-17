@@ -119,7 +119,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return schema.sync_type_config.get("incremental_field_type")
 
     def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
-        return schema.sync_type
+        return ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None
 
     def get_primary_key_columns(self, schema: ExternalDataSchema) -> list[str] | None:
         return schema.primary_key_columns
