@@ -458,12 +458,19 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         the organization itself — i.e. they bootstrapped the org rather than joining via invite,
         JIT, or SAML provisioning. Used to gate onboarding redirects on user intent.
         """
-        membership = self.organization_memberships.filter(organization=organization).only("level", "joined_at").first()
+        membership = (
+            self.organization_memberships.filter(organization=organization)
+            .only("level", "joined_at")
+            .order_by("joined_at")
+            .first()
+        )
         if membership is None or membership.level != OrganizationMembership.Level.OWNER:
             return False
         # Tolerance covers the small window between Organization.create and OrganizationMembership.create
-        # inside the bootstrap transaction.
-        return abs((membership.joined_at - organization.created_at).total_seconds()) <= 60
+        # inside the bootstrap transaction. Requires joined_at >= created_at so clock skew or a future
+        # refactor that inverts the ordering surfaces as False instead of being silently accepted.
+        delta = (membership.joined_at - organization.created_at).total_seconds()
+        return 0 <= delta <= 60
 
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)

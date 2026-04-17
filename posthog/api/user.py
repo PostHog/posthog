@@ -68,11 +68,12 @@ from posthog.event_usage import (
     report_user_updated,
     report_user_verified_email,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Team, User, UserScenePersonalisation
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
@@ -249,10 +250,25 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
     def get_is_organization_first_user(self, instance: User) -> bool:
-        organization = instance.current_organization
-        if not organization:
+        # Use the cached `organization` property (not the raw FK) so a user with a null
+        # `current_organization_id` — common just after signup — is still resolved to their
+        # sole organization before the check. Falls back to False on any unexpected error:
+        # the frontend defaults missing/False to "don't redirect", which is the safer bias.
+        try:
+            organization = instance.organization
+            if organization is None:
+                return False
+            user_permissions: Optional[UserPermissions] = self.context.get("user_permissions")
+            if user_permissions is not None:
+                membership = user_permissions.organization_memberships.get(organization.id)
+                if membership is None or membership.level != OrganizationMembership.Level.OWNER:
+                    return False
+                delta = (membership.joined_at - organization.created_at).total_seconds()
+                return 0 <= delta <= 60
+            return instance.is_first_user_of(organization)
+        except Exception as e:
+            capture_exception(e)
             return False
-        return instance.is_first_user_of(organization)
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:

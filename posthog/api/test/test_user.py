@@ -152,6 +152,9 @@ class TestUserAPI(APIBaseTest):
             ("invited_member", OrganizationMembership.Level.MEMBER, timedelta(hours=1)),
             # Invited user later promoted to Owner: joined_at still lags org.created_at.
             ("promoted_owner", OrganizationMembership.Level.OWNER, timedelta(days=3)),
+            # Just outside the 60s tolerance: even an OWNER joining 2 minutes after the org
+            # was created is treated as an invitee, not the bootstrapper.
+            ("owner_just_outside_tolerance", OrganizationMembership.Level.OWNER, timedelta(seconds=120)),
         ]
     )
     def test_is_organization_first_user_false_when_joined_after_org_creation(self, name, level, join_delay):
