@@ -1,7 +1,6 @@
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -20,9 +19,12 @@ import {
     ERROR_TRACKING_SUB_TEMPLATE_IDS,
     ERROR_TRACKING_TRIGGERS,
 } from '../../../ErrorTrackingConfigurationScene/alerting/alertWizardConfig'
+import { alertsRecommendationCardLogic } from './alertsRecommendationCardLogic'
 import { ListRecommendationCard } from './ListRecommendationCard'
 import { recommendationsTabLogic } from './recommendationsTabLogic'
-import { ALERT_RECOMMENDATION_INFO, AlertsRecommendation } from './types'
+import { AlertsRecommendation } from './types'
+
+const TRIGGERS_BY_KEY = Object.fromEntries(ERROR_TRACKING_TRIGGERS.map((t) => [t.key, t]))
 
 export function AlertsRecommendationCard({
     recommendation,
@@ -32,8 +34,9 @@ export function AlertsRecommendationCard({
     dismissed?: boolean
 }): JSX.Element | null {
     const { refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { openTriggerKey } = useValues(alertsRecommendationCardLogic)
+    const { openTrigger, closeTrigger } = useActions(alertsRecommendationCardLogic)
     const alerts = recommendation.meta.alerts ?? []
-    const [openTriggerKey, setOpenTriggerKey] = useState<HogFunctionSubTemplateIdType | null>(null)
 
     if (alerts.length === 0) {
         return null
@@ -41,15 +44,15 @@ export function AlertsRecommendationCard({
 
     const items = alerts
         .map((alert) => {
-            const info = ALERT_RECOMMENDATION_INFO[alert.key]
-            if (!info) {
+            const trigger = TRIGGERS_BY_KEY[alert.key]
+            if (!trigger) {
                 return null
             }
             return {
                 key: alert.key,
                 enabled: alert.enabled,
-                name: info.name,
-                reason: info.reason,
+                name: trigger.name,
+                reason: trigger.description,
                 action: (
                     <LemonButton
                         size="xsmall"
@@ -59,7 +62,7 @@ export function AlertsRecommendationCard({
                                 source: 'recommendation_modal',
                                 trigger_key: alert.key,
                             })
-                            setOpenTriggerKey(alert.key)
+                            openTrigger(alert.key)
                         }}
                     >
                         Create alert
@@ -84,7 +87,7 @@ export function AlertsRecommendationCard({
                 <AlertsRecommendationWizardModal
                     triggerKey={openTriggerKey}
                     onClose={() => {
-                        setOpenTriggerKey(null)
+                        closeTrigger()
                         refreshRecommendation(recommendation.id)
                     }}
                 />
