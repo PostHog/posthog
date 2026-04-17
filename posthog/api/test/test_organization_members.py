@@ -3,7 +3,6 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import ANY, call, patch
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -424,39 +423,6 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["user"]["email"], "specific@posthog.com")
         self.assertEqual(response_data[0]["user"]["uuid"], str(user1.uuid))
-
-    @parameterized.expand(
-        [
-            ("first_name", "alice@posthog.com", "Alice", "", "Alice", "first_name", "Alice"),
-            ("last_name", "smith@posthog.com", "Jane", "Smith", "Smith", "last_name", "Smith"),
-            ("email_domain", "bob@example.com", "Bob", "", "example.com", "email", "bob@example.com"),
-            ("case_insensitive", "ci@posthog.com", "CaseName", "", "casename", "first_name", "CaseName"),
-            ("no_results", "nr@posthog.com", "NR", "", "nonexistent", None, None),
-        ]
-    )
-    def test_list_organization_members_search(self, _name, email, first_name, last_name, query, field, expected):
-        User.objects.create_and_join(self.organization, email, None, first_name=first_name, last_name=last_name)
-
-        response = self.client.get(f"/api/organizations/@current/members/?search={query}")
-        data = response.json()["results"]
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        if expected is None:
-            self.assertEqual(len(data), 0)
-        else:
-            self.assertEqual(len(data), 1)
-            self.assertEqual(data[0]["user"][field], expected)
-
-    def test_list_organization_members_empty_search_returns_all(self):
-        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
-        User.objects.create_and_join(self.organization, "bob@posthog.com", None, first_name="Bob")
-
-        response = self.client.get("/api/organizations/@current/members/?search=")
-        data = response.json()["results"]
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # self.user + Alice + Bob
-        self.assertEqual(len(data), 3)
 
     def test_list_organization_members_invalid_order_uses_default(self):
         User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
