@@ -1,16 +1,16 @@
-import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import type { EmailEditorRef as _EmailEditorRef } from '@react-email/editor'
+import { Content, JSONContent } from '@tiptap/core'
+import { actions, afterMount, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-editor'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
+import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
@@ -19,7 +19,16 @@ import type { EmailTemplate } from './types'
 
 export type { EmailTemplate }
 
-export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
+/**
+ * Merge tag used by the visual email editor. Values are Liquid/Hog template snippets
+ * (e.g. `{{person.properties["plan"]}}`) that get inserted at the cursor position.
+ */
+export type EmailMergeTag = {
+    key: string
+    label: string
+    value: string
+    sample?: string
+}
 
 /**
  * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
@@ -85,9 +94,7 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
 }
 
 // Helping kea-typegen navigate the exported type
-export interface EditorRef extends _EditorRef {}
-
-type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+export interface EmailEditorRef extends _EmailEditorRef {}
 
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
@@ -97,6 +104,25 @@ export interface EmailTemplaterLogicProps {
     defaultValue?: EmailTemplate | null
     templating?: boolean | 'hog' | 'liquid'
     onChangeTemplating?: (templating: 'hog' | 'liquid') => void
+}
+
+/**
+ * A stored `design` is considered TipTap-compatible only if it is a non-null object with a
+ * `type` property at the root (e.g. `{ type: 'doc', content: [...] }`). Legacy Unlayer designs
+ * use a different shape (`{ body, counters, schemaVersion }`) and must fall back to the saved HTML.
+ */
+function isTiptapDesign(design: unknown): design is JSONContent {
+    return !!design && typeof design === 'object' && 'type' in (design as Record<string, unknown>)
+}
+
+export function getEditorInitialContent(value: EmailTemplate | null | undefined): Content {
+    if (!value) {
+        return ''
+    }
+    if (isTiptapDesign(value.design)) {
+        return value.design
+    }
+    return value.html || ''
 }
 
 function autoRevealAdvancedFields(
@@ -119,11 +145,8 @@ function autoRevealAdvancedFields(
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
-    connect(() => ({
-        values: [preflightLogic, ['preflight']],
-    })),
     actions({
-        setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
+        setEmailEditorRef: (emailEditorRef: EmailEditorRef | null) => ({ emailEditorRef }),
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -137,7 +160,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     }),
     reducers({
         emailEditorRef: [
-            null as EditorRef | null,
+            null as EmailEditorRef | null,
             {
                 setEmailEditorRef: (_, { emailEditorRef }) => emailEditorRef,
             },
@@ -224,38 +247,32 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         logicProps: [() => [(_, props) => props], (props: EmailTemplaterLogicProps) => props],
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
-            (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
-                const tags: UnlayerMergeTags = {
-                    unsubscribe_url: {
-                        name: 'Unsubscribe URL',
+            (personPropertyDefinitions: PropertyDefinition[]): EmailMergeTag[] => {
+                const tags: EmailMergeTag[] = [
+                    {
+                        key: 'unsubscribe_url',
+                        label: 'Unsubscribe URL',
                         value: '{{unsubscribe_url}}',
                         sample: 'https://example.com/unsubscribe/12345',
                     },
-                    unsubscribe_url_one_click: {
-                        name: 'One-Click Unsubscribe URL',
+                    {
+                        key: 'unsubscribe_url_one_click',
+                        label: 'One-click unsubscribe URL',
                         value: '{{unsubscribe_url_one_click}}',
                         sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
                     },
-                }
+                ]
 
-                // Add person properties as merge tags
                 personPropertyDefinitions.forEach((property: PropertyDefinition) => {
-                    tags[property.name] = {
-                        name: property.name,
+                    tags.push({
+                        key: property.name,
+                        label: property.name,
                         value: `{{person.properties["${property.name}"]}}`,
                         sample: property.example || `Sample ${property.name}`,
-                    }
+                    })
                 })
 
                 return tags
-            },
-        ],
-        unlayerEditorProjectId: [
-            (s) => [s.preflight],
-            (preflight: PreflightStatus) => {
-                if (preflight.realm === Realm.Cloud || preflight.is_debug) {
-                    return 275430
-                }
             },
         ],
         visibleFields: [
@@ -290,24 +307,21 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
-                const editor = values.emailEditorRef?.editor
-                if (!editor || !values.isEmailEditorReady) {
+                const editorRef = values.emailEditorRef
+                if (!editorRef || !values.isEmailEditorReady) {
                     return
                 }
 
-                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                    await Promise.all([
-                        new Promise<any>((res) => editor.exportHtml(res)),
-                        new Promise<any>((res) => editor.exportPlainText(res)),
-                    ])
+                const { html, text } = await editorRef.getEmail()
+                const design = editorRef.getJSON()
 
                 const finalValues: EmailTemplate = {
                     ...formValues,
                     html: ['native_email', 'native_email_template'].includes(props.type)
-                        ? htmlData.html
-                        : escapeHTMLStringCurlies(htmlData.html),
-                    text: textData.text,
-                    design: htmlData.design,
+                        ? html
+                        : escapeHTMLStringCurlies(html),
+                    text,
+                    design,
                 }
 
                 props.onChange(finalValues)
@@ -317,12 +331,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     listeners(({ props, values, actions }) => ({
-        onEmailEditorReady: () => {
-            if (props.value?.design) {
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
-            }
-        },
-
         setEmailTemplateValue: ({ name, value }) => {
             if (values.isModalOpen) {
                 // When open we only update on save
@@ -359,9 +367,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
 
-            // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            const editor = values.emailEditorRef?.editor
+            if (editor) {
+                editor.commands.setContent(getEditorInitialContent(emailTemplateContent))
             }
         },
 
@@ -398,25 +406,22 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         html: '',
                     }
                 } else {
-                    const editor = values.emailEditorRef?.editor
-                    if (!editor || !values.isEmailEditorReady) {
+                    const editorRef = values.emailEditorRef
+                    if (!editorRef || !values.isEmailEditorReady) {
                         lemonToast.error('Editor not ready')
                         return
                     }
 
-                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                        await Promise.all([
-                            new Promise<any>((res) => editor.exportHtml(res)),
-                            new Promise<any>((res) => editor.exportPlainText(res)),
-                        ])
+                    const { html, text } = await editorRef.getEmail()
+                    const design = editorRef.getJSON()
 
                     emailContent = {
                         ...currentValues,
                         html: ['native_email', 'native_email_template'].includes(props.type)
-                            ? htmlData.html
-                            : escapeHTMLStringCurlies(htmlData.html),
-                        text: textData.text,
-                        design: htmlData.design,
+                            ? html
+                            : escapeHTMLStringCurlies(html),
+                        text,
+                        design,
                     }
                 }
 

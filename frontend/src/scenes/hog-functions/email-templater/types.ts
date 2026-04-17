@@ -1,9 +1,7 @@
-import { Editor } from 'react-email-editor'
-
-type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+import { JSONContent } from '@tiptap/core'
 
 export type EmailTemplate = {
-    design: JSONTemplate | null
+    design: JSONContent | null
     html: string
     subject: string
     text: string

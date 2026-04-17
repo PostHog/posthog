@@ -83,3 +83,5 @@ minimumReleaseAgeExclude:
     - shiki
     - shadcn
     - '@shikijs/*'
+    - '@react-email/*'
+    - react-email
