@@ -164,6 +164,30 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
+# Minimum interval between MCP token refreshes pushed to a live sandbox. The
+# OAuth tokens themselves are valid for 6h; we only need to rotate periodically
+# so a long-running sandbox doesn't accumulate stale credentials.
+MCP_TOKEN_REFRESH_INTERVAL_SECONDS = 30 * 60
+
+
+def _mcp_token_issued_cache_key(run_id: str) -> str:
+    return f"task-run-mcp-token-issued:{run_id}"
+
+
+def mark_mcp_token_issued(run_id: str) -> None:
+    """Record that a fresh MCP token was issued to the sandbox for this run.
+
+    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
+    `should_refresh_mcp_token` returns True again past that window.
+    """
+    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def should_refresh_mcp_token(run_id: str) -> bool:
+    """Return True if no MCP token has been issued for this run within the
+    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
+    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
+
 
 @dataclass(frozen=True)
 class McpServerConfig:
