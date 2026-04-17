@@ -288,7 +288,7 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)
+        UUID(str(key))
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)

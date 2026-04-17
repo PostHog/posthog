@@ -353,3 +353,27 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(context.exposures, {"control": 500.0, "test": 500.0})
         self.assertIsNotNone(last_refresh)
         self.assertFalse(pending_calculation)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_fetch_experiment_data_executes_queries_on_cold_cache(self):
+        """
+        On a cold cache, queries must execute synchronously rather than
+        returning a CacheMissResponse. Previously the data service used
+        RECENT_CACHE_CALCULATE_ASYNC_IF_STALE which returned immediately
+        on cache miss, giving the AI zero results and causing hallucinations.
+        """
+        experiment = await self.acreate_experiment(name="cold-cache-test", with_metrics=False)
+        experiment.metrics = [
+            {
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "purchase"},
+                "name": "Purchase value",
+            }
+        ]
+        await experiment.asave(update_fields=["metrics"])
+
+        data_service = ExperimentSummaryDataService(self.team)
+        context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
+
+        self.assertFalse(pending_calculation)
+        self.assertIsNotNone(last_refresh)

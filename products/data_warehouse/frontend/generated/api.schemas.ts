@@ -1224,6 +1224,11 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+    valid?: boolean
+    errors?: string[]
+}
+
 export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.

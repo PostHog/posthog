@@ -301,6 +301,11 @@ class HogQLPrinter(Visitor[str]):
             f"QUALIFY{space}" + qualify if qualify else None,
             f"WINDOW{space}" + window if window else None,
             f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
+            (
+                f"INTERPOLATE ({comma.join(self.visit(expr) for expr in node.interpolate)})"
+                if node.interpolate
+                else ("INTERPOLATE" if node.interpolate is not None else None)
+            ),
         ]
 
         limit = node.limit
@@ -667,7 +672,25 @@ class HogQLPrinter(Visitor[str]):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
-        return f"{self.visit(node.expr)} {node.order}"
+        result = f"{self.visit(node.expr)} {node.order}"
+        if node.with_fill is not None:
+            result += f" {self.visit(node.with_fill)}"
+        return result
+
+    def visit_with_fill_expr(self, node: ast.WithFillExpr):
+        parts = ["WITH FILL"]
+        if node.from_value is not None:
+            parts.append(f"FROM {self.visit(node.from_value)}")
+        if node.to_value is not None:
+            parts.append(f"TO {self.visit(node.to_value)}")
+        if node.step_value is not None:
+            parts.append(f"STEP {self.visit(node.step_value)}")
+        return " ".join(parts)
+
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        if node.value is not None:
+            return f"{self.visit(node.expr)} AS {self.visit(node.value)}"
+        return self.visit(node.expr)
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
         if op == ast.CompareOperationOp.Eq:

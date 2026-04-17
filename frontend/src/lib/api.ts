@@ -216,6 +216,7 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
@@ -1319,6 +1320,14 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
     }
 
+    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('recommendations')
+    }
+
+    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
+    }
+
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('quick_filters')
     }
@@ -1857,6 +1866,22 @@ export class ApiRequest {
 
     public messagingCategoriesRemoveCustomerIOAppConfig(): ApiRequest {
         return this.messagingCategories().addPathComponent('remove_customerio_app_config')
+    }
+
+    public messagingCategoriesSaveWebhookConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('save_webhook_config')
+    }
+
+    public messagingCategoriesRemoveWebhookConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_webhook_config')
+    }
+
+    public messagingCategoriesSaveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('save_track_config')
+    }
+
+    public messagingCategoriesRemoveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
     public messagingPreferences(): ApiRequest {
@@ -3940,6 +3965,22 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
+        async listRecommendations(): Promise<{ results: ErrorTrackingRecommendation[] }> {
+            return await new ApiRequest().errorTrackingRecommendations().get()
+        },
+
+        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
+        },
+
+        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
+        },
+
+        async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('refresh').create()
+        },
+
         async createRule(
             ruleType: ErrorTrackingRuleType,
             { id: _, ...data }: ErrorTrackingRule
@@ -5194,6 +5235,22 @@ const api = {
                 .externalDataSources()
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
+        },
+        async check_cdc_prerequisites(
+            payload: {
+                source_type: ExternalDataSourceType
+                cdc_management_mode: 'posthog' | 'self_managed'
+                tables?: string[]
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+                [key: string]: any
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ valid: boolean; errors: string[] }> {
+            return await new ApiRequest()
+                .externalDataSources(teamId)
+                .withAction('check_cdc_prerequisites')
+                .create({ data: payload })
         },
         async jobs(
             sourceId: ExternalDataSource['id'],
