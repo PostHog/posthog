@@ -665,6 +665,43 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
 
         evaluation.refresh_from_db()
         self.assertFalse(evaluation.enabled)
+        self.assertEqual(evaluation.status, "error")
+        self.assertEqual(evaluation.status_reason, "provider_key_deleted")
+
+    def test_delete_without_replacement_preserves_paused_evaluations(self):
+        """A user-paused eval should stay paused when its key is deleted — the user's intent to pause
+        takes precedence over the system wanting to flag an error on something already disabled."""
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+        paused_eval = Evaluation.objects.create(
+            team=self.team,
+            name="Paused",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=False,
+        )
+        self.assertEqual(paused_eval.status, "paused")
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        paused_eval.refresh_from_db()
+        self.assertEqual(paused_eval.status, "paused")
+        self.assertIsNone(paused_eval.status_reason)
 
     def test_delete_with_mismatched_provider_replacement_fails(self):
         openai_key = LLMProviderKey.objects.create(

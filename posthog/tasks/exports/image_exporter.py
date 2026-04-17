@@ -205,9 +205,13 @@ def _export_to_png(
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
-            # Handle replay export using /exporter route (same as insights/dashboards)
+            # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
+            # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt
+            # the `/exporter` query string.
+            encoded_page_url = quote(heatmap_url, safe="")
+            encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)

@@ -88,6 +88,8 @@ export interface CdpCoreServicesDeps {
     teamManager: TeamManager
     integrationManager: IntegrationManagerService
     kafkaProducer: KafkaProducerWrapper
+    /** Producer targeting the ingestion WarpStream cluster for monitoring outputs (app metrics, log entries). */
+    monitoringProducer: KafkaProducerWrapper
     internalCaptureService: InternalCaptureService
 }
 
@@ -177,13 +179,13 @@ export function createCdpCoreServices(
             [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
                 APP_METRICS_OUTPUT,
                 config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-                deps.kafkaProducer,
+                deps.monitoringProducer,
                 'default'
             ),
             [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
                 LOG_ENTRIES_OUTPUT,
                 config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-                deps.kafkaProducer,
+                deps.monitoringProducer,
                 'default'
             ),
         }),

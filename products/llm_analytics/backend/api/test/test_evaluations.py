@@ -500,3 +500,90 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
+
+
+class TestReEnableValidatesRootCauseResolved(APIBaseTest):
+    """When an eval is in the error state, flipping enabled=True must fail unless the condition
+    that put it there is resolved — otherwise the next workflow run just re-disables it for the
+    same reason. Matters for agent callers who can't see a red banner."""
+
+    def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None):
+        mc = LLMModelConfiguration.objects.create(
+            team=self.team, provider="openai", model=model, provider_key=provider_key
+        )
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Errored",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "?"},
+            output_type="boolean",
+            model_configuration=mc,
+        )
+        eval_obj.set_status("error", status_reason)
+        eval_obj.refresh_from_db()
+        return eval_obj
+
+    def test_rejects_re_enable_when_model_still_not_allowed(self):
+        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not available on the trial plan", str(response.data))
+
+    def test_allows_re_enable_when_byok_key_attached_even_if_model_not_allowed(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertEqual(eval_obj.status, "active")
+        self.assertIsNone(eval_obj.status_reason)
+
+    def test_rejects_re_enable_when_provider_key_still_missing(self):
+        eval_obj = self._create_errored_eval(status_reason="provider_key_deleted")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("provider API key", str(response.data))
+
+    def test_allows_re_enable_when_provider_key_attached(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="provider_key_deleted", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.status_reason)

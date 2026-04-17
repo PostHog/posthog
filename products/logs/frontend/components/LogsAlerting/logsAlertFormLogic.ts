@@ -229,7 +229,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
 
                     if (values.pendingNotifications.length > 0) {
                         const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, form.name)
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
                     }
 
                     actions.setEditingAlert(null)

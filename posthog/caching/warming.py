@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional, cast
 
 from django.db.models import Q
 
@@ -227,7 +227,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         try:
             results = process_query_dict(
                 insight.team,
-                insight.query,
+                cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered

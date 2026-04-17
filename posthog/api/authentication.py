@@ -9,11 +9,13 @@ from django.conf import settings
 from django.contrib.auth import (
     authenticate,
     login,
+    logout as auth_logout,
     views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
@@ -21,6 +23,7 @@ from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_protect
 
 import structlog
@@ -120,8 +123,13 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    response = auth_views.logout_then_login(request)
-    return response
+    # Preserve any safe `next` param
+    next_param = request.GET.get("next")
+    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
+        auth_logout(request)
+        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
+
+    return auth_views.logout_then_login(request)
 
 
 def axes_locked_out(*args, **kwargs):

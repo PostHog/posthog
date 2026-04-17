@@ -112,6 +112,12 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
+            title: 'Organization',
+            render: function OrgCell(_, item) {
+                return <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+            },
+        },
+        {
             title: 'Team ID',
             dataIndex: 'team_id',
             width: 80,
@@ -122,7 +128,14 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Metric',
-            dataIndex: 'experiment_metric_name',
+            render: function Metric(_, item) {
+                return (
+                    <div className="flex items-center gap-1">
+                        <span>{item.experiment_metric_name}</span>
+                        {item.experiment_metric_type && <LemonTag type="muted">{item.experiment_metric_type}</LemonTag>}
+                    </div>
+                )
+            },
         },
         {
             title: 'Path',
@@ -140,19 +153,24 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Status',
-            width: 80,
             render: function Status(_, item) {
-                return item.exception ? (
-                    <LemonTag type="danger">Error</LemonTag>
-                ) : (
-                    <LemonTag type="success">OK</LemonTag>
+                if (!item.exception) {
+                    return <LemonTag type="success">OK</LemonTag>
+                }
+                const firstLine = item.exception.split('\n')[0]
+                const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
+                return (
+                    <div className="flex items-center gap-1 min-w-0">
+                        <LemonTag type="danger">Error</LemonTag>
+                        <span className="font-mono text-xs text-danger truncate">{preview}</span>
+                    </div>
                 )
             },
         },
     ]
 
     return (
-        <SceneContent className="mt-4">
+        <SceneContent className="mt-4 pb-8">
             <SceneTitleSection
                 name="Query performance"
                 description="Internal tooling for monitoring and managing query performance across all projects."
@@ -189,14 +207,20 @@ export function QueryPerformance(): JSX.Element {
                 loading={slowestQueriesLoading}
                 emptyState="No experiment queries found in this time range"
                 pagination={{ pageSize: 20 }}
-                className="overflow-visible!"
+                className="overflow-visible! flex-none!"
                 expandable={{
                     expandedRowRender: function ExpandedQuery(item) {
                         return (
                             <div className="p-2">
                                 {item.exception && (
-                                    <div className="mb-2 p-2 bg-danger-highlight rounded text-xs font-mono">
-                                        {item.exception}
+                                    <div className="mb-2">
+                                        <CodeSnippet
+                                            language={Language.Text}
+                                            thing="error"
+                                            maxLinesWithoutExpansion={5}
+                                        >
+                                            {item.exception}
+                                        </CodeSnippet>
                                     </div>
                                 )}
                                 <CodeSnippet language={Language.SQL} thing="query" maxLinesWithoutExpansion={10}>
@@ -221,6 +245,8 @@ export function QueryPerformance(): JSX.Element {
                 dataSource={precomputationTeams}
                 loading={precomputationTeamsLoading}
                 emptyState={search ? 'No teams found' : 'No teams have precomputation enabled'}
+                pagination={{ pageSize: 20 }}
+                className="overflow-visible! flex-none!"
             />
         </SceneContent>
     )

@@ -6404,6 +6404,234 @@
           "row_count": null,
           "type": "system"
       },
+      "system.support_tickets": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ticket_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ticket_number",
+                  "id": null,
+                  "name": "ticket_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "channel_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_source",
+                  "id": null,
+                  "name": "channel_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "channel_detail": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_detail",
+                  "id": null,
+                  "name": "channel_detail",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "priority": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "priority",
+                  "id": null,
+                  "name": "priority",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "anonymous_traits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "anonymous_traits",
+                  "id": null,
+                  "name": "anonymous_traits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "ai_resolved": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ai_resolved",
+                  "id": null,
+                  "name": "ai_resolved",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "escalation_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "escalation_reason",
+                  "id": null,
+                  "name": "escalation_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "message_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "message_count",
+                  "id": null,
+                  "name": "message_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_customer_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_customer_count",
+                  "id": null,
+                  "name": "unread_customer_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_team_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_team_count",
+                  "id": null,
+                  "name": "unread_team_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_message_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_at",
+                  "id": null,
+                  "name": "last_message_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_message_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_text",
+                  "id": null,
+                  "name": "last_message_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_subject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_subject",
+                  "id": null,
+                  "name": "email_subject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_from": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_from",
+                  "id": null,
+                  "name": "email_from",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id",
+                  "id": null,
+                  "name": "session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_context",
+                  "id": null,
+                  "name": "session_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "sla_due_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sla_due_at",
+                  "id": null,
+                  "name": "sla_due_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.support_tickets",
+          "name": "system.support_tickets",
+          "row_count": null,
+          "type": "system"
+      },
       "system.surveys": {
           "fields": {
               "id": {
@@ -12023,6 +12251,234 @@
           },
           "id": "system.source_sync_jobs",
           "name": "system.source_sync_jobs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.support_tickets": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ticket_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ticket_number",
+                  "id": null,
+                  "name": "ticket_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "channel_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_source",
+                  "id": null,
+                  "name": "channel_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "channel_detail": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_detail",
+                  "id": null,
+                  "name": "channel_detail",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "priority": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "priority",
+                  "id": null,
+                  "name": "priority",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "anonymous_traits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "anonymous_traits",
+                  "id": null,
+                  "name": "anonymous_traits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "ai_resolved": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ai_resolved",
+                  "id": null,
+                  "name": "ai_resolved",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "escalation_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "escalation_reason",
+                  "id": null,
+                  "name": "escalation_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "message_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "message_count",
+                  "id": null,
+                  "name": "message_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_customer_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_customer_count",
+                  "id": null,
+                  "name": "unread_customer_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_team_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_team_count",
+                  "id": null,
+                  "name": "unread_team_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_message_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_at",
+                  "id": null,
+                  "name": "last_message_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_message_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_text",
+                  "id": null,
+                  "name": "last_message_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_subject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_subject",
+                  "id": null,
+                  "name": "email_subject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_from": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_from",
+                  "id": null,
+                  "name": "email_from",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id",
+                  "id": null,
+                  "name": "session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_context",
+                  "id": null,
+                  "name": "session_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "sla_due_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sla_due_at",
+                  "id": null,
+                  "name": "sla_due_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.support_tickets",
+          "name": "system.support_tickets",
           "row_count": null,
           "type": "system"
       },

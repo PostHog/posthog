@@ -32,6 +32,7 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
+import { PieChart } from './Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { Table } from './Components/Table'
@@ -244,6 +245,22 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        // Pie charts can consume breakdown series totals directly, even when there isn't
+        // a matching breakdown x-axis to swap in like the line/bar path expects.
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-3"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
         )

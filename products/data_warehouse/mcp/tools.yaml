@@ -258,7 +258,6 @@ tools:
                 description:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for
                     optimistic concurrency control.
-
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
@@ -273,7 +272,6 @@ tools:
             Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and
             will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed.
             Cannot delete views that have downstream dependencies or views from managed viewsets.
-
         soft_delete: true
     warehouse-saved-queries-activity-retrieve:
         operation: warehouse_saved_queries_activity_retrieve
@@ -305,7 +303,6 @@ tools:
             Enable materialization for a saved query. This creates a physical table from the view's query and sets up a
             24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use
             'view-unmaterialize' to undo. Rate limited.
-
     view-unmaterialize:
         operation: warehouse_saved_queries_revert_materialization_create
         enabled: true
@@ -321,7 +318,6 @@ tools:
             Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule,
             reverting the view back to a virtual query that runs on each access. The view definition itself is
             preserved. Rate limited.
-
     view-run:
         operation: warehouse_saved_queries_run_create
         enabled: true
@@ -336,7 +332,6 @@ tools:
         description: >
             Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
             with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.
-
     view-run-history:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: true
@@ -428,4 +423,7 @@ tools:
         enabled: false
     data-warehouse-reset-password-create:
         operation: data_warehouse_reset_password_create
+        enabled: false
+    external-data-sources-check-cdc-prerequisites-create:
+        operation: external_data_sources_check_cdc_prerequisites_create
         enabled: false
