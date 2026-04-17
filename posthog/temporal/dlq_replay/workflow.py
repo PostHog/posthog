@@ -52,8 +52,8 @@ class DLQReplayWorkflowResult:
     """
 
     total_messages_replayed: int
-    total_messages_skipped: int
     partition_results: dict[int, int]
+    total_messages_skipped: int = 0
 
 
 @workflow.defn(name="dlq-replay")
