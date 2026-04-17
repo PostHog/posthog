@@ -115,7 +115,7 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
             {coreFeatures.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {coreFeatures.map((feature) => (
-                        <LemonTag key={feature.label} size="small" icon={feature.icon}>
+                        <LemonTag key={feature.label} icon={feature.icon}>
                             {feature.label}
                         </LemonTag>
                     ))}
