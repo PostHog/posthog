@@ -190,7 +190,7 @@ export function Members(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { setSearch, ensureAllMembersLoadedExhaustive } = useActions(membersLogic)
+    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { downloadMembersList } = useActions(membersExportLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
@@ -206,7 +206,7 @@ export function Members(): JSX.Element | null {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
-    useOnMountEffect(ensureAllMembersLoadedExhaustive)
+    useOnMountEffect(ensureAllMembersLoaded)
 
     if (!user) {
         return null

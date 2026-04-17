@@ -18,7 +18,6 @@ import type { membersLogicType } from './membersLogicType'
 export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 
 const PAGINATION_LIMIT = 200
-const SEARCH_DEBOUNCE_MS = 300
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
@@ -27,12 +26,10 @@ export const membersLogic = kea<membersLogicType>([
     })),
     actions({
         ensureAllMembersLoaded: true,
-        ensureAllMembersLoadedExhaustive: true,
         loadAllMembers: true,
-        loadAllMembersExhaustive: true,
         loadMemberUpdates: true,
         loadMemberScopedApiKeys: (member: OrganizationMemberType) => ({ member }),
-        setSearch: (search: string) => ({ search }),
+        setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
             level,
@@ -43,12 +40,6 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                const response = await api.organizationMembers.list({
-                    limit: PAGINATION_LIMIT,
-                })
-                return response.results
-            },
-            loadAllMembersExhaustive: async () => {
                 return await api.organizationMembers.listAll({
                     limit: PAGINATION_LIMIT,
                 })
@@ -112,19 +103,6 @@ export const membersLogic = kea<membersLogicType>([
                 return updatedMembers
             },
         },
-        searchResults: {
-            __default: null as OrganizationMemberType[] | null,
-            searchMembers: async (search: string) => {
-                if (!search) {
-                    return null
-                }
-                const response = await api.organizationMembers.list({
-                    search,
-                    limit: PAGINATION_LIMIT,
-                })
-                return response.results
-            },
-        },
         scopedApiKeys: {
             __default: null as OrganizationMemberScopedApiKeysResponse | null,
             loadMemberScopedApiKeys: async ({ member }: { member: OrganizationMemberType }) => {
@@ -139,7 +117,6 @@ export const membersLogic = kea<membersLogicType>([
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
-        allMembersExhaustivelyLoaded: [false, { loadAllMembersExhaustiveSuccess: () => true }],
     }),
     selectors({
         sortedMembers: [
@@ -172,17 +149,9 @@ export const membersLogic = kea<membersLogicType>([
                 }),
         ],
         filteredMembers: [
-            (s) => [s.meFirstMembers, s.membersFuse, s.search, s.searchResults],
-            (members, membersFuse, search, searchResults): OrganizationMemberType[] => {
-                if (!search) {
-                    return members ?? []
-                }
-                // Use server-side results when available, fall back to client-side Fuse.js
-                if (searchResults) {
-                    return searchResults
-                }
-                return membersFuse.search(search).map((result) => result.item)
-            },
+            (s) => [s.meFirstMembers, s.membersFuse, s.search],
+            (members, membersFuse, search): OrganizationMemberType[] =>
+                search ? membersFuse.search(search).map((result) => result.item) : (members ?? []),
         ],
         memberCount: [
             (s) => [s.user, s.sortedMembers],
@@ -210,19 +179,6 @@ export const membersLogic = kea<membersLogicType>([
             } else {
                 actions.loadMemberUpdates()
             }
-        },
-
-        ensureAllMembersLoadedExhaustive: async () => {
-            if (values.membersLoading || values.allMembersExhaustivelyLoaded) {
-                return
-            }
-            actions.loadAllMembersExhaustive()
-        },
-
-        setSearch: async ({ search }, breakpoint) => {
-            actions.searchMembersSuccess(null)
-            await breakpoint(SEARCH_DEBOUNCE_MS)
-            actions.searchMembers(search)
         },
     })),
 
