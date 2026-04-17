@@ -68,7 +68,8 @@ export class KafkaProducerWrapper {
     /** Create a producer with a pre-built rdkafka config (merged over defaults). */
     static async createWithConfig(
         kafkaClientRack: string | undefined,
-        config: ProducerGlobalConfig
+        config: ProducerGlobalConfig,
+        name?: string
     ): Promise<KafkaProducerWrapper> {
         const producerConfig: ProducerGlobalConfig = {
             ...KafkaProducerWrapper.PRODUCER_DEFAULTS,
@@ -101,14 +102,15 @@ export class KafkaProducerWrapper {
             })
         )
 
-        return new KafkaProducerWrapper(producer)
+        return new KafkaProducerWrapper(producer, name)
     }
 
     /** Optional human-readable name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
-    public name?: string
+    public readonly name?: string
 
-    constructor(producer: HighLevelProducer) {
+    constructor(producer: HighLevelProducer, name?: string) {
         this.producer = producer
+        this.name = name
     }
 
     async produce({
