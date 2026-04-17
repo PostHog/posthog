@@ -810,7 +810,7 @@ async def ensure_llm_single_session_summary(
         # - 6a: Emit signals for issue-indicating segments
         # - 6b: Store video-based summary in database
         _set_phase(progress, "saving_summary")
-        await asyncio.gather(
+        emit_result, store_result = await asyncio.gather(
             temporalio.workflow.execute_activity(
                 emit_session_problem_signals_activity,
                 args=(video_inputs, consolidated_analysis),
@@ -823,7 +823,19 @@ async def ensure_llm_single_session_summary(
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             ),
+            return_exceptions=True,
         )
+        if isinstance(emit_result, Exception):
+            posthoganalytics.capture_exception(
+                emit_result,
+                distinct_id=inputs.user_distinct_id_to_log,
+            )
+            logger.exception(
+                f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
+                signals_type="session-summaries",
+            )
+        if isinstance(store_result, BaseException):
+            raise store_result
     finally:
         # Activity 7: Delete uploaded video from Gemini to free storage quota
         _set_phase(progress, "cleanup")
