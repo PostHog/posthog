@@ -67,13 +67,11 @@ def _build_states_from_content_snapshot(
         LOGGER.info(
             "subscription_summary.insight_state_built",
             insight_id=insight_id,
-            insight_name=insight_name,
             query_kind=query_kind,
             result_shape=result_shape,
             query_error_type=query_error.get("type") if isinstance(query_error, dict) else None,
             fallback_reason=fallback_reason,
             results_summary_length=len(results_summary),
-            results_summary_preview=results_summary[:200],
             timestamp=timestamp,
         )
 

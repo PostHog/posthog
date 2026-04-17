@@ -252,7 +252,6 @@ def generate_change_summary(
         has_previous=bool(previous_states),
         insight_count=len(current_states),
         user_message_length=len(user_message_content),
-        user_message_preview=user_message_content[:1000],
     )
 
     client = get_llm_client(product="product_analytics")
