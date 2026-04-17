@@ -249,7 +249,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if not is_guest:
             return attrs
 
-        from posthog.rbac.guest_access import validate_guest_invite
+        from posthog.rbac.guest_access_control import validate_guest_invite
 
         organization: Organization = Organization.objects.get(id=self.context["organization_id"])
         validate_guest_invite(
@@ -314,7 +314,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         )
 
         if grants:
-            from posthog.rbac.guest_access import create_pending_grants
+            from posthog.rbac.guest_access_control import create_pending_grants
 
             create_pending_grants(invite=invite, grants=grants, created_by=self.context["request"].user)
 

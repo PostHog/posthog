@@ -160,3 +160,86 @@ def create_pending_grants(*, invite, grants: list[dict[str, Any]], created_by: U
             )
         )
     return created
+
+
+def accept_guest_invite(*, invite, user: User) -> OrganizationMembership:
+    """Create a guest membership from an accepted invite and activate all pending grants.
+    Called from OrganizationInvite.use() when is_guest=True.
+    """
+    membership = OrganizationMembership.objects.create(
+        organization=invite.organization,
+        user=user,
+        level=OrganizationMembership.Level.MEMBER,
+        is_guest=True,
+        bypass_sso_enforcement=invite.bypass_sso_enforcement,
+    )
+    for grant in GuestResourceGrant.objects.filter(invite=invite):
+        grant.organization_membership = membership
+        grant.invite = None
+        grant.is_pending = False
+        grant.save()
+    return membership
+
+
+def guest_access_level_for_object(
+    *,
+    org_membership: OrganizationMembership,
+    team,
+    resource: str,
+    obj_id: int,
+) -> str | None:
+    """Return the access level a guest has for a specific object.
+    Returns "viewer" if the guest has a direct grant or the object is a tile of a granted dashboard.
+    Returns None otherwise.
+    """
+    direct = GuestResourceGrant.objects.filter(
+        organization_membership=org_membership,
+        team=team,
+        resource=resource,
+        resource_id=obj_id,
+        is_pending=False,
+    ).exists()
+    if direct:
+        return "viewer"
+
+    if resource == "insight":
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
+        dashboard_ids = DashboardTile.objects.filter(insight_id=obj_id).values_list("dashboard_id", flat=True)
+        if (
+            dashboard_ids
+            and GuestResourceGrant.objects.filter(
+                organization_membership=org_membership,
+                team=team,
+                resource="dashboard",
+                resource_id__in=list(dashboard_ids),
+                is_pending=False,
+            ).exists()
+        ):
+            return "viewer"
+
+    return None
+
+
+def is_guest_sso_bypass_allowed(*, email: str) -> bool:
+    """Check if any guest membership for this email has bypass_sso_enforcement=True
+    in an org whose verified domain enforces SSO.
+    Called from the login flow when SSO enforcement would otherwise block password auth.
+    """
+    from posthog.models.organization_domain import OrganizationDomain
+
+    domain = email[email.index("@") + 1 :]
+    enforcing_org_ids = list(
+        OrganizationDomain.objects.verified_domains()
+        .filter(domain__iexact=domain)
+        .exclude(sso_enforcement="")
+        .values_list("organization_id", flat=True)
+    )
+    if not enforcing_org_ids:
+        return False
+    return OrganizationMembership.objects.filter(
+        organization_id__in=enforcing_org_ids,
+        user__email__iexact=email,
+        is_guest=True,
+        bypass_sso_enforcement=True,
+    ).exists()

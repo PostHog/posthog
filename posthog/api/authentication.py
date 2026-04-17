@@ -56,7 +56,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
-from posthog.models import OrganizationDomain, OrganizationMembership, User
+from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
@@ -240,23 +240,9 @@ class LoginSerializer(serializers.Serializer):
         # Check SSO enforcement (which happens at the domain level)
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
         if sso_enforcement:
-            # Guests with an explicit bypass may still use password auth even when their org enforces SSO.
-            # The admin acknowledged the bypass at invite time (bypass_sso_enforcement=True).
-            email = validated_data["email"]
-            domain = email[email.index("@") + 1 :]
-            enforcing_org_ids = list(
-                OrganizationDomain.objects.verified_domains()
-                .filter(domain__iexact=domain)
-                .exclude(sso_enforcement="")
-                .values_list("organization_id", flat=True)
-            )
-            has_bypass = OrganizationMembership.objects.filter(
-                organization_id__in=enforcing_org_ids,
-                user__email__iexact=email,
-                is_guest=True,
-                bypass_sso_enforcement=True,
-            ).exists()
-            if not has_bypass:
+            from posthog.rbac.guest_access_control import is_guest_sso_bypass_allowed
+
+            if not is_guest_sso_bypass_allowed(email=validated_data["email"]):
                 raise serializers.ValidationError(
                     f"You can only login with SSO for this account ({sso_enforcement}).",
                     code="sso_enforced",

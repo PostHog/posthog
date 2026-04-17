@@ -520,33 +520,14 @@ class UserAccessControl:
             return None
 
         if org_membership.is_guest:
-            from posthog.models import GuestResourceGrant
+            from posthog.rbac.guest_access_control import guest_access_level_for_object
 
-            from products.dashboards.backend.models.dashboard_tile import DashboardTile
-
-            direct = GuestResourceGrant.objects.filter(
-                organization_membership=org_membership,
+            return guest_access_level_for_object(
+                org_membership=org_membership,
                 team=self._team,
                 resource=resource,
-                resource_id=obj.id,  # type: ignore[attr-defined]
-                is_pending=False,
-            ).exists()
-            if direct:
-                return "viewer"
-            if resource == "insight":
-                dashboard_ids = DashboardTile.objects.filter(insight_id=obj.id).values_list("dashboard_id", flat=True)  # type: ignore[attr-defined]
-                if (
-                    dashboard_ids
-                    and GuestResourceGrant.objects.filter(
-                        organization_membership=org_membership,
-                        team=self._team,
-                        resource="dashboard",
-                        resource_id__in=list(dashboard_ids),
-                        is_pending=False,
-                    ).exists()
-                ):
-                    return "viewer"
-            return None
+                obj_id=obj.id,  # type: ignore[attr-defined]
+            )
 
         # Creators always have highest access
         if getattr(obj, "created_by", None) == self._user:

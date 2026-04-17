@@ -141,20 +141,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             self.validate(user=user)
 
         if self.is_guest:
-            membership = OrganizationMembership.objects.create(
-                organization=self.organization,
-                user=user,
-                level=OrganizationMembership.Level.MEMBER,
-                is_guest=True,
-                bypass_sso_enforcement=self.bypass_sso_enforcement,
-            )
-            from posthog.models import GuestResourceGrant
+            from posthog.rbac.guest_access_control import accept_guest_invite
 
-            for grant in GuestResourceGrant.objects.filter(invite=self):
-                grant.organization_membership = membership
-                grant.invite = None
-                grant.is_pending = False
-                grant.save()
+            accept_guest_invite(invite=self, user=user)
         else:
             user.join(organization=self.organization, level=self.level)
 

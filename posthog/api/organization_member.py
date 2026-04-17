@@ -205,7 +205,7 @@ class OrganizationMemberViewSet(
 
     @action(detail=True, methods=["get", "post"], url_path="grants")
     def grants(self, request, *args, **kwargs) -> Response:
-        from posthog.rbac.guest_access import add_grant, list_grants, require_admin
+        from posthog.rbac.guest_access_control import add_grant, list_grants, require_admin
 
         target: OrganizationMembership = self.get_object()
         require_admin(organization=target.organization, user=request.user)
@@ -248,7 +248,7 @@ class OrganizationMemberViewSet(
     @action(detail=True, methods=["delete"], url_path=r"grants/(?P<grant_id>[^/.]+)")
     def delete_grant(self, request, grant_id=None, *args, **kwargs) -> Response:
         from posthog.models import GuestResourceGrant
-        from posthog.rbac.guest_access import remove_grant, require_admin
+        from posthog.rbac.guest_access_control import remove_grant, require_admin
 
         target: OrganizationMembership = self.get_object()
         require_admin(organization=target.organization, user=request.user)
@@ -259,7 +259,7 @@ class OrganizationMemberViewSet(
 
     @action(detail=True, methods=["post"], url_path="promote_to_member")
     def promote_to_member(self, request, *args, **kwargs) -> Response:
-        from posthog.rbac.guest_access import promote_guest_to_member
+        from posthog.rbac.guest_access_control import promote_guest_to_member
 
         target: OrganizationMembership = self.get_object()
         grants_removed = promote_guest_to_member(membership=target, promoted_by=request.user)
