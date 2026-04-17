@@ -22,6 +22,34 @@ pub struct KafkaContext {
     liveness: lifecycle::Handle,
 }
 
+/// Emit min/avg/max/stddev plus p50/p90/p95/p99 for an rdkafka window stat
+/// (rtt, int_latency, outbuf_latency). Gauges are tagged with `quantile` and
+/// `broker` so existing dashboards keyed on `quantile` keep working and new
+/// panels can pick up `max`/`avg` for tail visibility.
+fn emit_window_stats(
+    metric_name: &'static str,
+    window: &rdkafka::statistics::Window,
+    broker: &str,
+) {
+    for (quantile, value) in [
+        ("min", window.min),
+        ("avg", window.avg),
+        ("max", window.max),
+        ("stddev", window.stddev),
+        ("p50", window.p50),
+        ("p90", window.p90),
+        ("p95", window.p95),
+        ("p99", window.p99),
+    ] {
+        gauge!(
+            metric_name,
+            "quantile" => quantile,
+            "broker" => broker.to_string()
+        )
+        .set(value as f64);
+    }
+}
+
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness when brokers are up
@@ -69,30 +97,24 @@ impl rdkafka::ClientContext for KafkaContext {
             )
             .set(if stats.state == "UP" { 1.0 } else { 0.0 });
             if let Some(rtt) = stats.rtt {
-                gauge!(
-                    "capture_kafka_produce_rtt_latency_us",
-                    "quantile" => "p50",
-                    "broker" => id_string.clone()
-                )
-                .set(rtt.p50 as f64);
-                gauge!(
-                    "capture_kafka_produce_rtt_latency_us",
-                    "quantile" => "p90",
-                    "broker" => id_string.clone()
-                )
-                .set(rtt.p90 as f64);
-                gauge!(
-                    "capture_kafka_produce_rtt_latency_us",
-                    "quantile" => "p95",
-                    "broker" => id_string.clone()
-                )
-                .set(rtt.p95 as f64);
-                gauge!(
-                    "capture_kafka_produce_rtt_latency_us",
-                    "quantile" => "p99",
-                    "broker" => id_string.clone()
-                )
-                .set(rtt.p99 as f64);
+                emit_window_stats("capture_kafka_produce_rtt_latency_us", &rtt, &id_string);
+            }
+            // Time messages spent in the producer's internal queue (linger + backlog).
+            // Usually the dominant source of long-tail ack delays when brokers are slow.
+            if let Some(int_latency) = stats.int_latency {
+                emit_window_stats(
+                    "capture_kafka_produce_int_latency_us",
+                    &int_latency,
+                    &id_string,
+                );
+            }
+            // Time requests spent in the broker's output buffer before going on the wire.
+            if let Some(outbuf_latency) = stats.outbuf_latency {
+                emit_window_stats(
+                    "capture_kafka_produce_outbuf_latency_us",
+                    &outbuf_latency,
+                    &id_string,
+                );
             }
 
             gauge!(
@@ -326,7 +348,12 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         }
     }
 
-    async fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
+    /// CPU-bound (plus optional Redis await for SnapshotMain) prep work.
+    /// Safe to run concurrently across events in a batch because it does not
+    /// touch the librdkafka producer queue — phase 2 of `send_batch` is what
+    /// enforces per-partition ordering by calling `enqueue_record` serially
+    /// in the original event order.
+    async fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
         let payload = serde_json::to_string(&event).map_err(|e| {
@@ -479,19 +506,31 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             }
         };
 
-        let payload_bytes = payload.len() as u64;
-
-        let record = ProduceRecord {
+        Ok(ProduceRecord {
             topic: topic.to_string(),
             key: partition_key.map(|s| s.to_string()),
             payload,
             headers,
-        };
+        })
+    }
 
-        counter!("capture_kafka_produce_bytes_total", "topic" => topic.to_string())
+    /// Serial, ordering-preserving enqueue into librdkafka. Emits the per-topic
+    /// bytes counter and returns the ack future for the caller to await.
+    /// librdkafka preserves on-wire partition order by `send_result` call order,
+    /// so this MUST be called in the original event order within a batch.
+    fn enqueue_record(&self, record: ProduceRecord) -> Result<P::AckFuture, CaptureError> {
+        let payload_bytes = record.payload.len() as u64;
+        counter!("capture_kafka_produce_bytes_total", "topic" => record.topic.clone())
             .increment(payload_bytes);
-
         self.producer.send(record)
+    }
+
+    /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
+    /// the `Event::send` impl stays unchanged; `send_batch` uses prepare_record
+    /// and enqueue_record directly to parallelize the prep phase.
+    async fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
+        let record = self.prepare_record(event).await?;
+        self.enqueue_record(record)
     }
 }
 
@@ -506,27 +545,68 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
 
     #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let mut set = JoinSet::new();
         let batch_size = events.len();
-        for event in events {
-            // We await kafka_send to get events in the producer queue sequentially
-            let ack_future = self.kafka_send(event).await?;
 
-            // Then stash the returned future, waiting concurrently for the write ACKs from brokers.
-            set.spawn(ack_future);
+        // Phase 1: parallel prep across tokio workers. Each task returns its
+        // input index so we can reassemble results in the original event order
+        // before the serial enqueue phase. This is where the CPU win lives:
+        // serde_json::to_string + header build run concurrently on up to N
+        // worker threads, rather than sequentially on a single task.
+        let prep_start = std::time::Instant::now();
+        let mut prep_set: JoinSet<(usize, Result<ProduceRecord, CaptureError>)> = JoinSet::new();
+        for (idx, event) in events.into_iter().enumerate() {
+            let this = self.clone();
+            prep_set.spawn(
+                async move { (idx, this.prepare_record(event).await) }
+                    .instrument(info_span!("prepare_record")),
+            );
         }
 
-        // Await on all the produce promises, fail batch on first failure
+        let mut prepared: Vec<Option<ProduceRecord>> = (0..batch_size).map(|_| None).collect();
+        while let Some(join_result) = prep_set.join_next().await {
+            let (idx, result) = join_result.map_err(|err| {
+                error!("join error while preparing Kafka record: {err:#}");
+                CaptureError::RetryableSinkError
+            })?;
+            match result {
+                Ok(record) => prepared[idx] = Some(record),
+                Err(err) => {
+                    // Drain remaining prep tasks before returning so they can't
+                    // leak records into librdkafka after we've already failed.
+                    prep_set.abort_all();
+                    return Err(err);
+                }
+            }
+        }
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+
+        // Phase 2: serial enqueue in original event order. This is the ordering
+        // bottleneck we deliberately keep: librdkafka preserves per-partition
+        // on-wire order by send_result() call order, and same-distinct_id events
+        // hash to the same partition via murmur2. Within-batch same-key ordering
+        // must survive so e.g. $identify lands before subsequent events.
+        let enqueue_start = std::time::Instant::now();
+        let mut ack_set = JoinSet::new();
+        for slot in prepared {
+            let record = slot.expect("prep slot not filled");
+            let ack_future = self.enqueue_record(record)?;
+            ack_set.spawn(ack_future);
+        }
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        // Phase 3: concurrent ack drain, fail-fast on first ack error.
         async move {
-            while let Some(res) = set.join_next().await {
+            while let Some(res) = ack_set.join_next().await {
                 match res {
                     Ok(Ok(_)) => {}
                     Ok(Err(err)) => {
-                        set.abort_all();
+                        ack_set.abort_all();
                         return Err(err);
                     }
                     Err(err) => {
-                        set.abort_all();
+                        ack_set.abort_all();
                         error!("join error while waiting on Kafka ACK: {err:#}");
                         return Err(CaptureError::RetryableSinkError);
                     }
@@ -1781,6 +1861,124 @@ mod tests {
             assert_eq!(headers.dlq_reason, None);
             assert_eq!(headers.dlq_step, None);
             assert_eq!(headers.dlq_timestamp, None);
+        }
+
+        // ==================== send_batch ordering + error tests ====================
+        // These exercise the B2 three-phase send_batch: parallel prepare_record,
+        // serial enqueue_record, concurrent ack drain. The ordering test runs on
+        // a multi-thread runtime so phase 1 actually parallelizes across workers
+        // and we can detect if phase 2 is accidentally reordering records.
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn send_batch_preserves_order_same_key() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            // 20 events, all sharing the same distinct_id (so they hash to the
+            // same partition via murmur2), each with a unique UUID so we can
+            // track input->output order through the pipeline.
+            let events: Vec<ProcessedEvent> = (0..20)
+                .map(|_| {
+                    create_test_event(&EventInput {
+                        data_type: DataType::AnalyticsMain,
+                        force_overflow: false,
+                        skip_person_processing: false,
+                        redirect_to_dlq: false,
+                        redirect_to_topic: None,
+                    })
+                })
+                .collect();
+
+            let input_uuids: Vec<String> =
+                events.iter().map(|e| e.event.uuid.to_string()).collect();
+
+            sink.send_batch(events).await.expect("send_batch failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 20, "expected 20 records");
+
+            // Parse the UUID out of each record's serialized payload and compare
+            // against the input order. If phase 2 ever reorders enqueue calls,
+            // librdkafka's partition-order guarantee would be broken for same-key
+            // events and this assertion trips.
+            let output_uuids: Vec<String> = records
+                .iter()
+                .map(|r| {
+                    let v: serde_json::Value =
+                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                    v.get("uuid")
+                        .and_then(|u| u.as_str())
+                        .expect("uuid field present")
+                        .to_string()
+                })
+                .collect();
+
+            assert_eq!(
+                output_uuids, input_uuids,
+                "send_batch must preserve input order for same-key events"
+            );
+
+            // Sanity: all records share the same partition key.
+            let first_key = records[0].key.as_deref().expect("partition key set");
+            for r in &records {
+                assert_eq!(
+                    r.key.as_deref(),
+                    Some(first_key),
+                    "all events should share partition key"
+                );
+            }
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn send_batch_prep_error_aborts_batch() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            // Build a batch where event #3 is a SnapshotMain with session_id=None,
+            // which causes prepare_record to return MissingSessionId. The other
+            // events are valid AnalyticsMain. Since phase 2 only runs after all
+            // prep tasks complete, a prep error must short-circuit before any
+            // producer.send() call — so the mock producer should see zero records.
+            let mut events: Vec<ProcessedEvent> = (0..5)
+                .map(|_| {
+                    create_test_event(&EventInput {
+                        data_type: DataType::AnalyticsMain,
+                        force_overflow: false,
+                        skip_person_processing: false,
+                        redirect_to_dlq: false,
+                        redirect_to_topic: None,
+                    })
+                })
+                .collect();
+
+            // Overwrite element [2] with a SnapshotMain event whose session_id
+            // metadata is None — prepare_record returns MissingSessionId at the
+            // session_id lookup in the SnapshotMain branch.
+            let mut bad = create_test_event(&EventInput {
+                data_type: DataType::SnapshotMain,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+                redirect_to_topic: None,
+            });
+            bad.metadata.session_id = None;
+            events[2] = bad;
+
+            let res = sink.send_batch(events).await;
+            match res {
+                Err(CaptureError::MissingSessionId) => {}
+                Err(other) => panic!("expected MissingSessionId, got {other:?}"),
+                Ok(()) => panic!("expected send_batch to fail on prep error"),
+            }
+
+            let records = producer.get_records();
+            assert!(
+                records.is_empty(),
+                "no records should reach the producer when prep phase fails; got {} records",
+                records.len()
+            );
         }
     }
 }

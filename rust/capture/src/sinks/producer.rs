@@ -1,11 +1,11 @@
 use common_types::CapturedEventHeaders;
-use metrics::counter;
+use metrics::{counter, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::error;
 
 use crate::api::CaptureError;
@@ -32,9 +32,14 @@ pub trait KafkaProducer: Send + Sync {
     fn flush(&self) -> Result<(), KafkaError>;
 }
 
-/// Future that wraps rdkafka's DeliveryFuture and converts the result to CaptureError
+/// Future that wraps rdkafka's DeliveryFuture and converts the result to CaptureError.
+/// Also records the full app-side ack duration (from `send_result()` returning to
+/// broker ack / error / cancellation) as a histogram so we can see the true long
+/// tail that the per-broker rdkafka rtt gauge smears away.
 pub struct DeliveryAckFuture {
     inner: DeliveryFuture,
+    started: Instant,
+    topic: String,
 }
 
 impl Future for DeliveryAckFuture {
@@ -44,32 +49,42 @@ impl Future for DeliveryAckFuture {
         match Pin::new(&mut self.inner).poll(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
-                let mapped = match result {
+                let elapsed_ms = self.started.elapsed().as_secs_f64() * 1000.0;
+                let (outcome, mapped) = match result {
                     Err(_) => {
                         // Cancelled due to timeout while retrying
                         metrics::counter!("capture_kafka_produce_errors_total").increment(1);
                         error!("failed to produce to Kafka before write timeout");
-                        Err(CaptureError::RetryableSinkError)
+                        ("cancelled", Err(CaptureError::RetryableSinkError))
                     }
                     Ok(Err((
                         KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge),
                         _,
                     ))) => {
                         report_dropped_events("kafka_message_size", 1);
-                        Err(CaptureError::EventTooBig(
-                            "Event rejected by kafka broker during ack".to_string(),
-                        ))
+                        (
+                            "too_large",
+                            Err(CaptureError::EventTooBig(
+                                "Event rejected by kafka broker during ack".to_string(),
+                            )),
+                        )
                     }
                     Ok(Err((err, _))) => {
                         metrics::counter!("capture_kafka_produce_errors_total").increment(1);
                         error!("failed to produce to Kafka: {err:#}");
-                        Err(CaptureError::RetryableSinkError)
+                        ("broker_err", Err(CaptureError::RetryableSinkError))
                     }
                     Ok(Ok(_)) => {
                         metrics::counter!("capture_events_ingested_total").increment(1);
-                        Ok(())
+                        ("ok", Ok(()))
                     }
                 };
+                histogram!(
+                    "capture_kafka_produce_ack_duration_ms",
+                    "outcome" => outcome,
+                    "topic" => self.topic.clone()
+                )
+                .record(elapsed_ms);
                 Poll::Ready(mapped)
             }
         }
@@ -92,6 +107,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
 
     fn send(&self, record: ProduceRecord) -> Result<Self::AckFuture, CaptureError> {
         let headers: rdkafka::message::OwnedHeaders = record.headers.into();
+        let topic = record.topic.clone();
 
         match self.producer.send_result(FutureRecord {
             topic: &record.topic,
@@ -103,6 +119,8 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
         }) {
             Ok(delivery_future) => Ok(DeliveryAckFuture {
                 inner: delivery_future,
+                started: Instant::now(),
+                topic,
             }),
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
