@@ -137,14 +137,14 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
 
         // ── Interactive fills (reference other tokens) ─
         'fill-hover': [
-            'oklch(0.87 0 0 / 40%)',
-            'oklch(0.55 0 0 / 25%)',
+            'oklch(0.87 0 0 / 20%)',
+            'oklch(0.55 0 0 / 15%)',
             'bg-fill-hover',
         ],
         'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
         'fill-selected': [
-            'oklch(0.87 0 0 / 20%)',
-            'oklch(0.55 0 0 / 15%)',
+            'oklch(0.87 0 0 / 40%)',
+            'oklch(0.55 0 0 / 25%)',
             'bg-fill-selected',
         ],
     } as const
