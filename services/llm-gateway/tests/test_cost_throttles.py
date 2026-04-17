@@ -684,13 +684,16 @@ class TestTeamRateLimitMultipliers:
 class TestUnconfiguredProductsUseDefaults:
     """Products without user_cost_limits config use default limits ($100/24h burst, $1000/30d sustained)."""
 
+    # Use a product name that is genuinely not in DEFAULT_USER_COST_LIMITS
+    UNCONFIGURED_PRODUCT = "unknown_product"
+
     @pytest.mark.asyncio
     async def test_unconfigured_product_uses_burst_default(self) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product=self.UNCONFIGURED_PRODUCT)
 
         await throttle.record_cost(context, 99.0)
         result = await throttle.allow_request(context)
@@ -707,7 +710,7 @@ class TestUnconfiguredProductsUseDefaults:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product=self.UNCONFIGURED_PRODUCT)
 
         await throttle.record_cost(context, 999.0)
         result = await throttle.allow_request(context)
@@ -727,17 +730,17 @@ class TestUnconfiguredProductsUseDefaults:
         sustained = UserCostSustainedThrottle(redis=None)
 
         ctx_posthog_code = make_context(product="posthog_code")
-        ctx_wizard = make_context(product="wizard")
+        ctx_unconfigured = make_context(product=self.UNCONFIGURED_PRODUCT)
 
         await burst.record_cost(ctx_posthog_code, 100.0)
-        await burst.record_cost(ctx_wizard, 100.0)
+        await burst.record_cost(ctx_unconfigured, 100.0)
         await sustained.record_cost(ctx_posthog_code, 1000.0)
-        await sustained.record_cost(ctx_wizard, 1000.0)
+        await sustained.record_cost(ctx_unconfigured, 1000.0)
 
         assert (await burst.allow_request(ctx_posthog_code)).allowed is False
-        assert (await burst.allow_request(ctx_wizard)).allowed is False
+        assert (await burst.allow_request(ctx_unconfigured)).allowed is False
         assert (await sustained.allow_request(ctx_posthog_code)).allowed is False
-        assert (await sustained.allow_request(ctx_wizard)).allowed is False
+        assert (await sustained.allow_request(ctx_unconfigured)).allowed is False
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -748,12 +751,12 @@ class TestUnconfiguredProductsUseDefaults:
         _UserCostThrottleBase._warned_products = set()
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product=self.UNCONFIGURED_PRODUCT)
 
         await throttle.allow_request(context)
         captured = capsys.readouterr()
         assert "user_cost_limits_using_default" in captured.out
-        assert "wizard" in captured.out
+        assert self.UNCONFIGURED_PRODUCT in captured.out
 
         await throttle.allow_request(context)
         captured2 = capsys.readouterr()
@@ -773,7 +776,7 @@ class TestUnconfiguredProductsUseDefaults:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(auth_method="personal_api_key")
-        context = make_context(user=user, product="wizard", end_user_id=None)
+        context = make_context(user=user, product=self.UNCONFIGURED_PRODUCT, end_user_id=None)
 
         await throttle.allow_request(context)
         captured = capsys.readouterr()
@@ -788,7 +791,7 @@ class TestUnconfiguredProductsUseDefaults:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product=self.UNCONFIGURED_PRODUCT)
 
         await throttle.record_cost(context, 99.0)
         assert (await throttle.allow_request(context)).allowed is True
@@ -796,7 +799,7 @@ class TestUnconfiguredProductsUseDefaults:
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
             '{"posthog_code": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
-            '"wizard": {"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}',
+            '"unknown_product": {"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}',
         )
         get_settings.cache_clear()
 
@@ -855,7 +858,7 @@ class TestUserCostEdgeCases:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product="unknown_product")
 
         config = throttle._get_config(context)
         assert config.burst_limit_usd == 100.0
