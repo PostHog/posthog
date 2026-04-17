@@ -176,21 +176,29 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
 
     Returns the version that was active at the specified timestamp, or None if
     the flag didn't exist at that time.
+
+    A flag is considered non-existent if:
+    - The timestamp is before the flag's creation
+    - The flag was soft-deleted at or before the timestamp (without subsequent restoration)
+
+    This ensures historical evaluation treats soft-deleted flags consistently
+    with flags that never existed at the given time.
     """
     if not flag.version:
         return None
-
-    # If timestamp is after the flag's last update, use current version
-    if timestamp >= (flag.updated_at or flag.created_at):
-        return flag.version
 
     # If timestamp is before flag creation, flag didn't exist
     if timestamp < flag.created_at:
         return None
 
+    # We need to check the activity log to see if there were any deletions/restorations
+    # that happened between the flag's last update and the query timestamp
+    # We can't just return the current version when timestamp >= updated_at because
+    # there might be soft-delete operations recorded in the activity log after updated_at
+
     # Get activity log entries at or before the timestamp, streaming with .iterator()
-    # to avoid loading all entries into memory. We need to iterate through them
-    # to find the most recent entry that contains version information.
+    # to avoid loading all entries into memory. We need to check both deletion state
+    # and find the most recent entry that contains version information.
     entries = (
         ActivityLog.objects.filter(
             team_id=team_id,
@@ -200,17 +208,46 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
             created_at__lte=timestamp,  # Only entries at or before the timestamp
         )
         .order_by("-created_at", "-id")  # Most recent first
-        .values_list("detail", flat=True)[:MAX_HISTORY_ENTRIES]
+        .values_list("activity", "detail", flat=False)[:MAX_HISTORY_ENTRIES]
         .iterator()
     )
 
-    # Iterate through entries to find the most recent one with version information
-    for detail in entries:
+    # Track deletion state and find the most recent version information
+    # We need to determine the net state: was the flag deleted at this timestamp?
+    # Process entries in chronological order to track state changes
+    most_recent_version = None
+    flag_was_deleted = False
+
+    # Process entries in reverse order (oldest first) to track state transitions
+    entries_list = list(entries)
+    for activity, detail in reversed(entries_list):
+        # Extract version information from this entry first
         changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
 
+        # Only consider entries that have version information
+        # Bulk delete entries without version changes should be skipped
         if version_after is not None:
-            return version_after
+            most_recent_version = version_after
+
+            # Track the deletion/restoration state transitions only for versioned entries
+            if activity == "deleted":
+                flag_was_deleted = True
+            elif activity == "restored":
+                flag_was_deleted = False
+
+    # If flag was in a deleted state at the timestamp, treat as non-existent
+    if flag_was_deleted:
+        return None
+
+    # If we found version information and flag wasn't deleted, return the version
+    if most_recent_version is not None:
+        return most_recent_version
+
+    # If we found no version changes but timestamp is after the flag's last update,
+    # return the current version (unless flag was deleted)
+    if timestamp >= (flag.updated_at or flag.created_at):
+        return flag.version
 
     # If we found no version changes, the flag was at version 1 (creation)
     return 1

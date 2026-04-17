@@ -433,3 +433,99 @@ class TestTimestampBasedReconstruction(BaseTest):
         between_timestamp = flag.created_at + timedelta(minutes=30)
         version = find_version_at_timestamp(flag, between_timestamp, self.team.id)
         assert version == 2
+
+    def test_find_version_at_timestamp_soft_deleted_flag(self):
+        """Test that soft-deleted flags are treated as non-existent."""
+        flag = self._create_flag(name="V1", version=1)
+
+        # Simulate flag being soft-deleted
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=1, after=2)],
+                name=flag.key,
+            ),
+        )
+
+        # Query for current time should return None (flag was deleted)
+        from datetime import datetime
+
+        current_timestamp = datetime.now(UTC)
+        version = find_version_at_timestamp(flag, current_timestamp, self.team.id)
+        assert version is None
+
+    def test_find_version_at_timestamp_soft_deleted_then_restored(self):
+        """Test that restored flags return proper version information."""
+        flag = self._create_flag(name="V1", version=1)
+
+        # Simulate flag being soft-deleted
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=1, after=2)],
+                name=flag.key,
+            ),
+        )
+
+        # Simulate flag being restored
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="restored",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=2, after=3)],
+                name=flag.key,
+            ),
+        )
+
+        # Query after restoration should return the restored version
+        from datetime import datetime
+
+        future_timestamp = datetime.now(UTC)
+        version = find_version_at_timestamp(flag, future_timestamp, self.team.id)
+        assert version == 3
+
+    def test_reconstruct_flag_at_timestamp_soft_deleted_flag(self):
+        """Test that attempting to reconstruct a soft-deleted flag raises VersionNotFound."""
+        flag = self._create_flag(name="V1", version=1)
+
+        # Simulate flag being soft-deleted
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=1, after=2)],
+                name=flag.key,
+            ),
+        )
+
+        # Attempting to reconstruct after deletion should raise VersionNotFound
+        from datetime import datetime
+
+        future_timestamp = datetime.now(UTC)
+
+        with self.assertRaises(VersionNotFound) as cm:
+            reconstruct_flag_at_timestamp(flag, future_timestamp, self.team.id)
+
+        assert "did not exist" in str(cm.exception)
