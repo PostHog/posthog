@@ -48,9 +48,23 @@ class TestGetPromptOutline(TestCase):
                 [{"level": 1, "text": "Heading with [link](https://example.com)"}],
             ),
             (
-                "trims_trailing_hashes",
+                "strips_atx_close_preceded_by_whitespace",
                 "# Heading ###",
                 [{"level": 1, "text": "Heading"}],
+            ),
+            (
+                "preserves_literal_hash_suffix_in_text",
+                "## C#\n# F#\n# Heading#",
+                [
+                    {"level": 2, "text": "C#"},
+                    {"level": 1, "text": "F#"},
+                    {"level": 1, "text": "Heading#"},
+                ],
+            ),
+            (
+                "preserves_inline_hashes",
+                "# Heading has # inline",
+                [{"level": 1, "text": "Heading has # inline"}],
             ),
             (
                 "ignores_inline_hashes",
@@ -61,6 +75,11 @@ class TestGetPromptOutline(TestCase):
                 "ignores_deeper_than_h6",
                 "####### too deep\n# real",
                 [{"level": 1, "text": "real"}],
+            ),
+            (
+                "handles_adversarial_whitespace_runs_without_hanging",
+                "# x" + (" " * 5000) + "!",
+                [{"level": 1, "text": "x" + (" " * 5000) + "!"}],
             ),
             ("json_array_payload", [{"role": "user", "content": "hi"}], []),
             ("none_payload", None, []),

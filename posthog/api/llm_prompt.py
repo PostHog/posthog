@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 from django.conf import settings
@@ -184,7 +185,7 @@ class LLMPromptViewSet(
             prompt.pop("prompt", None)
         elif content_mode == "preview":
             original = prompt.pop("prompt", "")
-            display_value = original if isinstance(original, str) else ""
+            display_value = original if isinstance(original, str) else json.dumps(original, ensure_ascii=False)
             prompt["prompt_preview"] = display_value[:160] + ("..." if len(display_value) > 160 else "")
         return prompt
 

@@ -11,7 +11,11 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDModel
 
-_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+# Linear-time heading parser. `[ \t]+` / `(.*)` don't overlap with each other, so no catastrophic
+# backtracking. ATX closing hashes must be preceded by whitespace per CommonMark, which also
+# preserves literal trailing `#` in text like `C#` or `F#`.
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*)$")
+_ATX_CLOSE_RE = re.compile(r"[ \t]+#+[ \t]*$")
 
 
 def normalize_prompt_to_string(value: Any) -> str:
@@ -36,8 +40,11 @@ def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
     outline: list[dict[str, Any]] = []
     for line in text.split("\n"):
         match = _MARKDOWN_HEADING_RE.match(line.strip())
-        if match:
-            outline.append({"level": len(match.group(1)), "text": match.group(2).strip()})
+        if not match:
+            continue
+        heading = _ATX_CLOSE_RE.sub("", match.group(2)).rstrip()
+        if heading:
+            outline.append({"level": len(match.group(1)), "text": heading})
     return outline
 
 
