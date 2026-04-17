@@ -8,6 +8,7 @@ from rest_framework import status
 from posthog.models import Organization, Project, Team, User
 
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
+from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
@@ -72,6 +73,44 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.team, self.team)
         self.assertEqual(evaluation_config.created_by, self.user)
         self.assertEqual(evaluation_config.deleted, False)
+
+        # The viewset auto-creates a default EvaluationReport so reports are generated
+        # from the start, even before the user configures delivery targets.
+        reports = EvaluationReport.objects.filter(evaluation=evaluation_config)
+        self.assertEqual(reports.count(), 1)
+        report = reports.first()
+        assert report is not None
+        self.assertEqual(report.frequency, "every_n")
+        self.assertEqual(report.trigger_threshold, 100)
+        self.assertTrue(report.enabled)
+        self.assertFalse(report.deleted)
+        self.assertEqual(report.delivery_targets, [])
+
+    def test_evaluation_rollback_when_auto_report_fails(self):
+        """
+        perform_create wraps the Evaluation save and the EvaluationReport auto-create in
+        transaction.atomic(). If the report insert raises, the evaluation must not persist.
+        """
+        with patch(
+            "products.llm_analytics.backend.api.evaluations.EvaluationReport.objects.create",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Will Rollback",
+                    "enabled": True,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test prompt"},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "conditions": [],
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(Evaluation.objects.filter(name="Will Rollback").count(), 0)
+        self.assertEqual(EvaluationReport.objects.count(), 0)
 
     def test_can_retrieve_list_of_evaluation_configs(self):
         Evaluation.objects.create(
