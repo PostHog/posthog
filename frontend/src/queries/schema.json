@@ -10034,7 +10034,13 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "showXAxisBorder": {

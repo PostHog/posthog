@@ -132,7 +132,7 @@ class ExportedAsset(models.Model):
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
-            filename = slugify(self.export_context.get("filename"))
+            filename = slugify(str(self.export_context.get("filename")))
         elif self.dashboard and self.dashboard.name is not None:
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
