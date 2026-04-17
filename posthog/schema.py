@@ -29,14 +29,6 @@ class AIEventType(StrEnum):
     FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
-class MathGroupTypeIndex(float, Enum):
-    NUMBER_0 = 0
-    NUMBER_1 = 1
-    NUMBER_2 = 2
-    NUMBER_3 = 3
-    NUMBER_4 = 4
-
-
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"
@@ -5020,6 +5012,10 @@ class Integer(RootModel[int]):
     root: int
 
 
+class NonNegativeInteger(RootModel[conint(ge=0)]):
+    root: conint(ge=0)
+
+
 class ActionConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5289,8 +5285,8 @@ class AssistantFunnelsExclusionEventsNode(BaseModel):
         extra="forbid",
     )
     event: str
-    funnelFromStep: int
-    funnelToStep: int
+    funnelFromStep: conint(ge=0)
+    funnelToStep: conint(ge=0)
     kind: Literal["EventsNode"] = "EventsNode"
 
 
@@ -6139,7 +6135,7 @@ class BoxPlotDatum(BaseModel):
     min: float
     p25: float
     p75: float
-    series_index: int | None = None
+    series_index: conint(ge=0) | None = None
     series_label: str | None = None
 
 
@@ -6147,7 +6143,7 @@ class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    group_type_index: int | None = None
+    group_type_index: float | None = None
     histogram_bin_count: int | None = None
     normalize_url: bool | None = None
     property: str | int
@@ -6159,10 +6155,10 @@ class BreakdownFilter(BaseModel):
         extra="forbid",
     )
     breakdown: str | list[str | int] | int | None = None
-    breakdown_group_type_index: int | None = None
+    breakdown_group_type_index: float | None = None
     breakdown_hide_other_aggregation: bool | None = None
     breakdown_histogram_bin_count: int | None = None
-    breakdown_limit: int | None = None
+    breakdown_limit: conint(ge=0) | None = None
     breakdown_normalize_url: bool | None = None
     breakdown_path_cleaning: bool | None = None
     breakdown_type: BreakdownType | None = BreakdownType.EVENT
@@ -6792,8 +6788,8 @@ class FunnelExclusionSteps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelFromStep: int
-    funnelToStep: int
+    funnelFromStep: conint(ge=0)
+    funnelToStep: conint(ge=0)
 
 
 class FunnelsFilterLegacy(BaseModel):
@@ -6863,10 +6859,10 @@ class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    end: int | None = None
+    end: conint(ge=0) | None = None
     fix: str | None = None
     message: str
-    start: int | None = None
+    start: conint(ge=0) | None = None
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -7234,7 +7230,7 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edgeLimit: int | None = 50
+    edgeLimit: conint(ge=0) | None = 50
     endPoint: str | None = None
     excludeEvents: list[str] | None = None
     includeEventTypes: list[PathType] | None = None
@@ -7249,7 +7245,7 @@ class PathsFilter(BaseModel):
     pathsHogQLExpression: str | None = None
     showFullUrls: bool | None = None
     startPoint: str | None = None
-    stepLimit: int | None = 5
+    stepLimit: conint(ge=0) | None = 5
 
 
 class PersonPropertyFilter(BaseModel):
@@ -7676,7 +7672,7 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -7707,7 +7703,7 @@ class RevenueExampleEventsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -7842,7 +7838,7 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -7873,7 +7869,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -7965,7 +7961,7 @@ class SessionsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -8080,7 +8076,7 @@ class StickinessFilter(BaseModel):
     )
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
-    hiddenLegendIndexes: list[int] | None = None
+    hiddenLegendIndexes: list[conint(ge=0)] | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
         description=("Whether result datasets are associated by their values or by their order."),
@@ -8343,7 +8339,7 @@ class TraceQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -8372,7 +8368,7 @@ class TraceSpansQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -8403,7 +8399,7 @@ class TracesQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -8457,7 +8453,7 @@ class TrendsFilter(BaseModel):
     )
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
-    hiddenLegendIndexes: list[int] | None = None
+    hiddenLegendIndexes: list[conint(ge=0)] | None = None
     hideWeekends: bool | None = False
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
@@ -8480,7 +8476,7 @@ class TrendsFilter(BaseModel):
     showPercentStackView: bool | None = False
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
-    smoothingIntervals: int | None = 1
+    smoothingIntervals: conint(ge=0) | None = 1
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
@@ -8613,7 +8609,7 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -8645,7 +8641,7 @@ class WebGoalsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -8734,7 +8730,7 @@ class WebPageURLSearchQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8763,7 +8759,7 @@ class WebStatsTableQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -8857,7 +8853,7 @@ class ActorsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int
+    limit: conint(ge=0)
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
@@ -9205,7 +9201,7 @@ class AssistantLifecycleActionsNode(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
-    id: int
+    id: conint(ge=1)
     kind: Literal["ActionsNode"] = Field(
         default="ActionsNode",
         description=(
@@ -9541,7 +9537,7 @@ class AssistantStickinessActionsNode(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
-    id: int
+    id: conint(ge=1)
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: (
         BaseMathType
@@ -9554,7 +9550,7 @@ class AssistantStickinessActionsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = Field(
         default=None,
         description=(
@@ -9615,7 +9611,7 @@ class AssistantStickinessEventsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = Field(
         default=None,
         description=(
@@ -9771,7 +9767,7 @@ class AssistantTrendsActionsNode(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
-    id: int
+    id: conint(ge=1)
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: (
         BaseMathType
@@ -9784,7 +9780,7 @@ class AssistantTrendsActionsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = Field(
         default=None,
         description=(
@@ -9847,7 +9843,7 @@ class AssistantTrendsEventsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = Field(
         default=None,
         description=(
@@ -10056,7 +10052,7 @@ class CachedActorsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int
+    limit: conint(ge=0)
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
@@ -10136,7 +10132,7 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -10214,7 +10210,7 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -10329,7 +10325,7 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -10369,7 +10365,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -10410,7 +10406,7 @@ class CachedEventsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
@@ -10479,7 +10475,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -10559,7 +10555,7 @@ class CachedGroupsQueryResponse(BaseModel):
     is_cached: bool
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     last_refresh: AwareDatetime
-    limit: int
+    limit: conint(ge=0)
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -10638,7 +10634,7 @@ class CachedLogsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
@@ -10718,7 +10714,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -10761,7 +10757,7 @@ class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11146,7 +11142,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11188,7 +11184,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11230,7 +11226,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11272,7 +11268,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
@@ -11322,7 +11318,7 @@ class CachedSessionsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11460,7 +11456,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11536,7 +11532,7 @@ class CachedTraceQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11576,7 +11572,7 @@ class CachedTraceSpansQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
@@ -11618,7 +11614,7 @@ class CachedTracesQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11774,7 +11770,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11817,7 +11813,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -11939,7 +11935,7 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
@@ -11979,7 +11975,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -12138,7 +12134,7 @@ class ConversionGoalFilter1(BaseModel):
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
     kind: Literal["EventsNode"] = "EventsNode"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     math: (
         BaseMathType
         | FunnelMathType
@@ -12150,7 +12146,7 @@ class ConversionGoalFilter1(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -12224,7 +12220,7 @@ class ConversionGoalFilter2(BaseModel):
         default=None,
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
-    id: int
+    id: conint(ge=1)
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: (
         BaseMathType
@@ -12237,7 +12233,7 @@ class ConversionGoalFilter2(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -12326,7 +12322,7 @@ class ConversionGoalFilter3(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -12414,7 +12410,7 @@ class Response(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -12446,7 +12442,7 @@ class Response1(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int
+    limit: conint(ge=0)
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
@@ -12479,7 +12475,7 @@ class Response2(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    limit: int
+    limit: conint(ge=0)
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -12540,7 +12536,7 @@ class Response5(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12573,7 +12569,7 @@ class Response6(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12631,7 +12627,7 @@ class Response9(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12662,7 +12658,7 @@ class Response10(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12827,7 +12823,7 @@ class Response16(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12858,7 +12854,7 @@ class Response18(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12917,7 +12913,7 @@ class Response20(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12949,7 +12945,7 @@ class Response25(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -12979,7 +12975,7 @@ class Response26(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13046,7 +13042,7 @@ class DataWarehouseNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -13123,7 +13119,7 @@ class DocumentSimilarityQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13170,7 +13166,7 @@ class EndpointRunRequest(BaseModel):
         description=("Whether to include debug information (such as the executed HogQL) in the response."),
     )
     filters_override: DashboardFilter | None = None
-    limit: int | None = Field(
+    limit: conint(ge=0) | None = Field(
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
     )
@@ -13242,7 +13238,7 @@ class EndpointsUsageTableQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13331,7 +13327,7 @@ class EntityNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -13482,7 +13478,7 @@ class ErrorTrackingQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13525,7 +13521,7 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13554,7 +13550,7 @@ class EventTaxonomyQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13606,7 +13602,7 @@ class EventsNode(BaseModel):
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
     kind: Literal["EventsNode"] = "EventsNode"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     math: (
         BaseMathType
         | FunnelMathType
@@ -13618,7 +13614,7 @@ class EventsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -13709,7 +13705,7 @@ class EventsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -13797,7 +13793,7 @@ class ExperimentDataWarehouseNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -13918,7 +13914,7 @@ class FunnelCorrelationResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -13969,9 +13965,9 @@ class FunnelExclusionActionsNode(BaseModel):
         default=None,
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
-    funnelFromStep: int
-    funnelToStep: int
-    id: int
+    funnelFromStep: conint(ge=0)
+    funnelToStep: conint(ge=0)
+    id: conint(ge=1)
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: (
         BaseMathType
@@ -13984,7 +13980,7 @@ class FunnelExclusionActionsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -14055,10 +14051,10 @@ class FunnelExclusionEventsNode(BaseModel):
         default=None,
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
-    funnelFromStep: int
-    funnelToStep: int
+    funnelFromStep: conint(ge=0)
+    funnelToStep: conint(ge=0)
     kind: Literal["EventsNode"] = "EventsNode"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     math: (
         BaseMathType
         | FunnelMathType
@@ -14070,7 +14066,7 @@ class FunnelExclusionEventsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -14157,7 +14153,7 @@ class FunnelsDataWarehouseNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -14254,7 +14250,7 @@ class GroupsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    limit: int
+    limit: conint(ge=0)
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -14356,7 +14352,7 @@ class HogQLQueryResponse(BaseModel):
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -14512,7 +14508,7 @@ class LifecycleDataWarehouseNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -14643,7 +14639,7 @@ class LogsQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -14732,7 +14728,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -14816,7 +14812,7 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -14935,7 +14931,7 @@ class PersonsNode(BaseModel):
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
     kind: Literal["PersonsNode"] = "PersonsNode"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     properties: (
@@ -15048,7 +15044,7 @@ class QueryResponseAlternative1(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -15080,7 +15076,7 @@ class QueryResponseAlternative2(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15111,7 +15107,7 @@ class QueryResponseAlternative3(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int
+    limit: conint(ge=0)
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
@@ -15144,7 +15140,7 @@ class QueryResponseAlternative4(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    limit: int
+    limit: conint(ge=0)
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -15217,7 +15213,7 @@ class QueryResponseAlternative8(BaseModel):
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -15250,7 +15246,7 @@ class QueryResponseAlternative11(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15281,7 +15277,7 @@ class QueryResponseAlternative14(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15310,7 +15306,7 @@ class QueryResponseAlternative15(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15365,7 +15361,7 @@ class QueryResponseAlternative22(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15425,7 +15421,7 @@ class QueryResponseAlternative24(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15458,7 +15454,7 @@ class QueryResponseAlternative25(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15515,7 +15511,7 @@ class QueryResponseAlternative28(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15706,7 +15702,7 @@ class QueryResponseAlternative36(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15765,7 +15761,7 @@ class QueryResponseAlternative38(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15797,7 +15793,7 @@ class QueryResponseAlternative39(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -15829,7 +15825,7 @@ class QueryResponseAlternative40(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int
+    limit: conint(ge=0)
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
@@ -15862,7 +15858,7 @@ class QueryResponseAlternative41(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    limit: int
+    limit: conint(ge=0)
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -15895,7 +15891,7 @@ class QueryResponseAlternative42(BaseModel):
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -15958,7 +15954,7 @@ class QueryResponseAlternative44(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -15991,7 +15987,7 @@ class QueryResponseAlternative45(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16049,7 +16045,7 @@ class QueryResponseAlternative48(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16080,7 +16076,7 @@ class QueryResponseAlternative49(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16245,7 +16241,7 @@ class QueryResponseAlternative55(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16276,7 +16272,7 @@ class QueryResponseAlternative57(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16335,7 +16331,7 @@ class QueryResponseAlternative59(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16367,7 +16363,7 @@ class QueryResponseAlternative60(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16397,7 +16393,7 @@ class QueryResponseAlternative64(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16427,7 +16423,7 @@ class QueryResponseAlternative65(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16592,7 +16588,7 @@ class QueryResponseAlternative72(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16654,7 +16650,7 @@ class QueryResponseAlternative75(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -16737,7 +16733,7 @@ class QueryResponseAlternative78(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
@@ -16767,7 +16763,7 @@ class QueryResponseAlternative80(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16796,7 +16792,7 @@ class QueryResponseAlternative81(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16852,7 +16848,7 @@ class QueryResponseAlternative83(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -16960,7 +16956,7 @@ class QueryResponseAlternative89(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -17120,7 +17116,7 @@ class RetentionFilter(BaseModel):
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
     goalLines: list[GoalLine] | None = None
     meanRetentionCalculation: MeanRetentionCalculation | None = None
-    minimumOccurrences: int | None = None
+    minimumOccurrences: conint(ge=1) | None = None
     period: RetentionPeriod | None = RetentionPeriod.DAY
     retentionCustomBrackets: list[float] | None = Field(
         default=None, description="Custom brackets for retention calculations"
@@ -17131,7 +17127,7 @@ class RetentionFilter(BaseModel):
     )
     retentionType: RetentionType | None = None
     returningEntity: RetentionEntity | None = None
-    selectedInterval: int | None = Field(
+    selectedInterval: conint(ge=0) | None = Field(
         default=None,
         description=("The selected interval to display across all cohorts (null = show all intervals for each cohort)"),
     )
@@ -17141,7 +17137,7 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The time window mode to use for retention calculations",
     )
-    totalIntervals: int | None = 8
+    totalIntervals: conint(ge=1) | None = 8
 
 
 class RetentionFilterLegacy(BaseModel):
@@ -17339,7 +17335,7 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["RevenueExampleDataWarehouseTablesQuery"] = "RevenueExampleDataWarehouseTablesQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: RevenueExampleDataWarehouseTablesQueryResponse | None = None
@@ -17352,7 +17348,7 @@ class RevenueExampleEventsQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["RevenueExampleEventsQuery"] = "RevenueExampleEventsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: RevenueExampleEventsQueryResponse | None = None
@@ -17367,7 +17363,7 @@ class SessionAttributionExplorerQuery(BaseModel):
     filters: Filters | None = None
     groupBy: list[SessionAttributionGroupBy]
     kind: Literal["SessionAttributionExplorerQuery"] = "SessionAttributionExplorerQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: SessionAttributionExplorerQueryResponse | None = None
@@ -17429,7 +17425,7 @@ class TeamTaxonomyQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -17570,7 +17566,7 @@ class TracesQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     kind: Literal["TracesQuery"] = "TracesQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     personId: str | None = Field(default=None, description="Person who performed the event")
@@ -17619,7 +17615,7 @@ class UsageMetricsQuery(BaseModel):
         default=None,
         description="Group key. Required with group_type_index for group queries.",
     )
-    group_type_index: int | None = Field(
+    group_type_index: float | None = Field(
         default=None,
         description="Group type index. Required with group_key for group queries.",
     )
@@ -17686,7 +17682,7 @@ class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -17707,7 +17703,7 @@ class WebExternalClicksTableQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
@@ -17724,7 +17720,7 @@ class WebGoalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -17745,7 +17741,7 @@ class WebGoalsQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
@@ -17761,7 +17757,7 @@ class WebNotableChangesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -17782,7 +17778,7 @@ class WebNotableChangesQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["WebNotableChangesQuery"] = "WebNotableChangesQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
@@ -17798,7 +17794,7 @@ class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -17834,7 +17830,7 @@ class WebPageURLSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -17855,7 +17851,7 @@ class WebPageURLSearchQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
@@ -17873,7 +17869,7 @@ class WebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -17899,7 +17895,7 @@ class WebStatsTableQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
@@ -17927,7 +17923,7 @@ class WebTrendsQueryResponse(BaseModel):
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -18043,7 +18039,7 @@ class ActionsNode(BaseModel):
         default=None,
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
-    id: int
+    id: conint(ge=1)
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: (
         BaseMathType
@@ -18056,7 +18052,7 @@ class ActionsNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -18250,7 +18246,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -18293,7 +18289,7 @@ class CachedHogQLQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
@@ -18397,7 +18393,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
@@ -18504,7 +18500,7 @@ class Response3(BaseModel):
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -18537,7 +18533,7 @@ class Response21(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -18562,7 +18558,7 @@ class DocumentSimilarityQuery(BaseModel):
     distance_func: DistanceFunc
     document_types: list[str]
     kind: Literal["DocumentSimilarityQuery"] = "DocumentSimilarityQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     model: str
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -18600,7 +18596,7 @@ class EndpointsUsageTableQuery(BaseModel):
     dateRange: DateRange | None = None
     endpointNames: list[str] | None = Field(default=None, description="Filter to specific endpoints by name")
     kind: Literal["EndpointsUsageTableQuery"] = "EndpointsUsageTableQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     materializationType: MaterializationType | None = Field(default=None, description="Filter by materialization type")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -18700,7 +18696,7 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -18724,7 +18720,7 @@ class ErrorTrackingSimilarIssuesQuery(BaseModel):
     dateRange: DateRange | None = None
     issueId: str
     kind: Literal["ErrorTrackingSimilarIssuesQuery"] = "ErrorTrackingSimilarIssuesQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     maxDistance: float | None = None
     modelName: EmbeddingModelName | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -18739,10 +18735,10 @@ class EventTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    actionId: int | None = None
+    actionId: conint(ge=1) | None = None
     event: str | None = None
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     maxPropertyValues: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
@@ -18857,7 +18853,7 @@ class FunnelsFilter(BaseModel):
     )
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
-    breakdownAttributionValue: int | None = None
+    breakdownAttributionValue: conint(ge=0) | None = None
     breakdownSorting: str | None = Field(
         default=None,
         description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
@@ -18870,15 +18866,15 @@ class FunnelsFilter(BaseModel):
     )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
-    funnelFromStep: int | None = None
+    funnelFromStep: conint(ge=0) | None = None
     funnelOrderType: StepOrderValue | None = StepOrderValue.ORDERED
     funnelStepReference: FunnelStepReference | None = FunnelStepReference.TOTAL
-    funnelToStep: int | None = Field(
+    funnelToStep: conint(ge=0) | None = Field(
         default=None,
         description=("To select the range of steps for trends & time to convert funnels, 0-indexed"),
     )
     funnelVizType: FunnelVizType | None = FunnelVizType.STEPS
-    funnelWindowInterval: int | None = 14
+    funnelWindowInterval: conint(ge=1) | None = 14
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.DAY
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: list[str] | None = None
@@ -18899,9 +18895,9 @@ class GroupsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    group_type_index: int
+    group_type_index: float
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
@@ -18984,7 +18980,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -19032,7 +19028,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -19062,7 +19058,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
@@ -19126,7 +19122,7 @@ class MaxRecordingUniversalFilters(BaseModel):
     duration: list[RecordingDurationFilter]
     filter_group: MaxOuterUniversalFiltersGroup
     filter_test_accounts: bool | None = None
-    limit: int | None = Field(
+    limit: conint(ge=0) | None = Field(
         default=None,
         description=("How many recordings the user requested to use. Skip if user did not indicate preference."),
     )
@@ -19148,7 +19144,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -19173,7 +19169,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["NonIntegratedConversionsTableQuery"] = "NonIntegratedConversionsTableQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
@@ -19229,7 +19225,7 @@ class QueryResponseAlternative17(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -19291,7 +19287,7 @@ class RecordingsQuery(BaseModel):
         | None
     ) = None
     kind: Literal["RecordingsQuery"] = "RecordingsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     operand: FilterLogicalOperator | None = FilterLogicalOperator.AND_
@@ -19351,7 +19347,7 @@ class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
@@ -19456,7 +19452,7 @@ class TeamTaxonomyQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     response: TeamTaxonomyQueryResponse | None = None
@@ -19472,7 +19468,7 @@ class TraceSpansQuery(BaseModel):
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: LogsOrderBy | None = None
@@ -19506,7 +19502,7 @@ class WebTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -19527,7 +19523,7 @@ class WebTrendsQuery(BaseModel):
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
     )
     kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     metrics: list[WebTrendsMetric]
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -19545,7 +19541,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -19601,7 +19597,7 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
@@ -19625,7 +19621,7 @@ class CalendarHeatmapQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     calendarHeatmapFilter: CalendarHeatmapFilter | None = Field(
         default=None, description="Properties specific to the trends insight"
     )
@@ -19691,7 +19687,7 @@ class Response22(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
@@ -19831,7 +19827,7 @@ class ErrorTrackingQuery(BaseModel):
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
@@ -20024,7 +20020,7 @@ class GroupNode(BaseModel):
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
     kind: Literal["GroupNode"] = "GroupNode"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     math: (
         BaseMathType
         | FunnelMathType
@@ -20036,7 +20032,7 @@ class GroupNode(BaseModel):
         | Literal["hogql"]
         | None
     ) = None
-    math_group_type_index: MathGroupTypeIndex | None = None
+    math_group_type_index: float | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
@@ -20082,7 +20078,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -20127,7 +20123,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -20172,7 +20168,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -20217,7 +20213,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -20262,7 +20258,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -20307,7 +20303,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -20368,7 +20364,7 @@ class LifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     customAggregationTarget: bool | None = Field(
         default=None,
         description=(
@@ -20434,7 +20430,7 @@ class LogAttributesQuery(BaseModel):
     dateRange: DateRange | None = None
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["LogAttributesQuery"] = "LogAttributesQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: LogAttributesQueryResponse | None = None
@@ -20454,7 +20450,7 @@ class LogValuesQuery(BaseModel):
     dateRange: DateRange | None = None
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["LogValuesQuery"] = "LogValuesQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: LogValuesQueryResponse | None = None
@@ -20473,7 +20469,7 @@ class LogsQuery(BaseModel):
     dateRange: DateRange
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     liveLogsCheckpoint: str | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -20527,7 +20523,7 @@ class SessionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    actionId: int | None = Field(
+    actionId: conint(ge=1) | None = Field(
         default=None,
         description=("Filter sessions by action - sessions that contain events matching this action"),
     )
@@ -20603,7 +20599,7 @@ class SessionsQuery(BaseModel):
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
     kind: Literal["SessionsQuery"] = "SessionsQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
@@ -20661,7 +20657,7 @@ class TrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
     compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
@@ -20953,7 +20949,7 @@ class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
@@ -21492,7 +21488,7 @@ class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: float | None = Field(default=None, description="Groups aggregation")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -21709,7 +21705,7 @@ class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
+    aggregation_group_type_index: float | None = Field(
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
@@ -21857,7 +21853,7 @@ class SessionBatchEventsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionId: conint(ge=1) | None = Field(default=None, description="Show events matching a given action")
     actionSteps: list[EventsQueryActionStep] | None = Field(
         default=None,
         description=(
@@ -21908,7 +21904,7 @@ class SessionBatchEventsQuery(BaseModel):
         description="Whether to group results by session_id in the response",
     )
     kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
@@ -21964,7 +21960,7 @@ class ActorsQuery(BaseModel):
         ),
     )
     kind: Literal["ActorsQuery"] = "ActorsQuery"
-    limit: int | None = None
+    limit: conint(ge=0) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
@@ -21999,7 +21995,7 @@ class EventsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionId: conint(ge=1) | None = Field(default=None, description="Show events matching a given action")
     actionSteps: list[EventsQueryActionStep] | None = Field(
         default=None,
         description=(
@@ -22046,7 +22042,7 @@ class EventsQuery(BaseModel):
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
     kind: Literal["EventsQuery"] = "EventsQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
+    limit: conint(ge=0) | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
@@ -22269,7 +22265,7 @@ class HogQLAutocomplete(BaseModel):
         default=None,
         description=("Optional direct external data source id for running against a specific source"),
     )
-    endPosition: int = Field(..., description="End position of the editor word")
+    endPosition: conint(ge=0) = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
@@ -22335,7 +22331,7 @@ class HogQLAutocomplete(BaseModel):
         | EndpointsUsageTrendsQuery
         | None
     ) = Field(default=None, description="Query in whose context to validate.")
-    startPosition: int = Field(..., description="Start position of the editor word")
+    startPosition: conint(ge=0) = Field(..., description="Start position of the editor word")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

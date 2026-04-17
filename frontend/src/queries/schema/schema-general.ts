@@ -59,7 +59,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { integer, numerical_key, positive_integer } from './type-utils'
+import { integer, non_negative_integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 
@@ -464,7 +464,7 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -585,7 +585,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "DESC"
      */
     order_direction?: RecordingOrderDirection
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
     after?: string
@@ -593,8 +593,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
 }
 
 export interface HogQLNotice {
-    start?: integer
-    end?: integer
+    start?: non_negative_integer
+    end?: non_negative_integer
     message: string
     fix?: string
 }
@@ -731,11 +731,11 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     /**
      * Start position of the editor word
      */
-    startPosition: integer
+    startPosition: non_negative_integer
     /**
      * End position of the editor word
      */
-    endPosition: integer
+    endPosition: non_negative_integer
 }
 
 export type MathType =
@@ -757,7 +757,7 @@ export interface EntityNode extends Node {
     math_property_type?: string
     math_property_revenue_currency?: RevenueCurrencyPropertyConfig
     math_hogql?: string
-    math_group_type_index?: 0 | 1 | 2 | 3 | 4
+    math_group_type_index?: number
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
@@ -769,7 +769,7 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
-    limit?: integer
+    limit?: non_negative_integer
     /** Columns to order by */
     orderBy?: string[]
 }
@@ -805,7 +805,7 @@ export interface LifecycleDataWarehouseNode extends EntityNode {
 
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
-    id: integer
+    id: positive_integer
 }
 
 export type AnyEntityNode<WarehouseNode = DataWarehouseNode> = EventsNode | ActionsNode | WarehouseNode
@@ -818,7 +818,7 @@ export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode
     operator: FilterLogicalOperator
     /** Entities to combine in this group */
     nodes: AnyEntityNode<WarehouseNode>[]
-    limit?: integer
+    limit?: non_negative_integer
     /** Columns to order by */
     orderBy?: string[]
 }
@@ -835,7 +835,7 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
     types: string[]
     hogql: string
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     /** Cursor for fetching the next page of results */
     nextCursor?: string
@@ -888,7 +888,7 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     /**
      * Number of rows to return
      */
-    limit?: integer
+    limit?: non_negative_integer
     /**
      * Number of rows to skip before returning rows
      */
@@ -896,7 +896,7 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     /**
      * Show events matching a given action
      */
-    actionId?: integer
+    actionId?: positive_integer
     /** Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set. */
     actionSteps?: EventsQueryActionStep[]
     /** Show events for a given person */
@@ -915,7 +915,7 @@ export interface SessionsQueryResponse extends AnalyticsQueryResponseBase {
     types: string[]
     hogql: string
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -936,7 +936,7 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
     /**
      * Number of rows to return
      */
-    limit?: integer
+    limit?: non_negative_integer
     /**
      * Number of rows to skip before returning rows
      */
@@ -954,7 +954,7 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
     /**
      * Filter sessions by action - sessions that contain events matching this action
      */
-    actionId?: integer
+    actionId?: positive_integer
     /** Event property filters - filters sessions that contain events matching these properties */
     eventProperties?: AnyPropertyFilter[]
 }
@@ -971,7 +971,7 @@ export interface PersonsNode extends DataNode {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -1319,7 +1319,7 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends
     /**
      * Groups aggregation
      */
-    aggregation_group_type_index?: integer | null
+    aggregation_group_type_index?: number | null
     /** Sampling rate */
     samplingFactor?: number | null
     /** Colors used in the insight's visualization */
@@ -1346,7 +1346,7 @@ export type TrendsFormulaNode = {
 
 export type TrendsFilter = {
     /** @default 1 */
-    smoothingIntervals?: integer
+    smoothingIntervals?: non_negative_integer
     /** @deprecated Use formulaNodes instead. */
     formula?: TrendsFilterLegacy['formula']
     /** @deprecated Use formulaNodes instead. */
@@ -1374,7 +1374,7 @@ export type TrendsFilter = {
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
-    hiddenLegendIndexes?: integer[]
+    hiddenLegendIndexes?: non_negative_integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
      * @default value
@@ -1432,7 +1432,7 @@ export interface BoxPlotDatum {
     p75: number
     max: number
     mean: number
-    series_index?: integer
+    series_index?: non_negative_integer
     series_label?: string
 }
 
@@ -1537,8 +1537,8 @@ export type FunnelsFilterLegacy = Omit<
 >
 
 export interface FunnelExclusionSteps {
-    funnelFromStep: integer
-    funnelToStep: integer
+    funnelFromStep: non_negative_integer
+    funnelToStep: non_negative_integer
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
 export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
@@ -1553,19 +1553,19 @@ export type FunnelsFilter = {
     binCount?: FunnelsFilterLegacy['bin_count']
     /** @default first_touch */
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
-    breakdownAttributionValue?: integer
+    breakdownAttributionValue?: non_negative_integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
     /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
     /** To select the range of steps for trends & time to convert funnels, 0-indexed */
-    funnelToStep?: integer
-    funnelFromStep?: integer
+    funnelToStep?: non_negative_integer
+    funnelFromStep?: non_negative_integer
     /** @default ordered */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     /** @default steps */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
     /** @default 14 */
-    funnelWindowInterval?: integer
+    funnelWindowInterval?: positive_integer
     /** @default day */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hiddenLegendBreakdowns?: string[]
@@ -1620,8 +1620,8 @@ export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /** @default 8 */
-    totalIntervals?: integer
-    minimumOccurrences?: integer
+    totalIntervals?: positive_integer
+    minimumOccurrences?: positive_integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
@@ -1647,7 +1647,7 @@ export type RetentionFilter = {
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
-    selectedInterval?: integer | null
+    selectedInterval?: non_negative_integer | null
     goalLines?: GoalLine[]
 }
 
@@ -1701,7 +1701,7 @@ export type PathsFilterLegacy = Omit<
 
 export type PathsFilter = {
     /** @default 50 */
-    edgeLimit?: integer
+    edgeLimit?: non_negative_integer
     pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
     includeEventTypes?: PathsFilterLegacy['include_event_types']
     startPoint?: PathsFilterLegacy['start_point']
@@ -1709,7 +1709,7 @@ export type PathsFilter = {
     pathGroupings?: PathsFilterLegacy['path_groupings']
     excludeEvents?: PathsFilterLegacy['exclude_events']
     /** @default 5 */
-    stepLimit?: integer
+    stepLimit?: non_negative_integer
     pathReplacements?: PathsFilterLegacy['path_replacements']
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
@@ -1762,7 +1762,7 @@ export type StickinessFilter = {
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
-    hiddenLegendIndexes?: integer[]
+    hiddenLegendIndexes?: non_negative_integer[]
     stickinessCriteria?: StickinessCriteria
     computedAs?: StickinessComputationMode
     /**
@@ -1908,7 +1908,7 @@ export interface EndpointRunRequest {
      */
     debug?: boolean
     /** Maximum number of results to return. If not provided, returns all results. */
-    limit?: integer
+    limit?: non_negative_integer
     /** Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints. */
     offset?: integer
 }
@@ -2110,7 +2110,7 @@ export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
     types?: string[]
     hogql: string
     hasMore?: boolean
-    limit: integer
+    limit: non_negative_integer
     offset: integer
     missing_actors_count?: integer
 }
@@ -2133,7 +2133,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -2146,7 +2146,7 @@ export interface GroupsQueryResponse extends AnalyticsQueryResponseBase {
     types: string[]
     hogql: string
     hasMore?: boolean
-    limit: integer
+    limit: non_negative_integer
     offset: integer
 }
 
@@ -2155,9 +2155,9 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     select?: HogQLExpression[]
     search?: string
     properties?: AnyGroupScopeFilter[]
-    group_type_index: integer
+    group_type_index: number
     orderBy?: string[]
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -2236,7 +2236,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalType
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-    aggregation_group_type_index?: integer | null
+    aggregation_group_type_index?: number | null
     /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
     dataColorTheme?: number | null
     orderBy?: WebAnalyticsOrderBy
@@ -2310,7 +2310,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeBounceRate?: boolean
     includeAvgTimeOnPage?: boolean
     includeHost?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
@@ -2320,7 +2320,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     usedPreAggregatedTables?: boolean
 }
@@ -2328,7 +2328,7 @@ export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTable
 
 export interface WebExternalClicksTableQuery extends WebAnalyticsQueryBase<WebExternalClicksTableQueryResponse> {
     kind: NodeKind.WebExternalClicksTableQuery
-    limit?: integer
+    limit?: non_negative_integer
     stripQueryParams?: boolean
 }
 export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase {
@@ -2338,14 +2338,14 @@ export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryRespo
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebExternalClicksTableQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
-    limit?: integer
+    limit?: non_negative_integer
 }
 
 export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2355,7 +2355,7 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
@@ -2422,14 +2422,14 @@ export interface SessionAttributionExplorerQuery extends DataNode<SessionAttribu
         properties?: SessionPropertyFilter[]
         dateRange?: DateRange
     }
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
 export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     types?: unknown[]
     columns?: unknown[]
@@ -2525,14 +2525,14 @@ export type CachedRevenueAnalyticsTopCustomersQueryResponse =
 
 export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
     kind: NodeKind.RevenueExampleEventsQuery
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
 export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     types?: unknown[]
     columns?: unknown[]
@@ -2541,14 +2541,14 @@ export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<Revenu
 
 export interface RevenueExampleDataWarehouseTablesQuery extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
 export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     types?: unknown[]
     columns?: unknown[]
@@ -2583,7 +2583,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     withAggregations?: boolean
     withFirstEvent?: boolean
     withLastEvent?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     personId?: string
     groupKey?: string
@@ -2601,7 +2601,7 @@ export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingS
     rendering?: string
     maxDistance?: number
     dateRange?: DateRange
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -2622,7 +2622,7 @@ export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTracki
 export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQueryResponseBase {
     results: ErrorTrackingCorrelatedIssue[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     columns?: string[]
 }
@@ -2735,7 +2735,7 @@ export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
     results: ErrorTrackingIssue[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     columns?: string[]
 }
@@ -2759,7 +2759,7 @@ export type BreakdownValue = {
 export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {
     results: SimilarIssue[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
@@ -2779,7 +2779,7 @@ export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQuer
     dateRange: DateRange
     order_direction: 'asc' | 'desc'
     order_by: 'distance' | 'timestamp'
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 
     // Embedding-specifics
@@ -2821,7 +2821,7 @@ export interface EmbeddingDistance {
 export interface DocumentSimilarityQueryResponse extends AnalyticsQueryResponseBase {
     results: EmbeddingDistance[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -2859,7 +2859,7 @@ export type LogsOrderBy = 'latest' | 'earliest'
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     orderBy?: LogsOrderBy
     searchTerm?: string
@@ -2877,7 +2877,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown // TODO: Type this to LogMessage[] and fix the issues it creates on the backend
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     columns?: string[]
     /** Cursor for fetching the next page of results */
@@ -2887,7 +2887,7 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
 export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse> {
     kind: NodeKind.LogAttributesQuery
     dateRange?: DateRange
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     search?: string
     severityLevels?: LogSeverityLevel[]
@@ -2913,7 +2913,7 @@ export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
 export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
     kind: NodeKind.LogValuesQuery
     dateRange?: DateRange
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     search?: string
     severityLevels?: LogSeverityLevel[]
@@ -2968,7 +2968,7 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     kind: NodeKind.TraceSpansQuery
     dateRange: DateRange
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     orderBy?: LogsOrderBy
     filterGroup?: PropertyGroupFilter
@@ -2985,7 +2985,7 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     /** Cursor for fetching the next page of results */
     nextCursor?: string
@@ -3775,7 +3775,7 @@ export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase {
     columns?: any[]
     types?: any[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 export type CachedFunnelCorrelationResponse = FunnelCorrelationResponse & CachedRetentionQueryResponse
@@ -4049,7 +4049,7 @@ export interface Breakdown {
     type?: MultipleBreakdownType | null
     property: string | integer
     normalize_url?: boolean
-    group_type_index?: integer | null
+    group_type_index?: number | null
     histogram_bin_count?: integer // trends breakdown histogram bin
 }
 
@@ -4057,7 +4057,7 @@ export interface BreakdownFilter {
     // TODO: unclutter
     /** @default event */
     breakdown_type?: BreakdownType | null
-    breakdown_limit?: integer
+    breakdown_limit?: non_negative_integer
     breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
     breakdown_path_cleaning?: boolean
@@ -4066,7 +4066,7 @@ export interface BreakdownFilter {
      * @maxItems 3
      */
     breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
-    breakdown_group_type_index?: integer | null
+    breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
@@ -4367,7 +4367,7 @@ export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
     /** Number of rows to return */
-    limit?: integer
+    limit?: non_negative_integer
     /** Number of rows to skip before returning rows */
     offset?: integer
 }
@@ -4375,7 +4375,7 @@ export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
 export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: TeamTaxonomyResponse
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -4392,11 +4392,11 @@ export type EventTaxonomyResponse = EventTaxonomyItem[]
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
     kind: NodeKind.EventTaxonomyQuery
     event?: string
-    actionId?: integer
+    actionId?: positive_integer
     properties?: string[]
     maxPropertyValues?: integer
     /** Number of rows to return */
-    limit?: integer
+    limit?: non_negative_integer
     /** Number of rows to skip before returning rows */
     offset?: integer
 }
@@ -4404,7 +4404,7 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
 export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: EventTaxonomyResponse
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -4561,7 +4561,7 @@ export interface LLMTrace {
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
     results: LLMTrace[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     columns?: string[]
 }
@@ -4569,7 +4569,7 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
     dateRange?: DateRange
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     filterTestAccounts?: boolean
     filterSupportTraces?: boolean
@@ -4587,7 +4587,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
     results: LLMTrace[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     columns?: string[]
 }
@@ -4891,13 +4891,13 @@ export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLS
     kind: NodeKind.WebPageURLSearchQuery
     searchTerm?: string
     stripQueryParams?: boolean
-    limit?: integer
+    limit?: non_negative_integer
 }
 
 export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase {
     results: PageURL[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
@@ -4915,7 +4915,7 @@ export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResp
     kind: NodeKind.WebTrendsQuery
     interval: IntervalType
     metrics: WebTrendsMetric[]
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -4939,7 +4939,7 @@ export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
@@ -4949,7 +4949,7 @@ export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryRes
 
 export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
     kind: NodeKind.WebNotableChangesQuery
-    limit?: integer
+    limit?: non_negative_integer
 }
 
 export interface WebNotableChangeItem {
@@ -4982,7 +4982,7 @@ export interface MarketingAnalyticsTableQuery extends Omit<
     /** Columns to order by - similar to EventsQuery format */
     orderBy?: MarketingAnalyticsOrderBy[]
     /** Number of rows to return */
-    limit?: integer
+    limit?: non_negative_integer
     /** Number of rows to skip before returning rows */
     offset?: integer
     /** Filter test accounts */
@@ -5008,7 +5008,7 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -5054,7 +5054,7 @@ export interface NonIntegratedConversionsTableQuery extends Omit<
     /** Columns to order by */
     orderBy?: MarketingAnalyticsOrderBy[]
     /** Number of rows to return */
-    limit?: integer
+    limit?: non_negative_integer
     /** Number of rows to skip before returning rows */
     offset?: integer
     /** Filter test accounts */
@@ -5072,7 +5072,7 @@ export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQue
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -5861,7 +5861,7 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     /** Person ID to fetch metrics for. Mutually exclusive with group parameters. */
     person_id?: string
     /** Group type index. Required with group_key for group queries. */
-    group_type_index?: integer
+    group_type_index?: number
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
 }
@@ -5929,7 +5929,7 @@ export interface EndpointsUsageTableQueryResponse extends AnalyticsQueryResponse
     columns?: unknown[]
     types?: unknown[]
     hasMore?: boolean
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 
@@ -5939,7 +5939,7 @@ export interface EndpointsUsageTableQuery extends EndpointsUsageQueryBase<Endpoi
     kind: NodeKind.EndpointsUsageTableQuery
     breakdownBy: EndpointsUsageBreakdown
     orderBy?: EndpointsUsageOrderBy
-    limit?: integer
+    limit?: non_negative_integer
     offset?: integer
 }
 

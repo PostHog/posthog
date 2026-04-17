@@ -41,7 +41,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -51,7 +51,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -221,7 +220,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -314,7 +313,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "missing_actors_count": {
                     "$ref": "#/definitions/integer"
@@ -1634,10 +1633,10 @@
                     "type": "string"
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "kind": {
                     "const": "EventsNode",
@@ -2173,7 +2172,7 @@
                     "type": "string"
                 },
                 "id": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -3056,7 +3055,7 @@
                     "type": "string"
                 },
                 "id": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -3066,7 +3065,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -3120,7 +3118,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -3494,7 +3491,7 @@
                     "type": "string"
                 },
                 "id": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -3504,7 +3501,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -3643,7 +3639,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -4008,7 +4003,7 @@
                     "type": "number"
                 },
                 "series_index": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "series_label": {
                     "type": "string"
@@ -4021,14 +4016,7 @@
             "additionalProperties": false,
             "properties": {
                 "group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "type": ["number", "null"]
                 },
                 "histogram_bin_count": {
                     "$ref": "#/definitions/integer"
@@ -4094,14 +4082,7 @@
                     ]
                 },
                 "breakdown_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "type": ["number", "null"]
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
@@ -4110,7 +4091,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "breakdown_limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -4377,7 +4358,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "missing_actors_count": {
                     "$ref": "#/definitions/integer"
@@ -4551,7 +4532,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -4714,7 +4695,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -4969,7 +4950,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5059,7 +5040,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5143,7 +5124,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5227,7 +5208,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5312,7 +5293,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5826,7 +5807,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5989,7 +5970,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -6102,7 +6083,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -6532,7 +6513,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -6697,7 +6678,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -6877,7 +6858,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -7670,7 +7651,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -7757,7 +7738,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -7844,7 +7825,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -7931,7 +7912,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -8047,7 +8028,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -8346,7 +8327,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -8495,7 +8476,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -8579,7 +8560,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -8668,7 +8649,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -8989,7 +8970,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -9082,7 +9063,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -9339,7 +9320,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -9424,7 +9405,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -9532,7 +9513,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -9771,15 +9752,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "calendarHeatmapFilter": {
                     "$ref": "#/definitions/CalendarHeatmapFilter",
@@ -10287,13 +10261,12 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "math": {
                             "$ref": "#/definitions/MathType"
                         },
                         "math_group_type_index": {
-                            "enum": [0, 1, 2, 3, 4],
                             "type": "number"
                         },
                         "math_hogql": {
@@ -10365,7 +10338,7 @@
                             "type": "array"
                         },
                         "id": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/positive_integer"
                         },
                         "kind": {
                             "const": "ActionsNode",
@@ -10375,7 +10348,6 @@
                             "$ref": "#/definitions/MathType"
                         },
                         "math_group_type_index": {
-                            "enum": [0, 1, 2, 3, 4],
                             "type": "number"
                         },
                         "math_hogql": {
@@ -10459,7 +10431,6 @@
                             "$ref": "#/definitions/MathType"
                         },
                         "math_group_type_index": {
-                            "enum": [0, 1, 2, 3, 4],
                             "type": "number"
                         },
                         "math_hogql": {
@@ -11046,7 +11017,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11110,7 +11081,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "missing_actors_count": {
                                     "$ref": "#/definitions/integer"
@@ -11177,7 +11148,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11249,7 +11220,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "metadata": {
                                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -11365,7 +11336,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11426,7 +11397,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11484,7 +11455,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11584,7 +11555,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11636,7 +11607,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11908,7 +11879,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -11960,7 +11931,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12012,7 +11983,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12118,7 +12089,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12183,7 +12154,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12238,7 +12209,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12427,7 +12398,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12480,7 +12451,7 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/non_negative_integer"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -12825,7 +12796,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -13606,7 +13576,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "model": {
                     "type": "string"
@@ -13684,7 +13654,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -13999,7 +13969,7 @@
                     "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
                 },
                 "offset": {
@@ -14183,7 +14153,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "materializationType": {
                     "description": "Filter by materialization type",
@@ -14233,7 +14203,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -14441,7 +14411,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -14943,7 +14912,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -15104,7 +15073,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -15188,7 +15157,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -15327,7 +15296,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "maxDistance": {
                     "type": "number"
@@ -15374,7 +15343,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -15520,7 +15489,7 @@
             "additionalProperties": false,
             "properties": {
                 "actionId": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "event": {
                     "type": "string"
@@ -15530,7 +15499,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "maxPropertyValues": {
@@ -15579,7 +15548,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -15767,13 +15736,12 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "math": {
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -15826,7 +15794,7 @@
             "additionalProperties": false,
             "properties": {
                 "actionId": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "Show events matching a given action"
                 },
                 "actionSteps": {
@@ -15878,7 +15846,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "modifiers": {
@@ -16029,7 +15997,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -16333,7 +16301,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -18570,7 +18537,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -18649,13 +18616,13 @@
                     "type": "array"
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "id": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -18665,7 +18632,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -18725,23 +18691,22 @@
                     "type": "array"
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "kind": {
                     "const": "EventsNode",
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "math": {
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -18828,10 +18793,10 @@
             "additionalProperties": false,
             "properties": {
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 }
             },
             "required": ["funnelFromStep", "funnelToStep"],
@@ -18994,7 +18959,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -19053,7 +19017,7 @@
                     "default": "first_touch"
                 },
                 "breakdownAttributionValue": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
@@ -19074,7 +19038,7 @@
                     "type": ["string", "null"]
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue",
@@ -19085,7 +19049,7 @@
                     "default": "total"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "To select the range of steps for trends & time to convert funnels, 0-indexed"
                 },
                 "funnelVizType": {
@@ -19093,7 +19057,7 @@
                     "default": "steps"
                 },
                 "funnelWindowInterval": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "default": 14
                 },
                 "funnelWindowIntervalUnit": {
@@ -19204,15 +19168,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -19497,13 +19454,12 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "math": {
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -19606,14 +19562,14 @@
             "additionalProperties": false,
             "properties": {
                 "group_type_index": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "kind": {
                     "const": "GroupsQuery",
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -19680,7 +19636,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -19883,7 +19839,7 @@
                     "type": "string"
                 },
                 "endPosition": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "End position of the editor word"
                 },
                 "filters": {
@@ -19918,7 +19874,7 @@
                     "description": "Query in whose context to validate."
                 },
                 "startPosition": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Start position of the editor word"
                 },
                 "tags": {
@@ -20092,7 +20048,7 @@
             "additionalProperties": false,
             "properties": {
                 "end": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "fix": {
                     "type": "string"
@@ -20101,7 +20057,7 @@
                     "type": "string"
                 },
                 "start": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 }
             },
             "required": ["message"],
@@ -20328,7 +20284,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -20919,15 +20875,8 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -20988,15 +20937,8 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -21057,15 +20999,8 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -21126,15 +21061,8 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -21195,15 +21123,8 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -21264,15 +21185,8 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -21701,7 +21615,6 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -21795,15 +21708,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "customAggregationTarget": {
                     "description": "For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.",
@@ -22102,7 +22008,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -22336,7 +22242,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -22437,7 +22343,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "liveLogsCheckpoint": {
                     "type": "string"
@@ -22509,7 +22415,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -22588,15 +22494,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -22907,15 +22806,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -22977,7 +22869,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "modifiers": {
@@ -23050,7 +22942,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -24815,7 +24707,7 @@
                     "type": "boolean"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "How many recordings the user requested to use. Skip if user did not indicate preference."
                 },
                 "order": {
@@ -25354,15 +25246,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -25416,7 +25301,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "modifiers": {
@@ -25489,7 +25374,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -25694,7 +25579,7 @@
             "additionalProperties": false,
             "properties": {
                 "edgeLimit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "default": 50
                 },
                 "endPoint": {
@@ -25762,7 +25647,7 @@
                     "type": "string"
                 },
                 "stepLimit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "default": 5
                 }
             },
@@ -25862,15 +25747,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -26081,7 +25959,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -26784,7 +26662,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -26848,7 +26726,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -26908,7 +26786,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "missing_actors_count": {
                             "$ref": "#/definitions/integer"
@@ -26975,7 +26853,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27218,7 +27096,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "metadata": {
                             "$ref": "#/definitions/HogQLMetadataResponse",
@@ -27352,7 +27230,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27404,7 +27282,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27456,7 +27334,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27510,7 +27388,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27559,7 +27437,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27667,7 +27545,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -27979,7 +27857,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28084,7 +27962,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28145,7 +28023,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28203,7 +28081,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28299,7 +28177,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28623,7 +28501,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28729,7 +28607,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28799,7 +28677,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -28863,7 +28741,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "missing_actors_count": {
                             "$ref": "#/definitions/integer"
@@ -28930,7 +28808,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29002,7 +28880,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "metadata": {
                             "$ref": "#/definitions/HogQLMetadataResponse",
@@ -29118,7 +28996,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29179,7 +29057,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29237,7 +29115,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29337,7 +29215,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29389,7 +29267,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29661,7 +29539,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29713,7 +29591,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29765,7 +29643,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29871,7 +29749,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29936,7 +29814,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -29991,7 +29869,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30180,7 +30058,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30233,7 +30111,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30534,7 +30412,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30656,7 +30534,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30787,7 +30665,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30848,7 +30726,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30894,7 +30772,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -30993,7 +30871,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -31048,7 +30926,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -31247,7 +31125,7 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -31893,7 +31771,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -32230,7 +32108,7 @@
                     "type": "string"
                 },
                 "minimumOccurrences": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
@@ -32257,7 +32135,7 @@
                 "selectedInterval": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/non_negative_integer"
                         },
                         {
                             "type": "null"
@@ -32277,7 +32155,7 @@
                     "type": "string"
                 },
                 "totalIntervals": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "default": 8
                 }
             },
@@ -32328,15 +32206,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -33250,7 +33121,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33292,7 +33163,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33333,7 +33204,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33375,7 +33246,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33700,7 +33571,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33742,7 +33613,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33783,7 +33654,7 @@
             "additionalProperties": false,
             "properties": {
                 "actionId": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "Show events matching a given action"
                 },
                 "actionSteps": {
@@ -33839,7 +33710,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "modifiers": {
@@ -33926,7 +33797,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -34335,7 +34206,7 @@
             "additionalProperties": false,
             "properties": {
                 "actionId": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "Filter sessions by action - sessions that contain events matching this action"
                 },
                 "after": {
@@ -34373,7 +34244,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "modifiers": {
@@ -34449,7 +34320,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -35218,7 +35089,7 @@
                 },
                 "hiddenLegendIndexes": {
                     "items": {
-                        "$ref": "#/definitions/integer"
+                        "$ref": "#/definitions/non_negative_integer"
                     },
                     "type": "array"
                 },
@@ -36028,7 +35899,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "description": "Number of rows to return"
                 },
                 "modifiers": {
@@ -36068,7 +35939,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -36449,7 +36320,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -36501,7 +36372,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -36564,7 +36435,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -36620,7 +36491,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -36682,7 +36553,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -36797,7 +36668,7 @@
                 },
                 "hiddenLegendIndexes": {
                     "items": {
-                        "$ref": "#/definitions/integer"
+                        "$ref": "#/definitions/non_negative_integer"
                     },
                     "type": "array"
                 },
@@ -36869,7 +36740,7 @@
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/non_negative_integer",
                     "default": 1
                 },
                 "yAxisScaleType": {
@@ -36972,15 +36843,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
+                    "description": "Groups aggregation",
+                    "type": ["number", "null"]
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -37186,8 +37050,8 @@
                     "type": "string"
                 },
                 "group_type_index": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Group type index. Required with group_key for group queries."
+                    "description": "Group type index. Required with group_key for group queries.",
+                    "type": "number"
                 },
                 "kind": {
                     "const": "UsageMetricsQuery",
@@ -37879,15 +37743,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -37928,7 +37785,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -37988,7 +37845,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38031,15 +37888,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -38080,7 +37930,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38137,7 +37987,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38216,15 +38066,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -38265,7 +38108,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38381,15 +38224,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -38521,15 +38357,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -38570,7 +38399,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38629,7 +38458,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38694,15 +38523,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
@@ -38758,7 +38580,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38818,7 +38640,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -38902,15 +38724,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -38951,7 +38766,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "metrics": {
                     "items": {
@@ -39029,7 +38844,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -39129,15 +38944,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -39315,15 +39123,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
@@ -39693,6 +39494,10 @@
                 }
             },
             "type": "object"
+        },
+        "non_negative_integer": {
+            "minimum": 0,
+            "type": "integer"
         },
         "positive_integer": {
             "minimum": 1,
