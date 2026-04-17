@@ -52,7 +52,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             return {
                 results: data.results,
                 _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
-                ...(data.formattedResults ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
+                ...(data.formatted_results ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },
         _meta: {
