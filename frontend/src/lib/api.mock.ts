@@ -283,6 +283,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_2fa_enabled: false,
     has_social_auth: false,
     has_sso_enforcement: false,
+    is_organization_first_user: true,
     shortcut_position: 'above',
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,

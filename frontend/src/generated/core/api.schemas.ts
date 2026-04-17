@@ -1681,6 +1681,7 @@ export interface UserApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly has_sso_enforcement: boolean
+    readonly is_organization_first_user: boolean
     has_seen_product_intro_for?: unknown | null
     readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
     theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
@@ -1752,6 +1753,7 @@ export interface PatchedUserApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly has_sso_enforcement?: boolean
+    readonly is_organization_first_user?: boolean
     has_seen_product_intro_for?: unknown | null
     readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
     theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null

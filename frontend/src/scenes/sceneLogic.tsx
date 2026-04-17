@@ -1200,7 +1200,11 @@ export const sceneLogic = kea<sceneLogicType>([
                             }
                         }
                     } else if (
-                        // Or redirect to onboarding in case we detect people have to do onboarding for their first project
+                        // Or redirect to onboarding in case we detect people have to do onboarding for their first project.
+                        // Gate on user intent (`is_organization_first_user`): only the user who created the org should be
+                        // pushed into onboarding. Invited / JIT / SAML-provisioned members landing on a not-yet-set-up team
+                        // bypass this. Default to false on the frontend so deployment ordering can't accidentally trap users.
+                        user.is_organization_first_user === true &&
                         user.organization?.teams.length === 1 &&
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&

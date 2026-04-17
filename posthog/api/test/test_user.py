@@ -130,6 +130,65 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
+    def test_is_organization_first_user_true_when_owner_at_org_creation(self):
+        # The fixture user joined self.organization at create time. Promote to OWNER to mirror the
+        # bootstrap signup flow (User.objects.bootstrap creates the membership as OWNER).
+        self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.OWNER)
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_organization_first_user"])
+
+    def test_is_organization_first_user_false_for_invited_member(self):
+        # User joined an org that already existed (created earlier) — they are NOT the first user.
+        invitee_org = Organization.objects.create(name="Invitee Org")
+        Team.objects.create(name="Invitee Team", organization=invitee_org)
+        invitee = User.objects.create(email="invitee@posthog.com", first_name="Invitee")
+        with freeze_time(timezone.now() + timedelta(hours=1)):
+            invitee.join(organization=invitee_org, level=OrganizationMembership.Level.MEMBER)
+        invitee.current_organization = invitee_org
+        invitee.current_team = invitee_org.teams.first()
+        invitee.save()
+
+        self.client.force_login(invitee)
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_organization_first_user"])
+
+    def test_is_organization_first_user_false_for_non_owner_at_org_creation(self):
+        # Even if joined at org create time, an Admin (non-Owner) is not the first user.
+        self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_organization_first_user"])
+
+    def test_is_organization_first_user_false_for_owner_promoted_later(self):
+        # Covers the case where a user was invited as a Member and later promoted to Owner —
+        # their membership joined_at is well after org.created_at, so they did not bootstrap.
+        late_org = Organization.objects.create(name="Late Org")
+        Team.objects.create(name="Late Team", organization=late_org)
+        late_user = User.objects.create(email="late@posthog.com", first_name="Late")
+        with freeze_time(timezone.now() + timedelta(days=3)):
+            late_user.join(organization=late_org, level=OrganizationMembership.Level.OWNER)
+        late_user.current_organization = late_org
+        late_user.current_team = late_org.teams.first()
+        late_user.save()
+
+        self.client.force_login(late_user)
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_organization_first_user"])
+
+    def test_is_organization_first_user_reflects_current_organization(self):
+        # When the user switches current organization, the flag should reflect that org.
+        self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.OWNER)
+        # In setUpTestData the user joined `new_org` later as a member — should be False there.
+        self.user.current_organization = self.new_org
+        self.user.current_team = None
+        self.user.save()
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_organization_first_user"])
+
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
         self.user.save()

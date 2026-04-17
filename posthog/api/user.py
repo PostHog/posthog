@@ -111,6 +111,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
+    is_organization_first_user = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -155,6 +156,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "has_sso_enforcement",
+            "is_organization_first_user",
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
@@ -182,6 +184,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "is_organization_first_user",
         ]
 
         extra_kwargs = {
@@ -244,6 +247,12 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    def get_is_organization_first_user(self, instance: User) -> bool:
+        organization = instance.current_organization
+        if not organization:
+            return False
+        return instance.is_first_user_of(organization)
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:

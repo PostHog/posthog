@@ -451,6 +451,20 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
         return not bool(disabled.get(str(organization_id), False))
 
+    def is_first_user_of(self, organization: Organization) -> bool:
+        """Whether this user is the original owner who created the given organization.
+
+        True only when the user is the OWNER and their membership was created at (or just after)
+        the organization itself — i.e. they bootstrapped the org rather than joining via invite,
+        JIT, or SAML provisioning. Used to gate onboarding redirects on user intent.
+        """
+        membership = self.organization_memberships.filter(organization=organization).only("level", "joined_at").first()
+        if membership is None or membership.level != OrganizationMembership.Level.OWNER:
+            return False
+        # Tolerance covers the small window between Organization.create and OrganizationMembership.create
+        # inside the bootstrap transaction.
+        return abs((membership.joined_at - organization.created_at).total_seconds()) <= 60
+
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
