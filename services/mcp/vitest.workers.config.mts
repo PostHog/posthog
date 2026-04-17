@@ -1,4 +1,4 @@
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
 // Cold-start `MCP.init()` fires several outbound calls that would otherwise hit
@@ -14,9 +14,10 @@ const INTROSPECT_OK_BODY = JSON.stringify({
     scoped_organizations: [],
 })
 
-export default defineWorkersConfig({
+export default defineWorkersProject({
     plugins: [tsconfigPaths({ root: '.' })],
     test: {
+        name: 'workers',
         include: ['tests/workers/**/*.test.ts'],
         poolOptions: {
             workers: {

@@ -24,7 +24,6 @@
         "inspector": "npx @modelcontextprotocol/inspector npx -y mcp-remote@latest http://localhost:8787/mcp",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
-        "test:workers": "vitest run --config vitest.workers.config.mts",
         "test:watch": "vitest watch",
         "typecheck": "tsc --noEmit",
         "generate-mcp-types": "node scripts/generate-mcp-types.mjs",
