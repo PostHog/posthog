@@ -255,15 +255,20 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
-    def _get_current_membership(self, instance: User):
-        """Load the current membership once per serialization, memoized on the serializer instance."""
-        cached = self.context.get(f"_current_membership_{instance.pk}")
+    def _get_current_membership(self, instance: User) -> Any:
+        """Load the current membership once per serialization, memoized on the serializer context.
+
+        Returns the OrganizationMembership instance for the user's current organization, or None
+        if the user has no current organization / no membership / the lookup failed.
+        """
+        cache_key = f"_current_membership_{instance.pk}"
+        cached = self.context.get(cache_key)
         if cached is not None:
             return cached if cached is not _SENTINEL_NO_MEMBERSHIP else None
 
         organization = instance.current_organization
         if organization is None:
-            self.context[f"_current_membership_{instance.pk}"] = _SENTINEL_NO_MEMBERSHIP
+            self.context[cache_key] = _SENTINEL_NO_MEMBERSHIP
             return None
         from posthog.models.organization import OrganizationMembership
 
@@ -278,7 +283,7 @@ class UserSerializer(serializers.ModelSerializer):
             # treat the user as already having seen the welcome so we don't crash /api/users/@me/.
             membership = None
 
-        self.context[f"_current_membership_{instance.pk}"] = membership or _SENTINEL_NO_MEMBERSHIP
+        self.context[cache_key] = membership if membership is not None else _SENTINEL_NO_MEMBERSHIP
         return membership
 
     def get_welcome_screen_seen_at(self, instance: User) -> Optional[str]:
