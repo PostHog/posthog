@@ -3,11 +3,12 @@ import './InviteModal.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -19,6 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
+import { GuestResourcePicker } from './GuestResourcePicker'
 import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
@@ -193,10 +195,12 @@ export function InviteRow({
     index,
     isDeletable,
     hideProjectAccessSelector = false,
+    hideOrgLevelSelector = false,
 }: {
     index: number
     isDeletable: boolean
     hideProjectAccessSelector?: boolean
+    hideOrgLevelSelector?: boolean
 }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
@@ -261,7 +265,7 @@ export function InviteRow({
                         />
                     </div>
                 )}
-                {allowedLevelsOptions.length > 1 && (
+                {allowedLevelsOptions.length > 1 && !hideOrgLevelSelector && (
                     <div className="flex-1 flex gap-1 items-center justify-between">
                         <LemonSelect
                             className="bg-bg-light"
@@ -309,13 +313,19 @@ export function InviteTeamMatesComponent({
     hideProjectAccessSelector?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
+    const { invitesToSend, inviteContainsOwnerLevel, isGuestInvite, bypassSsoEnforcement } = useValues(inviteLogic)
+    const { appendInviteRow, updateMessage, setIsInviteConfirmed, setIsGuestInvite, setBypassSsoEnforcement } =
+        useActions(inviteLogic)
 
-    const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
+    const guestModeEnabled = useFeatureFlag(FEATURE_FLAGS.GUEST_MODE)
+
+    const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE && !isGuestInvite
     const areInvitesDeletable = invitesToSend.length > 1
+    const hasMultipleInvites = invitesToSend.length > 1
 
     const { currentOrganization } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
 
     const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
 
@@ -327,6 +337,8 @@ export function InviteTeamMatesComponent({
         value: level,
         label: OrganizationMembershipLevel[level],
     }))
+
+    const orgHasSsoEnforced = !!(currentOrganization as any)?.sso_enforcement
 
     return (
         <>
@@ -340,14 +352,15 @@ export function InviteTeamMatesComponent({
                 <div className="flex gap-2">
                     <b className="flex-2">Email address</b>
                     {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
-                    {allowedLevelsOptions.length > 1 && <b className="flex-1">Organization level</b>}
+                    {allowedLevelsOptions.length > 1 && !isGuestInvite && <b className="flex-1">Organization level</b>}
                     {!preflight?.email_service_available && <b className="flex-1" />}
                     {areInvitesDeletable && <b className="w-12" />}
                 </div>
 
                 {invitesToSend.map((_, index) => (
                     <InviteRow
-                        hideProjectAccessSelector={hideProjectAccessSelector}
+                        hideProjectAccessSelector={hideProjectAccessSelector || isGuestInvite}
+                        hideOrgLevelSelector={isGuestInvite}
                         index={index}
                         key={index.toString()}
                         isDeletable={areInvitesDeletable}
@@ -362,7 +375,50 @@ export function InviteTeamMatesComponent({
                     )}
                 </div>
             </div>
-            {preflight?.email_service_available && (
+
+            {guestModeEnabled && hasAdvancedPermissions && (
+                <div className="mt-4 p-3 border rounded-md space-y-3">
+                    <div className="flex items-center gap-2">
+                        <LemonCheckbox
+                            checked={isGuestInvite}
+                            onChange={setIsGuestInvite}
+                            disabled={hasMultipleInvites}
+                            label="Invite as guest"
+                        />
+                        <Tooltip
+                            title={
+                                hasMultipleInvites
+                                    ? 'Guest invites are one at a time. Remove extra rows to enable.'
+                                    : "Guest users are external collaborators with read-only access to specific dashboards, insights, or notebooks you select. They don't appear in member pickers, filters, or @ mentions."
+                            }
+                        >
+                            <IconInfo className="text-muted-alt" />
+                        </Tooltip>
+                    </div>
+                    {isGuestInvite && (
+                        <>
+                            <GuestResourcePicker />
+                            {orgHasSsoEnforced && (
+                                <div className="space-y-2">
+                                    <LemonCheckbox
+                                        checked={bypassSsoEnforcement}
+                                        onChange={setBypassSsoEnforcement}
+                                        label="Bypass SSO enforcement for this guest"
+                                    />
+                                    {bypassSsoEnforcement && (
+                                        <LemonBanner type="warning">
+                                            I understand that enabling this lets this external collaborator access our
+                                            shared resources using email and password, bypassing our SSO provider.
+                                        </LemonBanner>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+
+            {preflight?.email_service_available && !isGuestInvite && (
                 <div className="mt-4">
                     <div className="mb-2">
                         <b>Message (optional)</b>
@@ -375,7 +431,7 @@ export function InviteTeamMatesComponent({
                 </div>
             )}
 
-            {inviteContainsOwnerLevel && (
+            {inviteContainsOwnerLevel && !isGuestInvite && (
                 <div className="mt-4">
                     <b>Confirm owner-level invites</b>
 

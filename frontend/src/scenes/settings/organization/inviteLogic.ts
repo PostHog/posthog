@@ -13,6 +13,13 @@ import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
 
+export interface GuestGrant {
+    team_id: number
+    resource: string
+    resource_id: number
+    label: string
+}
+
 /** State of a single invite row (with input data) in bulk invite creation. */
 export interface InviteRowState {
     target_email: string
@@ -52,6 +59,11 @@ export const inviteLogic = kea<inviteLogicType>([
             level,
         }),
         removeProjectAccess: (inviteIndex: number, projectId: number) => ({ inviteIndex, projectId }),
+        setIsGuestInvite: (isGuest: boolean) => ({ isGuest }),
+        addGuestGrant: (grant: GuestGrant) => ({ grant }),
+        removeGuestGrant: (index: number) => ({ index }),
+        resetGuestState: true,
+        setBypassSsoEnforcement: (bypass: boolean) => ({ bypass }),
     }),
     loaders(({ values }) => ({
         invitedTeamMembersInternal: [
@@ -60,6 +72,28 @@ export const inviteLogic = kea<inviteLogicType>([
                 inviteTeamMembers: async () => {
                     if (!values.canSubmit) {
                         return []
+                    }
+
+                    if (values.isGuestInvite) {
+                        const firstInvite = values.invitesToSend.find((invite) => invite.target_email)
+                        if (!firstInvite) {
+                            return []
+                        }
+                        const guestPayload = {
+                            target_email: firstInvite.target_email,
+                            first_name: firstInvite.first_name,
+                            is_guest: true,
+                            bypass_sso_enforcement: values.bypassSsoEnforcement,
+                            grants: values.guestGrants.map((g) => ({
+                                team_id: g.team_id,
+                                resource: g.resource,
+                                resource_id: g.resource_id,
+                            })),
+                        }
+                        return await api.create<OrganizationInviteType[]>(
+                            `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
+                            [guestPayload]
+                        )
                     }
 
                     const payload: Pick<
@@ -189,6 +223,31 @@ export const inviteLogic = kea<inviteLogicType>([
                 setIsInviteConfirmed: (_, { inviteConfirmed }) => inviteConfirmed,
             },
         ],
+        isGuestInvite: [
+            false,
+            {
+                setIsGuestInvite: (_, { isGuest }) => isGuest,
+                resetGuestState: () => false,
+                inviteTeamMembersSuccess: () => false,
+            },
+        ],
+        guestGrants: [
+            [] as GuestGrant[],
+            {
+                addGuestGrant: (state, { grant }) => [...state, grant],
+                removeGuestGrant: (state, { index }) => state.filter((_, i) => i !== index),
+                resetGuestState: () => [],
+                inviteTeamMembersSuccess: () => [],
+            },
+        ],
+        bypassSsoEnforcement: [
+            false,
+            {
+                setBypassSsoEnforcement: (_, { bypass }) => bypass,
+                resetGuestState: () => false,
+                inviteTeamMembersSuccess: () => false,
+            },
+        ],
     })),
     selectors({
         inviteContainsOwnerLevel: [
@@ -230,6 +289,7 @@ export const inviteLogic = kea<inviteLogicType>([
 
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
+            actions.resetGuestState()
 
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
