@@ -259,6 +259,40 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
 
 
+# Health warning emitted by `tailscale status` when peers advertise subnet routes
+# but the local node has `--accept-routes` disabled. The Coder ALB lives behind
+# a VPC subnet router, so DNS resolves but traffic blackholes without this.
+_ACCEPT_ROUTES_HEALTH_FRAGMENT = "--accept-routes is false"
+
+
+def _tailscale_routes_accepted() -> bool:
+    """Return whether the local node accepts advertised subnet routes."""
+    status = _tailscale_status()
+    if not status:
+        return True
+    health = status.get("Health") or []
+    return not any(_ACCEPT_ROUTES_HEALTH_FRAGMENT in (msg or "") for msg in health)
+
+
+def ensure_tailscale_routes_accepted() -> None:
+    """Enable Tailscale subnet route acceptance when peers advertise routes."""
+    if _tailscale_routes_accepted():
+        return
+
+    tailscale_path = _resolve_tailscale()
+    if not tailscale_path:
+        return
+
+    click.echo("Enabling Tailscale subnet routes (required for devbox access)...")
+    cmd = [tailscale_path, "set", "--accept-routes"]
+    if sys.platform != "darwin" and hasattr(os, "geteuid") and os.geteuid() != 0:
+        cmd = ["sudo", *cmd]
+
+    result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
+    if result.returncode != 0:
+        _fail("Failed to enable Tailscale subnet routes. Run manually: sudo tailscale set --accept-routes")
+
+
 def _config_ssh_args() -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
     args = ["coder", "config-ssh"]
@@ -403,6 +437,7 @@ def ensure_coder_authenticated() -> None:
 def ensure_runtime_ready() -> None:
     """Verify runtime prerequisites without mutating host setup."""
     ensure_tailscale_connected()
+    ensure_tailscale_routes_accepted()
 
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")

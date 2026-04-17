@@ -130,6 +130,47 @@ class TestResolveTailscale:
         assert "not installed" in capsys.readouterr().out
 
 
+class TestTailscaleRoutesAccepted:
+    """Test auto-enabling subnet route acceptance for devbox connectivity."""
+
+    def test_detects_routes_not_accepted_from_health_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {"Health": ["Some peers are advertising routes but --accept-routes is false"]},
+        )
+        assert coder._tailscale_routes_accepted() is False
+
+    def test_ensure_noop_when_already_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
+        calls: list[list[str]] = []
+        monkeypatch.setattr(
+            coder.subprocess,
+            "run",
+            lambda args, **kwargs: calls.append(args) or subprocess.CompletedProcess(args, 0),
+        )
+
+        coder.ensure_tailscale_routes_accepted()
+
+        assert calls == []
+
+    def test_ensure_invokes_tailscale_set_accept_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
+        monkeypatch.setattr(coder.sys, "platform", "darwin")
+        captured: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.ensure_tailscale_routes_accepted()
+
+        assert captured == [[coder._MACOS_TAILSCALE_CLI, "set", "--accept-routes"]]
+
+
 class TestCoderConfig:
     """Test config and runtime preflight helpers."""
 
@@ -170,6 +211,7 @@ class TestCoderConfig:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
+        monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
         with pytest.raises(SystemExit):
@@ -441,6 +483,7 @@ class TestDevboxCommands:
         calls: list[str] = []
 
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: calls.append("routes"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(
@@ -479,6 +522,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert calls == [
             "tailscale",
+            "routes",
             "install",
             "login",
             "ssh:False",
@@ -494,6 +538,7 @@ class TestDevboxCommands:
         devbox_config_path: Path,
     ) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
@@ -524,6 +569,7 @@ class TestDevboxCommands:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
