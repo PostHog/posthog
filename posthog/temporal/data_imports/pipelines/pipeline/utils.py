@@ -69,7 +69,7 @@ def normalize_column_name(column_name: str) -> str:
     return NamingConvention.normalize_identifier(column_name)
 
 
-def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:
+def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
     try:
         if date_str is None:
             return None
@@ -77,15 +77,12 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
         if isinstance(date_str, pa.StringScalar):
             scalar = date_str.as_py()
 
-            if scalar is None:
-                return None
-
             return parser.parse(scalar)
 
         if isinstance(date_str, pa.TimestampScalar):
             return date_str
 
-        return parser.parse(date_str)
+        return parser.parse(cast(str | bytes, date_str))
     except (ValueError, OverflowError, TypeError):
         return None
 
@@ -127,7 +124,7 @@ def _handle_null_columns_with_definitions(table: pa.Table, source: SourceRespons
         normalized_field_name = normalize_column_name(field_name)
         # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
         if normalized_field_name not in table.schema.names:
-            new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
+            new_column = pa.array([None] * table.num_rows, type=cast(Any, DLT_TO_PA_TYPE_MAP[data_type]))
             table = table.append_column(normalized_field_name, new_column)
 
     return table
@@ -175,7 +172,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         # Convert nested values to JSON strings for stable schema writes.
         if pa.types.is_struct(incoming_column.type) or pa.types.is_list(incoming_column.type):
             json_column = pa.array(
-                [_json_dumps(row.as_py()) if row.as_py() is not None else None for row in incoming_column]
+                [_json_dumps(row) if row is not None else None for row in incoming_column.to_pylist()]
             )
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, json_column
@@ -184,7 +181,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         # Convert duration to numeric seconds.
         elif pa.types.is_duration(incoming_column.type):
             seconds_column = pa.array(
-                [row.as_py().total_seconds() if row.as_py() is not None else None for row in incoming_column]
+                [row.total_seconds() if row is not None else None for row in incoming_column.to_pylist()]
             )
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, seconds_column
@@ -195,7 +192,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         if pa.types.is_timestamp(incoming_field.type) and (
             incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
         ):
-            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False)
+            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
             )
@@ -204,7 +201,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
 
     # Second pass: align with existing Delta table schema.
-    for delta_field in pa.schema(delta_schema):
+    for delta_field in cast(Any, delta_schema):
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
                 pa.array([None] * incoming_table.num_rows, type=delta_field.type)
@@ -279,7 +276,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
                     delta_field.name,
-                    incoming_column.cast(delta_field.type),
+                    incoming_column.cast(delta_field.type).combine_chunks(),
                 )
 
             incoming_column = incoming_table.column(delta_field.name)
@@ -668,8 +665,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
     for col in column_names:
         values = [
-            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
-            for row in table_data
+            None if isinstance(value := row.get(col, None), float) and np.isnan(value) else value for row in table_data
         ]
 
         try:
@@ -706,7 +702,8 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 columnar_table_data[field_name] = float_array.cast(field.type, safe=False)
                 unique_types_in_column = {decimal.Decimal}
                 py_type = decimal.Decimal
-                val = decimal.Decimal(val)
+                if val is not None:
+                    val = decimal.Decimal(str(val))
 
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
@@ -936,8 +933,8 @@ def conditional_lru_cache_async(
             key = _make_key(args, kwargs, typed)
             cache.pop(key, None)
 
-        wrapper.cache_remove = cache_remove
-        wrapper.cache_clear = lambda: cache.clear()
+        cast(Any, wrapper).cache_remove = cache_remove
+        cast(Any, wrapper).cache_clear = lambda: cache.clear()
 
         return wrapper
 

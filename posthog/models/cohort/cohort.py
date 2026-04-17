@@ -183,7 +183,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         }""",
     )
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("Person", through="CohortPeople")
+    people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
