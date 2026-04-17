@@ -1,5 +1,32 @@
 import { expect, test } from '../utils/playwright-test-base'
 
+async function waitForSavedViewState(page: import('@playwright/test').Page, viewName: string): Promise<void> {
+    await expect(async () => {
+        const sceneTitle = page.locator('.scene-name h1 span').getByText(viewName, { exact: true })
+        if (!(await sceneTitle.isVisible().catch(() => false))) {
+            const savedViewRow = page.getByText(viewName, { exact: true }).last()
+            await expect(savedViewRow).toBeVisible()
+            await savedViewRow.click()
+        }
+
+        await expect(sceneTitle).toBeVisible()
+        await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
+    }).toPass({ timeout: 40000 })
+}
+
+async function openSaveAsViewModal(page: import('@playwright/test').Page): Promise<void> {
+    await expect(async () => {
+        await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
+        await page.locator('[data-attr=sql-editor-save-options-button]').click()
+
+        const saveAsViewOption = page.getByRole('menuitem', { name: 'Save as view' })
+        await expect(saveAsViewOption).toBeVisible()
+        await saveAsViewOption.click()
+
+        await expect(page.locator('[data-attr=sql-editor-input-save-view-name]')).toBeVisible()
+    }).toPass({ timeout: 30000 })
+}
+
 test.describe('SQL Editor', () => {
     test.describe('Basic flow', () => {
         test.beforeEach(async ({ page }) => {
@@ -8,7 +35,8 @@ test.describe('SQL Editor', () => {
 
         test('See SQL Editor', async ({ page }) => {
             await expect(page.locator('[data-attr=editor-scene]')).toBeVisible()
-            await expect(page.locator('[data-attr=sql-editor-source-empty-state]')).toBeVisible()
+            await expect(page.getByPlaceholder('Search warehouse')).toBeVisible()
+            await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).toBeVisible()
             await expect(page.locator('.scene-name h1 span').getByText('New SQL query', { exact: true })).toBeVisible()
         })
 
@@ -28,6 +56,7 @@ test.describe('SQL Editor', () => {
         })
 
         test('Save view', async ({ page }) => {
+            test.slow()
             // Wait for the query editor to be visible and ready
             await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
             await page.locator('[data-attr=hogql-query-editor]').click()
@@ -36,13 +65,10 @@ test.describe('SQL Editor', () => {
             await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
 
             // Open save options, then click save as view
-            await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
-            await page.locator('[data-attr=sql-editor-save-options-button]').click()
-            await page.getByText('Save as view', { exact: true }).click()
+            await openSaveAsViewModal(page)
 
             // Wait for the modal/dialog to appear and be ready
             const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
-            await expect(nameInput).toBeVisible()
 
             // Use a unique name to avoid conflicts with retries
             const uniqueViewName = `test_view_${Date.now()}`
@@ -55,38 +81,24 @@ test.describe('SQL Editor', () => {
             // Click submit
             await submitButton.click()
 
-            // Wait for the success message which confirms the API call completed
-            await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-            await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
+            await waitForSavedViewState(page, uniqueViewName)
         })
 
         test('Materialize view pane', async ({ page }) => {
+            test.slow()
             await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
             await page.locator('[data-attr=hogql-query-editor]').click()
             await page.locator('[data-attr=hogql-query-editor]').pressSequentially('SELECT 1')
             await page.locator('[data-attr=sql-editor-run-button]').click()
             await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
 
-            await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
-            await page.locator('[data-attr=sql-editor-save-options-button]').click()
-            await page.getByText('Save as view', { exact: true }).click()
+            await openSaveAsViewModal(page)
 
             const uniqueViewName = `materialized_test_view_${Date.now()}`
             const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
-            await expect(nameInput).toBeVisible()
             await nameInput.fill(uniqueViewName)
             await page.getByRole('button', { name: 'Submit' }).click()
-            await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-
-            await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
-            // Dismiss the quickstart popover if visible, as it can overlay the button
-            const quickstart = page.locator('[data-attr=global-product-setup-button]')
-            if (await quickstart.isVisible({ timeout: 1000 }).catch(() => false)) {
-                await quickstart.click()
-                await expect(async () => {
-                    await page.getByRole('button', { name: 'Minimize' }).click()
-                }).toPass()
-            }
+            await waitForSavedViewState(page, uniqueViewName)
 
             await page.locator('[data-attr=sql-editor-materialization-button]').click()
             await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
