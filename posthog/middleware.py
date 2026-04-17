@@ -30,13 +30,13 @@ from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.caching.login_device_cache import set_known_login_cookie
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
@@ -647,17 +647,15 @@ class SessionAgeMiddleware:
 
 
 class KnownLoginDeviceCookieMiddleware:
-    """Sets the known-login cookie on responses from the login endpoints.
-    Triggered by `post_login` annotating the request with the authenticated user."""
+    """Sets the known-login cookie on responses from the login endpoints."""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        user = getattr(request, "_ph_set_known_login_cookie_for_user", None)
-        if user is not None:
-            set_known_login_cookie(response, user)
+        if request.user.is_authenticated and isinstance(request.user, User):
+            set_known_device_cookie(response, request.user)
         return response
 
 

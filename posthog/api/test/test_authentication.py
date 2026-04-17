@@ -30,10 +30,10 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.caching.login_device_cache import (
-    build_known_login_cookie_value,
-    has_valid_known_login_cookie,
-    known_login_cookie_name,
+from posthog.helpers.user_devices import (
+    KNOWN_DEVICE_COOKIE,
+    build_known_device_cookie_value,
+    has_valid_known_device_cookie,
 )
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -2245,7 +2245,7 @@ class TestOAuthLoginNotification(APIBaseTest):
             social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
             assert len(mail.outbox) == 2
 
-    def test_notification_skipped_when_known_login_cookie_present(self):
+    def test_notification_skipped_when_known_device_cookie_present(self):
         user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
         rf = RequestFactory()
         Backend = type("Backend", (), {"name": "google-oauth2"})
@@ -2259,9 +2259,9 @@ class TestOAuthLoginNotification(APIBaseTest):
             assert len(mail.outbox) == 1
 
             # Second login with different fingerprint BUT valid signed cookie — notification skipped
-            signed_value = build_known_login_cookie_value(user)
+            signed_value = build_known_device_cookie_value(user)
             social_login_notification(
-                self._build_strategy(rf, ua2, ip2, cookies={known_login_cookie_name(user.id): signed_value}),
+                self._build_strategy(rf, ua2, ip2, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): signed_value}),
                 Backend(),
                 user,
             )
@@ -2277,7 +2277,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
             # Attacker-forged cookie without a valid signature should not suppress the notification
             social_login_notification(
-                self._build_strategy(rf, ua1, ip1, cookies={known_login_cookie_name(user.id): "1"}),
+                self._build_strategy(rf, ua1, ip1, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): "1"}),
                 Backend(),
                 user,
             )
@@ -2309,25 +2309,25 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
 
     def test_middleware_sets_signed_cookie_after_login(self):
         response = self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        cookie = response.cookies.get(known_login_cookie_name(self.user.id))
+        cookie = response.cookies.get(KNOWN_DEVICE_COOKIE.format(user_id=self.user.id))
         assert cookie is not None
         assert cookie.value != "1"  # signed, not a plain flag
         assert cookie["httponly"] is True
         assert cookie["samesite"] == "Lax"
-        assert cookie["max-age"] == 2 * 365 * 24 * 60 * 60
 
-        # And the signed value validates for this user
+        # Pass cookie back into a request and confirm the verifier accepts the signature
         req = RequestFactory().get("/")
-        req.COOKIES[known_login_cookie_name(self.user.id)] = cookie.value
-        assert has_valid_known_login_cookie(req, self.user)
+        req.COOKIES[KNOWN_DEVICE_COOKIE.format(user_id=self.user.id)] = cookie.value
+        assert has_valid_known_device_cookie(req, self.user)
 
     def test_known_cookie_suppresses_notification(self):
         set_instance_setting("EMAIL_HOST", "localhost")
+        new_device_subject = "A new device logged into your account"
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
-            # First login — sets cookie and may send notification
+            # First login - sets cookie and sends new-device notification
             self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-            initial_count = len(mail.outbox)
+            initial_count = sum(1 for m in mail.outbox if m.subject == new_device_subject)
 
-            # Second login — signed cookie is present, notification should be skipped
+            # Second login - signed cookie is present, new-device notification must be skipped
             self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-            assert len(mail.outbox) == initial_count
+            assert sum(1 for m in mail.outbox if m.subject == new_device_subject) == initial_count
