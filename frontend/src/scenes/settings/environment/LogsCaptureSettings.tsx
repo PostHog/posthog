@@ -74,6 +74,42 @@ export function LogsJsonParseSettings(): JSX.Element {
     )
 }
 
+export function LogsPiiScrubSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    return (
+        <>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Logs}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonSwitch
+                    data-attr="logs-pii-scrub-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            logs_settings: { ...currentTeam?.logs_settings, pii_scrub_logs: checked },
+                        })
+                    }}
+                    label="Scrub PII in logs at ingestion"
+                    bordered
+                    checked={!!currentTeam?.logs_settings?.pii_scrub_logs}
+                    loading={currentTeamLoading}
+                    disabledReason={restrictedReason}
+                />
+            </AccessControlAction>
+            <p className="text-secondary text-sm max-w-200 mt-2">
+                When enabled, common patterns (emails, card numbers, authorization headers, sensitive attribute keys)
+                are replaced with a fixed placeholder before storage. This is lossy redaction, not reversible hashing.
+            </p>
+        </>
+    )
+}
+
 export function LogsRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)

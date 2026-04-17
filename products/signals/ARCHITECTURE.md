@@ -4,7 +4,7 @@
 
 The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, LLM analytics, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
 
-Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple “summarize signals” LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers.
+Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
 
 ---
 
@@ -143,12 +143,13 @@ Defined in `backend/temporal/summary.py`.
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
    - Persists `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success
-6. **Apply the decision**:
+6. **Conditional coding-task auto-start** (inside `run_agentic_report_activity`) — see Autonomy & Auto-Start below
+7. **Apply the decision**:
    - If **not actionable** → `reset_report_to_potential_activity` (weight resets to 0, status becomes `potential`)
    - If **requires human input** → `mark_report_pending_input_activity`
    - If **immediately actionable** → `mark_report_ready_activity`
-7. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
-8. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
+8. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
+9. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
 
 On any unhandled exception, the workflow marks the report `failed` and re-raises.
 
@@ -180,6 +181,8 @@ On re-promotion:
 - **Repo selection** reuses the previous `repo_selection` artefact when possible
 - **Agentic research** reconstructs previous findings / actionability / priority from artefacts and reuses prior work signal-by-signal when still valid
 - **Agentic artefacts** from the previous run are deleted and replaced atomically before writing the new run’s artefacts
+- **`SignalReportTask` rows are not deleted** on re-promotion; they are historical records of research and auto-started coding runs
+- **Auto-start is deduplicated per report** by checking for an existing `SignalReportTask` with `relationship=implementation`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
 ### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
@@ -328,6 +331,62 @@ Notes:
 
 **Indexes:** `(report)` (`signals_sig_report__idx`)
 
+### `SignalTeamConfig`
+
+Per-team singleton config for Signals settings, including the default autonomy priority threshold.
+
+| Field                        | Type            | Description                                                                  |
+| ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
+| `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
+| `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
+| `created_at`                 | DateTime        | Auto-set on creation                                                         |
+| `updated_at`                 | DateTime        | Auto-set on save                                                             |
+
+Notes:
+
+- Auto-created as a team extension via `register_team_extension_signal`
+- `default_autostart_priority` defaults to `P0`
+- Individual users can override this threshold via `SignalUserAutonomyConfig.autostart_priority`
+
+### `SignalUserAutonomyConfig`
+
+Per-user opt-in config for Signals autonomy. Existence of a row means the user is opted in.
+
+| Field                | Type                 | Description                                                                              |
+| -------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
+| `id`                 | UUID (PK)            | Primary key (UUIDModel)                                                                  |
+| `user`               | OneToOne → User      | The opted-in user (`related_name="signal_autonomy_config"`)                              |
+| `autostart_priority` | CharField (nullable) | Per-user priority override (`P0`–`P4`); `null` = use team's `default_autostart_priority` |
+| `created_at`         | DateTime             | Auto-set on creation                                                                     |
+| `updated_at`         | DateTime             | Auto-set on save                                                                         |
+
+Notes:
+
+- One row per user (enforced by `OneToOneField`)
+- User is not scoped to a team — the autostart logic resolves team membership at runtime
+- Managed via `PUT /api/users/@me/signal_autonomy/` (opt in / update) and `DELETE` (opt out)
+
+### `SignalReportTask`
+
+Tracks the relationship between signal reports and tasks (research sandbox runs, auto-started implementation tasks, etc.).
+
+| Field          | Type              | Description                                                            |
+| -------------- | ----------------- | ---------------------------------------------------------------------- |
+| `id`           | UUID (PK)         | Primary key (UUIDModel)                                                |
+| `team`         | FK → Team         | Owning team                                                            |
+| `report`       | FK → SignalReport | Parent report (`related_name="report_tasks"`, cascade delete)          |
+| `task`         | FK → Task         | The linked task (`related_name="signal_report_tasks"`, cascade delete) |
+| `relationship` | CharField(200)    | One of: `repo_selection`, `research`, `implementation`                 |
+| `created_at`   | DateTime          | Auto-set on creation                                                   |
+
+Notes:
+
+- `research` rows are created immediately when the multi-turn research sandbox session starts
+- `implementation` rows are created when autonomy auto-starts a fix task
+- Cascading delete on both `report` and `task` FKs
+- Used as the guard against duplicate auto-starts (checks for existing `implementation` row)
+
 ### `SignalSourceConfig`
 
 Per-team configuration for which signal sources are enabled.
@@ -445,13 +504,13 @@ It soft-deletes report signals by re-emitting them with `metadata.deleted = true
 
 ### REST Endpoints
 
-Signals routes are registered in `posthog/api/__init__.py` and `posthog/urls.py`.
+All signals endpoints live under the `projects/:team_id/signals/` path, registered on the `projects_router` in `posthog/api/__init__.py`.
 
 #### `SignalViewSet` (DEBUG only)
 
-| Method | Path    | Description                                 |
-| ------ | ------- | ------------------------------------------- |
-| POST   | `/emit` | Manually emit a signal (debug/testing only) |
+| Method | Path            | Description                                 |
+| ------ | --------------- | ------------------------------------------- |
+| POST   | `signals/emit/` | Manually emit a signal (debug/testing only) |
 
 #### `InternalSignalViewSet`
 
@@ -467,11 +526,11 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 | Method | Path                           | Description               |
 | ------ | ------------------------------ | ------------------------- |
-| GET    | `/signal_source_configs/`      | List configs for the team |
-| POST   | `/signal_source_configs/`      | Create a new config       |
-| GET    | `/signal_source_configs/{id}/` | Retrieve a config         |
-| PATCH  | `/signal_source_configs/{id}/` | Update a config           |
-| DELETE | `/signal_source_configs/{id}/` | Delete a config           |
+| GET    | `signals/source_configs/`      | List configs for the team |
+| POST   | `signals/source_configs/`      | Create a new config       |
+| GET    | `signals/source_configs/{id}/` | Retrieve a config         |
+| PATCH  | `signals/source_configs/{id}/` | Update a config           |
+| DELETE | `signals/source_configs/{id}/` | Delete a config           |
 
 Important side effects:
 
@@ -480,20 +539,45 @@ Important side effects:
 - Enabling data-import-backed sources can trigger external data syncs
 - Disabling a clustering config cancels the clustering workflow
 
+#### `SignalTeamConfigViewSet`
+
+Team-scoped singleton config for the default autonomy priority threshold. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Returns 404 if no config exists for the team.
+
+| Method | Path              | Description                            |
+| ------ | ----------------- | -------------------------------------- |
+| GET    | `signals/config/` | Retrieve the team's `SignalTeamConfig` |
+| POST   | `signals/config/` | Update `default_autostart_priority`    |
+
+#### User Autonomy Config (action on `UserViewSet`)
+
+Per-user autonomy opt-in, registered as an action on the root `UserViewSet` at `api/users/:uuid/signal_autonomy/`.
+
+| Method | Path                         | Description                                          |
+| ------ | ---------------------------- | ---------------------------------------------------- |
+| GET    | `users/@me/signal_autonomy/` | Get own autonomy config (404 if not opted in)        |
+| PUT    | `users/@me/signal_autonomy/` | Opt in / update `autostart_priority`                 |
+| DELETE | `users/@me/signal_autonomy/` | Opt out (deletes the `SignalUserAutonomyConfig` row) |
+
+Notes:
+
+- Non-staff users can only access `@me`; staff can access any user by UUID
+- `PUT` body: `{"autostart_priority": "P2"}` or `{"autostart_priority": null}` (use team default)
+- Inherits auth/permissions from `UserViewSet` (scope: `user`)
+
 #### `SignalReportViewSet`
 
 Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Composed from `RetrieveModelMixin`, `ListModelMixin`, `DestroyModelMixin`, and `GenericViewSet`. Deleted reports are excluded from all endpoints via `safely_get_queryset`.
 
 | Method | Path                                   | Description                                                                                                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/signal_reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, and `?ordering=`.                                                                                                                                                       |
-| GET    | `/signal_reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
-| DELETE | `/signal_reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
-| POST   | `/signal_reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
-| POST   | `/signal_reports/{id}/reingest/`       | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Returns `403` for non-staff users.                                                                                                  |
-| GET    | `/signal_reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
-| GET    | `/signal_reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |
-| GET    | `/signal_reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                     |
+| GET    | `signals/reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, and `?ordering=`.                                                                                                                                                       |
+| GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
+| DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
+| POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
+| POST   | `signals/reports/{id}/reingest/`       | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Returns `403` for non-staff users.                                                                                                  |
+| GET    | `signals/reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
+| GET    | `signals/reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |
+| GET    | `signals/reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                     |
 
 **Ordering:** Configurable via `?ordering=` with comma-separated fields. Supported fields: `status`, `is_suggested_reviewer`, `signal_count`, `total_weight`, `priority`, `created_at`, `updated_at`, `id`.
 
@@ -510,15 +594,25 @@ The `status` ordering uses semantic pipeline stage ranking:
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
+#### `SignalReportTaskViewSet`
+
+Read-only list of tasks associated with a signal report. Nested under the reports router.
+
+| Method | Path                          | Description                                  |
+| ------ | ----------------------------- | -------------------------------------------- |
+| GET    | `signals/reports/{id}/tasks/` | List `SignalReportTask` entries for a report |
+
+Supports ordering via `?ordering=` with fields: `created_at`, `relationship`. Default: `-created_at`. Each item includes `id`, `relationship`, `task_id`, and `created_at`.
+
 #### `SignalProcessingViewSet`
 
 View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 
-| Method | Path                          | Description                            |
-| ------ | ----------------------------- | -------------------------------------- |
-| GET    | `/signal_processing/`         | Return current pause state             |
-| PUT    | `/signal_processing/pause/`   | Pause grouping until a given timestamp |
-| POST   | `/signal_processing/unpause/` | Clear the paused state                 |
+| Method | Path                        | Description                            |
+| ------ | --------------------------- | -------------------------------------- |
+| GET    | `signals/processing/`       | Return current pause state             |
+| PUT    | `signals/processing/pause/` | Pause grouping until a given timestamp |
+| DELETE | `signals/processing/pause/` | Clear the paused state                 |
 
 ### Serializers (`backend/serializers.py`)
 
@@ -526,6 +620,15 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
   - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
   - Validates that `recording_filters` in config is a JSON object for `session_replay`
   - Computes `status` from the clustering workflow or external data import state depending on the source
+- **`SignalTeamConfigSerializer`**
+  - ModelSerializer for `SignalTeamConfig`
+  - Exposes `id`, `default_autostart_priority`, `created_at`, `updated_at`
+- **`SignalUserAutonomyConfigSerializer`**
+  - ModelSerializer for `SignalUserAutonomyConfig`
+  - Exposes `id`, `user` (nested with `id`, `uuid`, `first_name`, `last_name`, `email`), `autostart_priority`, `created_at`, `updated_at`
+- **`SignalUserAutonomyConfigCreateSerializer`**
+  - Plain Serializer for PUT requests on the user autonomy action
+  - Accepts `autostart_priority` (optional, nullable)
 - **`SignalReportSerializer`**
   - Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`, `actionability`, `already_addressed`, `is_suggested_reviewer`
   - `priority` comes from the latest `PRIORITY_JUDGMENT` artefact
@@ -535,6 +638,9 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
   - For `suggested_reviewers`, enriches the stored GitHub-only payload with fresh PostHog org-member data at read time
+- **`SignalReportTaskSerializer`**
+  - Exposes `id`, `relationship`, `task_id`, `task_title`, `task_status`, `created_at`
+  - `task_status` is derived from the latest `TaskRun` via prefetch
 
 ---
 
@@ -631,6 +737,71 @@ The research flow produces:
 
 These are assembled into `ReportResearchOutput`, then persisted by `run_agentic_report_activity`.
 
+A `SignalReportTask(relationship=RESEARCH)` row is created immediately after the `MultiTurnSession` starts (before any research turns), linking the sandbox `Task` to the report.
+
+---
+
+## Autonomy & Auto-Start
+
+The autonomy system allows Signals to automatically start a Tasks coding run when a report is immediately actionable.
+
+### Configuration
+
+Autonomy is configured at two levels:
+
+1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`). Auto-created as a team extension via `register_team_extension_signal`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
+
+2. **User level** (`SignalUserAutonomyConfig`): Per-user opt-in. A row existing means the user is opted in. Each user can optionally override the team priority threshold with `autostart_priority`. Managed via `GET/PUT/DELETE /api/users/@me/signal_autonomy/`.
+
+The management command `enable_signals_autonomy` can set both in one shot:
+
+```text
+python manage.py enable_signals_autonomy <team_id> <priority> <emails>
+```
+
+### Auto-Start Flow
+
+Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`, called after artefact persistence in `run_agentic_report_activity`.
+
+**Guard clause** — all must pass:
+
+- Report actionability is `immediately_actionable`
+- Report has a `priority_judgment`
+- Report has suggested reviewers
+- No existing `SignalReportTask` with `relationship=implementation` for this report
+
+**User selection** via `_resolve_autostart_assignee()`:
+
+1. Map reviewer GitHub logins to PostHog user IDs via social auth (preserving reviewer relevance order)
+2. Single query: fetch `User` objects whose ID is in that list **and** who have a `SignalUserAutonomyConfig` row (joined via `select_related`)
+3. Walk candidates in reviewer order. For each user:
+   a. Verify team membership via `user.teams.filter(id=team_id).exists()`
+   b. Resolve their effective priority threshold: personal `autostart_priority` if set, otherwise the team's `default_autostart_priority`
+   c. If `report_priority_rank <= threshold_rank` → return that user
+4. If no user matches → skip
+
+**Task creation:**
+
+1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
+2. Create `SignalReportTask(relationship=IMPLEMENTATION)` linking the task to the report
+3. Errors are caught and logged but do not fail the report workflow
+
+### Priority Rank
+
+`P0` is the highest severity (rank 0), `P4` is the lowest (rank 4). A report auto-starts only if `report_priority_rank <= user_threshold_rank`. So a team with `default_autostart_priority=P4` will auto-start on any priority, while `P0` will only auto-start for the most critical reports.
+
+### Task Tracking
+
+All report ↔ task relationships are tracked via `SignalReportTask`:
+
+| Relationship     | Created when                                          | Created where                                                        |
+| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `research`       | Immediately after the research sandbox session starts | `run_multi_turn_research()` in `report_generation/research.py`       |
+| `implementation` | After auto-starting a coding task                     | `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py` |
+| `repo_selection` | Reserved for future use                               | Not yet created anywhere                                             |
+
+Both `report` and `task` FKs cascade on delete — deleting a report or task cleans up the relationship rows automatically.
+
 ### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)
 
 Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.
@@ -698,10 +869,10 @@ products/signals/
 │   ├── admin.py                     # Django admin for SignalReport + SignalReportArtefact
 │   ├── api.py                       # emit_signal() entry point + source/org guards
 │   ├── apps.py                      # Django app config
-│   ├── models.py                    # SignalReport, SignalReportArtefact, SignalSourceConfig
-│   ├── serializers.py               # DRF serializers for source configs, reports, artefacts
+│   ├── models.py                    # SignalReport, SignalReportArtefact, SignalTeamConfig, SignalUserAutonomyConfig, SignalReportTask, SignalSourceConfig
+│   ├── serializers.py               # DRF serializers for source configs, reports, artefacts, team config, user autonomy config, report tasks
 │   ├── utils.py                     # Compatibility re-exports for signal query helpers
-│   ├── views.py                     # SignalViewSet, InternalSignalViewSet, SignalSourceConfigViewSet, SignalReportViewSet, SignalProcessingViewSet
+│   ├── views.py                     # SignalViewSet, InternalSignalViewSet, SignalSourceConfigViewSet, SignalTeamConfigViewSet, SignalReportViewSet, SignalReportTaskViewSet, SignalProcessingViewSet
 │   ├── github_issues/               # Placeholder directory
 │   ├── management/
 │   │   ├── AGENTS.md
@@ -710,6 +881,7 @@ products/signals/
 │   │       ├── cleanup_signals.py
 │   │       ├── clear_eval_data.py
 │   │       ├── delete_all_signal_reports_for_team.py
+│   │       ├── enable_signals_autonomy.py  # Sets team default priority + opts in users by email
 │   │       ├── export_session_video.py
 │   │       ├── ingest_signals_json.py
 │   │       ├── ingest_video_segments.py
@@ -721,7 +893,7 @@ products/signals/
 │   │       └── summarize_single_session.py
 │   ├── report_generation/
 │   │   ├── AGENTS.md                # Documentation for the agentic report generation flow
-│   │   ├── research.py              # Multi-turn sandbox research orchestration + output schemas
+│   │   ├── research.py              # Multi-turn sandbox research orchestration + output schemas + SignalReportTask(RESEARCH) creation
 │   │   ├── resolve_reviewers.py     # Suggested-reviewer resolution and enrichment helpers
 │   │   └── select_repo.py           # Repository selection sandbox flow
 │   ├── test/
@@ -743,7 +915,8 @@ products/signals/
 │   │   ├── 0010_add_data_import_signal_source_choices.py
 │   │   ├── 0011_add_error_tracking_signal_types.py
 │   │   ├── 0012_signalreport_run_count_and_more.py
-│   │   └── 0013_signalreport_suggested_reviewers.py
+│   │   ├── 0013_signalreport_suggested_reviewers.py
+│   │   └── 0014_signalautonomyconfig_alter_signalreportartefact_type.py  # SignalTeamConfig, SignalUserAutonomyConfig, SignalReportTask
 │   └── temporal/
 │       ├── __init__.py              # Registers Signals workflows and activities
 │       ├── agentic/

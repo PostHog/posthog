@@ -78,6 +78,7 @@ class DeliverSubscriptionInputs:
     is_new_subscription_target: bool = False
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
+    change_summary: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -147,6 +148,19 @@ class UpdateDeliveryRecordInputs:
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False
+
+
+@dataclasses.dataclass
+class SnapshotInsightsInputs:
+    subscription_id: int
+    team_id: int
+    delivery_id: typing.Optional[str] = None
+    summary_enabled: bool = False
+
+
+@dataclasses.dataclass
+class SnapshotInsightsResult:
+    summary_text: str | None = None
 
 
 @dataclasses.dataclass

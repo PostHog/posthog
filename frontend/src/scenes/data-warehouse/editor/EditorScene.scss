@@ -5,3 +5,35 @@
         margin-bottom: 0;
     }
 }
+
+.active-query-highlight {
+    background-color: rgb(54 130 246 / 12%);
+}
+
+.active-subquery-highlight {
+    background-color: rgb(54 130 246 / 22%);
+}
+
+.active-subquery-highlight-invalid {
+    background-color: rgb(54 130 246 / 22%);
+}
+
+.active-subquery-underline-invalid {
+    text-decoration: underline wavy var(--warning) 1.5px;
+    text-underline-offset: 3px;
+}
+
+.active-query-highlight-flash {
+    background-color: rgb(54 130 246 / 25%);
+    animation: ActiveQueryHighlight__flash 0.6s ease-out;
+}
+
+@keyframes ActiveQueryHighlight__flash {
+    0% {
+        background-color: rgb(54 130 246 / 35%);
+    }
+
+    100% {
+        background-color: rgb(54 130 246 / 25%);
+    }
+}

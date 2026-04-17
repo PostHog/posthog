@@ -14,6 +14,7 @@ from posthog.models.integration import (
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
 )
@@ -72,6 +73,10 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
         .values_list("issue_id", flat=True)
         .first()
     )
+
+
+def get_issue_assignment(assignment_id: UUID | str) -> ErrorTrackingIssueAssignment:
+    return ErrorTrackingIssueAssignment.objects.select_related("issue", "role").get(id=assignment_id)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:

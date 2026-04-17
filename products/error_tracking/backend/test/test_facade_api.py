@@ -19,6 +19,8 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSymbolSet,
 )
 
+from ee.models.rbac.role import Role
+
 
 class TestErrorTrackingFacadeAPI(BaseTest):
     def _create_issue(self, *, team, name: str, description: str | None = None) -> ErrorTrackingIssue:
@@ -123,3 +125,41 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert symbol_set_counts[other_team.id] == 1
         assert resolved_symbol_set_counts[self.team.id] == 1
         assert resolved_symbol_set_counts[other_team.id] == 1
+
+    @parameterized.expand(
+        [
+            ["user_assignment"],
+            ["role_assignment_with_member"],
+            ["role_assignment_without_member"],
+        ]
+    )
+    def test_get_issue_assignment_for_notification(self, assignment_kind: str):
+        issue = self._create_issue(team=self.team, name="Assigned issue", description="Assigned description")
+
+        expected_user_id: int | None
+        expected_role_id = None
+        expected_role_member_user_ids: list[int] = []
+
+        if assignment_kind == "user_assignment":
+            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+            expected_user_id = self.user.id
+        else:
+            role = Role.objects.create(name=f"Role for {assignment_kind}", organization=self.organization)
+            if assignment_kind == "role_assignment_with_member":
+                role.members.add(self.user)
+                expected_role_member_user_ids = [self.user.id]
+
+            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role=role)
+            expected_user_id = None
+            expected_role_id = role.id
+
+        result = api.get_issue_assignment_for_notification(assignment_id=assignment.id)
+
+        assert isinstance(result, contracts.ErrorTrackingIssueAssignmentNotification)
+        assert result.id == assignment.id
+        assert result.assigned_user_id == expected_user_id
+        assert result.role_id == expected_role_id
+        assert sorted(result.role_member_user_ids) == sorted(expected_role_member_user_ids)
+        assert result.issue.id == issue.id
+        assert result.issue.team_id == self.team.id
+        assert result.issue.name == "Assigned issue"
