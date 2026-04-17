@@ -102,16 +102,6 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
         fields = ["scene", "dashboard"]
 
 
-class PendingInviteSerializer(serializers.Serializer):
-    """Shape of each item in the GET /api/users/@me/pending_invites/ response."""
-
-    id = serializers.CharField()
-    target_email = serializers.EmailField()
-    organization_id = serializers.CharField()
-    organization_name = serializers.CharField()
-    created_at = serializers.DateTimeField()
-
-
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -121,6 +111,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
+    pending_invites = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -173,6 +164,7 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "pending_invites",
         ]
 
         read_only_fields = [
@@ -192,6 +184,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "pending_invites",
         ]
 
         extra_kwargs = {
@@ -254,6 +247,43 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    def get_pending_invites(self, instance: User) -> list[dict]:
+        """Non-expired organization invites matching the user's email for orgs they aren't already in."""
+        from django.utils import timezone as django_timezone
+
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.helpers.email_utils import EmailNormalizer
+        from posthog.models import OrganizationInvite, OrganizationMembership
+
+        if not instance.email:
+            return []
+
+        normalized_email = EmailNormalizer.normalize(instance.email)
+        existing_org_ids = OrganizationMembership.objects.filter(user=instance).values_list(
+            "organization_id", flat=True
+        )
+
+        invites = (
+            OrganizationInvite.objects.filter(
+                target_email__iexact=normalized_email,
+                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+            )
+            .exclude(organization_id__in=existing_org_ids)
+            .select_related("organization")
+            .order_by("-created_at")
+        )
+
+        return [
+            {
+                "id": str(invite.id),
+                "target_email": invite.target_email,
+                "organization_id": str(invite.organization_id),
+                "organization_name": invite.organization.name,
+                "created_at": invite.created_at,
+            }
+            for invite in invites
+        ]
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -493,7 +523,7 @@ class UserViewSet(
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
     # Custom @action GETs that should map to user:read for OAuth / personal API keys
-    scope_object_read_actions = ["list", "retrieve", "github_login", "pending_invites"]
+    scope_object_read_actions = ["list", "retrieve", "github_login"]
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
@@ -572,51 +602,6 @@ class UserViewSet(
     def github_login(self, request, **kwargs):
         user = self.get_object()
         return Response({"github_login": user.get_github_login()})
-
-    @extend_schema(responses=PendingInviteSerializer(many=True))
-    @action(methods=["GET"], detail=True, url_path="pending_invites")
-    def pending_invites(self, request, **kwargs):
-        """List pending organization invites for the current user, matched by email.
-
-        Returned invites are non-expired and target organizations the user is not yet a member of.
-        Used to surface invites a user received by email but never accepted — for example,
-        when they signed up and created their own org before clicking the email link.
-        """
-        from django.utils import timezone as django_timezone
-
-        from posthog.constants import INVITE_DAYS_VALIDITY
-        from posthog.helpers.email_utils import EmailNormalizer
-        from posthog.models import OrganizationInvite, OrganizationMembership
-
-        user = self.get_object()
-
-        if not user.email:
-            return Response([])
-
-        normalized_email = EmailNormalizer.normalize(user.email)
-        existing_org_ids = OrganizationMembership.objects.filter(user=user).values_list("organization_id", flat=True)
-
-        invites = (
-            OrganizationInvite.objects.filter(
-                target_email__iexact=normalized_email,
-                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
-            )
-            .exclude(organization_id__in=existing_org_ids)
-            .select_related("organization")
-            .order_by("-created_at")
-        )
-
-        data = [
-            {
-                "id": str(invite.id),
-                "target_email": invite.target_email,
-                "organization_id": str(invite.organization_id),
-                "organization_name": invite.organization.name,
-                "created_at": invite.created_at,
-            }
-            for invite in invites
-        ]
-        return Response(data)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

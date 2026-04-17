@@ -1,39 +1,19 @@
-import { afterMount, kea, path } from 'kea'
-import { loaders } from 'kea-loaders'
+import { connect, kea, path, selectors } from 'kea'
 
-import api from 'lib/api'
-import { isUserLoggedIn } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
+
+import { PendingInviteForCurrentUser } from '~/types'
 
 import type { pendingInvitesLogicType } from './pendingInvitesLogicType'
 
-export interface PendingInviteForCurrentUser {
-    id: string
-    target_email: string
-    organization_id: string
-    organization_name: string
-    created_at: string
-}
+export type { PendingInviteForCurrentUser }
 
 export const pendingInvitesLogic = kea<pendingInvitesLogicType>([
     path(['lib', 'components', 'Account', 'pendingInvitesLogic']),
-    loaders({
-        pendingInvites: [
-            [] as PendingInviteForCurrentUser[],
-            {
-                loadPendingInvites: async () => {
-                    if (!isUserLoggedIn()) {
-                        return []
-                    }
-                    try {
-                        return await api.get('api/users/@me/pending_invites/')
-                    } catch {
-                        return []
-                    }
-                },
-            },
-        ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadPendingInvites()
+    connect(() => ({
+        values: [userLogic, ['user']],
+    })),
+    selectors({
+        pendingInvites: [(s) => [s.user], (user): PendingInviteForCurrentUser[] => user?.pending_invites ?? []],
     }),
 ])
