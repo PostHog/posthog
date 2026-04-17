@@ -131,13 +131,22 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-04-17',
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me/': INVITED_USER,
+            },
+            post: {
+                '/api/users/@me/welcome_screen/dismiss/': { welcome_screen_seen_at: '2026-04-17T12:00:00Z' },
+            },
+        }),
+    ],
 }
 export default meta
 
 function Template(): JSX.Element {
     useMountedLogic(userLogic)
     useEffect(() => {
-        userLogic.actions.loadUserSuccess(INVITED_USER)
         // Force-mount the dialog logic so the story renders independent of the home page wrapper.
         welcomeDialogLogic.mount()
     }, [])
