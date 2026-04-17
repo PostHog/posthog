@@ -155,6 +155,31 @@ class TestOrganizationInviteGuestFlow(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_me_exposes_guest_flag_and_grants(self):
+        guest_user = User.objects.create_user(email="gm2@x.com", password="x", first_name="GM")
+        membership = OrganizationMembership.objects.create(
+            organization=self.organization, user=guest_user, is_guest=True
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="d2", created_by=self.user)
+        GuestResourceGrant.objects.create(
+            organization_membership=membership,
+            team=self.team,
+            resource="dashboard",
+            resource_id=dashboard.id,
+            is_pending=False,
+        )
+        guest_user.current_team = self.team
+        guest_user.current_organization = self.organization
+        guest_user.save()
+
+        self.client.force_login(guest_user)
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["is_guest_in_current_project"])
+        self.assertEqual(len(body["guest_grants"]), 1)
+        self.assertEqual(body["guest_grants"][0]["resource"], "dashboard")
+
     def test_invite_accept_creates_guest_membership_and_flips_grants(self):
         dashboard = Dashboard.objects.create(team=self.team, name="d", created_by=self.user)
         invite = OrganizationInvite.objects.create(
