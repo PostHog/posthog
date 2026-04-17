@@ -333,6 +333,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ):
 
             def update_schedule() -> None:
+                should_sync_value = should_sync if should_sync is not None else updated_instance.should_sync
                 schedule_exists = external_data_workflow_exists(str(updated_instance.id))
 
                 if schedule_exists:
@@ -341,10 +342,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     elif should_sync is True:
                         unpause_external_data_schedule(str(updated_instance.id))
                 elif should_sync is True:
-                    sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync)
+                    sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
 
                 if was_sync_frequency_updated or was_sync_time_of_day_updated:
-                    sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync)
+                    sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
 
             self._run_temporal_side_effect(update_schedule)
 

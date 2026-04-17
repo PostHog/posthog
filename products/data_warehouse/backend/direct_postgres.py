@@ -29,14 +29,6 @@ def _normalize_default_schema(default_schema: str | None) -> str | None:
     return normalized_default_schema or None
 
 
-def _normalize_default_schema(default_schema: str | None) -> str | None:
-    if not isinstance(default_schema, str):
-        return None
-
-    normalized_default_schema = default_schema.strip()
-    return normalized_default_schema or None
-
-
 def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> DirectPostgresColumns:
     resolved_columns: DirectPostgresColumns = {}
     if not schema_metadata:
