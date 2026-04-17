@@ -124,6 +124,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
+    guest_enabled_actions = ["create"]
 
     def get_throttles(self):
         if self.action == "draft_sql":

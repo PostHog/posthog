@@ -578,6 +578,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     """
 
     scope_object: APIScopeObjectOrNotSupported = "project"
+    guest_enabled_actions = ["retrieve"]
     serializer_class = ProjectBackwardCompatSerializer
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"

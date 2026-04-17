@@ -1311,6 +1311,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     """
 
     scope_object: APIScopeObjectOrNotSupported = "project"
+    guest_enabled_actions = ["retrieve"]
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     lookup_field = "id"

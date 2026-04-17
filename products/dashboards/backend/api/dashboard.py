@@ -961,6 +961,7 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
+    guest_enabled_actions = ["retrieve"]
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]

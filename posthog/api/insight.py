@@ -1119,6 +1119,7 @@ class InsightViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"
+    guest_enabled_actions = ["retrieve"]
     serializer_class = InsightSerializer
     throttle_classes = [
         ClickHouseBurstRateThrottle,

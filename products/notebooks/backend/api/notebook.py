@@ -361,6 +361,7 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
 )
 class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
+    guest_enabled_actions = ["retrieve"]
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]

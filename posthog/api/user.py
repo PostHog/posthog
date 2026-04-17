@@ -480,6 +480,7 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    guest_enabled_actions = ["retrieve", "partial_update"]
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
     # Custom @action GETs that should map to user:read for OAuth / personal API keys

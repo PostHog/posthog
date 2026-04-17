@@ -249,6 +249,7 @@ class OrganizationSerializer(
 
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
+    guest_enabled_actions = ["retrieve"]
     serializer_class = OrganizationSerializer
     permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()
