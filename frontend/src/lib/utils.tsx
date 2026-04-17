@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import {
@@ -1949,15 +1948,6 @@ export function humanTzOffset(timezone?: string): string {
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
 export function humanList(arr: readonly string[]): string {
     return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.at(-1) : arr.join(' and ')
-}
-
-export function resolveWebhookService(webhookUrl: string): string {
-    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
-        if (webhookUrl.includes(domain + '/')) {
-            return service
-        }
-    }
-    return 'your webhook service'
 }
 
 export function hexToRGB(hex: string): { r: number; g: number; b: number; a: number } {

@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
+use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
@@ -52,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
     tracing::info!("etcd prefix: {}", config.etcd_prefix);
     tracing::info!("Pod name: {}", config.pod_name);
+    tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
     let mut manager = Manager::builder("personhog-leader")
         .with_global_shutdown_timeout(Duration::from_secs(30))
@@ -69,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "coordination",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
     );
+    let kafka_handle = manager.register("kafka-producer", ComponentOptions::new());
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -102,9 +105,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Initialize partitioned cache and service
+    // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity));
-    let service = PersonHogLeaderService::new(Arc::clone(&cache));
+
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+        Ok(producer) => producer,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to create Kafka producer");
+            return Err(e.into());
+        }
+    };
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        config.kafka_person_state_topic.clone(),
+    );
 
     // Connect to etcd and start coordination
     let etcd_config = StoreConfig {

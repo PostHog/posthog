@@ -227,16 +227,21 @@ function toCamelCase(str: string): string {
 }
 
 /**
- * Parse enrich_url template into prefix and field.
- * '{id}' → { prefix: '', field: 'id' }
- * 'hog-{id}' → { prefix: 'hog-', field: 'id' }
+ * Parse enrich_url template into prefix, field, and source.
+ * '{id}' → { prefix: '', field: 'id', source: 'result' }
+ * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
+ * '{params.id}' → { prefix: '', field: 'id', source: 'params' }
+ *
+ * Use '{params.x}' when the response has no usable identifier (e.g. action endpoints
+ * that return {results: [...]} with no top-level id) — the URL is built from the
+ * request params instead of the response body.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
-    const match = enrichUrl.match(/^(.*?)\{(\w+)\}$/)
+function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string; source: 'result' | 'params' } {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[2]! }
+    return { prefix: match[1]!, field: match[3]!, source: match[2] === 'params' ? 'params' : 'result' }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -254,15 +259,24 @@ function operationIdToPascal(operationId: string): string {
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
+    /** Inline Zod declarations generated from schema_ref (emitted before the schema declaration) */
+    schemaRefBlocks: string[]
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
     bodyFieldNames: string[]
     /** Maps alias → original field name for renamed params */
     renamedFields: Record<string, string>
+    /** Maps param name → fallback key for optional params with state fallbacks */
+    paramFallbacks: Record<string, string>
 }
 
-function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec: OpenApiSpec): SchemaComposition {
+function composeToolSchema(
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec,
+    getQuerySchema: () => JsonSchemaRoot
+): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
     const schemaParts: string[] = []
@@ -402,15 +416,73 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
-    // param_overrides with description tweaks are applied in the tool definitions JSON.
-    // param_overrides with input_schema replace individual fields in the Zod schema.
+    // param_overrides:
+    //   - input_schema  → replace the field with a named import from @/schema/tool-inputs
+    //   - schema_ref    → generate inline Zod from schema.json and use that
+    //   - description   → wrap the existing Orval-derived field with .describe(...)
+    //   - optional+fallback → make param optional and resolve from state when omitted
     const toolInputsImports: string[] = []
+    const schemaRefBlocks: string[] = []
+    const paramFallbacks: Record<string, string> = {}
+    // Fields added via param_overrides (input_schema/schema_ref) need to participate in
+    // the body builder for write ops — otherwise the override is in the schema but
+    // the handler never forwards the value to the API. On PATCH (partial update) the
+    // field defaults to optional, mirroring the original Orval body schema.
+    const isWriteOp = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
+    const isPartialUpdate = resolved.method === 'PATCH'
+    const optionalSuffix = isPartialUpdate ? '.optional()' : ''
     if (config.param_overrides) {
         const schemaOverrides: string[] = []
         for (const [paramName, override] of Object.entries(config.param_overrides)) {
+            // Track optional params with state fallbacks
+            if (override.optional && override.fallback) {
+                paramFallbacks[paramName] = override.fallback
+            }
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}`)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
+                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                    bodyFieldNames.push(paramName)
+                }
+            } else if (override.schema_ref) {
+                const excludeProps = override.exclude_properties ?? []
+                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                schemaRefBlocks.push(zodCode)
+                const varName = getEntryVarName(override.schema_ref)
+                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                    bodyFieldNames.push(paramName)
+                }
+            } else if (override.description || override.default !== undefined || override.optional) {
+                // Locate the Orval source schema this param came from, so we can reference
+                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional().
+                let sourceImport: string | null = null
+                if (bodyFieldNames.includes(paramName)) {
+                    sourceImport = `${pascal}Body`
+                } else if (queryParamNames.includes(paramName)) {
+                    sourceImport = `${pascal}QueryParams`
+                } else if (pathParamNames.includes(paramName)) {
+                    sourceImport = `${pascal}Params`
+                }
+                if (sourceImport) {
+                    let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.default !== undefined) {
+                        expr += `.default(${JSON.stringify(override.default)}).optional()`
+                    }
+                    if (override.description) {
+                        const escaped = override.description
+                            .trim()
+                            .replace(/\\/g, '\\\\')
+                            .replace(/'/g, "\\'")
+                            .replace(/\n\s*/g, ' ')
+                        expr += `.describe('${escaped}')`
+                    }
+                    if (override.optional) {
+                        expr += '.optional()'
+                    }
+                    schemaOverrides.push(`${paramName}: ${expr}`)
+                }
             }
         }
         if (schemaOverrides.length > 0) {
@@ -434,11 +506,13 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
     return {
         orvalImports,
         toolInputsImports,
+        schemaRefBlocks,
         schemaExpr,
         pathParamNames,
         queryParamNames,
         bodyFieldNames,
         renamedFields,
+        paramFallbacks,
     }
 }
 
@@ -453,11 +527,19 @@ function extractPathParams(urlPattern: string): string[] {
     return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
-/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params */
-function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
+/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
+ *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
+function buildPathExpr(
+    urlPath: string,
+    pathParamNames: string[],
+    paramAccessPrefix = '',
+    localVarParams: Set<string> = new Set()
+): string {
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${encodeURIComponent(String(projectId))}').replace('{organization_id}', '${encodeURIComponent(String(orgId))}')}\``
     for (const pn of pathParamNames) {
-        pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
+        const prefix = localVarParams.has(pn) ? '' : paramAccessPrefix
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${encodeURIComponent(String(${prefix}${pn}))}`)
     }
     return pathExpr
 }
@@ -474,7 +556,7 @@ function buildResponseFilter(config: ToolConfig): {
         const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: result.results.map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
                 helperImport: 'pickResponseFields',
             }
         }
@@ -487,7 +569,7 @@ function buildResponseFilter(config: ToolConfig): {
         const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: result.results.map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
                 helperImport: 'omitResponseFields',
             }
         }
@@ -504,14 +586,21 @@ function buildResponseFilter(config: ToolConfig): {
 // ------------------------------------------------------------------
 
 function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
-    const baseUrl = category.url_prefix
+    const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        // For list endpoints, 'params.x' is not meaningful (items come from the response
+        // array, not request params), so force 'result' source here.
+        if (source === 'params') {
+            throw new Error(
+                `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
+            )
+        }
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all(${resultVar}.results.map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
             `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
@@ -522,9 +611,10 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     if (config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${resultVar}.${field}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
     }
 
     return `        return ${resultVar}\n`
@@ -540,11 +630,13 @@ function generateToolCode(
     resolved: ResolvedOperation,
     category: CategoryConfig,
     spec: OpenApiSpec,
-    knownTypes: Set<string>
+    knownTypes: Set<string>,
+    getQuerySchema: () => JsonSchemaRoot
 ): {
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
@@ -558,7 +650,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
@@ -577,7 +669,8 @@ function generateToolCode(
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
 
-    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
+    const localVarParams = new Set(Object.keys(composition.paramFallbacks))
+    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
 
     // Determine which auto-resolved IDs this operation needs
     const needsProjectId = resolved.path.includes('{project_id}')
@@ -591,6 +684,22 @@ function generateToolCode(
     if (needsProjectId) {
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
+
+    // Resolve optional params with state fallbacks
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    for (const [paramName, fallbackKey] of Object.entries(composition.paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (method) {
+            handlerBody += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+            handlerBody += `        if (!${paramName}) {\n`
+            handlerBody += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${fallbackKey === 'orgId' ? 'organization' : 'project'} first.')\n`
+            handlerBody += `        }\n`
+        }
+    }
+
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
     const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
@@ -664,7 +773,8 @@ function generateToolCode(
 
     const appKey = config.ui_app ?? null
 
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
+    const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
+    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
@@ -688,6 +798,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         code,
         orvalImports: composition.orvalImports,
         toolInputsImports: composition.toolInputsImports,
+        schemaRefBlocks: composition.schemaRefBlocks,
         responseType,
         needsWithPostHogUrl,
         hasEnrichment,
@@ -707,6 +818,7 @@ function generateCustomSchemaToolCode(
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
@@ -781,6 +893,7 @@ ${handlerBody}    },
         code,
         orvalImports: [],
         toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        schemaRefBlocks: [],
         responseType,
         needsWithPostHogUrl: false,
         hasEnrichment: false,
@@ -856,6 +969,8 @@ function generateCategoryFile(
 
     const allOrvalImports = new Set<string>()
     const allToolInputsImports = new Set<string>()
+    const allSchemaRefBlocks: string[] = []
+    const emittedSchemaRefDefs = new Set<string>()
     const toolCodes: string[] = []
     let hasResponseType = false
     let hasWithPostHogUrl = false
@@ -865,13 +980,24 @@ function generateCategoryFile(
     const responseFilterImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
-        const result = generateToolCode(name, config, resolved, category, spec, knownTypes)
+        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
         }
         for (const imp of result.toolInputsImports) {
             allToolInputsImports.add(imp)
+        }
+        // Collect schema_ref blocks, deduplicating by const name
+        for (const block of result.schemaRefBlocks) {
+            for (const decl of block.split('\n\nconst ')) {
+                const line = decl.startsWith('const ') ? decl : `const ${decl}`
+                const match = line.match(/^const (\w+) =/)
+                if (match && !emittedSchemaRefDefs.has(match[1]!)) {
+                    emittedSchemaRefDefs.add(match[1]!)
+                    allSchemaRefBlocks.push(line)
+                }
+            }
         }
         if (result.responseType) {
             hasResponseType = true
@@ -1017,11 +1143,13 @@ function generateCategoryFile(
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
+    const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

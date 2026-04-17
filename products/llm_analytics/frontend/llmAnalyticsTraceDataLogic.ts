@@ -32,7 +32,7 @@ import {
     findTraceOccurrences,
 } from './searchUtils'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -179,16 +179,24 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
+        actions: [llmAnalyticsTraceLogic({ tabId: props.tabId }), ['setEventId']],
     })),
     actions({
         reportSingleTraceLoadIfReady: true,
         setSingleTraceLoadReported: true,
+        setHasScrolledToEvent: true,
     }),
     reducers({
         singleTraceLoadReported: [
             false,
             {
                 setSingleTraceLoadReported: () => true,
+            },
+        ],
+        hasScrolledToEvent: [
+            false,
+            {
+                setHasScrolledToEvent: () => true,
             },
         ],
     }),
@@ -377,6 +385,28 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 return undefined
             },
         ],
+        selectedNode: [
+            (s) => [s.event, s.enrichedTree],
+            (
+                event: LLMTrace | LLMTraceEvent | null,
+                enrichedTree: EnrichedTraceTreeNode[]
+            ): EnrichedTraceTreeNode | null => {
+                if (!event || !isLLMEvent(event)) {
+                    return null
+                }
+                return findNodeForEvent(enrichedTree, event.id)
+            },
+        ],
+        sessionId: [
+            (s) => [s.selectedNode, s.event],
+            (node: EnrichedTraceTreeNode | null, event: LLMTrace | LLMTraceEvent | null): string | null => {
+                if (!event) {
+                    return null
+                }
+                const childEvents = node?.children?.map((child) => child.event)
+                return getSessionID(event, childEvents)
+            },
+        ],
         availableEventTypes: [
             (s) => [s.enrichedTree],
             (enrichedTree: EnrichedTraceTreeNode[]): string[] => {
@@ -421,6 +451,38 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         },
     })),
     subscriptions(({ actions, props, values }) => ({
+        enrichedTree: (enrichedTree: EnrichedTraceTreeNode[]) => {
+            // On initial load with a deep-linked event, scroll to the bottom to show the latest message
+            if (enrichedTree.length > 0 && values.eventId && !values.hasScrolledToEvent) {
+                actions.setHasScrolledToEvent()
+                // rAF assumes conversation DOM is committed in the same render as the tree.
+                // If conversation content ever loads async, this may scroll slightly short.
+                requestAnimationFrame(() => {
+                    const mainContent = document.getElementById('main-content')
+                    if (mainContent) {
+                        mainContent.scrollTo({ top: mainContent.scrollHeight })
+                    }
+                })
+            }
+        },
+        eventId: (eventId: string | null) => {
+            // When the selected event changes, scroll the sidebar tree to keep it visible
+            if (eventId) {
+                requestAnimationFrame(() => {
+                    const sidebar = document.getElementById('trace-events-sidebar')
+                    const selectedNode = sidebar?.querySelector('[aria-current=true]')
+                    if (selectedNode) {
+                        selectedNode.scrollIntoView({ block: 'center' })
+                    }
+                })
+            }
+        },
+        mostRelevantEvent: (mostRelevantEvent: LLMTraceEvent | null) => {
+            // When search finds a most relevant event, navigate to it
+            if (mostRelevantEvent && values.searchQuery.trim()) {
+                actions.setEventId(mostRelevantEvent.id)
+            }
+        },
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
@@ -544,6 +606,21 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
 
 // Export functions for testing
 export { findEventWithParents }
+
+export function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
+    for (const node of tree) {
+        if (node.event.id === eventId) {
+            return node
+        }
+        if (node.children) {
+            const result = findNodeForEvent(node.children, eventId)
+            if (result) {
+                return result
+            }
+        }
+    }
+    return null
+}
 
 export function getInitialFocusEventId(
     showableEvents: LLMTraceEvent[],

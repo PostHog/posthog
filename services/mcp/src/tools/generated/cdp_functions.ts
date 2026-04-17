@@ -28,7 +28,7 @@ const cdpFunctionsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             query: {
                 created_at: params.created_at,
                 created_by: params.created_by,
@@ -45,7 +45,21 @@ const cdpFunctionsList = (): ToolBase<
     },
 })
 
-const CdpFunctionsCreateSchema = HogFunctionsCreateBody
+const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
+    type: HogFunctionsCreateBody.shape['type'].describe(
+        'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
+    ),
+    template_id: HogFunctionsCreateBody.shape['template_id'].describe(
+        'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
+    ),
+    hog: HogFunctionsCreateBody.shape['hog'].describe(
+        'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
+    ),
+    enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the function is active and processing events.'),
+    execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
+        'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'
+    ),
+})
 
 const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-create',
@@ -94,7 +108,7 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'POST',
-            path: `/api/projects/${projectId}/hog_functions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             body,
         })
         return result
@@ -110,15 +124,19 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
 })
 
-const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFunctionsPartialUpdateBody.shape
-)
+const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true })
+    .extend(HogFunctionsPartialUpdateBody.shape)
+    .extend({
+        enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
+            'Set to true to activate or false to deactivate the function.'
+        ),
+    })
 
 const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-partial-update',
@@ -167,7 +185,7 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -183,7 +201,7 @@ const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
@@ -220,7 +238,7 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.HogFunctionInvocation>({
             method: 'POST',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/invocations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/invocations/`,
             body,
         })
         return result
@@ -243,7 +261,7 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.HogFunction[]>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/rearrange/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/rearrange/`,
             body,
         })
         return result

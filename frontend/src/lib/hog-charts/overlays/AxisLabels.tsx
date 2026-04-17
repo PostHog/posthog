@@ -5,6 +5,8 @@ import { useChart } from '../core/chart-context'
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
+    /** Formatter for the right y-axis. Falls back to `yTickFormatter` if not provided. */
+    yRightTickFormatter?: (value: number) => string
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
@@ -77,6 +79,7 @@ const TICK_STYLE_BASE: React.CSSProperties = {
 export function AxisLabels({
     xTickFormatter,
     yTickFormatter,
+    yRightTickFormatter,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
@@ -84,10 +87,20 @@ export function AxisLabels({
     const { scales, dimensions, labels } = useChart()
     const yTicks = scales.yTicks()
 
+    const rightAxis = useMemo(() => {
+        if (!scales.yAxes) {
+            return null
+        }
+        return Object.values(scales.yAxes).find((a) => a.position === 'right') ?? null
+    }, [scales.yAxes])
+    const rightTicks = useMemo(() => rightAxis?.ticks() ?? [], [rightAxis])
+
     const visibleXLabels = useMemo(
         () => (hideXAxis ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter)),
         [hideXAxis, labels, scales.x, xTickFormatter]
     )
+
+    const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     return (
         <>
@@ -104,6 +117,30 @@ export function AxisLabels({
                             style={{
                                 ...TICK_STYLE_BASE,
                                 right: dimensions.width - dimensions.plotLeft + 8,
+                                top: y,
+                                transform: 'translateY(-50%)',
+                                color: axisColor,
+                            }}
+                        >
+                            {label}
+                        </div>
+                    )
+                })}
+
+            {!hideYAxis &&
+                rightAxis &&
+                rightTicks.map((tick: number) => {
+                    const y = rightAxis.scale(tick)
+                    if (!isFinite(y)) {
+                        return null
+                    }
+                    const label = rightFormatter ? rightFormatter(tick) : String(tick)
+                    return (
+                        <div
+                            key={`yr-${tick}`}
+                            style={{
+                                ...TICK_STYLE_BASE,
+                                left: dimensions.plotLeft + dimensions.plotWidth + 8,
                                 top: y,
                                 transform: 'translateY(-50%)',
                                 color: axisColor,
