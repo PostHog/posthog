@@ -14,9 +14,18 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingSpikeDetectionConfigSerializer(serializers.ModelSerializer):
-    snooze_duration_minutes = serializers.IntegerField(min_value=1)
-    multiplier = serializers.IntegerField(min_value=1)
-    threshold = serializers.IntegerField(min_value=1)
+    snooze_duration_minutes = serializers.IntegerField(
+        min_value=1,
+        help_text="Time to wait before alerting again for the same issue after a spike is detected.",
+    )
+    multiplier = serializers.IntegerField(
+        min_value=1,
+        help_text="The factor by which the current exception count must exceed the baseline to be considered a spike.",
+    )
+    threshold = serializers.IntegerField(
+        min_value=1,
+        help_text="The minimum number of exceptions required in a 5-minute window before a spike can be detected.",
+    )
 
     class Meta:
         model = ErrorTrackingSpikeDetectionConfig
