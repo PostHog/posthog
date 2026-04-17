@@ -266,6 +266,7 @@ async def test_dlq_replay_workflow_aggregates_partition_results(activity_call_tr
 
 @pytest.mark.asyncio
 async def test_dlq_replay_workflow_passes_token_allowlist_to_activity(activity_call_tracker):
+    """Verify the workflow forwards token_allowlist to each partition activity and aggregates skipped counts."""
     replay_partition_calls = activity_call_tracker["replay_partition_calls"]
 
     @activity.defn(name="get_topic_partitions")
