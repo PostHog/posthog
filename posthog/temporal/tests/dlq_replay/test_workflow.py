@@ -260,6 +260,7 @@ async def test_dlq_replay_workflow_aggregates_partition_results(activity_call_tr
             )
 
     assert result.total_messages_replayed == 350
+    assert result.total_messages_skipped == 0
     assert result.partition_results == {0: 100, 1: 200, 2: 50}
 
 
