@@ -133,9 +133,6 @@ func buildGroupedEntries(services []*process.Process, dim string, cfg *config.Co
 	sort.Strings(remaining)
 	for _, g := range remaining {
 		procs := groups[g]
-		if len(procs) == 0 {
-			continue
-		}
 		if !firstGroup {
 			entries = append(entries, sidebarEntry{spacer: true})
 		}

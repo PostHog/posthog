@@ -211,65 +211,55 @@ func TestBuildGroupedEntries_ungroupedAppearsAfterConfiguredGroups(t *testing.T)
 	}
 }
 
-func TestGroupDimensions_extensible(t *testing.T) {
-	cfg := &config.Config{
-		Procs: map[string]config.ProcConfig{
-			"plain":   {Shell: "echo"},                                                                       // no groups
-			"simple":  {Shell: "echo", Groups: map[string]string{"layer": "App"}},                            // 1 dimension
-			"complex": {Shell: "echo", Groups: map[string]string{"tech": "Rust", "team": "Infra", "cost": "High"}}, // 3 different dimensions
-		},
-	}
-	dims := groupDimensions(cfg)
-	if len(dims) != 4 {
-		t.Fatalf("want 4 dimensions (cost, layer, team, tech), got %d: %v", len(dims), dims)
-	}
-	want := []string{"cost", "layer", "team", "tech"}
-	for i, d := range dims {
-		if d != want[i] {
-			t.Errorf("dimension %d: got %q, want %q (full: %v)", i, d, want[i], dims)
-		}
-	}
-}
-
 // ── groupDimensions ──────────────────────────────────────────────────────────
 
-func TestGroupDimensions_fromProcs(t *testing.T) {
-	cfg := &config.Config{
-		Procs: map[string]config.ProcConfig{
-			"a": {Groups: map[string]string{"layer": "App", "tech": "Python"}},
-			"b": {Groups: map[string]string{"layer": "Infra"}},
+func TestGroupDimensions(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.Config
+		want []string
+	}{
+		{
+			name: "no groups",
+			cfg:  &config.Config{Procs: map[string]config.ProcConfig{"a": {Shell: "echo hi"}}},
+			want: nil,
+		},
+		{
+			name: "from procs",
+			cfg: &config.Config{Procs: map[string]config.ProcConfig{
+				"a": {Groups: map[string]string{"layer": "App", "tech": "Python"}},
+				"b": {Groups: map[string]string{"layer": "Infra"}},
+			}},
+			want: []string{"layer", "tech"},
+		},
+		{
+			name: "from group_order only",
+			cfg:  &config.Config{GroupOrder: map[string][]string{"team": {"Platform", "Product"}}},
+			want: []string{"team"},
+		},
+		{
+			name: "extensible — multiple procs, overlapping dims",
+			cfg: &config.Config{Procs: map[string]config.ProcConfig{
+				"plain":   {Shell: "echo"},
+				"simple":  {Shell: "echo", Groups: map[string]string{"layer": "App"}},
+				"complex": {Shell: "echo", Groups: map[string]string{"tech": "Rust", "team": "Infra", "cost": "High"}},
+			}},
+			want: []string{"cost", "layer", "team", "tech"},
 		},
 	}
-	dims := groupDimensions(cfg)
-	if len(dims) != 2 {
-		t.Fatalf("want 2 dimensions, got %d: %v", len(dims), dims)
-	}
-	if dims[0] != "layer" || dims[1] != "tech" {
-		t.Errorf("want [layer, tech], got %v", dims)
-	}
-}
-
-func TestGroupDimensions_includesGroupOrder(t *testing.T) {
-	cfg := &config.Config{
-		GroupOrder: map[string][]string{
-			"team": {"Platform", "Product"},
-		},
-	}
-	dims := groupDimensions(cfg)
-	if len(dims) != 1 || dims[0] != "team" {
-		t.Errorf("want [team], got %v", dims)
-	}
-}
-
-func TestGroupDimensions_empty(t *testing.T) {
-	cfg := &config.Config{
-		Procs: map[string]config.ProcConfig{
-			"a": {Shell: "echo hi"},
-		},
-	}
-	dims := groupDimensions(cfg)
-	if len(dims) != 0 {
-		t.Errorf("want no dimensions, got %v", dims)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dims := groupDimensions(tc.cfg)
+			if len(dims) != len(tc.want) {
+				t.Fatalf("got %v, want %v", dims, tc.want)
+			}
+			for i := range dims {
+				if dims[i] != tc.want[i] {
+					t.Errorf("got %v, want %v", dims, tc.want)
+					break
+				}
+			}
+		})
 	}
 }
 
