@@ -105,6 +105,11 @@ class Task(DeletedMetaFields, models.Model):
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    ci_prompt = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
+    )
 
     class Meta:
         db_table = "posthog_task"

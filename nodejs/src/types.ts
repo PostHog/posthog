@@ -285,7 +285,6 @@ export interface Team {
     anonymize_ips: boolean
     api_token: string
     secret_api_token: string | null
-    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null

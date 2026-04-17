@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+import { LLM_TRACES_PAGE_SIZE } from '../utils'
 import type { llmAnalyticsTracesTabLogicType } from './llmAnalyticsTracesTabLogicType'
 
 export interface LLMAnalyticsTracesTabLogicProps {
@@ -91,7 +92,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.TracesQuery,
-                        limit: 100,
+                        limit: LLM_TRACES_PAGE_SIZE,
                         dateRange: {
                             date_from: dateFilter.dateFrom || undefined,
                             date_to: dateFilter.dateTo || undefined,

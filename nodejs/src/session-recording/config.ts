@@ -5,9 +5,12 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../config/kafka-topics'
-import { DEFAULT_PRODUCER, type ProducerName } from '../ingestion/common/outputs'
+import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../ingestion/common/outputs'
 import { isDevEnv } from '../utils/env-utils'
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
+
+/** Session replay only uses DEFAULT and WARPSTREAM producers. */
+export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
@@ -152,16 +155,16 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
  */
 export type SessionReplayOutputsConfig = {
     SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: string
-    SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: ProducerName
+    SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: SessionReplayProducerName
 
-    SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: ProducerName
+    SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: SessionReplayProducerName
 
-    SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: ProducerName
+    SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: SessionReplayProducerName
 
     SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: string
-    SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: ProducerName
+    SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: SessionReplayProducerName
 
-    SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: ProducerName
+    SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: SessionReplayProducerName
 }
 
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
