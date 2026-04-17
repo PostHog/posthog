@@ -115,7 +115,7 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
             {coreFeatures.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {coreFeatures.map((feature) => (
-                        <LemonTag key={feature.label} type="muted" size="small" icon={feature.icon}>
+                        <LemonTag key={feature.label} size="small" icon={feature.icon}>
                             {feature.label}
                         </LemonTag>
                     ))}
@@ -180,7 +180,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                 {comparableAddons.map((addon) => (
                     <div
                         key={addon.type}
-                        className="px-4 py-4 text-sm font-semibold text-secondary text-center border-l border-primary"
+                        className="px-4 py-4 text-sm font-semibold text-secondary text-center"
                     >
                         {addon.name}
                     </div>
