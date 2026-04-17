@@ -1223,7 +1223,12 @@ def _get_table(
         except Exception as e:
             # Probe is best-effort. Fall back to DEFAULT_NUMERIC_SCALE and let the downstream
             # `_process_batch` fallback chain infer the right type at row-fetching time.
-            logger.warning(f"Failed to probe numeric dimensions for {schema}.{table_name}: {e}")
+            logger.warning(
+                "Failed to probe numeric dimensions",
+                schema=schema,
+                table=table_name,
+                error=str(e),
+            )
 
     columns = []
     for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
@@ -1259,11 +1264,15 @@ def _get_table(
                     else:
                         numeric_precision = total_needed
                         logger.warning(
-                            f"Unconstrained numeric column {schema}.{table_name}.{name} "
-                            f"requires {total_needed} digits "
-                            f"(int={probed_int}, scale={effective_scale}), exceeding decimal128's "
-                            f"{DEFAULT_NUMERIC_PRECISION}-digit budget. Column will be stored as "
-                            f"`string` in delta to preserve data fidelity."
+                            "Unconstrained numeric column exceeds decimal128 budget; "
+                            "will be stored as string in delta to preserve fidelity",
+                            schema=schema,
+                            table=table_name,
+                            column=name,
+                            total_digits_needed=total_needed,
+                            integer_digits=probed_int,
+                            scale=effective_scale,
+                            decimal128_budget=DEFAULT_NUMERIC_PRECISION,
                         )
                     numeric_scale = effective_scale
                 else:
