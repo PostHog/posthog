@@ -33,7 +33,15 @@ from products.logs.backend.alert_state_machine import (
     AlertSnapshot,
     AlertState,
     CheckResult,
+    InvalidTransition,
     NotificationAction,
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    apply_user_reset,
     evaluate_alert_check,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
@@ -174,21 +182,34 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         threshold_changed = _any_field_changed(instance, validated_data, threshold_or_filter_fields)
         window_changed = _any_field_changed(instance, validated_data, {"window_minutes"})
 
-        already_snoozed = snooze_data is _SENTINEL and instance.state == LogsAlertConfiguration.State.SNOOZED
+        enabled_change: bool | None = None
+        if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
+            enabled_change = validated_data["enabled"]
 
-        if threshold_changed:
-            instance.mark_for_recheck(reset_state=not already_snoozed)
-        elif window_changed:
-            instance.mark_for_recheck(reset_state=False)
-
-        # Apply snooze last so it takes priority over the recheck state reset
-        if snooze_data is not _SENTINEL:
+        # Resolve the state-machine transition in priority order: enable/disable wins over
+        # snooze, which wins over threshold/filter changes. Window-only edits don't touch
+        # state at all. All transitions return an Outcome; apply_outcome is the single
+        # place that actually writes to `state`/`consecutive_failures`.
+        snapshot = instance.to_snapshot()
+        if enabled_change is True:
+            apply_outcome(instance, apply_enable(snapshot))
+        elif enabled_change is False:
+            apply_outcome(instance, apply_disable(snapshot))
+        elif snooze_data is not _SENTINEL:
             if snooze_data is None:
-                instance.state = LogsAlertConfiguration.State.NOT_FIRING
-                instance.snooze_until = None
+                apply_outcome(instance, apply_unsnooze(snapshot))
             else:
-                instance.state = LogsAlertConfiguration.State.SNOOZED
-                instance.snooze_until = snooze_data
+                apply_outcome(instance, apply_snooze(snapshot))
+        elif threshold_changed:
+            apply_outcome(instance, apply_threshold_change(snapshot))
+
+        # snooze_until is a timestamp column, not a state — carry it alongside the state
+        # transition so the serializer's single save persists both.
+        if snooze_data is not _SENTINEL:
+            instance.snooze_until = snooze_data
+
+        if threshold_changed or window_changed:
+            instance.clear_next_check()
 
         return super().update(instance, validated_data)
 
@@ -536,12 +557,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="reset")
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        if alert.state != LogsAlertConfiguration.State.BROKEN:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
         previous_failures = alert.consecutive_failures
+        try:
+            outcome = apply_user_reset(alert.to_snapshot())
+        except InvalidTransition:
+            raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            updated = alert.mark_for_recheck(reset_state=True)
-            alert.save(update_fields=updated)
+            update_fields = apply_outcome(alert, outcome)
+            update_fields.extend(alert.clear_next_check())
+            alert.save(update_fields=update_fields)
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(
