@@ -12,3 +12,6 @@ class KafkaClusterProfile(StrEnum):
     DEFAULT = "default"
     WAREHOUSE_SOURCES = "warehouse_sources"
     CYCLOTRON = "cyclotron"
+    INGESTION = "ingestion"
+    LOGS = "logs"
+    CALCULATED_EVENTS = "calculated_events"

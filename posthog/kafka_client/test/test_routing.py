@@ -111,7 +111,8 @@ class CurrentTopicRoutingTest(TestCase):
             mapping = current_topic_routing()
         self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS), KafkaClusterProfile.WAREHOUSE_SOURCES)
         self.assertEqual(mapping.get(KAFKA_DWH_CDP_RAW_TABLE), KafkaClusterProfile.CYCLOTRON)
-        self.assertNotIn(KAFKA_APP_METRICS2, mapping)
+        # All Django-produced topics are now explicitly listed; DEFAULT topics resolve to DEFAULT.
+        self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.DEFAULT)
 
     def test_env_overrides_add_new_topic(self):
         with override_settings(

@@ -26,7 +26,25 @@ from django.conf import settings
 from posthog.kafka_client.client import _AsyncKafkaProducer, _KafkaProducer
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.topics import (
+    KAFKA_APP_METRICS2,
+    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
+    KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
+    KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC,
+    KAFKA_DOCUMENT_EMBEDDINGS_TOPIC,
     KAFKA_DWH_CDP_RAW_TABLE,
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
+    KAFKA_EVENTS_JSON,
+    KAFKA_GROUPS,
+    KAFKA_LOG_ENTRIES,
+    KAFKA_METRICS_TIME_TO_SEE_DATA,
+    KAFKA_NOTIFICATION_EVENTS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_SIGNALS_REPORT_COMPLETED,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ,
     KAFKA_WAREHOUSE_SOURCES_JOBS,
@@ -34,15 +52,42 @@ from posthog.kafka_client.topics import (
 )
 from posthog.settings.kafka import KafkaProfileSettings
 
-# Code-level default topic → profile mapping. Topics not listed resolve to DEFAULT.
-# Callers should not read this directly — use `current_topic_routing()` so env
-# overrides from `KAFKA_TOPIC_ROUTING_OVERRIDES` are applied.
+# Code-level default topic → profile mapping.
+#
+# Every topic Django produces to is listed explicitly so the full routing surface
+# is visible in one place. Topics not listed still fall through to DEFAULT.
+#
+# To move a topic to a different cluster at deploy time without a code change,
+# set `KAFKA_TOPIC_ROUTING_OVERRIDES=topic_name=profile_name` in the chart env.
 _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
+    # --- DEFAULT (MSK events cluster) ---
+    KAFKA_EVENTS_JSON: KafkaClusterProfile.DEFAULT,
+    KAFKA_PERSON: KafkaClusterProfile.DEFAULT,
+    KAFKA_PERSON_DISTINCT_ID: KafkaClusterProfile.DEFAULT,
+    KAFKA_GROUPS: KafkaClusterProfile.DEFAULT,
+    KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.DEFAULT,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: KafkaClusterProfile.DEFAULT,
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: KafkaClusterProfile.DEFAULT,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS: KafkaClusterProfile.DEFAULT,
+    KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC: KafkaClusterProfile.DEFAULT,
+    KAFKA_DOCUMENT_EMBEDDINGS_TOPIC: KafkaClusterProfile.DEFAULT,
+    KAFKA_NOTIFICATION_EVENTS: KafkaClusterProfile.DEFAULT,
+    KAFKA_SIGNALS_REPORT_COMPLETED: KafkaClusterProfile.DEFAULT,
+    # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
     KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
+    # --- CYCLOTRON (Warpstream cyclotron) ---
+    KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CYCLOTRON
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
+    # --- AUX metrics ---
+    KAFKA_LOG_ENTRIES: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.INGESTION
+    KAFKA_APP_METRICS2: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.INGESTION
+    # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
+    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
+    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
+    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
 }
 
 
