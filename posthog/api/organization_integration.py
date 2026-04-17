@@ -77,18 +77,6 @@ class OrganizationIntegrationViewSet(
                 from ee.vercel.integration import VercelIntegration
 
                 VercelIntegration.delete_installation(instance.integration_id)
-                team_integrations_deleted, _ = Integration.objects.filter(
-                    team__organization=instance.organization,
-                    kind=Integration.IntegrationKind.VERCEL,
-                ).delete()
-                logger.info(
-                    "organization_integration.deleted",
-                    organization_id=str(instance.organization_id),
-                    integration_id=instance.integration_id,
-                    kind=instance.kind,
-                    team_integrations_deleted=team_integrations_deleted,
-                )
-                return
             except Exception as e:
                 capture_exception(
                     e,
