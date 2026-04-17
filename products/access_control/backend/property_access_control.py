@@ -12,6 +12,7 @@ from django.dispatch import receiver
 
 from celery.signals import task_postrun, task_prerun
 
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 
@@ -82,7 +83,7 @@ def _invalidate_restriction_cache_on_change(**_kwargs: object) -> None:
 
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Team, User
 
     from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -95,6 +96,7 @@ __all__ = [
     "get_property_access_level",
     "get_restricted_properties_for_team",
     "get_restricted_property_names",
+    "is_property_access_control_enabled",
     "strip_restricted_properties",
 ]
 
@@ -104,6 +106,26 @@ def get_default_access_level() -> PropertyAccessLevel:
     :returns: The default access level for a property
     """
     return PropertyAccessLevel.READ_WRITE
+
+
+def is_property_access_control_enabled(*, team: Team | None = None, team_id: int | None = None) -> bool:
+    """
+    Property access control is an add-on gated behind the organization's ACCESS_CONTROL
+    entitlement. When the entitlement is missing, query-time helpers should short-circuit and
+    behave as if no rules exist — every property resolves to the default access level. Rules
+    stay in the DB (management writes are blocked separately) so behavior restores cleanly if
+    the org re-subscribes.
+    """
+    if team is None and team_id is not None:
+        from posthog.models.team import Team as TeamModel
+
+        team = TeamModel.objects.select_related("organization").filter(id=team_id).first()
+    if team is None:
+        return False
+    organization = team.organization
+    if organization is None:
+        return False
+    return organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
 
 def get_property_access_level(
@@ -126,6 +148,11 @@ def get_property_access_level(
 
     :returns: The `PropertyAccessLevel` for the property.
     """
+    # Without ACCESS_CONTROL, every property resolves to the default — rules remain in the DB
+    # but have no query-time effect.
+    if not is_property_access_control_enabled(team=property.team):
+        return get_default_access_level()
+
     rules = list(
         PropertyAccessControl.objects.filter(property_definition=property).select_related("organization_member", "role")
     )
@@ -205,6 +232,10 @@ def get_non_writable_property_names(
 
     from products.access_control.backend.models.property_access_control import PropertyAccessControl
 
+    # Short-circuit: no ACCESS_CONTROL means nothing is non-writable.
+    if not is_property_access_control_enabled(team_id=team_id):
+        return set()
+
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)
         .select_related("property_definition", "organization_member", "role")
@@ -271,12 +302,17 @@ def get_restricted_properties_for_team(
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
+
     cache = _restriction_cache_var.get()
     cache_key = (team_id, user.pk if user is not None else None)
     if cache is not None:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
+
+    # Short-circuit: no ACCESS_CONTROL means nothing is restricted at query time.
+    if not is_property_access_control_enabled(team_id=team_id):
+        return set()
 
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)

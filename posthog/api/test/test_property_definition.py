@@ -87,8 +87,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "first_visit" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_with_exclude_restricted(self):
+        from posthog.constants import AvailableFeature
+
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
 
         # restrict "$browser" for the current user
         prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
@@ -111,8 +118,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$browser" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_exclude_restricted_does_not_affect_unrestricted(self):
+        from posthog.constants import AvailableFeature
+
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
 
         # restrict "$browser" but not "plan"
         prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
@@ -129,8 +143,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$browser" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_exclude_restricted_read_access_still_visible(self):
+        from posthog.constants import AvailableFeature
+
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
 
         # set "$browser" to READ (not NONE) — should still be visible
         prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")

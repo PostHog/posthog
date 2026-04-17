@@ -13,6 +13,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -38,7 +39,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
-import { ObjectMediaPreview } from '~/types'
+import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -345,7 +346,12 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             title="Access control"
                             description="Control who can see this property's values, and who can edit them from the PostHog UI."
                         >
-                            <PropertyAccessControl propertyDefinitionId={editDefinition.id} teamId={currentTeamId} />
+                            <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
+                                <PropertyAccessControl
+                                    propertyDefinitionId={editDefinition.id}
+                                    teamId={currentTeamId}
+                                />
+                            </PayGateMini>
                         </SceneSection>
                     </FlaggedFeature>
                 )}

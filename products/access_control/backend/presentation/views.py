@@ -15,12 +15,13 @@ from typing import Any
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.permissions import TeamMemberStrictManagementPermission
 
 from ..facade import api
@@ -31,6 +32,8 @@ from .serializers import (
     PropertyAccessControlStateSerializer,
     PropertyAccessControlUpdateSerializer,
 )
+
+PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE = "Property access control requires the Access control feature."
 
 
 class _SingletonStateSchema(AutoSchema):
@@ -96,6 +99,11 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         description="Create or update a property access control rule.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Writes require the ACCESS_CONTROL entitlement. Reads (list) remain available so orgs
+        # that have downgraded can still see the rules currently being enforced at query time.
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
+
         serializer = PropertyAccessControlUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
