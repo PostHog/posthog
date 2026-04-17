@@ -103,13 +103,11 @@ jobs:
     # Defense-in-depth: the master ruleset has dismiss_stale_reviews_on_push=false
     # and require_last_push_approval=false, so without this job a PR could be
     # approved while trivial and then receive malicious commits that inherit
-    # the stale github-actions[bot] approval. On every push to a PR carrying
-    # the stamphog label we dismiss the bot's approval and drop the label, so
-    # a human must explicitly re-apply it to request re-review.
+    # the stale github-actions[bot] approval. On every push to a PR we dismiss
+    # the bot's approval and drop the stamphog label if present, so a human
+    # must explicitly re-apply it to request re-review.
     dismiss-on-push:
-        if: >-
-            github.event.action == 'synchronize'
-            && contains(github.event.pull_request.labels.*.name, 'stamphog')
+        if: github.event.action == 'synchronize'
         runs-on: ubuntu-latest
         timeout-minutes: 5
 
@@ -137,4 +135,6 @@ jobs:
                         -f event=DISMISS
                   done
 
-                  gh pr edit "$PR" --remove-label stamphog --repo "$REPO"
+                  if gh api "repos/$REPO/issues/$PR/labels" --jq 'any(.name == "stamphog")' | grep -q true; then
+                      gh pr edit "$PR" --remove-label stamphog --repo "$REPO"
+                  fi
