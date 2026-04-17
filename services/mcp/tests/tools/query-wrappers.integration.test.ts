@@ -260,10 +260,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         }
 
         it('returns a flat {columns, rows} table with the actors projection', async () => {
-            const tool = getToolByName(
-                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-trends-actors'
-            )
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
             const result = (await tool.handler(context, {
                 source: trendsSource,
                 day: '2026-03-25',
@@ -278,10 +275,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
 
         it('filters actors by day selector', async () => {
-            const tool = getToolByName(
-                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-trends-actors'
-            )
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
             const result = (await tool.handler(context, {
                 source: trendsSource,
                 day: '2026-03-25',
@@ -293,10 +287,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
 
         it('accepts breakdown as an array of values', async () => {
-            const tool = getToolByName(
-                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-trends-actors'
-            )
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
             const sourceWithBreakdown = {
                 ...trendsSource,
                 breakdownFilter: {
