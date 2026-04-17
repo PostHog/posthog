@@ -59,6 +59,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "ci_prompt",
         ]
         read_only_fields = [
             "id",
