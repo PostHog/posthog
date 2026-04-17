@@ -102,23 +102,6 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
-# MCP Server preset: read on everything, write on core objects, exclude llm_gateway.
-# Keep in sync with frontend: frontend/src/lib/scopes.tsx (mcp_server preset)
-_MCP_WRITE_OBJECTS: set[APIScopeObject] = {
-    "feature_flag",
-    "insight",
-    "dashboard",
-    "survey",
-    "experiment",
-    "event_definition",
-}
-_MCP_EXCLUDED: set[APIScopeObject] = {"llm_gateway"}
-MCP_PRESET_SCOPES: list[str] = [
-    f"{obj}:write" if obj in _MCP_WRITE_OBJECTS else f"{obj}:read"
-    for obj in API_SCOPE_OBJECTS
-    if obj not in _MCP_EXCLUDED
-]
-
 
 def get_scope_descriptions() -> dict[str, str]:
     return {

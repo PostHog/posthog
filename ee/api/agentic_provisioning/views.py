@@ -878,6 +878,7 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
             scopes=["*"],
+            scoped_teams=[team.id],
         )
 
         return api_key_value

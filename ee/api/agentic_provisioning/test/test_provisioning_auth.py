@@ -417,6 +417,8 @@ class TestProvisioningAuthentication(APIBaseTest):
         user = User.objects.get(email=email)
         pat = PersonalAPIKey.objects.filter(user=user).first()
         assert pat is not None
+        assert pat.scopes == ["*"]
+        assert pat.scoped_teams is not None and len(pat.scoped_teams) == 1
 
     # --- is_active kill switch ---
 
