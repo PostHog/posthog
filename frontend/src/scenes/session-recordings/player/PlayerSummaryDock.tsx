@@ -1,9 +1,12 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -13,7 +16,10 @@ import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgres
 import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
-const EXPANDED_MAX_HEIGHT = 480
+const COLLAPSED_HEIGHT = 44
+const DEFAULT_EXPANDED_HEIGHT = 480
+const MIN_EXPANDED_HEIGHT = 120
+const MAX_EXPANDED_HEIGHT = 800
 
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -31,10 +37,22 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
     const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
 
+    const dockRef = useRef<HTMLDivElement>(null)
+    const resizerProps: ResizerLogicProps = {
+        logicKey: 'player-summary-dock',
+        placement: 'top',
+        containerRef: dockRef,
+    }
+    const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
+
     const isEnabled = featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
+    const expandedHeight = Math.max(
+        MIN_EXPANDED_HEIGHT,
+        Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
+    )
 
     useEffect(() => {
         if (sessionRecordingId && isOpen) {
@@ -50,10 +68,15 @@ export function PlayerSummaryDock(): JSX.Element | null {
 
     return (
         <div
-            className="border-t bg-surface-primary overflow-hidden transition-[max-height] duration-300 ease-out flex flex-col"
-            style={{ maxHeight: isOpen ? EXPANDED_MAX_HEIGHT : 44 }}
+            ref={dockRef}
+            className={clsx(
+                'relative border-t bg-surface-primary overflow-hidden flex flex-col',
+                !isResizeInProgress && 'transition-[max-height] duration-300 ease-out'
+            )}
+            style={{ maxHeight: isOpen ? expandedHeight : COLLAPSED_HEIGHT }}
             data-attr="player-summary-dock"
         >
+            {isOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center justify-between h-11 px-3 shrink-0">
                 {hasSummary ? (
                     <div className="flex items-center gap-2 font-semibold">
