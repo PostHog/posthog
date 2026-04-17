@@ -30,8 +30,9 @@ function openJoinExistingOrgDialog(): void {
 export function JoinExistingOrgLink(): JSX.Element {
     return (
         <div className="text-center mt-2">
-            <Link onClick={openJoinExistingOrgDialog} data-attr="signup-join-existing-org" className="text-secondary">
-                Trying to join an existing organization?
+            Been invited to an organization?{' '}
+            <Link onClick={openJoinExistingOrgDialog} data-attr="signup-join-existing-org" className="font-bold">
+                Use your invite link
             </Link>
         </div>
     )
