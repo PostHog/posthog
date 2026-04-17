@@ -528,13 +528,13 @@ class UserAccessControl:
                 organization_membership=org_membership,
                 team=self._team,
                 resource=resource,
-                resource_id=obj.id,
+                resource_id=obj.id,  # type: ignore[attr-defined]
                 is_pending=False,
             ).exists()
             if direct:
                 return "viewer"
             if resource == "insight":
-                dashboard_ids = DashboardTile.objects.filter(insight_id=obj.id).values_list("dashboard_id", flat=True)
+                dashboard_ids = DashboardTile.objects.filter(insight_id=obj.id).values_list("dashboard_id", flat=True)  # type: ignore[attr-defined]
                 if (
                     dashboard_ids
                     and GuestResourceGrant.objects.filter(

@@ -1,7 +1,10 @@
 import re
 import json as _json
+from typing import cast
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
+
+from posthog.models.user import User
 
 # Paths always allowed for guests — identity, auth, account settings, static/boot assets.
 ALWAYS_ALLOWED_PATTERNS: list[re.Pattern] = [
@@ -91,8 +94,9 @@ class GuestDeflectionMiddleware:
                 resource_id = int(resource_id_str)
             except ValueError:
                 return False
+            user = cast(User, request.user)
             return GuestResourceGrant.objects.filter(
-                organization_membership__user=request.user,
+                organization_membership__user=user,
                 organization_membership__is_guest=True,
                 team_id=team_id,
                 resource=resource,
@@ -108,8 +112,9 @@ class GuestDeflectionMiddleware:
         notebook_id = Notebook.objects.filter(team_id=team_id, short_id=short_id).values_list("id", flat=True).first()
         if notebook_id is None:
             return False
+        user = cast(User, request.user)
         return GuestResourceGrant.objects.filter(
-            organization_membership__user=request.user,
+            organization_membership__user=user,
             organization_membership__is_guest=True,
             team_id=team_id,
             resource="notebook",
@@ -139,8 +144,9 @@ class GuestDeflectionMiddleware:
 
         from posthog.models import GuestResourceGrant
 
+        user = cast(User, request.user)
         qs = GuestResourceGrant.objects.filter(
-            organization_membership__user=request.user,
+            organization_membership__user=user,
             organization_membership__is_guest=True,
             team_id=team_id,
             is_pending=False,
@@ -148,7 +154,7 @@ class GuestDeflectionMiddleware:
         if insight_id is not None:
             if qs.filter(resource="insight", resource_id=insight_id).exists():
                 return True
-            from posthog.models import DashboardTile
+            from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
             dashboard_ids = DashboardTile.objects.filter(insight_id=insight_id).values_list("dashboard_id", flat=True)
             if dashboard_ids and qs.filter(resource="dashboard", resource_id__in=list(dashboard_ids)).exists():

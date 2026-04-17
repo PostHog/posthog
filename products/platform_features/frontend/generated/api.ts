@@ -346,6 +346,73 @@ export const membersDestroy = async (
     })
 }
 
+export const getMembersGrantsRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/grants/`
+}
+
+export const membersGrantsRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<OrganizationMemberApi> => {
+    return apiMutator<OrganizationMemberApi>(getMembersGrantsRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMembersGrantsCreateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/grants/`
+}
+
+export const membersGrantsCreate = async (
+    organizationId: string,
+    userUuid: string,
+    organizationMemberApi: NonReadonly<OrganizationMemberApi>,
+    options?: RequestInit
+): Promise<OrganizationMemberApi> => {
+    return apiMutator<OrganizationMemberApi>(getMembersGrantsCreateUrl(organizationId, userUuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationMemberApi),
+    })
+}
+
+export const getMembersGrantsDestroyUrl = (organizationId: string, userUuid: string, grantId: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/grants/${grantId}/`
+}
+
+export const membersGrantsDestroy = async (
+    organizationId: string,
+    userUuid: string,
+    grantId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMembersGrantsDestroyUrl(organizationId, userUuid, grantId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getMembersPromoteToMemberCreateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/promote_to_member/`
+}
+
+export const membersPromoteToMemberCreate = async (
+    organizationId: string,
+    userUuid: string,
+    organizationMemberApi: NonReadonly<OrganizationMemberApi>,
+    options?: RequestInit
+): Promise<OrganizationMemberApi> => {
+    return apiMutator<OrganizationMemberApi>(getMembersPromoteToMemberCreateUrl(organizationId, userUuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationMemberApi),
+    })
+}
+
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {
     return `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
 }

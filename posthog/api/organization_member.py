@@ -125,7 +125,7 @@ class OrganizationMemberViewSet(
             # Use inclusive manager so guest users can find their own membership
             # nosemgrep: organization-membership-regular-manager
             return OrganizationMembership.objects.get(
-                user=self.request.user,
+                user=cast(User, self.request.user),
                 organization_id=self.organization_id,
             )
         # Use inclusive manager for detail actions so admins can act on guest memberships

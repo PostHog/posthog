@@ -229,6 +229,8 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+export type OrganizationInviteApiGrantsItem = { [key: string]: unknown }
+
 export interface OrganizationInviteApi {
     readonly id: string
     /** @maxLength 254 */
@@ -250,8 +252,14 @@ export interface OrganizationInviteApi {
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown | null
+    /** If true, the invite creates a guest membership (external collaborator, read-only access to specific resources) rather than a regular member. */
+    is_guest?: boolean
+    /** If true, the created guest membership bypasses the organization's SSO enforcement policy. Only meaningful when is_guest=True; requires explicit admin acknowledgement at invite time. */
+    bypass_sso_enforcement?: boolean
     send_email?: boolean
     combine_pending_invites?: boolean
+    grants?: OrganizationInviteApiGrantsItem[]
+    bypass_acknowledged?: boolean
 }
 
 export interface PaginatedOrganizationInviteListApi {
@@ -1636,6 +1644,8 @@ export const ShortcutPositionEnumApi = {
 
 export type UserApiNotificationSettings = { [key: string]: unknown }
 
+export type UserApiGuestGrantsItem = { [key: string]: unknown }
+
 export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
@@ -1694,6 +1704,8 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    readonly is_guest_in_current_project: boolean
+    readonly guest_grants: readonly UserApiGuestGrantsItem[]
 }
 
 export interface PaginatedUserListApi {
@@ -1706,6 +1718,8 @@ export interface PaginatedUserListApi {
 }
 
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
+
+export type PatchedUserApiGuestGrantsItem = { [key: string]: unknown }
 
 export interface PatchedUserApi {
     readonly date_joined?: string
@@ -1765,6 +1779,8 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    readonly is_guest_in_current_project?: boolean
+    readonly guest_grants?: readonly PatchedUserApiGuestGrantsItem[]
 }
 
 export type SubscriptionsDeliveriesListParams = {

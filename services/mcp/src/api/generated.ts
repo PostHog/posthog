@@ -20216,6 +20216,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
     }
 
+    export type OrganizationInviteGrantsItem = {[key: string]: unknown};
+
     /**
      * * `1` - member
     * `8` - administrator
@@ -20251,8 +20253,14 @@ export namespace Schemas {
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
       private_project_access?: unknown | null;
+      /** If true, the invite creates a guest membership (external collaborator, read-only access to specific resources) rather than a regular member. */
+      is_guest?: boolean;
+      /** If true, the created guest membership bypasses the organization's SSO enforcement policy. Only meaningful when is_guest=True; requires explicit admin acknowledgement at invite time. */
+      bypass_sso_enforcement?: boolean;
       send_email?: boolean;
       combine_pending_invites?: boolean;
+      grants?: OrganizationInviteGrantsItem[];
+      bypass_acknowledged?: boolean;
     }
 
     export interface OrganizationMember {
@@ -22996,6 +23004,8 @@ export namespace Schemas {
 
     export type UserNotificationSettings = {[key: string]: unknown};
 
+    export type UserGuestGrantsItem = {[key: string]: unknown};
+
     export interface User {
       readonly date_joined: string;
       readonly uuid: string;
@@ -23054,6 +23064,8 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      readonly is_guest_in_current_project: boolean;
+      readonly guest_grants: readonly UserGuestGrantsItem[];
     }
 
     export interface PaginatedUserList {
@@ -27206,6 +27218,8 @@ export namespace Schemas {
 
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
 
+    export type PatchedUserGuestGrantsItem = {[key: string]: unknown};
+
     export interface PatchedUser {
       readonly date_joined?: string;
       readonly uuid?: string;
@@ -27264,6 +27278,8 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      readonly is_guest_in_current_project?: boolean;
+      readonly guest_grants?: readonly PatchedUserGuestGrantsItem[];
     }
 
     export interface PatchedUserInterview {
