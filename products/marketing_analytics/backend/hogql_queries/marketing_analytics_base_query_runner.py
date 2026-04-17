@@ -42,18 +42,12 @@ logger = structlog.get_logger(__name__)
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 
 
-# parse_select on the adapter UNION string (~10 KB) takes ~2 s in HogQL's
-# Python parser. Cache the parsed AST and clone on each hit (~1 ms).
-# 32 covers all ~30 real adapter combinations observed in prod.
+# parse_select on this ~10 KB UNION takes ~2 s in HogQL's Python parser.
+# Replacing the date literals with placeholders makes the template stable
+# across date ranges and compare-mode periods, so all hit the same cache entry.
+# 32 covers the ~30 adapter combinations observed in prod.
 @lru_cache(maxsize=32)
 def _cached_parse_union_template(union_template: str) -> ast.SelectQuery | ast.SelectSetQuery:
-    """Parse a date-range-agnostic template of the adapter UNION query.
-
-    The template contains ``{date_from}`` and ``{date_to}`` placeholders where
-    concrete datetimes used to be. Parsing happens once per unique template
-    (team config × drill-down combination); callers substitute the actual
-    dates on each request via ``replace_placeholders``.
-    """
     parsed = parse_select(union_template)
     assert isinstance(parsed, ast.SelectQuery | ast.SelectSetQuery)
     return parsed
@@ -64,21 +58,6 @@ def _parse_adapter_union_query(
     date_from_str: str,
     date_to_str: str,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
-    """Parse the adapter UNION string with an LRU cache on the date-agnostic template.
-
-    Strategy:
-
-    1. Normalise the string by replacing the concrete ``'date_from_str'`` and
-       ``'date_to_str'`` literals with ``{date_from}`` / ``{date_to}``
-       placeholders. The resulting template is stable across different date
-       ranges for the same team config.
-    2. Parse the template — cached across requests.
-    3. Clone the cached AST and substitute the placeholders with the actual
-       datetimes for this request.
-
-    With compare mode, current and previous periods generate different dates
-    but the SAME template, so both hit the same cache entry.
-    """
     template = union_query_string.replace(f"'{date_from_str}'", "{date_from}").replace(f"'{date_to_str}'", "{date_to}")
 
     cached = _cached_parse_union_template(template)
@@ -299,10 +278,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        # Parse the union query as a subquery and wrap it in a JoinExpr.
-        # The parse is cached on a date-agnostic template (dates become
-        # {date_from}/{date_to} placeholders before caching), so different
-        # date ranges and compare-mode periods all hit the same cache entry.
         union_subquery = _parse_adapter_union_query(
             union_query_string,
             date_from_str=self.query_date_range.date_from_str,
