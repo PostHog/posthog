@@ -1184,17 +1184,25 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
             type=playlist_type,
         )
 
-    def test_noop_when_all_playlists_are_synthetic(self) -> None:
-        synthetic = SessionRecordingPlaylist(team=self.team, type="collection")
-        synthetic._is_synthetic = True  # type: ignore[attr-defined]
+    @parameterized.expand(
+        [
+            ("all_synthetic", "synthetic"),
+            ("empty_list", "empty"),
+        ]
+    )
+    def test_noop_paths_do_not_attach_prefetch_attrs(self, _name: str, scenario: str) -> None:
+        if scenario == "synthetic":
+            playlist = SessionRecordingPlaylist(team=self.team, type="collection")
+            playlist._is_synthetic = True  # type: ignore[attr-defined]
+            playlists: list[SessionRecordingPlaylist] = [playlist]
+        else:
+            playlists = []
 
-        precompute_recordings_counts([synthetic], self.user, self.team)
+        precompute_recordings_counts(playlists, self.user, self.team)
 
-        assert not hasattr(synthetic, "_prefetched_collection_count")
-        assert not hasattr(synthetic, "_prefetched_saved_filters_count")
-
-    def test_noop_when_playlists_list_empty(self) -> None:
-        precompute_recordings_counts([], self.user, self.team)
+        for playlist in playlists:
+            assert not hasattr(playlist, "_prefetched_collection_count")
+            assert not hasattr(playlist, "_prefetched_saved_filters_count")
 
     def test_collection_with_items_attaches_count(self) -> None:
         playlist = self._make_playlist("with items")
@@ -1277,30 +1285,37 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # The other-team playlist's items are filtered out by playlist__team_id.
         assert theirs._prefetched_collection_count == {"count": None, "watched_count": 0}
 
-    def test_attach_empty_recordings_counts_sets_defaults(self) -> None:
-        playlist = self._make_playlist("needs fallback")
+    @parameterized.expand(
+        [
+            ("sets_defaults", "default", {"count": None, "watched_count": None}, True),
+            ("skips_synthetic", "synthetic", None, False),
+            ("preserves_existing_attrs", "preexisting", {"count": 5, "watched_count": 1}, False),
+        ]
+    )
+    def test_attach_empty_recordings_counts(
+        self,
+        _name: str,
+        scenario: str,
+        expected_collection_count: dict | None,
+        expect_saved_filters_default: bool,
+    ) -> None:
+        if scenario == "synthetic":
+            playlist = SessionRecordingPlaylist(team=self.team, type="collection")
+            playlist._is_synthetic = True  # type: ignore[attr-defined]
+        else:
+            playlist = self._make_playlist(scenario)
+            if scenario == "preexisting":
+                playlist._prefetched_collection_count = {"count": 5, "watched_count": 1}  # type: ignore[attr-defined]
 
         _attach_empty_recordings_counts([playlist])
 
-        assert playlist._prefetched_collection_count == {"count": None, "watched_count": None}
-        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()
+        if expected_collection_count is None:
+            assert not hasattr(playlist, "_prefetched_collection_count")
+        else:
+            assert playlist._prefetched_collection_count == expected_collection_count
 
-    def test_attach_empty_recordings_counts_skips_synthetic(self) -> None:
-        synthetic = SessionRecordingPlaylist(team=self.team, type="collection")
-        synthetic._is_synthetic = True  # type: ignore[attr-defined]
-
-        _attach_empty_recordings_counts([synthetic])
-
-        assert not hasattr(synthetic, "_prefetched_collection_count")
-
-    def test_attach_empty_recordings_counts_preserves_existing_attrs(self) -> None:
-        playlist = self._make_playlist("preexisting")
-        playlist._prefetched_collection_count = {"count": 5, "watched_count": 1}  # type: ignore[attr-defined]
-
-        _attach_empty_recordings_counts([playlist])
-
-        # Should not overwrite what was already attached.
-        assert playlist._prefetched_collection_count == {"count": 5, "watched_count": 1}
+        if expect_saved_filters_default:
+            assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()
 
     def test_list_clamps_limit_query_param_to_max(self) -> None:
         # Sanity-check the pagination cap — requesting limit=99999 must cap at the configured max.
