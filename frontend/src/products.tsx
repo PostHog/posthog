@@ -307,31 +307,10 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
         activityScope: ActivityScope.HOG_FUNCTION,
-        defaultDocsPath: '/docs/data-warehouse',
         iconType: 'data_pipeline',
     },
-    DataWarehouseSource: { projectBased: true, name: 'Data warehouse source', defaultDocsPath: '/docs/cdp/sources' },
-    DataWarehouseSourceNew: {
-        projectBased: true,
-        name: 'New data warehouse source',
-        defaultDocsPath: async () => {
-            try {
-                const { sourceWizardLogic } =
-                    await import('products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic')
-                const logic = sourceWizardLogic.findMounted()
-                if (logic) {
-                    const { selectedConnector } = logic.values
-                    if (selectedConnector?.docsUrl) {
-                        const parsedUrl = new URL(selectedConnector.docsUrl)
-                        return parsedUrl.pathname
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to get default docs path for new data warehouse source', error)
-            }
-            return '/docs/cdp/sources'
-        },
-    },
+    DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
+    DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
