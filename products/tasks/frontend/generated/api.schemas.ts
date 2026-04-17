@@ -792,6 +792,7 @@ export const JsonrpcEnumApi = {
  * `close` - close
  * `permission_response` - permission_response
  * `set_config_option` - set_config_option
+ * `shell_execute` - shell_execute
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -801,6 +802,7 @@ export const MethodEnumApi = {
     Close: 'close',
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
+    ShellExecute: 'shell_execute',
 } as const
 
 /**
@@ -817,7 +819,8 @@ export interface TaskRunCommandRequestApi {
 * `cancel` - cancel
 * `close` - close
 * `permission_response` - permission_response
-* `set_config_option` - set_config_option */
+* `set_config_option` - set_config_option
+* `shell_execute` - shell_execute */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
