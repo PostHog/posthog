@@ -31,8 +31,6 @@ import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelect
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { buildSelectAllQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
