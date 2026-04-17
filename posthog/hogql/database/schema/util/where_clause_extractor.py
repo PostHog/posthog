@@ -454,6 +454,10 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
     pushdown into the raw_sessions subquery, so aggregation state only covers sessions that
     actually participate in the outer events filter.
 
+    Background on the motivating ExperimentQuery OOM and why the pushdown must be scoped to
+    selective event filters (it regresses ``WebStatsTableQuery``):
+    https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-elevenlabs-experiment-sessions-oom.md
+
     Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
     resolve to the EventsTable and tombstone everything else, letting the base AND/OR/NOT
     logic drop unsafe branches.
