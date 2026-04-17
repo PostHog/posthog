@@ -109,7 +109,7 @@ const errorTrackingGroupingRulesCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ErrorTrackingGroupingRule>({
             method: 'POST',
-            path: `/api/environments/${projectId}/error_tracking/grouping_rules/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/`,
             body,
         })
         return result
