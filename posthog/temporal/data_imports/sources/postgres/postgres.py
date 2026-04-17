@@ -1181,14 +1181,13 @@ def _get_table(
     # already materialized on disk and behave like tables here.
     if unconstrained_numeric_columns and probe_unconstrained_numeric_scale and not is_view:
         try:
-            # Isolate the probe in a SAVEPOINT so that any failure (permission denied, bad
+            # Isolate the probe in a savepoint so that any failure (permission denied, bad
             # type, statement_timeout, network blip) rolls back cleanly without poisoning the
             # enclosing metadata transaction. Without this, a probe error leaves the
             # transaction in `INERROR` state and every subsequent query in `postgres_source`
             # (SET LOCAL statement_timeout, _is_read_replica, _get_primary_keys, _get_rows_to_sync,
             # ...) fails with `InFailedSqlTransaction: current transaction is aborted`.
-            cursor.execute(sql.SQL("SAVEPOINT probe_numeric_scale"))
-            try:
+            with cursor.connection.transaction(savepoint_name="probe_numeric_scale"):
                 # Scope a short statement_timeout to the probe so a pathologically large table
                 # or slow aggregation can't hang schema discovery. The outer 10-minute
                 # statement_timeout isn't set until `postgres_source` continues after
@@ -1221,13 +1220,6 @@ def _get_table(
                     for i, col_name in enumerate(unconstrained_numeric_columns):
                         probed_scales[col_name] = row[2 * i]
                         probed_int_digits[col_name] = row[2 * i + 1]
-                cursor.execute(sql.SQL("RELEASE SAVEPOINT probe_numeric_scale"))
-            except Exception:
-                # Roll back the savepoint so the enclosing transaction stays usable, then
-                # re-raise into the outer `except` for logging.
-                cursor.execute(sql.SQL("ROLLBACK TO SAVEPOINT probe_numeric_scale"))
-                cursor.execute(sql.SQL("RELEASE SAVEPOINT probe_numeric_scale"))
-                raise
         except Exception as e:
             # Probe is best-effort. Fall back to DEFAULT_NUMERIC_SCALE and let the downstream
             # `_process_batch` fallback chain infer the right type at row-fetching time.
