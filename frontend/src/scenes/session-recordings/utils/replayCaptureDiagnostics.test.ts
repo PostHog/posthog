@@ -60,9 +60,9 @@ describe('diagnoseReplayCapture', () => {
             expected: 'captured',
         },
         {
-            name: 'sampled out via recording_status',
+            name: 'sampled status means sampled in — not sampled out',
             properties: { $recording_status: 'sampled' },
-            expected: 'sampled_out',
+            expected: 'unknown',
         },
         {
             name: 'sampled out via start reason',
