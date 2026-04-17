@@ -29,7 +29,9 @@ procs:
             echo ''
             printf '\033[38;5;245m  ─────────────────────────────────────\033[0m\n'
             printf '  \033[38;5;245mRun \033[0m\033[38;2;29;74;255mhogli dev:setup\033[0m\033[38;5;245m to tailor this to your workflow.\033[0m\n'
-        groups: { layer: pinned, tech: pinned }
+        groups:
+            layer: pinned
+            tech: pinned
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'

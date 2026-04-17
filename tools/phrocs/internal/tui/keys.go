@@ -291,14 +291,6 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
-// updateGroupHelp updates the Group keybinding help text to reflect the current dimension.
-func (m *Model) updateGroupHelp() {
-	if dim := m.activeGroupDim(); dim != "" {
-		m.keys.Group.SetHelp("g:", "group:"+dim)
-	} else {
-		m.keys.Group.SetHelp("g:", "group")
-	}
-}
 
 // updateProcKeys enables/disables start, stop, and restart bindings
 // based on the active process state.
@@ -503,7 +495,6 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.cycleGroup()
 		m.rebuildSidebarEntries()
 		m.ensureSidebarCursorVisible()
-		m.updateGroupHelp()
 		m.dbg("group: %s", m.activeGroupDim())
 
 	case key.Matches(msg, m.keys.InfoMode):

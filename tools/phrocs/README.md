@@ -115,47 +115,12 @@ Prefers `htop` (tree view + PID filter), falls back to `btop` (unfiltered), then
 
 ### Grouping
 
-Press `g` to cycle through grouping dimensions.
-Groups are configured in the YAML config, each process can declare a `groups` map with one or more dimensions:
+Press `g` to cycle through grouping dimensions defined in the config.
+Each process can declare a `groups` map and an optional top-level `group_order` controls display order.
+See `bin/mprocs.yaml` for the config format.
 
-```yaml
-procs:
-  backend:
-    shell: './bin/start-backend'
-    groups:
-      layer: Application
-      tech: Python
-  capture:
-    shell: 'bin/start-rust-service capture'
-    groups:
-      layer: Ingestion pipeline
-      tech: Rust
-```
-
-An optional top-level `group_order` controls the display order per dimension.
-Groups not listed here appear alphabetically after the listed ones:
-
-```yaml
-group_order:
-  layer: [Application, Processing, Ingestion pipeline, Infrastructure]
-  tech: [Python, Frontend, Node, Rust, Docker, Migrations]
-```
-
-Processes without a matching `groups` appear under **Ungrouped** at the bottom.
-
-The reserved value `pinned` places a process at the top of the sidebar without a group header.
-A process can be pinned in one dimension and grouped normally in another:
-
-```yaml
-procs:
-  info:
-    shell: 'echo hello'
-    groups:
-      layer: pinned
-      tech: pinned
-```
-
-If no processes define `groups`, pressing `g` does nothing.
+Processes without a matching group appear under Ungrouped.
+The reserved value `pinned` places a process at the top without a header.
 
 ## Debug logging
 

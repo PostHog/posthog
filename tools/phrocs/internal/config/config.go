@@ -21,7 +21,7 @@ type ProcConfig struct {
 	AskSkip      bool              `yaml:"ask_skip"`
 	Env          map[string]string `yaml:"env"`
 	ReadyPattern string            `yaml:"ready_pattern"`
-	Groups       map[string]string `yaml:"groups"` // grouping dimensions, e.g. {"layer": "Application", "tech": "Python"}
+	Groups       map[string]string `yaml:"groups"` // user-defined grouping dimensions, using map here so new dimensions need no code changes
 }
 
 // Reports whether the process should start automatically

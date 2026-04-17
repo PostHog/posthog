@@ -161,7 +161,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.Group, k.SetupMode, k.Quit, k.Help}
+	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
 }
 
 func (k keyMap) SearchModeHelp() []key.Binding {
@@ -174,8 +174,8 @@ func (k keyMap) FilterModeHelp() []key.Binding {
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.KeyDown, k.KeyUp, k.Sort, k.Group},
-		{k.ScrollUp, k.ScrollDown},
+		{k.KeyDown, k.KeyUp, k.Sort},
+		{k.ScrollUp, k.ScrollDown, k.Group},
 		{k.GotoTop, k.GotoBottom, k.ClearLogs},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Start, k.Stop, k.Restart, k.InfoMode},

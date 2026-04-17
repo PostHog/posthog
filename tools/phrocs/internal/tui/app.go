@@ -161,6 +161,7 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 		log:              logger,
 	}
 	m.rebuildSidebarEntries()
+	m.keys.Group.SetEnabled(len(m.groupDims) > 0)
 	return m
 }
 
