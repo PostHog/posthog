@@ -2,11 +2,9 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, Union
 
-import posthoganalytics
 from dateutil.parser import isoparse, parser
 
 from posthog.clickhouse.client import sync_execute
-from posthog.cloud_utils import is_cloud
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -76,26 +74,6 @@ def active_teams() -> set[int]:
         all_teams = teams_by_recency
 
     return {int(team_id) for team_id, _ in all_teams}
-
-
-def stale_cache_invalidation_disabled(team: Team) -> bool:
-    """Can be disabled temporarly to help in cases of service degradation."""
-    if is_cloud():  # on PostHog Cloud, use the feature flag
-        return not posthoganalytics.feature_enabled(
-            "stale-cache-invalidation-enabled",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    else:
-        return False
 
 
 def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:
@@ -170,9 +148,6 @@ def is_stale(
     Indicates whether a cache item is obviously outdated based on the last_refresh date, the last
     requested date (date_to) and the granularity of the query (interval).
     """
-
-    if stale_cache_invalidation_disabled(team):
-        return False
 
     if last_refresh is None:
         raise ValueError("Cached results require a last_refresh")

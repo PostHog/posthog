@@ -948,6 +948,7 @@ export const productUrls = {
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
+    webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',

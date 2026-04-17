@@ -253,4 +253,66 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(parsed.source.kind).toBe('TrendsQuery')
         })
     })
+
+    describe('query-trends-actors', () => {
+        const trendsSource = {
+            kind: 'TrendsQuery',
+            series: [{ kind: 'EventsNode', event: '$pageview', math: 'total' }],
+            dateRange: { date_from: '-30d' },
+            interval: 'day',
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-trends-actors'
+            )
+            const result = (await tool.handler(context, {
+                source: trendsSource,
+                day: '2026-03-25',
+            })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('filters actors by day selector', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-trends-actors'
+            )
+            const result = (await tool.handler(context, {
+                source: trendsSource,
+                day: '2026-03-25',
+                series: 0,
+            })) as any
+
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('accepts breakdown as an array of values', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-trends-actors'
+            )
+            const sourceWithBreakdown = {
+                ...trendsSource,
+                breakdownFilter: {
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+            }
+            const result = (await tool.handler(context, {
+                source: sourceWithBreakdown,
+                day: '2026-03-25',
+                breakdown: ['Chrome'],
+            })) as any
+
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+        })
+    })
 })

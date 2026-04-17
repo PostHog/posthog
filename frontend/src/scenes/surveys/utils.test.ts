@@ -20,6 +20,7 @@ import {
 import {
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
@@ -918,6 +919,19 @@ describe('survey utils', () => {
     })
 
     describe('buildPartialResponsesFilter', () => {
+        it('keeps missing survey_completed values eligible for complete-response queries', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: null,
+                enable_partial_responses: false,
+            } as Survey
+
+            expect(buildPartialResponsesFilter(survey)).toBe(
+                `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
+            )
+        })
+
         it('uses same date bounds as buildSurveyTimestampFilter', () => {
             const survey = {
                 id: 'test-survey-id',
@@ -950,6 +964,14 @@ describe('survey utils', () => {
             expect(partialFilter).toContain('properties.`$survey_id`')
             expect(partialFilter).toContain('properties.`$survey_submission_id`')
             expect(partialFilter).not.toContain('JSONExtractString')
+        })
+    })
+
+    describe('buildSurveyOptionalBooleanPropertyFilter', () => {
+        it('builds a null-safe comparison for optional survey booleans', () => {
+            expect(
+                buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED, 'true')
+            ).toBe(`coalesce(JSONExtractString(properties, '$survey_partially_completed'), '') != 'true'`)
         })
     })
 })

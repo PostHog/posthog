@@ -195,36 +195,6 @@
             "readOnlyHint": true
         }
     },
-    "organization-details-get": {
-        "description": "Get the details of the active organization.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the details of the active organization.",
-        "title": "Get organization details",
-        "required_scopes": ["organization:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "organizations-get": {
-        "description": "Get the organizations the user has access to.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the organizations the user has access to.",
-        "title": "Get organizations",
-        "required_scopes": ["user:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "switch-organization": {
         "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
         "category": "Organization & project management",
@@ -2639,6 +2609,36 @@
             "readOnlyHint": true
         }
     },
+    "organizations-list": {
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organizations.",
+        "title": "List organizations.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-get": {
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get organization details.",
+        "title": "Get organization details.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insights-list": {
         "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
         "category": "Product analytics",
@@ -3111,6 +3111,21 @@
         "summary": "Get LLM trace",
         "title": "Get LLM trace",
         "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends-actors": {
+        "description": "List the persons behind a specific data point in a trends insight. Use this to answer \"who were the users that did X on day Y?\" or \"which users are in this breakdown bucket?\".\n\nPair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.\n\nSelectors:\n\n- `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.\n- `series`: 0-based index of the series to drill into when the trends query has multiple series.\n- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: [\"Opera\"]`. Multiple dimensions: `breakdown: [\"Opera\", \"en-US\"]`.\n- `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `count` (number of matching events for that actor). Results are limited to the top 100 actors ordered by event count; pagination will be added later.\n\nGuidance:\n\n- Keep the `source` trends query minimal — only include the filters/breakdowns needed to identify the cell.\n- If the user wants \"all users who did X\", omit `day`/`series`/`breakdown` to broaden the drill-down.\n- For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons behind a trends data point",
+        "title": "List persons behind a trends data point",
+        "required_scopes": ["query:read", "person:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

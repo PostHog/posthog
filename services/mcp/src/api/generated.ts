@@ -1417,6 +1417,11 @@ export namespace Schemas {
       was_impersonated?: boolean | null;
       /** @nullable */
       is_system?: boolean | null;
+      /**
+       * @maxLength 32
+       * @nullable
+       */
+      client?: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
@@ -2033,10 +2038,7 @@ export namespace Schemas {
     export type TrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface TrendsQueryResponse {
-      /**
-       * Box plot data when display type is BoxPlot
-       * @nullable
-       */
+      /** @nullable */
       boxplot_data?: BoxPlotDatum[] | null;
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -3350,6 +3352,7 @@ export namespace Schemas {
 
     export interface StickinessCriteria {
       operator: StickinessOperator;
+      /** @minimum 1 */
       value: number;
     }
 
@@ -3395,6 +3398,7 @@ export namespace Schemas {
       interval?: IntervalType | null;
       /**
        * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+       * @minimum 1
        * @nullable
        */
       intervalCount?: number | null;
@@ -5852,6 +5856,8 @@ export namespace Schemas {
 
     export type StaticFiltersActivitiesItem = {[key: string]: unknown};
 
+    export type StaticFiltersClientsItem = {[key: string]: unknown};
+
     export interface StaticFilters {
       /** Users who have logged activity. */
       users: StaticFiltersUsersItem[];
@@ -5859,6 +5865,8 @@ export namespace Schemas {
       scopes: StaticFiltersScopesItem[];
       /** Available activity types. */
       activities: StaticFiltersActivitiesItem[];
+      /** API clients that have generated activity (from x-posthog-client header). */
+      clients: StaticFiltersClientsItem[];
     }
 
     export interface AvailableFiltersResponse {
@@ -7504,7 +7512,11 @@ export namespace Schemas {
       /** @nullable */
       showNullsAsZero?: boolean | null;
       /** @nullable */
+      showPieTotal?: boolean | null;
+      /** @nullable */
       showTotalRow?: boolean | null;
+      /** @nullable */
+      showValuesOnSeries?: boolean | null;
       /** @nullable */
       showXAxisBorder?: boolean | null;
       /** @nullable */
@@ -15965,7 +15977,8 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine: EngineEnum | NullEnum | null;
-      readonly last_run_at: string;
+      /** @nullable */
+      readonly last_run_at: string | null;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
@@ -19520,6 +19533,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at: string | null;
       readonly consecutive_failures: number;
+      /**
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertCheck without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * @nullable
+       */
+      readonly last_error_message: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
@@ -20564,6 +20582,7 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
     * `eval_clusters` - Eval Clusters
     * `user_created` - User Created
+    * `automation` - Automation
     * `slack` - Slack
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
@@ -20576,6 +20595,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
+      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -22769,6 +22789,48 @@ export namespace Schemas {
       results: TaggedItem[];
     }
 
+    export interface TaskAutomation {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      prompt: string;
+      /** @maxLength 255 */
+      repository: string;
+      /** @nullable */
+      github_integration?: number | null;
+      /** @maxLength 100 */
+      cron_expression: string;
+      /** @maxLength 128 */
+      timezone?: string;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      template_id?: string | null;
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /** @nullable */
+      readonly last_run_status: string | null;
+      /** @nullable */
+      readonly last_task_id: string | null;
+      /** @nullable */
+      readonly last_task_run_id: string | null;
+      /** @nullable */
+      readonly last_error: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedTaskAutomationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskAutomation[];
+    }
+
     export interface PaginatedTaskList {
       count: number;
       /** @nullable */
@@ -24849,7 +24911,8 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine?: EngineEnum | NullEnum | null;
-      readonly last_run_at?: string;
+      /** @nullable */
+      readonly last_run_at?: string | null;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
@@ -25378,6 +25441,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       readonly consecutive_failures?: number;
+      /**
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertCheck without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * @nullable
+       */
+      readonly last_error_message?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /** @nullable */
@@ -25841,11 +25909,6 @@ export namespace Schemas {
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event?: boolean;
@@ -27076,6 +27139,44 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+      /**
+       * Custom prompt for CI fixes. If blank, a default prompt will be used.
+       * @nullable
+       */
+      ci_prompt?: string | null;
+    }
+
+    export interface PatchedTaskAutomation {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      prompt?: string;
+      /** @maxLength 255 */
+      repository?: string;
+      /** @nullable */
+      github_integration?: number | null;
+      /** @maxLength 100 */
+      cron_expression?: string;
+      /** @maxLength 128 */
+      timezone?: string;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      template_id?: string | null;
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_run_at?: string | null;
+      /** @nullable */
+      readonly last_run_status?: string | null;
+      /** @nullable */
+      readonly last_task_id?: string | null;
+      /** @nullable */
+      readonly last_task_run_id?: string | null;
+      /** @nullable */
+      readonly last_error?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -27202,11 +27303,6 @@ export namespace Schemas {
        */
       readonly user_access_level?: string | null;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       test_account_filters?: unknown;
@@ -27820,11 +27916,6 @@ export namespace Schemas {
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event: boolean;
@@ -30298,10 +30389,7 @@ export namespace Schemas {
     export type QueryResponseAlternative66ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative66 {
-      /**
-       * Box plot data when display type is BoxPlot
-       * @nullable
-       */
+      /** @nullable */
       boxplot_data?: BoxPlotDatum[] | null;
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -32019,11 +32107,6 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       test_account_filters?: unknown;
@@ -35476,6 +35559,7 @@ export namespace Schemas {
 
     export type AdvancedActivityLogsListParams = {
     activities?: string[];
+    clients?: string[];
     detail_filters?: string;
     end_date?: string;
     hogql_filter?: string;
@@ -38000,6 +38084,17 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */
