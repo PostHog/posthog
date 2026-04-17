@@ -1194,8 +1194,7 @@ mod tests {
         use super::*;
         use async_trait::async_trait;
         use limiters::global_rate_limiter::{
-            EvalResult, GlobalRateLimitResponse,
-            GlobalRateLimiter as CommonGlobalRateLimiterTrait,
+            EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiterTrait,
         };
         use std::collections::HashSet;
 
@@ -1369,8 +1368,14 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         process_events(
-            sink, dropper, None, historical_cfg, None, Some(limiter),
-            &events, &context,
+            sink,
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
         )
         .await
         .unwrap();
@@ -1411,8 +1416,14 @@ mod tests {
         let limiter = build_limiter(1, 1, None, true);
 
         process_events(
-            sink, dropper, None, historical_cfg, None, Some(limiter),
-            &events, &context,
+            sink,
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
         )
         .await
         .unwrap();
@@ -1456,8 +1467,14 @@ mod tests {
         let limiter = build_limiter(1, 1, None, false);
 
         process_events(
-            sink, dropper, None, historical_cfg, None, Some(limiter),
-            &events, &context,
+            sink,
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            Some(limiter),
+            &events,
+            &context,
         )
         .await
         .unwrap();

@@ -2427,7 +2427,10 @@ mod tests {
                     v["distinct_id"].as_str().unwrap().to_string()
                 })
                 .collect();
-            assert_eq!(output, input_distinct_ids, "serial path must preserve order");
+            assert_eq!(
+                output, input_distinct_ids,
+                "serial path must preserve order"
+            );
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
