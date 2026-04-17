@@ -577,7 +577,8 @@ export interface ExternalDataSourceSerializersApi {
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine: EngineEnumApi | NullEnumApi | null
-    readonly last_run_at: string
+    /** @nullable */
+    readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
@@ -630,7 +631,8 @@ export interface PatchedExternalDataSourceSerializersApi {
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine?: EngineEnumApi | NullEnumApi | null
-    readonly last_run_at?: string
+    /** @nullable */
+    readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi

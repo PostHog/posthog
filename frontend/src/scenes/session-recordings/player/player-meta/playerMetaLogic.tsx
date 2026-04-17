@@ -118,7 +118,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
-            ['loadingBySessionId', 'progressBySessionId', 'summaryBySessionId', 'feedbackBySessionId'],
+            [
+                'loadingBySessionId',
+                'progressBySessionId',
+                'summaryBySessionId',
+                'feedbackBySessionId',
+                'errorBySessionId',
+                'retryStateBySessionId',
+            ],
             playerInspectorLogic(props),
             ['allItemsByMiniFilterKey'],
         ],
@@ -166,6 +173,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.progressBySessionId],
             (progressBySessionId): SummarizationProgress | null =>
                 progressBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryError: [
+            (s) => [s.errorBySessionId],
+            (errorBySessionId): string | null => errorBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryHasRetried: [
+            (s) => [s.retryStateBySessionId],
+            (retryStateBySessionId): boolean => !!retryStateBySessionId[props.sessionRecordingId]?.hasRetried,
         ],
         summaryHasHadFeedback: [
             (s) => [s.feedbackBySessionId],
