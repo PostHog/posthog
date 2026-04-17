@@ -814,23 +814,50 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+def _build_billing_token(team: Team, user: User) -> str | None:
+    from posthog.cloud_utils import get_cached_instance_license
+
+    from ee.billing.billing_manager import build_billing_token
+
+    license = get_cached_instance_license()
+    if not license:
+        return None
+    return build_billing_token(license, team.organization, user)
+
+
+def _team_has_active_billing(team: Team, user: User) -> bool:
+    """Check if the team's organization already has an active billing subscription."""
+    try:
+        billing_token = _build_billing_token(team, user)
+        if not billing_token:
+            return False
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_token}"},
+            timeout=30,
+        )
+
+        if res.status_code != 200:
+            return False
+
+        customer = res.json().get("customer", {})
+        return bool(customer.get("has_active_subscription"))
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
+        return False
+
+
 def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
     """Call the billing service to activate a subscription with a Stripe Shared Payment Token.
 
     Returns True if activation succeeded, False otherwise.
     """
     try:
-        from posthog.cloud_utils import get_cached_instance_license
-
-        from ee.billing.billing_manager import build_billing_token
-
-        license = get_cached_instance_license()
-        if not license:
+        billing_token = _build_billing_token(team, user)
+        if not billing_token:
             capture_exception(Exception("No license found for SPT billing activation"))
             return False
-
-        organization = team.organization
-        billing_token = build_billing_token(license, organization, user)
 
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
@@ -842,28 +869,35 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
         if res.status_code not in (200, 201):
             capture_exception(
                 Exception(f"Billing SPT activation failed: {res.status_code}"),
-                {"team_id": team.id, "org_id": str(organization.id), "status": res.status_code},
+                {"team_id": team.id, "org_id": str(team.organization_id), "status": res.status_code},
             )
             return False
 
-        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(organization.id))
+        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
         return True
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
         return False
 
 
-def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
-    """Try to activate billing with an SPT from payment_credentials.
-
-    Returns True if succeeded, False if failed, None if no SPT was present.
-    """
+def _extract_spt(request: Request) -> str | None:
     payment_credentials = request.data.get("payment_credentials")
     if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
-        spt_token = payment_credentials.get("stripe_payment_token")
-        if spt_token:
-            return _activate_billing_with_spt(team, user, spt_token)
+        return payment_credentials.get("stripe_payment_token") or None
     return None
+
+
+def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
+    """Activate billing if an SPT is present, skipping if billing is already active.
+
+    Returns True if succeeded or already active, False if failed, None if no SPT was present.
+    """
+    spt_token = _extract_spt(request)
+    if not spt_token:
+        return None
+    if _team_has_active_billing(team, user):
+        return True
+    return _activate_billing_with_spt(team, user, spt_token)
 
 
 def _create_provisioned_pat(user: User, team: Team) -> str | None:

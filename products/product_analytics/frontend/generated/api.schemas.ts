@@ -999,10 +999,7 @@ export interface QueryTimingApi {
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
-    /**
-     * Box plot data when display type is BoxPlot
-     * @nullable
-     */
+    /** @nullable */
     boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -3091,6 +3088,7 @@ export const StickinessOperatorApi = {
 
 export interface StickinessCriteriaApi {
     operator: StickinessOperatorApi
+    /** @minimum 1 */
     value: number
 }
 
@@ -3139,6 +3137,7 @@ export interface StickinessQueryApi {
     interval?: IntervalTypeApi | null
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @minimum 1
      * @nullable
      */
     intervalCount?: number | null

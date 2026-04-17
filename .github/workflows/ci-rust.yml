@@ -6,6 +6,10 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120

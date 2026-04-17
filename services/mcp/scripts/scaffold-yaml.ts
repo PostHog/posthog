@@ -332,6 +332,11 @@ function mergeWithExisting(
         tools: mergedTools,
     }
 
+    // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
+    if (existing.wrappers !== undefined) {
+        merged.wrappers = existing.wrappers
+    }
+
     return {
         content: YAML_HEADER + stringifyYaml(merged, { indent: 4, lineWidth: 120 }),
         added,
