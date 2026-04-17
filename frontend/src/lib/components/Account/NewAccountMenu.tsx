@@ -123,12 +123,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             )}
                             {hasPendingInvites && (
                                 <PendingInviteDot
-                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'ml-auto mr-0.5'}
+                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
                                 />
                             )}
-                            {!isLayoutNavCollapsed && !isAiFirst && (
-                                <MenuOpenIndicator className={hasPendingInvites ? '' : 'ml-auto'} />
-                            )}
+                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
                         </ButtonPrimitive>
                     )}
                 />
@@ -186,13 +184,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
-                                                    {hasPendingInvites && (
-                                                        <PendingInviteDot className="ml-auto mr-0.5" />
-                                                    )}
-                                                    <MenuOpenIndicator
-                                                        intent="sub"
-                                                        className={hasPendingInvites ? '' : 'ml-auto'}
-                                                    />
+                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
+                                                    <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }
                                         />
