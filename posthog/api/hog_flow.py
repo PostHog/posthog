@@ -679,10 +679,12 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            # Cursor is the last person_id/group_key seen; pagination is keyset by that field.
+            next_cursor = users_affected[-1]["person_id"] if users_affected else None
             return Response(
                 {
                     "users_affected": users_affected,
-                    "cursor": users_affected[-1] if users_affected else None,
+                    "cursor": next_cursor,
                     "has_more": len(users_affected) == PERSON_BATCH_SIZE,
                 }
             )

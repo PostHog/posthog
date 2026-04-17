@@ -90,19 +90,23 @@ export function convertToHogFunctionInvocationGlobals(
 export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
     team,
     personId,
+    distinctId,
     siteUrl,
 }: {
     team: Team
     personId: string
+    distinctId?: string | null
     siteUrl: string
 }): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
 
+    // Prefer the distinct_id in the person URL so templates and logs surface a user-facing handle
+    const personUrlHandle = distinctId ?? personId
     const person: HogFunctionInvocationGlobals['person'] = {
         id: personId,
         properties: {},
-        name: '',
-        url: `${projectUrl}/person/${encodeURIComponent(personId)}`,
+        name: distinctId ?? '',
+        url: `${projectUrl}/person/${encodeURIComponent(personUrlHandle)}`,
     }
 
     const context: HogFunctionInvocationGlobals = {
@@ -115,7 +119,8 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             event: '$batch_hog_flow_invocation',
             properties: {},
             uuid: new UUIDT().toString(),
-            distinct_id: '', // Not applicable for batch processing but left here for compatibility
+            // Populated from persons.pdi for batch invocations; empty when a person has no distinct_ids
+            distinct_id: distinctId ?? '',
             elements_chain: '',
             timestamp: DateTime.now().toISO(),
             url: '',

@@ -107,11 +107,15 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
 
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
-    """Build HogQL AST query to count or select distinct persons matching filters."""
+    """Build HogQL AST query to count or select distinct persons matching filters.
+
+    When return_count=False, the query also returns any distinct_id for each person
+    via persons.pdi. Pagination orders by persons.id so GROUP BY yields one row per person.
+    """
     from posthog.hogql import ast
     from posthog.hogql.property import property_to_expr
 
-    # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
+    # Build the main SELECT with either count(DISTINCT persons.id) or (persons.id, any(pdi.distinct_id))
     if return_count:
         select_query = ast.SelectQuery(
             select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
@@ -119,9 +123,12 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
         )
     else:
         select_query = ast.SelectQuery(
-            select=[ast.Field(chain=["persons", "id"])],
+            select=[
+                ast.Field(chain=["persons", "id"]),
+                ast.Call(name="any", args=[ast.Field(chain=["persons", "pdi", "distinct_id"])]),
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-            distinct=True,
+            group_by=[ast.Field(chain=["persons", "id"])],
         )
 
     # Build WHERE clause with team_id and property filters
@@ -413,11 +420,17 @@ def _build_group_query(
     return select_query
 
 
-def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
-    """Get distinct person IDs matching person-based feature flag filters."""
+def _get_person_blast_radius_persons(
+    team: Team, filter: Filter, cursor: Optional[str] = None
+) -> list[dict[str, Optional[str]]]:
+    """Get person IDs and a distinct_id for each, matching person-based feature flag filters.
+
+    Returns a list of {"person_id": str, "distinct_id": str | None}. distinct_id may be
+    None if a person has no pdi rows (possible on personless-events teams with INNER JOIN).
+    """
     from posthog.hogql.query import execute_hogql_query
 
-    # Build the SELECT query to get person IDs
+    # Build the SELECT query to get (person_id, distinct_id) pairs
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -426,15 +439,25 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
         team=team,
     )
 
-    # Extract person IDs from results
-    person_ids = [str(row[0]) for row in response.results] if response.results else []
-    return person_ids
+    if not response.results:
+        return []
+    return [
+        {
+            "person_id": str(row[0]),
+            "distinct_id": str(row[1]) if row[1] is not None else None,
+        }
+        for row in response.results
+    ]
 
 
 def _get_group_blast_radius_persons(
     team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
-) -> list[str]:
-    """Get distinct group keys matching group-based feature flag filters."""
+) -> list[dict[str, Optional[str]]]:
+    """Get distinct group keys matching group-based feature flag filters.
+
+    Returns dicts shaped like the person variant so callers can handle both uniformly:
+    {"person_id": <group_key>, "distinct_id": None}. Groups have no distinct_id concept.
+    """
     from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
@@ -456,6 +479,6 @@ def _get_group_blast_radius_persons(
         workload=Workload.OFFLINE,
     )
 
-    # Extract group keys from results
-    group_keys = [str(row[0]) for row in response.results] if response.results else []
-    return group_keys
+    if not response.results:
+        return []
+    return [{"person_id": str(row[0]), "distinct_id": None} for row in response.results]

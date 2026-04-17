@@ -1,6 +1,6 @@
 from typing import Optional
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -1446,3 +1446,72 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_error:
             assert response.json()["detail"] == expected_error
+
+
+class TestHogFlowBlastRadiusPersons(ClickhouseTestMixin, APIBaseTest):
+    """Regression coverage for the batch hog flow pipeline: every returned person
+    must carry a distinct_id so templates defaulting to `{event.distinct_id}` resolve
+    when a workflow is triggered by a batch trigger."""
+
+    def test_person_results_include_distinct_id(self):
+        from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius_persons
+
+        for i in range(3):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}@posthog.com"],
+                properties={"group": f"{i}"},
+            )
+
+        result = get_user_blast_radius_persons(
+            self.team,
+            {
+                "properties": [
+                    {"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"},
+                ],
+            },
+        )
+
+        self.assertEqual(len(result), 2)
+        for entry in result:
+            self.assertIn("person_id", entry)
+            self.assertIn("distinct_id", entry)
+            self.assertIsNotNone(entry["person_id"])
+            # Each created person has exactly one distinct_id, so the pdi join must surface it
+            self.assertIsNotNone(entry["distinct_id"])
+            self.assertTrue(entry["distinct_id"].endswith("@posthog.com"))
+
+    def test_group_results_use_same_shape_with_null_distinct_id(self):
+        """Groups are surfaced in the same shape so the Node consumer can handle
+        both uniformly. distinct_id is None because groups have no distinct_id."""
+        from posthog.models import GroupTypeMapping
+        from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius_persons
+        from posthog.models.group.util import create_group
+
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="acme",
+            properties={"industry": "finance"},
+        )
+
+        result = get_user_blast_radius_persons(
+            self.team,
+            {
+                "properties": [
+                    {
+                        "key": "industry",
+                        "type": "group",
+                        "value": ["finance"],
+                        "operator": "exact",
+                        "group_type_index": 0,
+                    },
+                ],
+            },
+            group_type_index=0,
+        )
+
+        self.assertEqual(result, [{"person_id": "acme", "distinct_id": None}])

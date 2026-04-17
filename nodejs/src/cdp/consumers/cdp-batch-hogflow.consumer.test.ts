@@ -270,7 +270,10 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             // Mock the batch person query service to return some persons
             const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
-                users_affected: ['person-1', 'person-2'],
+                users_affected: [
+                    { person_id: 'person-1', distinct_id: 'distinct-1' },
+                    { person_id: 'person-2', distinct_id: 'distinct-2' },
+                ],
                 cursor: null,
                 has_more: false,
             })
@@ -302,11 +305,13 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 state: {
                     event: expect.objectContaining({
                         event: '$batch_hog_flow_invocation',
+                        distinct_id: 'distinct-1',
                     }),
                     actionStepCount: 0,
                 },
                 person: expect.objectContaining({
                     id: 'person-1',
+                    name: 'distinct-1',
                 }),
             })
             expect(result[1]).toMatchObject({
@@ -319,11 +324,13 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 state: {
                     event: expect.objectContaining({
                         event: '$batch_hog_flow_invocation',
+                        distinct_id: 'distinct-2',
                     }),
                     actionStepCount: 0,
                 },
                 person: expect.objectContaining({
                     id: 'person-2',
+                    name: 'distinct-2',
                 }),
             })
 
@@ -346,12 +353,15 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const mockGetBlastRadiusPersons = jest
                 .fn()
                 .mockResolvedValueOnce({
-                    users_affected: ['person-1', 'person-2'],
+                    users_affected: [
+                        { person_id: 'person-1', distinct_id: 'distinct-1' },
+                        { person_id: 'person-2', distinct_id: 'distinct-2' },
+                    ],
                     cursor: 'cursor-1',
                     has_more: true,
                 })
                 .mockResolvedValueOnce({
-                    users_affected: ['person-3'],
+                    users_affected: [{ person_id: 'person-3', distinct_id: 'distinct-3' }],
                     cursor: null,
                     has_more: false,
                 })
@@ -402,17 +412,23 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const mockGetBlastRadiusPersons = jest
                 .fn()
                 .mockResolvedValueOnce({
-                    users_affected: ['person-1', 'person-2'],
+                    users_affected: [
+                        { person_id: 'person-1', distinct_id: 'distinct-1' },
+                        { person_id: 'person-2', distinct_id: 'distinct-2' },
+                    ],
                     cursor: 'cursor-1',
                     has_more: true,
                 })
                 .mockResolvedValueOnce({
-                    users_affected: ['person-3', 'person-4'],
+                    users_affected: [
+                        { person_id: 'person-3', distinct_id: 'distinct-3' },
+                        { person_id: 'person-4', distinct_id: 'distinct-4' },
+                    ],
                     cursor: 'cursor-2',
                     has_more: true,
                 })
                 .mockResolvedValueOnce({
-                    users_affected: ['person-5'],
+                    users_affected: [{ person_id: 'person-5', distinct_id: 'distinct-5' }],
                     cursor: null,
                     has_more: false,
                 })
@@ -463,7 +479,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             // Mock the batch person query service
             const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
-                users_affected: ['person-1'],
+                users_affected: [{ person_id: 'person-1', distinct_id: 'distinct-1' }],
             })
             processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
@@ -507,7 +523,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             // Mock the batch person query service
             const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
-                users_affected: ['person-1'],
+                users_affected: [{ person_id: 'person-1', distinct_id: 'distinct-1' }],
             })
             processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
@@ -627,7 +643,10 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             // Mock the batch person query service
             const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
-                users_affected: ['distinct-1', 'distinct-2'],
+                users_affected: [
+                    { person_id: 'distinct-1', distinct_id: 'did-1' },
+                    { person_id: 'distinct-2', distinct_id: 'did-2' },
+                ],
             })
             processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 

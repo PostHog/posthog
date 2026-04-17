@@ -109,12 +109,12 @@ describe('HogFlowBatchPersonQueryService', () => {
         it("uses the first page's cursor for the next page request", async () => {
             const service = createService()
             const firstPageResponse: BlastRadiusPersonsResponse = {
-                users_affected: ['person_1'],
+                users_affected: [{ person_id: 'person_1', distinct_id: 'did_1' }],
                 cursor: 'next-cursor',
                 has_more: true,
             }
             const secondPageResponse: BlastRadiusPersonsResponse = {
-                users_affected: ['person_2'],
+                users_affected: [{ person_id: 'person_2', distinct_id: null }],
                 cursor: null,
                 has_more: false,
             }

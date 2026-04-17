@@ -10,8 +10,13 @@ export interface BlastRadiusResponse {
     total_users: number
 }
 
+export interface BlastRadiusPerson {
+    person_id: string
+    distinct_id: string | null
+}
+
 export interface BlastRadiusPersonsResponse {
-    users_affected: Array<string>
+    users_affected: Array<BlastRadiusPerson>
     cursor: string | null
     has_more: boolean
 }
@@ -73,7 +78,8 @@ export class HogFlowBatchPersonQueryService {
 
     /**
      * Get list of persons affected by filters with cursor-based pagination.
-     * Returns distinct_id and person_id for each matching person, plus pagination info.
+     * Returns {person_id, distinct_id} for each matching person, plus pagination info.
+     * For group-based filters distinct_id is null and person_id carries the group key.
      *
      * @param cursor - Optional cursor from previous response for pagination
      */
