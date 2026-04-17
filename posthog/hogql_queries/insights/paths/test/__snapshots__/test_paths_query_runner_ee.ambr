@@ -5585,7 +5585,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5671,7 +5671,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5757,7 +5757,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5843,7 +5843,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5929,7 +5929,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), notIn(path_item, ['/bar/*/foo'])))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), notIn(path_item, ['/bar/*/foo'])))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6014,7 +6014,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), notIn(path_item, ['/bar/*/foo'])))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), notIn(path_item, ['/bar/*/foo'])))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6099,7 +6099,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6184,7 +6184,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$screen'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$screen'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6269,7 +6269,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6354,7 +6354,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), notIn(path_item, ['/custom1', '/1', '/2', '/3'])))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), notIn(path_item, ['/custom1', '/1', '/2', '/3'])))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6439,7 +6439,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-03 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-03 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6532,7 +6532,7 @@
                     WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
-                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6618,7 +6618,7 @@
                     WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
-                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY events.person_id ASC,
                           toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -6705,7 +6705,7 @@
                     WHERE and(equals(groups.team_id, 99999), equals(index, 1))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_1 ON equals(events.`$group_1`, events__group_1.key)
-                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY events.person_id ASC,
                           toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -6825,7 +6825,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -6945,7 +6945,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7064,7 +7064,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7183,7 +7183,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7303,7 +7303,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7422,7 +7422,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7541,7 +7541,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7661,7 +7661,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7780,7 +7780,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -7874,7 +7874,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7995,7 +7995,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -8030,7 +8030,7 @@
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
                                                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -8173,7 +8173,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -8209,7 +8209,7 @@
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
                                                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -8331,7 +8331,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -8367,7 +8367,7 @@
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
                                                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -8511,7 +8511,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -8546,7 +8546,7 @@
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
                                                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -8832,12 +8832,12 @@
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
                                                                                                                                                                                                                      events__override.distinct_id)
   WHERE and(equals(events.team_id,
-                   99999), and(greaterOrEquals(toTimeZone(events.timestamp,
-                                                          'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00',
-                                                                                                             'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp,
-                                                                                                                                                                  'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59',
-                                                                                                                                                                                                   'UTC')))), equals(events.event,
-                                                                                                                                                                                                                     '$pageview'))
+                   99999), and(greaterOrEquals(events.timestamp,
+                                               toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00',
+                                                                                          'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp,
+                                                                                                                                    assumeNotNull(toDateTime('2012-01-02 23:59:59',
+                                                                                                                                                             'UTC')))), equals(events.event,
+                                                                                                                                                                               '$pageview'))
   ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                         events.person_id) ASC, toTimeZone(events.timestamp,
                                                                                           'UTC') ASC)
@@ -9091,12 +9091,12 @@
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
                                                                                                                                                                                                                      events__override.distinct_id)
   WHERE and(equals(events.team_id,
-                   99999), and(greaterOrEquals(toTimeZone(events.timestamp,
-                                                          'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00',
-                                                                                                             'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp,
-                                                                                                                                                                  'UTC'), assumeNotNull(toDateTime('2012-01-02 23:59:59',
-                                                                                                                                                                                                   'UTC')))), equals(events.event,
-                                                                                                                                                                                                                     '$pageview'))
+                   99999), and(greaterOrEquals(events.timestamp,
+                                               toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00',
+                                                                                          'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp,
+                                                                                                                                    assumeNotNull(toDateTime('2012-01-02 23:59:59',
+                                                                                                                                                             'UTC')))), equals(events.event,
+                                                                                                                                                                               '$pageview'))
   ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                         events.person_id) ASC, toTimeZone(events.timestamp,
                                                                                           'UTC') ASC)
@@ -9213,7 +9213,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9302,7 +9302,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9430,7 +9430,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -9520,7 +9520,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9648,7 +9648,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -9738,7 +9738,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9866,7 +9866,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -9956,7 +9956,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -10084,7 +10084,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -10170,7 +10170,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -10256,7 +10256,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -10341,7 +10341,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -10460,7 +10460,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -10579,7 +10579,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -10664,7 +10664,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -10783,7 +10783,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -10868,7 +10868,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -10987,7 +10987,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -11106,7 +11106,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -11225,7 +11225,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -11310,7 +11310,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -11400,7 +11400,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,

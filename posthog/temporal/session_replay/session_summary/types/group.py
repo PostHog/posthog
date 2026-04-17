@@ -32,6 +32,7 @@ class SessionGroupSummaryInputs:
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
     video_validation_enabled: bool | Literal["full"] | None = None
+    trigger_session_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -55,6 +56,7 @@ class SessionGroupSummaryOfSummariesInputs:
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
+    trigger_session_id: str | None = None
 
 
 class SessionStatusChange(TypedDict):
@@ -91,3 +93,4 @@ class SessionGroupSummaryPatternsExtractionChunksInputs:
     team_id: int
     redis_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None
+    trigger_session_id: str | None = None

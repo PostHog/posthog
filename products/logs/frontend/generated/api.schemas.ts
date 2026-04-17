@@ -203,6 +203,11 @@ export interface LogsAlertConfigurationApi {
     /** @nullable */
     readonly last_checked_at: string | null
     readonly consecutive_failures: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertCheck without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -268,6 +273,11 @@ export interface PatchedLogsAlertConfigurationApi {
     /** @nullable */
     readonly last_checked_at?: string | null
     readonly consecutive_failures?: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertCheck without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message?: string | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     /** @nullable */

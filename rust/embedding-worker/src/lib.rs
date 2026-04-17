@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 use std::{borrow::Cow, sync::Arc};
 
@@ -20,6 +21,14 @@ use crate::{
     },
     organization::apply_ai_opt_in,
 };
+
+static CL100K_ENCODER: OnceLock<tiktoken_rs::CoreBPE> = OnceLock::new();
+
+fn cl100k_encoder() -> &'static tiktoken_rs::CoreBPE {
+    CL100K_ENCODER.get_or_init(|| {
+        tiktoken_rs::cl100k_base().expect("Failed to initialize cl100k_base encoder")
+    })
+}
 
 const MAX_RETRY_ATTEMPTS: usize = 4; // 1 initial + 3 retries
 const RETRY_BASE_SECS: u64 = 2;
@@ -193,7 +202,7 @@ pub fn generate_embedding_text<'a>(
     let content = model.escape_input(content);
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-            let encoder = tiktoken_rs::cl100k_base()?;
+            let encoder = cl100k_encoder();
             let mut tokens: Vec<_> = encoder
                 .encode_with_special_tokens(&content)
                 .into_iter()

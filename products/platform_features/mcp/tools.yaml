@@ -1,17 +1,14 @@
-# MCP tool definitions for Platform Features — organization intelligence.
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 #
-# These tools expose existing PostHog API endpoints to MCP clients (Claude Code,
-# Claude Desktop, Cursor, etc.) and Max AI. They cover approvals, discussions,
-# activity logs, org membership, and roles.
-#
-# Access controls and metalytics are out of scope for now.
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Platform Features
 feature: platform_features
 url_prefix: /
-
+ui_apps: {}
 tools:
-    # --- Approvals / Change Requests ---
-
     change-requests-list:
         operation: change_requests_list
         enabled: true
@@ -23,10 +20,9 @@ tools:
             idempotent: true
         title: List pending and resolved approval requests.
         description: >
-            List approval requests (change requests) for the current project. Returns pending,
-            approved, rejected, and expired requests with vote status and staleness info.
-            Useful for understanding what governance actions are waiting for review.
-
+            List approval requests (change requests) for the current project. Returns pending, approved, rejected, and
+            expired requests with vote status and staleness info. Useful for understanding what governance actions are
+            waiting for review.
     change-request-get:
         operation: change_requests_retrieve
         enabled: true
@@ -38,9 +34,8 @@ tools:
             idempotent: true
         title: Get details of a specific approval request.
         description: >
-            Get a specific change request by ID, including the full intent, policy snapshot,
-            approval votes, and current state.
-
+            Get a specific change request by ID, including the full intent, policy snapshot, approval votes, and current
+            state.
     approval-policies-list:
         operation: approval_policies_list
         enabled: true
@@ -52,9 +47,8 @@ tools:
             idempotent: true
         title: List approval policies for the project.
         description: >
-            List all approval policies configured for this project. Shows which actions
-            require approval, who can approve, and bypass rules.
-
+            List all approval policies configured for this project. Shows which actions require approval, who can
+            approve, and bypass rules.
     approval-policy-get:
         operation: approval_policies_retrieve
         enabled: true
@@ -66,11 +60,8 @@ tools:
             idempotent: true
         title: Get a specific approval policy.
         description: >
-            Get details of an approval policy including conditions, approver configuration,
-            quorum requirements, and bypass rules.
-
-    # --- Discussions / Comments ---
-
+            Get details of an approval policy including conditions, approver configuration, quorum requirements, and
+            bypass rules.
     comments-list:
         operation: comments_list
         enabled: true
@@ -82,10 +73,8 @@ tools:
             idempotent: true
         title: List comments and discussion threads.
         description: >
-            List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight,
-            etc.) and item_id to find discussions on specific resources. Returns comment content,
-            author, and threading info.
-
+            List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight, etc.) and item_id to
+            find discussions on specific resources. Returns comment content, author, and threading info.
     comment-get:
         operation: comments_retrieve
         enabled: true
@@ -96,10 +85,8 @@ tools:
             destructive: false
             idempotent: true
         title: Get a specific comment.
-        description: >
-            Get a specific comment by ID including its content, rich content with mentions,
-            and metadata.
-
+        description: |
+            Get a specific comment by ID including its content, rich content with mentions, and metadata.
     comment-thread:
         operation: comments_thread_retrieve
         enabled: true
@@ -110,10 +97,8 @@ tools:
             destructive: false
             idempotent: true
         title: Get all replies in a comment thread.
-        description: >
-            Get the full thread of replies for a parent comment. Useful for reading
-            complete discussions on a resource.
-
+        description: |
+            Get the full thread of replies for a parent comment. Useful for reading complete discussions on a resource.
     comment-count:
         operation: comments_count_retrieve
         enabled: true
@@ -124,11 +109,8 @@ tools:
             destructive: false
             idempotent: true
         title: Get comment counts.
-        description: >
+        description: |
             Get the count of comments, optionally filtered by scope and item_id.
-
-    # --- Activity Logs ---
-
     activity-log-list:
         operation: activity_log_list
         enabled: true
@@ -139,15 +121,14 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        url_prefix: /activity
         title: List recent activity in the project.
         description: >
-            List recent activity log entries for the project. Shows who did what and when —
-            feature flag changes, dashboard edits, experiment launches, etc. Supports filtering
-            by scope, user, and date range.
+            List recent activity log entries for the project. Shows who did what and when — feature flag changes,
+            dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.
         param_overrides:
             page_size:
                 default: 10
+        url_prefix: /activity
         response:
             include:
                 - id
@@ -162,7 +143,6 @@ tools:
                 - detail.short_id
                 - detail.type
                 - created_at
-
     advanced-activity-logs-list:
         operation: advanced_activity_logs_list
         enabled: true
@@ -173,14 +153,14 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        url_prefix: /activity
         title: List activity logs with advanced filtering.
         description: >
-            List activity log entries with advanced filtering, sorting, and field-level diffs.
-            Supports filtering by scope, activity type, user, date range, and search text.
+            List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by
+            scope, activity type, user, date range, and search text.
         param_overrides:
             page_size:
                 default: 10
+        url_prefix: /activity
         response:
             include:
                 - id
@@ -196,7 +176,6 @@ tools:
                 - detail.type
                 - detail.changes
                 - created_at
-
     advanced-activity-logs-filters:
         operation: advanced_activity_logs_available_filters_retrieve
         enabled: true
@@ -206,15 +185,11 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        url_prefix: /activity
         title: Get available activity log filter options.
         description: >
-            Get the available filter options for activity logs — scopes, activity types, and
-            users that have logged activity. Useful for building filter UIs or understanding
-            what kinds of activity are tracked.
-
-    # --- Organization Members ---
-
+            Get the available filter options for activity logs — scopes, activity types, and users that have logged
+            activity. Useful for building filter UIs or understanding what kinds of activity are tracked.
+        url_prefix: /activity
     org-members-list:
         operation: members_list
         enabled: true
@@ -226,11 +201,8 @@ tools:
             idempotent: true
         title: List organization members.
         description: >
-            List all members of the current organization with their names, emails, membership
-            levels (member, admin, owner), and last login times.
-
-    # --- Roles ---
-
+            List all members of the current organization with their names, emails, membership levels (member, admin,
+            owner), and last login times.
     roles-list:
         operation: roles_list
         enabled: true
@@ -242,9 +214,8 @@ tools:
             idempotent: true
         title: List organization roles.
         description: >
-            List all roles defined in the organization. Roles group members and can be used
-            in approval policies and access control rules.
-
+            List all roles defined in the organization. Roles group members and can be used in approval policies and
+            access control rules.
     role-get:
         operation: roles_retrieve
         enabled: true
@@ -255,9 +226,8 @@ tools:
             destructive: false
             idempotent: true
         title: Get a specific role.
-        description: >
+        description: |
             Get details of a specific role including its name, creation date, and creator.
-
     role-members-list:
         operation: roles_role_memberships_list
         enabled: true
@@ -268,12 +238,73 @@ tools:
             destructive: false
             idempotent: true
         title: List members of a role.
+        description: |
+            List all members assigned to a specific role. Shows who has which role in the organization.
+    organizations-list:
+        operation: list
+        enabled: true
+        list: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List organizations.
         description: >
-            List all members assigned to a specific role. Shows who has which role
-            in the organization.
-
-    # --- Disabled write operations (read-only for now) ---
-
+            List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID
+            with organization-get for details or switch-organization to change context.
+        response:
+            include:
+                - id
+                - name
+                - slug
+                - membership_level
+    organization-get:
+        operation: retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get organization details.
+        description: >
+            Get details of an organization by ID including name, membership level, member count, teams, and projects. If
+            no ID is provided, returns the active organization.
+        param_overrides:
+            id:
+                optional: true
+                fallback: orgId
+                description: >
+                    Organization ID. If omitted, uses the active organization.
+        response:
+            include:
+                - id
+                - name
+                - slug
+                - created_at
+                - updated_at
+                - membership_level
+                - member_count
+                - teams.*.id
+                - teams.*.name
+                - teams.*.project_id
+                - projects.*.id
+                - projects.*.name
+    organizations-create:
+        operation: create
+        enabled: false
+    organizations-update:
+        operation: update
+        enabled: false
+    organizations-partial-update:
+        operation: partial_update
+        enabled: false
+    organizations-destroy:
+        operation: destroy
+        enabled: false
     change-requests-approve:
         operation: change_requests_approve_create
         enabled: false

@@ -101,6 +101,7 @@ class KafkaConsumerService:
             "auto.offset.reset": "latest",
             "enable.auto.commit": False,
             "security.protocol": self._kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+            "partition.assignment.strategy": "cooperative-sticky",
         }
         consumer = ConfluentConsumer(config)
         consumer.subscribe(
