@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -77,7 +77,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_last_error_message_null_when_no_errored_check(self):
         created = self._create_via_api()
         alert = LogsAlertConfiguration.objects.get(pk=created["id"])
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
         )
 
@@ -89,21 +89,21 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_last_error_message_returns_most_recent_errored_check(self):
         created = self._create_via_api()
         alert = LogsAlertConfiguration.objects.get(pk=created["id"])
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
             state_after="errored",
             error_message="Earlier timeout",
         )
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
             state_after="errored",
             error_message="Latest ClickHouse timeout",
         )
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
         )
 
