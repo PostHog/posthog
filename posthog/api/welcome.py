@@ -366,7 +366,13 @@ def _get_products_in_use(organization: Organization) -> list[str]:
     Replaces an earlier implementation that iterated every team row in Python, which scaled
     O(teams) and loaded all has_completed_onboarding_for JSONB blobs into memory.
     """
-    teams_qs = organization.teams.all().order_by("id")[:_MAX_TEAMS_SCANNED]
+    # Resolve the team IDs first — we need an unsliced queryset to pass to .filter() below.
+    team_ids = list(organization.teams.all().order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
+    if not team_ids:
+        return []
+    from posthog.models import Team
+
+    teams_qs = Team.objects.filter(id__in=team_ids)
     products: set[str] = set()
 
     # Presence-of-data heuristics — each is a single indexed EXISTS.
