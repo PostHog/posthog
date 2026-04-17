@@ -1,6 +1,6 @@
 metadata:
     devbox:
-        coder_url: https://coder.hedgehog-kitefin.ts.net
+        coder_url: https://coder.dev.posthog.dev
     categories:
         - key: devenv
           title: Intent-based dev environment
@@ -109,6 +109,8 @@ devbox:
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:users: null
+    devbox:share: null
     devbox:cleanup:disk: null
 devenv:
     dev:setup: null

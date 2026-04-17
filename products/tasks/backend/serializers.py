@@ -1,9 +1,14 @@
+from zoneinfo import available_timezones
+
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
+from croniter import croniter  # type: ignore[import-untyped]
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
@@ -13,7 +18,7 @@ from .constants import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
 )
-from .models import SandboxEnvironment, Task, TaskRun
+from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -784,6 +789,133 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Zero-based offset into the filtered log entries",
     )
+
+
+class TaskAutomationSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(max_length=255)
+    prompt = serializers.CharField()
+    repository = serializers.CharField(max_length=255)
+    github_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+    )
+    last_task_id = serializers.SerializerMethodField()
+    last_task_run_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskAutomation
+        fields = [
+            "id",
+            "name",
+            "prompt",
+            "repository",
+            "github_integration",
+            "cron_expression",
+            "timezone",
+            "template_id",
+            "enabled",
+            "last_run_at",
+            "last_run_status",
+            "last_task_id",
+            "last_task_run_id",
+            "last_error",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "last_run_at",
+            "last_run_status",
+            "last_task_id",
+            "last_task_run_id",
+            "last_error",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_last_task_id(self, instance: TaskAutomation) -> str | None:
+        return str(instance.task_id)
+
+    def get_last_task_run_id(self, instance: TaskAutomation) -> str | None:
+        return str(instance.last_task_run_id) if instance.last_task_run_id else None
+
+    def validate_github_integration(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Integration must belong to the same team")
+        return value
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+    def validate_cron_expression(self, value: str) -> str:
+        normalized = value.strip()
+        parts = normalized.split()
+        if len(parts) != 5:
+            raise serializers.ValidationError(
+                "Only standard 5-field cron expressions are supported "
+                "(minute hour day month weekday). Example: '0 9 * * 1-5'."
+            )
+        if not croniter.is_valid(normalized):
+            raise serializers.ValidationError(
+                "Invalid cron expression. Use standard 5-field cron syntax (e.g., '0 9 * * 1-5')."
+            )
+        return normalized
+
+    def validate_timezone(self, value: str) -> str:
+        if value not in available_timezones():
+            raise serializers.ValidationError(f"'{value}' is not a valid IANA timezone.")
+        return value
+
+    def create(self, validated_data):
+        if not validated_data.get("github_integration"):
+            default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
+            if default_integration:
+                validated_data["github_integration"] = default_integration
+
+        with transaction.atomic():
+            task = Task.objects.create(
+                team=self.context["team"],
+                created_by=self.context["request"].user,
+                title=validated_data.pop("name"),
+                description=validated_data.pop("prompt"),
+                origin_product=Task.OriginProduct.AUTOMATION,
+                repository=validated_data.pop("repository"),
+                github_integration=validated_data.pop("github_integration", None),
+            )
+            return TaskAutomation.objects.create(task=task, **validated_data)
+
+    def update(self, instance, validated_data):
+        task_fields = {
+            "name": "title",
+            "prompt": "description",
+            "repository": "repository",
+            "github_integration": "github_integration",
+        }
+        task_updates = {}
+        for serializer_field, task_field in task_fields.items():
+            if serializer_field in validated_data:
+                task_updates[task_field] = validated_data.pop(serializer_field)
+
+        with transaction.atomic():
+            automation = super().update(instance, validated_data)
+
+            if task_updates:
+                task = automation.task
+                fields_to_update = []
+                for field, value in task_updates.items():
+                    if getattr(task, field) != value:
+                        setattr(task, field, value)
+                        fields_to_update.append(field)
+                if fields_to_update:
+                    fields_to_update.append("updated_at")
+                    task.save(update_fields=fields_to_update)
+
+        return automation
 
 
 class SandboxEnvironmentSerializer(serializers.ModelSerializer):

@@ -24,7 +24,9 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
 
     by_category: dict = {"job_triggered": {}, "export_success": {}, "export_fail": {}}
     for entry in entries:
-        by_category[entry.activity][entry.detail["trigger"]["job_id"]] = entry
+        trigger = entry.detail.get("trigger") if isinstance(entry.detail, dict) else None
+        if isinstance(trigger, dict) and "job_id" in trigger:
+            by_category[entry.activity][trigger["job_id"]] = entry
 
     historical_exports = []
     for export_job_id, trigger_entry in by_category["job_triggered"].items():
