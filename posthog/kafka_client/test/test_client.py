@@ -262,6 +262,8 @@ class KafkaClientRoundtripTestCase(TestCase):
             self.assertIsNotNone(msg, "No message received within 10s")
             assert msg is not None  # for type narrowing
             self.assertIsNone(msg.error())
-            self.assertEqual(json.loads(msg.value()), payload)
+            value = msg.value()
+            assert value is not None
+            self.assertEqual(json.loads(value), payload)
         finally:
             consumer.close()

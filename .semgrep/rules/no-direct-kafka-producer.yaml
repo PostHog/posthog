@@ -27,3 +27,7 @@ rules:
               - posthog/dags/tests/test_person_property_reconciliation.py
               - posthog/temporal/tests/dlq_replay/test_activities.py
               - posthog/temporal/tests/common/test_logger.py
+              # DLQ replay needs per-message header passthrough, which confluent's
+              # AIOProducer refuses in batch mode. Uses raw aiokafka with cluster
+              # config resolved via get_profile_settings().
+              - posthog/temporal/dlq_replay/activities.py
