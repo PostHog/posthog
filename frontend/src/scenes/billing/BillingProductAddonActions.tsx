@@ -291,7 +291,7 @@ export const BillingProductAddonActions = ({
         <div className={align === 'left' ? '' : 'min-w-64'}>
             <div
                 className={`mt-2 self-center flex items-center gap-x-3 whitespace-nowrap ${
-                    align === 'left' ? 'justify-start' : 'ml-4 justify-end'
+                    align === 'left' ? 'flex-row-reverse justify-end' : 'ml-4 justify-end'
                 }`}
             >
                 {content}
