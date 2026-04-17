@@ -158,6 +158,9 @@ tools:
     persons-lifecycle-retrieve:
         operation: persons_lifecycle_retrieve
         enabled: false
+    persons-properties-at-time-retrieve:
+        operation: persons_properties_at_time_retrieve
+        enabled: false
     persons-reset-person-distinct-id-create:
         operation: persons_reset_person_distinct_id_create
         enabled: false

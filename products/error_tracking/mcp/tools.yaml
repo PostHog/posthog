@@ -30,8 +30,8 @@ tools:
             idempotent: true
         title: List error tracking assignment rules
         description: >
-            List error tracking assignment rules for the current project. Returns rules in evaluation order with their
-            filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
+            List error tracking assignment rules for the current project. Returns rules in evaluation order with
+            their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: false
@@ -163,9 +163,9 @@ tools:
             idempotent: false
         title: Split error tracking issue fingerprints
         description: >
-            Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
-            issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
-            `fingerprint` and optional `name` or `description`.
+            Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the
+            source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a
+            required `fingerprint` and optional `name` or `description`.
     error-tracking-issues-bulk-create:
         operation: error_tracking_issues_bulk_create
         enabled: false
@@ -306,6 +306,18 @@ tools:
         enabled: false
     error-tracking-issues-exists-retrieve:
         operation: error_tracking_issues_exists_retrieve
+        enabled: false
+    error-tracking-recommendations-list:
+        operation: error_tracking_recommendations_list
+        enabled: false
+    error-tracking-recommendations-dismiss-create:
+        operation: error_tracking_recommendations_dismiss_create
+        enabled: false
+    error-tracking-recommendations-refresh-create:
+        operation: error_tracking_recommendations_refresh_create
+        enabled: false
+    error-tracking-recommendations-restore-create:
+        operation: error_tracking_recommendations_restore_create
         enabled: false
 wrappers:
     query-error-tracking-issues:

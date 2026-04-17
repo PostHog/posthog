@@ -240,6 +240,71 @@ tools:
         title: List members of a role.
         description: |
             List all members assigned to a specific role. Shows who has which role in the organization.
+    organizations-list:
+        operation: list
+        enabled: true
+        list: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List organizations.
+        description: >
+            List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID
+            with organization-get for details or switch-organization to change context.
+        response:
+            include:
+                - id
+                - name
+                - slug
+                - membership_level
+    organization-get:
+        operation: retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get organization details.
+        description: >
+            Get details of an organization by ID including name, membership level, member count, teams, and projects. If
+            no ID is provided, returns the active organization.
+        param_overrides:
+            id:
+                optional: true
+                fallback: orgId
+                description: >
+                    Organization ID. If omitted, uses the active organization.
+        response:
+            include:
+                - id
+                - name
+                - slug
+                - created_at
+                - updated_at
+                - membership_level
+                - member_count
+                - teams.*.id
+                - teams.*.name
+                - teams.*.project_id
+                - projects.*.id
+                - projects.*.name
+    organizations-create:
+        operation: create
+        enabled: false
+    organizations-update:
+        operation: update
+        enabled: false
+    organizations-partial-update:
+        operation: partial_update
+        enabled: false
+    organizations-destroy:
+        operation: destroy
+        enabled: false
     change-requests-approve:
         operation: change_requests_approve_create
         enabled: false
