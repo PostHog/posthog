@@ -572,7 +572,8 @@ describe('log-record-avro', () => {
             })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
             const body = parseJSON(decoded[0]?.body || '{}') as { meta: { api_key: string }; ok: string }
-            expect(body.meta.api_key).toBe(PII_REDACTED)
+            // Body is regex-only scrub: non-pattern secret strings stay in raw JSON; flattened attrs still redact by key.
+            expect(body.meta.api_key).toBe('leak-value')
             expect(body.ok).toBe('keep')
             expect(decoded[0]?.attributes).toEqual({
                 'meta.api_key': encodeAttributeCell(PII_REDACTED),
