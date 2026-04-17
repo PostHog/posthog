@@ -13,15 +13,6 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
             badge: 'required',
             content: (
                 <>
-                    <CalloutBox type="info" icon="IconInfo" title="Using our SDKs? You probably don't need this page">
-                        <Markdown>
-                            If you're using our [Python](/docs/libraries/python) or [Node.js](/docs/libraries/node) SDKs
-                            with a supported provider (OpenAI, Anthropic, Gemini, and more), use the [native
-                            wrappers](/docs/llm-analytics/installation) instead. This page is for OpenTelemetry-native
-                            setups, OpenTelemetry collectors, and frameworks that don't have a PostHog SDK wrapper yet.
-                        </Markdown>
-                    </CalloutBox>
-
                     <CalloutBox type="fyi" icon="IconInfo" title="Full working examples">
                         <Markdown>
                             The [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-openai)
