@@ -1,5 +1,9 @@
 from datetime import timedelta
+from functools import reduce
+from operator import or_
 from typing import Any
+
+from django.db.models import Q
 
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
@@ -18,11 +22,20 @@ class AlertsRecommendation(Recommendation):
     refresh_interval = timedelta(seconds=5)
 
     def compute(self, team: Team) -> dict[str, Any]:
-        filters_list = HogFunction.objects.filter(
-            team_id=team.id,
-            type=HogFunctionType.INTERNAL_DESTINATION,
-            deleted=False,
-        ).values_list("filters", flat=True)
+        event_filter = reduce(
+            or_,
+            (Q(filters__contains={"events": [{"id": trigger["event"]}]}) for trigger in ALERT_TRIGGERS),
+        )
+
+        filters_list = (
+            HogFunction.objects.filter(
+                team_id=team.id,
+                type=HogFunctionType.INTERNAL_DESTINATION,
+                deleted=False,
+            )
+            .filter(event_filter)
+            .values_list("filters", flat=True)
+        )
 
         events_with_alerts: set[str] = set()
         for filters in filters_list:
