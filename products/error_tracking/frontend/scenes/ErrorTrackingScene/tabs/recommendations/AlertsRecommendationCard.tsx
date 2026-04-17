@@ -1,7 +1,6 @@
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -31,9 +30,9 @@ export function AlertsRecommendationCard({
     recommendation: AlertsRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
-    const { refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { refreshRecommendation, setOpenAlertTriggerKey } = useActions(recommendationsTabLogic)
+    const { openAlertTriggerKey } = useValues(recommendationsTabLogic)
     const alerts = recommendation.meta.alerts ?? []
-    const [openTriggerKey, setOpenTriggerKey] = useState<HogFunctionSubTemplateIdType | null>(null)
 
     if (alerts.length === 0) {
         return null
@@ -59,7 +58,7 @@ export function AlertsRecommendationCard({
                                 source: 'recommendation_modal',
                                 trigger_key: alert.key,
                             })
-                            setOpenTriggerKey(alert.key)
+                            setOpenAlertTriggerKey(alert.key)
                         }}
                     >
                         Create alert
@@ -80,11 +79,11 @@ export function AlertsRecommendationCard({
                 items={items}
                 progressLabel="configured"
             />
-            {openTriggerKey && (
+            {openAlertTriggerKey && (
                 <AlertsRecommendationWizardModal
-                    triggerKey={openTriggerKey}
+                    triggerKey={openAlertTriggerKey}
                     onClose={() => {
-                        setOpenTriggerKey(null)
+                        setOpenAlertTriggerKey(null)
                         refreshRecommendation(recommendation.id)
                     }}
                 />

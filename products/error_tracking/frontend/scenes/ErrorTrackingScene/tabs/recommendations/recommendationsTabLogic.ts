@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { HogFunctionSubTemplateIdType } from '~/types'
+
 import type { recommendationsTabLogicType } from './recommendationsTabLogicType'
 import type { AlertsRecommendation, CrossSellRecommendation, ErrorTrackingRecommendation } from './types'
 
@@ -38,6 +40,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
 
     actions({
         toggleDismissedExpanded: true,
+        setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
     }),
 
     reducers({
@@ -45,6 +48,12 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             false,
             {
                 toggleDismissedExpanded: (state) => !state,
+            },
+        ],
+        openAlertTriggerKey: [
+            null as HogFunctionSubTemplateIdType | null,
+            {
+                setOpenAlertTriggerKey: (_, { triggerKey }) => triggerKey,
             },
         ],
     }),
