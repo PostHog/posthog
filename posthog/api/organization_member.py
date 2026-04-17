@@ -205,28 +205,17 @@ class OrganizationMemberViewSet(
 
     @action(detail=True, methods=["get", "post"], url_path="grants")
     def grants(self, request, *args, **kwargs) -> Response:
-        from posthog.models import GuestResourceGrant
+        from posthog.rbac.guest_access import add_grant, list_grants, require_admin
 
         target: OrganizationMembership = self.get_object()
-
-        requesting_membership = OrganizationMembership.objects.get(organization=target.organization, user=request.user)
-        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied("Only org admins and owners can manage guest grants.")
+        require_admin(organization=target.organization, user=request.user)
 
         if request.method == "POST":
-            if not target.is_guest:
-                raise exceptions.ValidationError("Cannot create grants on a non-guest membership.")
-            team_id = request.data.get("team_id")
-            resource = request.data.get("resource")
-            resource_id = request.data.get("resource_id")
-            if resource not in {"dashboard", "insight", "notebook"}:
-                raise exceptions.ValidationError(f"Invalid resource: {resource}")
-            grant = GuestResourceGrant.objects.create(
-                organization_membership=target,
-                team_id=team_id,
-                resource=resource,
-                resource_id=resource_id,
-                is_pending=False,
+            grant = add_grant(
+                membership=target,
+                team_id=request.data.get("team_id"),
+                resource=request.data.get("resource"),
+                resource_id=request.data.get("resource_id"),
                 created_by=request.user,
             )
             return Response(
@@ -240,8 +229,7 @@ class OrganizationMemberViewSet(
                 status=201,
             )
 
-        # GET: list grants
-        qs = GuestResourceGrant.objects.filter(organization_membership=target)
+        qs = list_grants(membership=target)
         return Response(
             {
                 "results": [
@@ -260,38 +248,21 @@ class OrganizationMemberViewSet(
     @action(detail=True, methods=["delete"], url_path=r"grants/(?P<grant_id>[^/.]+)")
     def delete_grant(self, request, grant_id=None, *args, **kwargs) -> Response:
         from posthog.models import GuestResourceGrant
+        from posthog.rbac.guest_access import remove_grant, require_admin
 
         target: OrganizationMembership = self.get_object()
-
-        requesting_membership = OrganizationMembership.objects.get(organization=target.organization, user=request.user)
-        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied("Only org admins and owners can manage guest grants.")
+        require_admin(organization=target.organization, user=request.user)
 
         grant = get_object_or_404(GuestResourceGrant, id=grant_id, organization_membership=target)
-        grant.delete()
+        remove_grant(grant=grant)
         return Response(status=204)
 
     @action(detail=True, methods=["post"], url_path="promote_to_member")
     def promote_to_member(self, request, *args, **kwargs) -> Response:
-        from django.db import transaction
-
-        from posthog.models import GuestResourceGrant
+        from posthog.rbac.guest_access import promote_guest_to_member
 
         target: OrganizationMembership = self.get_object()
-
-        requesting_membership = OrganizationMembership.objects.get(organization=target.organization, user=request.user)
-        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied("Only org admins and owners can promote guests.")
-
-        if not target.is_guest:
-            raise exceptions.ValidationError("User is already a regular member of this organization.")
-
-        with transaction.atomic():
-            grants_removed = GuestResourceGrant.objects.filter(organization_membership=target).count()
-            GuestResourceGrant.objects.filter(organization_membership=target).delete()
-            target.is_guest = False
-            target.bypass_sso_enforcement = False
-            target.save()
+        grants_removed = promote_guest_to_member(membership=target, promoted_by=request.user)
 
         return Response(
             {

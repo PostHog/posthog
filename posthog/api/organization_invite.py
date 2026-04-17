@@ -11,11 +11,11 @@ from rest_framework import exceptions, mixins, permissions, request, response, s
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.constants import INVITE_DAYS_VALIDITY, AvailableFeature
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import EmailNormalizer
-from posthog.models import GuestResourceGrant, OrganizationInvite, OrganizationMembership
+from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -249,72 +249,16 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if not is_guest:
             return attrs
 
+        from posthog.rbac.guest_access import validate_guest_invite
+
         organization: Organization = Organization.objects.get(id=self.context["organization_id"])
-        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            raise exceptions.ValidationError(
-                "Guest invites require the Access Control feature. Please upgrade your plan."
-            )
-
-        grants = attrs.get("grants") or []
-        if not grants:
-            raise exceptions.ValidationError("Guest invites must specify at least one resource grant.")
-
-        bypass_sso_enforcement = attrs.get("bypass_sso_enforcement", False)
-        bypass_acknowledged = attrs.get("bypass_acknowledged", False)
-        if bypass_sso_enforcement and not bypass_acknowledged:
-            raise exceptions.ValidationError(
-                "You must set bypass_acknowledged=True to confirm you understand the SSO bypass implications."
-            )
-
-        target_email = attrs.get("target_email", "")
-        if (
-            target_email
-            and OrganizationMembership.objects.filter(
-                organization_id=self.context["organization_id"],
-                user__email__iexact=target_email,
-                is_guest=False,
-            ).exists()
-        ):
-            raise exceptions.ValidationError(
-                "This email address belongs to an existing regular member. Regular members cannot be invited as guests."
-            )
-
-        org_team_ids = set(organization.teams.values_list("id", flat=True))
-        valid_resources = {
-            GuestResourceGrant.Resource.DASHBOARD,
-            GuestResourceGrant.Resource.INSIGHT,
-            GuestResourceGrant.Resource.NOTEBOOK,
-        }
-
-        from posthog.models.insight import Insight
-
-        from products.dashboards.backend.models.dashboard import Dashboard
-        from products.notebooks.backend.models import Notebook
-
-        resource_model_map: dict[str, Any] = {
-            "dashboard": Dashboard,
-            "insight": Insight,
-            "notebook": Notebook,
-        }
-
-        for grant in grants:
-            team_id = grant.get("team_id")
-            resource = grant.get("resource")
-            resource_id = grant.get("resource_id")
-
-            if team_id not in org_team_ids:
-                raise exceptions.ValidationError(f"Team {team_id} does not belong to this organization.")
-
-            if resource not in valid_resources:
-                raise exceptions.ValidationError(
-                    f"Invalid resource type '{resource}'. Must be one of: {', '.join(valid_resources)}."
-                )
-
-            model = resource_model_map[resource]
-            if not model.objects.filter(id=resource_id, team_id=team_id).exists():
-                raise exceptions.ValidationError(
-                    f"{resource.capitalize()} {resource_id} does not exist in team {team_id}."
-                )
+        validate_guest_invite(
+            organization=organization,
+            target_email=attrs.get("target_email", ""),
+            grants=attrs.get("grants") or [],
+            bypass_sso_enforcement=attrs.get("bypass_sso_enforcement", False),
+            bypass_acknowledged=attrs.get("bypass_acknowledged", False),
+        )
 
         return attrs
 
@@ -369,15 +313,10 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             session_id=self.context.get("session_id"),
         )
 
-        for grant in grants:
-            GuestResourceGrant.objects.create(
-                invite=invite,
-                team_id=grant["team_id"],
-                resource=grant["resource"],
-                resource_id=grant["resource_id"],
-                is_pending=True,
-                created_by=self.context["request"].user,
-            )
+        if grants:
+            from posthog.rbac.guest_access import create_pending_grants
+
+            create_pending_grants(invite=invite, grants=grants, created_by=self.context["request"].user)
 
         return invite
 
