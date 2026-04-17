@@ -1,22 +1,24 @@
+import { IconLetter } from '@posthog/icons'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Link } from 'lib/lemon-ui/Link'
 
 function openJoinExistingOrgDialog(): void {
     LemonDialog.open({
-        title: 'Joining an existing organization?',
+        title: '',
+        width: 480,
         description: (
-            <div className="deprecated-space-y-2">
-                <p>
-                    To join an organization you've been invited to, open the invitation email from PostHog and click the
-                    link inside. That link is the only way to attach your new account to the existing organization.
+            <div className="flex flex-col items-center text-center px-2 pb-2">
+                <div className="flex items-center justify-center w-14 h-14 rounded-full bg-accent-highlight-secondary mb-4">
+                    <IconLetter className="text-2xl text-accent" />
+                </div>
+                <h2 className="text-xl font-bold mb-2">Check your email for your invite</h2>
+                <p className="text-secondary mb-2">
+                    Organization invitations only work by opening the link sent to your email. Signing up here will
+                    create a new, separate organization instead of joining the one you were invited to.
                 </p>
-                <p>
-                    If you sign up here without using the invite link, you'll create a brand new, separate organization
-                    instead of joining the one you were invited to.
-                </p>
-                <p>
-                    Can't find the email? Check your spam folder, or ask an admin of the organization to resend the
-                    invite.
+                <p className="text-secondary text-sm mb-0">
+                    Can't find it? Check your spam folder, or ask an admin to resend the invite.
                 </p>
             </div>
         ),
