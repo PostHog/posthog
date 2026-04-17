@@ -1,6 +1,6 @@
 use error::EventError;
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 
 use serde_json::Value;
@@ -64,7 +64,7 @@ pub fn recursively_sanitize_properties(
     Ok(())
 }
 
-static WHITESPACE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s{50,}").unwrap());
+static WHITESPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s{50,}").unwrap());
 
 // Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD. We also replace all 50-or-more whitespace sequences with "<ws trimmed>".
 pub fn sanitize_string(s: String) -> String {
