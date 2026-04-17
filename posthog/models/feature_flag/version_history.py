@@ -168,3 +168,68 @@ def reconstruct_flag_at_version(
         version_timestamp=version_timestamp,
         modified_by=modified_by,
     )
+
+
+def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: int) -> int | None:
+    """
+    Find the appropriate version number for a feature flag at a given timestamp.
+
+    Returns the version that was active at the specified timestamp, or None if
+    the flag didn't exist at that time.
+    """
+    if not flag.version:
+        return None
+
+    # If timestamp is after the flag's last update, use current version
+    if timestamp >= (flag.updated_at or flag.created_at):
+        return flag.version
+
+    # If timestamp is before flag creation, flag didn't exist
+    if timestamp < flag.created_at:
+        return None
+
+    # Get the most recent activity log entry at or before the timestamp
+    entry = (
+        ActivityLog.objects.filter(
+            team_id=team_id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            activity__in=["updated", "deleted", "restored"],
+            created_at__lte=timestamp,  # Only entries at or before the timestamp
+        )
+        .order_by("-created_at", "-id")  # Most recent first
+        .values_list("detail", flat=True)
+        .first()
+    )
+
+    # Extract version from the most recent entry
+    if entry:
+        changes = (entry or {}).get("changes") or []
+        version_after = _get_version_after(changes)
+
+        if version_after is not None:
+            return version_after
+
+    # If we found no version changes, the flag was at version 1 (creation)
+    return 1
+
+
+def reconstruct_flag_at_timestamp(
+    flag: FeatureFlag,
+    timestamp: datetime,
+    team_id: int,
+) -> dict[str, Any]:
+    """
+    Reconstruct a feature flag's state at a given timestamp.
+
+    This is a convenience wrapper around find_version_at_timestamp + reconstruct_flag_at_version
+    to avoid duplicating database queries and logic.
+    """
+    # Find the version that was active at the timestamp
+    target_version = find_version_at_timestamp(flag, timestamp, team_id)
+
+    if target_version is None:
+        raise VersionNotFound(f"Flag did not exist at {timestamp} (created at {flag.created_at})")
+
+    # Use the existing reconstruction logic
+    return reconstruct_flag_at_version(flag, target_version, team_id)

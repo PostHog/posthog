@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -8,6 +10,8 @@ from posthog.models.feature_flag.version_history import (
     RECONSTRUCTABLE_FIELDS,
     VersionHistoryIncomplete,
     VersionNotFound,
+    find_version_at_timestamp,
+    reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
 
@@ -270,3 +274,132 @@ class TestReconstructFlagAtVersion(BaseTest):
 
         result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
         assert result["rollback_conditions"] == {"threshold": 5}
+
+
+class TestTimestampBasedReconstruction(BaseTest):
+    def _create_flag(self, **kwargs) -> FeatureFlag:
+        defaults = {
+            "team": self.team,
+            "created_by": self.user,
+            "key": "test-flag",
+            "name": "Test Flag",
+            "filters": {"groups": [{"rollout_percentage": 100}]},
+            "active": True,
+            "version": 1,
+        }
+        defaults.update(kwargs)
+        return FeatureFlag.objects.create(**defaults)
+
+    def _simulate_update(
+        self,
+        flag: FeatureFlag,
+        changes: dict,
+    ) -> None:
+        assert flag.version is not None
+        old_version = flag.version
+        new_version = old_version + 1
+
+        activity_changes = [
+            Change(type="FeatureFlag", action="changed", field="version", before=old_version, after=new_version)
+        ]
+        for field, (before, after) in changes.items():
+            action: ChangeAction = (
+                "created"
+                if before is None and after is not None
+                else "deleted"
+                if before is not None and after is None
+                else "changed"
+            )
+            activity_changes.append(Change(type="FeatureFlag", action=action, field=field, before=before, after=after))
+
+        # Update the flag in the DB
+        flag.version = new_version
+        for field, (_, after) in changes.items():
+            setattr(flag, field, after)
+        flag.save()
+
+        _log_flag_update(
+            team_id=self.team.id,
+            org_id=self.organization.id,
+            user=self.user,
+            flag=flag,
+            changes=activity_changes,
+        )
+
+    def test_find_version_at_timestamp_current_version(self):
+        from datetime import datetime
+
+        flag = self._create_flag(version=3)
+        future_timestamp = datetime.now(UTC)
+
+        version = find_version_at_timestamp(flag, future_timestamp, self.team.id)
+        assert version == 3
+
+    def test_find_version_at_timestamp_before_creation(self):
+        from datetime import timedelta
+
+        flag = self._create_flag()
+        past_timestamp = flag.created_at - timedelta(hours=1)
+
+        version = find_version_at_timestamp(flag, past_timestamp, self.team.id)
+        assert version is None
+
+    def test_find_version_at_timestamp_at_creation(self):
+        flag = self._create_flag()
+
+        version = find_version_at_timestamp(flag, flag.created_at, self.team.id)
+        assert version == 1
+
+    def test_find_version_at_timestamp_no_version(self):
+        from datetime import datetime
+
+        flag = self._create_flag(version=None)
+
+        version = find_version_at_timestamp(flag, datetime.now(UTC), self.team.id)
+        assert version is None
+
+    def test_find_version_at_timestamp_with_updates(self):
+        flag = self._create_flag(name="V1", version=1)
+
+        # Simulate an update first
+        self._simulate_update(flag, {"name": ("V1", "V2")})
+
+        # Now check version at flag creation time (should be version 1)
+        version = find_version_at_timestamp(flag, flag.created_at, self.team.id)
+        assert version == 1
+
+    def test_reconstruct_flag_at_timestamp_success(self):
+        flag = self._create_flag(name="Original", active=True, version=1)
+
+        # Simulate an update first
+        self._simulate_update(flag, {"name": ("Original", "Updated")})
+
+        # Get flag state at creation time
+        result = reconstruct_flag_at_timestamp(flag, flag.created_at, self.team.id)
+
+        assert result["name"] == "Original"
+        assert result["version"] == 1
+        assert result["is_historical"] is True
+
+    def test_reconstruct_flag_at_timestamp_flag_did_not_exist(self):
+        from datetime import timedelta
+
+        flag = self._create_flag()
+        past_timestamp = flag.created_at - timedelta(hours=1)
+
+        with self.assertRaises(VersionNotFound) as cm:
+            reconstruct_flag_at_timestamp(flag, past_timestamp, self.team.id)
+
+        assert "did not exist" in str(cm.exception)
+
+    def test_reconstruct_flag_at_timestamp_current_version(self):
+        from datetime import datetime
+
+        flag = self._create_flag(name="Current", version=2)
+        future_timestamp = datetime.now(UTC)
+
+        result = reconstruct_flag_at_timestamp(flag, future_timestamp, self.team.id)
+
+        assert result["name"] == "Current"
+        assert result["version"] == 2
+        assert result["is_historical"] is False
