@@ -3561,12 +3561,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["data"][-1], 2)
 
-    def test_response_empty_if_no_events(self):
-        self._create_events()
-        flush_persons_and_events()
-        response = self._run(Filter(team=self.team, data={"date_from": "2012-12-12"}), self.team)
-        self.assertEqual(response, [])
-
     def test_interval_filtering_hour(self):
         self._create_events(use_time=True)
 

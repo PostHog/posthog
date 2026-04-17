@@ -54,6 +54,7 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -203,8 +204,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Prefetch runs to avoid N+1 queries when fetching latest_run
-        qs = qs.prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
+        qs = qs.select_related("created_by", "team").prefetch_related("runs")
 
         return qs
 
@@ -243,6 +244,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
@@ -908,7 +910,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
         summary="Send command to agent server",
         description="Forward a JSON-RPC command to the agent server running in the sandbox. "
-        "Supports user_message, cancel, and close commands.",
+        "Supports user_message, cancel, close, permission_response, and set_config_option commands.",
         strict_request_validation=True,
     )
     @action(

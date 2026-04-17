@@ -37,7 +37,6 @@ export const PlatformStatusBanner = (): JSX.Element => {
     return (
         <LemonBanner
             type={bannerType}
-            className="max-w-3xl"
             icon={<Hog className="size-10 shrink-0" />}
             hideIcon={false}
             action={{

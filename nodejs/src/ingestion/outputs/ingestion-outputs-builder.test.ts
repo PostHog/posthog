@@ -129,13 +129,15 @@ describe('IngestionOutputsBuilder', () => {
         expect(registry.getProducer('PRIMARY').queueMessages).toHaveBeenCalledTimes(1)
     })
 
-    it('dual write fans out to both producers when secondary config is non-empty', async () => {
+    it('dual write in copy mode fans out to both producers', async () => {
         const registry = createRegistry()
         const config = {
             EVENTS_TOPIC: 'events_v1',
             EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
             EVENTS_SECONDARY_TOPIC: 'events_v2',
             EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'copy',
+            EVENTS_PERCENTAGE: 100,
         }
 
         const outputs = new IngestionOutputsBuilder()
@@ -144,6 +146,8 @@ describe('IngestionOutputsBuilder', () => {
                 producerKey: 'EVENTS_PRODUCER',
                 secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
                 secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                modeKey: 'EVENTS_MODE',
+                percentageKey: 'EVENTS_PERCENTAGE',
             })
             .build(registry, config)
 
@@ -157,13 +161,15 @@ describe('IngestionOutputsBuilder', () => {
         )
     })
 
-    it('dual write falls back to single output when secondary topic is empty', async () => {
+    it('dual write in off mode falls back to single output', async () => {
         const registry = createRegistry()
         const config = {
             EVENTS_TOPIC: 'events_v1',
             EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
-            EVENTS_SECONDARY_TOPIC: '',
+            EVENTS_SECONDARY_TOPIC: 'events_v2',
             EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'off',
+            EVENTS_PERCENTAGE: 100,
         }
 
         const outputs = new IngestionOutputsBuilder()
@@ -172,6 +178,8 @@ describe('IngestionOutputsBuilder', () => {
                 producerKey: 'EVENTS_PRODUCER',
                 secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
                 secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                modeKey: 'EVENTS_MODE',
+                percentageKey: 'EVENTS_PERCENTAGE',
             })
             .build(registry, config)
 
@@ -190,6 +198,8 @@ describe('IngestionOutputsBuilder', () => {
             EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
             EVENTS_SECONDARY_TOPIC: 'events_v2',
             EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'copy',
+            EVENTS_PERCENTAGE: 100,
             DLQ_TOPIC: 'dlq_topic',
             DLQ_PRODUCER: 'PRIMARY' as TestProducer,
         }
@@ -200,6 +210,8 @@ describe('IngestionOutputsBuilder', () => {
                 producerKey: 'EVENTS_PRODUCER',
                 secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
                 secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                modeKey: 'EVENTS_MODE',
+                percentageKey: 'EVENTS_PERCENTAGE',
             })
             .register('dlq', { topicKey: 'DLQ_TOPIC', producerKey: 'DLQ_PRODUCER' })
             .build(registry, config)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
@@ -10,7 +11,7 @@ from django.db.models import Prefetch, Q
 import structlog
 import temporalio
 from dateutil import parser
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -809,6 +810,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
+            # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
+            # and the value prop is near-real-time. Other sync types use the 6h default.
+            schema_sync_frequency_interval = (
+                timedelta(minutes=5)
+                if is_cdc_schema and new_source_model.supports_scheduled_sync
+                else timedelta(hours=6)
+            )
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
                 team=self.team,
@@ -819,6 +827,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 sync_type_config=sync_type_config,
                 description=source_schema.description if source_schema else None,
                 label=schema_label_by_name.get(schema_name),
+                sync_frequency_interval=schema_sync_frequency_interval,
             )
 
             # For CDC schemas with PostHog-managed mode, add table to publication
@@ -876,11 +885,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def _setup_cdc_slot(
         self, source_impl, source_config, source_model: ExternalDataSource, payload: dict
     ) -> Response | None:
-        """Create replication slot + publication for PostHog-managed CDC sources.
+        """Set up CDC replication slot and publication on the source database.
 
-        For self-managed mode, validates that the provided slot/publication exist.
-        Updates source_model.job_inputs with CDC config.
-        Returns a Response on error, None on success.
+        PostHog-managed: PostHog creates both the publication and the slot (requires
+        table ownership on the source, plus REPLICATION).
+
+        Self-managed: the customer's DBA creates the publication out-of-band; PostHog
+        only verifies it exists and then creates the slot itself (publication creation
+        requires table ownership, slot creation only requires REPLICATION — which the
+        PostHog user must have either way to read the slot).
+
+        Updates source_model.job_inputs with CDC config. Returns a Response on error,
+        None on success.
         """
         from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 
@@ -923,28 +939,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
 
         elif management_mode == "self_managed":
-            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import publication_exists, slot_exists
+            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import create_slot, publication_exists
 
             try:
                 with cdc_pg_connection(source_model) as conn:
-                    if not slot_exists(conn, slot_name):
-                        source_model.delete()
-                        return Response(
-                            status=status.HTTP_400_BAD_REQUEST,
-                            data={"message": f"Replication slot '{slot_name}' does not exist"},
-                        )
                     if not publication_exists(conn, pub_name):
                         source_model.delete()
                         return Response(
                             status=status.HTTP_400_BAD_REQUEST,
-                            data={"message": f"Publication '{pub_name}' does not exist"},
+                            data={
+                                "message": (
+                                    f"Publication '{pub_name}' does not exist. Run the CREATE PUBLICATION "
+                                    f"statement we showed you, then retry."
+                                )
+                            },
                         )
+                    consistent_point = create_slot(conn, slot_name)
+                    job_inputs["cdc_consistent_point"] = consistent_point
             except Exception as e:
                 source_model.delete()
-                logger.exception("Failed to validate self-managed CDC slot", error=str(e))
+                logger.exception("Failed to set up self-managed CDC slot", error=str(e))
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Failed to validate replication slot: {e}"},
+                    data={"message": f"Failed to create replication slot: {e}"},
                 )
 
         source_model.job_inputs = job_inputs
@@ -1228,6 +1245,96 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for schema in schemas
         ]
         return Response(status=status.HTTP_200_OK, data=data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "valid": {"type": "boolean"},
+                        "errors": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                description="Whether the Postgres database satisfies CDC prerequisites.",
+            ),
+            400: OpenApiResponse(description="Invalid config, disallowed host, or connection failure."),
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def check_cdc_prerequisites(self, request: Request, *arg: Any, **kwargs: Any):
+        """Validate CDC prerequisites against a live Postgres connection.
+
+        Used by the source wizard to surface ✅/❌ checks before source creation,
+        and by the self-managed setup popup to verify user-created publications.
+        """
+        source_type = request.data.get("source_type")
+        if source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC prerequisite checks are only supported for Postgres."},
+            )
+
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source_impl: PostgresSource = PostgresSource()
+        is_valid, errors = source_impl.validate_config(request.data)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        config = source_impl.parse_config(request.data)
+
+        # SSRF protection: reject internal/private hosts (same as validate_credentials).
+        is_ssh_valid, ssh_errors = source_impl.ssh_tunnel_is_valid(config, self.team_id)
+        if not is_ssh_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": ssh_errors or "SSH tunnel host not allowed"},
+            )
+        valid_host, host_errors = source_impl.is_database_host_valid(
+            config.host,
+            self.team_id,
+            using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False,
+        )
+        if not valid_host:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": host_errors or "Host not allowed"},
+            )
+
+        management_mode = request.data.get("cdc_management_mode", "posthog")
+        if management_mode not in ("posthog", "self_managed"):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
+            )
+
+        tables = request.data.get("tables") or []
+        slot_name = request.data.get("cdc_slot_name") or None
+        publication_name = request.data.get("cdc_publication_name") or None
+
+        try:
+            prereq_errors = source_impl.check_cdc_prerequisites(
+                config,
+                management_mode=management_mode,
+                tables=tables,
+                slot_name=slot_name,
+                publication_name=publication_name,
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
+        )
 
     @action(methods=["POST"], detail=False)
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):

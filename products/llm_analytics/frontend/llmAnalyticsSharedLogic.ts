@@ -72,6 +72,16 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        // Batched action for URL-to-state sync. Dispatched once from urlToAction
+        // instead of multiple individual actions, producing a single actionToUrl
+        // URL change instead of 3-4 separate ones.
+        applyUrlState: (state: {
+            propertyFilters: AnyPropertyFilter[]
+            dateFrom: string | null
+            dateTo: string | null
+            shouldFilterTestAccounts: boolean
+            datesChanged: boolean
+        }) => state,
     }),
 
     reducers({
@@ -82,6 +92,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
 
@@ -92,6 +103,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyUrlState: (state, { dateFrom, dateTo, datesChanged }) =>
+                    datesChanged ? { dateFrom, dateTo } : state,
             },
         ],
 
@@ -99,6 +112,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             false,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+                applyUrlState: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
 
@@ -113,6 +127,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [] as AnyPropertyFilter[],
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+                applyUrlState: (_, { propertyFilters }) => propertyFilters,
             },
         ],
     }),
@@ -194,26 +209,31 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             const { filters, date_from, date_to, filter_test_accounts } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-            if (!objectsEqual(parsedFilters, values.propertyFilters)) {
-                actions.setPropertyFilters(parsedFilters)
-            }
-
             const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
             const newDateTo = (date_to as string | null) || INITIAL_DATE_TO
-            if (newDateFrom !== values.dateFilter.dateFrom || newDateTo !== values.dateFilter.dateTo) {
-                actions.setDates(newDateFrom, newDateTo)
-            }
-
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
                 filter_test_accounts as string | number | boolean
             )
-            if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
-                actions.setShouldFilterTestAccounts(filterTestAccountsValue)
-            }
 
-            // Strip stale params from the URL (e.g. event, timestamp, msg from trace view).
-            // Skip for tabs that manage their own URL state (e.g. reviews has page, search, kind, etc).
-            if (options?.stripStaleParams !== false) {
+            const filtersChanged = !objectsEqual(parsedFilters, values.propertyFilters)
+            const datesChanged = newDateFrom !== values.dateFilter.dateFrom || newDateTo !== values.dateFilter.dateTo
+            const testAccountsChanged = filterTestAccountsValue !== values.shouldFilterTestAccounts
+
+            if (filtersChanged || datesChanged || testAccountsChanged) {
+                // Dispatch a single batched action so actionToUrl produces one URL
+                // change instead of up to 3 separate ones. The actionToUrl handler
+                // for applyUrlState emits only known params, which also strips any
+                // stale params carried over from other pages.
+                actions.applyUrlState({
+                    propertyFilters: parsedFilters,
+                    dateFrom: newDateFrom,
+                    dateTo: newDateTo,
+                    shouldFilterTestAccounts: filterTestAccountsValue,
+                    datesChanged,
+                })
+            } else if (options?.stripStaleParams !== false) {
+                // No state changed, but stale params may still need stripping
+                // (e.g. event, timestamp, msg from trace view).
                 const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
                 if (hasStaleParams) {
                     const cleanParams: Record<string, unknown> = {}
@@ -257,6 +277,15 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         }
 
         return {
+            applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts }) => [
+                router.values.location.pathname,
+                {
+                    filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+                    date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                    filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                },
+            ],
             setPropertyFilters: ({ propertyFilters }) => [
                 router.values.location.pathname,
                 {
