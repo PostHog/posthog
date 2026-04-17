@@ -1,3 +1,4 @@
+import base64
 import logging
 from typing import Any, Optional
 
@@ -99,3 +100,58 @@ class CustomerIOClient:
             elif "403" in str(e):
                 logger.exception("Authorization failed - the API key may not have the required permissions")
             return False
+
+
+class CustomerIOTrackClient:
+    """Client for Customer.io Track API v2 — used to push preference changes back to Customer.io."""
+
+    US_TRACK_URL = "https://track.customer.io"
+    EU_TRACK_URL = "https://track-eu.customer.io"
+
+    def __init__(self, site_id: str, api_key: str, region: str = "us", timeout: int = 30):
+        self.site_id = site_id
+        self.api_key = api_key
+        self.timeout = timeout
+        base = self.EU_TRACK_URL if region.lower() == "eu" else self.US_TRACK_URL
+        self.entity_url = f"{base}/api/v2/entity"
+        self.session = requests.Session()
+        self.session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
+
+    def _auth_header(self) -> dict[str, str]:
+        token = base64.b64encode(f"{self.site_id}:{self.api_key}".encode()).decode()
+        return {"Authorization": f"Basic {token}"}
+
+    def _identify(self, email: str, attributes: dict[str, Any]) -> None:
+        payload: dict[str, Any] = {
+            "type": "person",
+            "identifiers": {"email": email},
+            "action": "identify",
+            "attributes": attributes,
+        }
+        try:
+            resp = self.session.post(
+                self.entity_url,
+                json=payload,
+                headers=self._auth_header(),
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            status_info = f"Status: {e.response.status_code}" if e.response is not None else ""
+            logger.exception(f"Customer.io Track API error: {e}. {status_info}")
+            raise CustomerIOAPIError(f"Track API error: {e}")
+        except requests.exceptions.RequestException as e:
+            raise CustomerIOAPIError(f"Track API request failed: {e}")
+
+    def update_subscription_preferences(self, email: str, topic_prefs: dict[str, bool]) -> None:
+        """Update per-topic subscription preferences using dot-notation (preserves other topics)."""
+        if not topic_prefs:
+            return
+        attributes: dict[str, Any] = {
+            f"cio_subscription_preferences.topics.{topic_key}": subscribed
+            for topic_key, subscribed in topic_prefs.items()
+        }
+        self._identify(email, attributes)
+
+    def set_global_unsubscribe(self, email: str, unsubscribed: bool) -> None:
+        self._identify(email, {"unsubscribed": unsubscribed})
