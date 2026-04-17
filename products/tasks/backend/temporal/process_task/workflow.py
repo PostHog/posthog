@@ -168,20 +168,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 continue
             return task.result()
-        for task in pending_tasks_results:
-            if isinstance(task, Exception):
+        for task_result in pending_tasks_results:
+            if isinstance(task_result, Exception):
                 workflow.logger.warning(
                     "Pending event wait task failed during cancellation",
                     run_id=self.context.run_id,
-                    error=str(task),
+                    error=str(task_result),
                 )
-            if isinstance(task, TaskEvent):
+            if isinstance(task_result, TaskEvent):
                 workflow.logger.info(
                     "Pending event wait task completed during cancellation",
                     run_id=self.context.run_id,
-                    event=task.value,
+                    event=task_result.value,
                 )
-                return task
+                return task_result
         raise RuntimeError("No event was completed successfully")
 
     @temporalio.workflow.run
