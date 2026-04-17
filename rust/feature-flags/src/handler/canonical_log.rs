@@ -347,6 +347,7 @@ impl FlagsCanonicalLogLine {
             flags_device_id_bucketing = self.eval.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            flags_overridden = ?self.flags_overridden,
             flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,
