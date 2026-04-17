@@ -1,5 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -180,11 +181,14 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        // Only fetch the welcome payload when we're actually going to show the dialog;
-        // for the org creator and returning invitees this is a no-op.
-        if (values.shouldShowDialog) {
-            actions.loadWelcomeData()
-        }
-    }),
+    // Watch shouldShowDialog and trigger the fetch when it transitions to true.
+    // This handles the race where the dialog mounts before userLogic has loaded
+    // the user, so afterMount alone would have skipped the fetch.
+    subscriptions(({ actions, values }) => ({
+        shouldShowDialog: (shouldShow: boolean, previous: boolean | undefined) => {
+            if (shouldShow && !previous && values.welcomeData === EMPTY_PAYLOAD && !values.welcomeDataLoading) {
+                actions.loadWelcomeData()
+            }
+        },
+    })),
 ])

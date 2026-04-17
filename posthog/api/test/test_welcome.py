@@ -105,17 +105,19 @@ class TestWelcomeEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, join_delta_seconds, expected_is_first_user)
-            ("owner_joins_at_org_creation", 0, True),
-            ("boundary_just_within_5_seconds", 4, True),
-            ("invitee_joins_minutes_later", 60 * 5, False),
-            ("invitee_joins_hours_later", 60 * 60, False),
+            # (name, is_first_joiner, expected_is_first_user)
+            ("sole_member_is_first_user", True, True),
+            ("second_joiner_is_not_first_user", False, False),
         ]
     )
-    def test_is_organization_first_user(self, _name: str, join_delta_seconds: int, expected: bool):
+    def test_is_organization_first_user(self, _name: str, is_first_joiner: bool, expected: bool):
         org = Organization.objects.create(name=f"Org-{_name}")
-        with freeze_time(timezone.now() + timedelta(seconds=join_delta_seconds)):
-            member = User.objects.create_and_join(org, f"{_name}@example.com", "password")
+        first_member = User.objects.create_and_join(org, f"first-{_name}@example.com", "password")
+        if is_first_joiner:
+            member = first_member
+        else:
+            with freeze_time(timezone.now() + timedelta(seconds=1)):
+                member = User.objects.create_and_join(org, f"second-{_name}@example.com", "password")
         self.client.force_login(member)
         member.current_organization = org
         member.save()
