@@ -70,6 +70,12 @@ class Command(BaseCommand):
             help=f"Replay window for daily insights (default: {DEFAULT_DAYS_BACK['day']} days)",
         )
         parser.add_argument(
+            "--days-back-weekly",
+            type=int,
+            default=DEFAULT_DAYS_BACK["week"],
+            help=f"Replay window for weekly insights (default: {DEFAULT_DAYS_BACK['week']} days)",
+        )
+        parser.add_argument(
             "--insight-id",
             type=int,
             default=None,
@@ -96,7 +102,7 @@ class Command(BaseCommand):
         days_back_by_interval = {
             "hour": options["days_back_hourly"],
             "day": options["days_back_daily"],
-            "week": DEFAULT_DAYS_BACK["week"],
+            "week": options["days_back_weekly"],
             "month": DEFAULT_DAYS_BACK["month"],
         }
 
