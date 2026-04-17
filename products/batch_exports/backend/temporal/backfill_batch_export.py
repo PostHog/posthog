@@ -727,6 +727,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                     task_timeout=schedule_action.task_timeout,
                     id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     search_attributes=temporalio.common.TypedSearchAttributes(search_attributes=search_attributes),
+                    memo=schedule_action.memo,
                 )
             except temporalio.exceptions.WorkflowAlreadyStartedError:
                 workflow_handle = client.get_workflow_handle(f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z")

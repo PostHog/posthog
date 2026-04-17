@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
 from temporalio.client import Client, Schedule, ScheduleOverlapPolicy, ScheduleUpdate, ScheduleUpdateInput
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from temporalio.common import TypedSearchAttributes
 
 
@@ -32,7 +30,6 @@ async def create_schedule(
     schedule: Schedule,
     trigger_immediately: bool = False,
     search_attributes: TypedSearchAttributes | None = None,
-    memo: Mapping[str, Any] | None = None,
 ):
     """Create a Temporal Schedule."""
     return await temporal.create_schedule(
@@ -40,7 +37,6 @@ async def create_schedule(
         schedule=schedule,
         trigger_immediately=trigger_immediately,
         search_attributes=search_attributes,
-        memo=memo,
     )
 
 
@@ -50,7 +46,6 @@ async def a_create_schedule(
     schedule: Schedule,
     trigger_immediately: bool = False,
     search_attributes: TypedSearchAttributes | None = None,
-    memo: Mapping[str, Any] | None = None,
 ):
     """Async create a Temporal Schedule."""
     return await temporal.create_schedule(
@@ -58,7 +53,6 @@ async def a_create_schedule(
         schedule=schedule,
         trigger_immediately=trigger_immediately,
         search_attributes=search_attributes,
-        memo=memo,
     )
 
 
