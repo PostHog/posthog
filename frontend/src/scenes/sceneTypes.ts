@@ -195,6 +195,8 @@ export enum Scene {
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
+    GuestLanding = 'GuestLanding',
+    GuestNotFound = 'GuestNotFound',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -267,7 +269,14 @@ export interface SceneConfig {
      *
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
+    layout?:
+        | 'app'
+        | 'app-raw'
+        | 'app-container'
+        | 'app-raw-no-header'
+        | 'plain'
+        | 'app-full-scene-height'
+        | 'guest-minimal'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
