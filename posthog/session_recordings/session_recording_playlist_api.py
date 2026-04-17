@@ -307,8 +307,12 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
                     playlist_short_id=playlist.short_id,
                 )
                 continue
-            saved_filter_data_by_short_id[playlist.short_id] = parsed
             id_list = (parsed.get("session_ids") or [])[:MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST]
+            # Write the capped list back into parsed so that the downstream
+            # watched_count calculation only considers session IDs we actually
+            # looked up viewed status for in _batch_current_user_viewed.
+            parsed["session_ids"] = id_list
+            saved_filter_data_by_short_id[playlist.short_id] = parsed
             saved_filter_session_ids.update(id_list)
 
     collection_session_ids: set[str] = {sid for sids in session_ids_by_playlist.values() for sid in sids}

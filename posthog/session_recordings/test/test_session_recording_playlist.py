@@ -26,6 +26,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import (
+    MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST,
     PLAYLIST_COUNT_REDIS_PREFIX,
     PLAYLIST_LIST_MAX_LIMIT,
     _attach_empty_recordings_counts,
@@ -1247,6 +1248,34 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
             "increased": True,
             "last_refreshed_at": None,
         }
+
+    def test_saved_filter_count_and_watched_stay_consistent_when_capped(self) -> None:
+        # When a Redis payload contains more than MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST
+        # session IDs, both `count` and `watched_count` must be derived from the same
+        # capped list — otherwise watched_count can exceed count or reference IDs that
+        # were never part of the MGET viewed-status lookup.
+        playlist = self._make_playlist("huge saved filter")
+        extra = 5
+        total_ids = MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST + extra
+        session_ids = [f"sid-{i}" for i in range(total_ids)]
+        # Mark two sessions as viewed: one inside the cap and one outside.
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="sid-0")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id=f"sid-{MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST + 1}",
+        )
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps({"session_ids": session_ids, "previous_ids": [], "has_more": True}),
+        )
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        result = playlist._prefetched_saved_filters_count  # type: ignore[attr-defined]
+        assert result["count"] == MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST
+        # Only the in-cap viewed session is counted.
+        assert result["watched_count"] == 1
 
     def test_malformed_redis_payload_degrades_to_empty(self) -> None:
         playlist = self._make_playlist("bad redis")
