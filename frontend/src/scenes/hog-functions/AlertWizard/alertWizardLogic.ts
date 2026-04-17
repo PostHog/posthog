@@ -433,6 +433,8 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 const configuration: Record<string, any> = {
                     type: 'internal_destination',
                     template_id: destination.templateId,
+                    name: subTemplate.name,
+                    description: subTemplate.description,
                     filters: subTemplate.filters,
                     enabled: true,
                     masking: null,
