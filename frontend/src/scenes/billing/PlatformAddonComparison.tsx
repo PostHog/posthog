@@ -123,14 +123,14 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
                 </div>
             )}
             {upgradePlan?.flat_rate && (
-                <div className="flex items-baseline gap-x-1 mt-4">
+                <div className="flex items-baseline gap-x-1 mt-1">
                     <span className="font-bold text-3xl leading-none">
                         {humanFriendlyCurrency(Number(upgradePlan.unit_amount_usd), 0)}
                     </span>
                     {upgradePlan.unit && <span className="text-secondary">/ {upgradePlan.unit}</span>}
                 </div>
             )}
-            <div className="mt-3">
+            <div className="-mt-2">
                 <BillingProductAddonActions addon={addon} buttonSize="small" align="left" />
             </div>
         </div>
