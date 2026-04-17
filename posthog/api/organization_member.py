@@ -102,7 +102,7 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
+        OrganizationMembership.regular.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(
             user__is_active=True,
@@ -122,13 +122,35 @@ class OrganizationMemberViewSet(
     def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
-            return queryset.get(user=self.request.user)
+            # Use inclusive manager so guest users can find their own membership
+            # nosemgrep: organization-membership-regular-manager
+            return OrganizationMembership.objects.get(
+                user=self.request.user,
+                organization_id=self.organization_id,
+            )
+        # Use inclusive manager for detail actions so admins can act on guest memberships
+        # nosemgrep: organization-membership-regular-manager
+        inclusive_qs = OrganizationMembership.objects.filter(organization_id=self.organization_id).select_related(
+            "user"
+        )
         filter_kwargs = {self.lookup_field: lookup_value}
-        return get_object_or_404(queryset, **filter_kwargs)
+        return get_object_or_404(inclusive_qs, **filter_kwargs)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             params = self.request.GET.dict()
+
+            if params.get("is_guest", "").lower() == "true":
+                # nosemgrep: organization-membership-regular-manager
+                # Admin-facing guest tab: intentionally inclusive, filtered to guests only.
+                queryset = (
+                    OrganizationMembership.objects.filter(organization_id=self.organization_id, is_guest=True)
+                    .order_by("-joined_at")
+                    .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+                    .filter(user__is_active=True)
+                    .select_related("user")
+                )
+                return queryset
 
             if "email" in params:
                 queryset = queryset.filter(user__email=params["email"])
@@ -180,6 +202,74 @@ class OrganizationMemberViewSet(
                 "keys": api_keys_data["keys"],
             }
         )
+
+    @action(detail=True, methods=["get", "post"], url_path="grants")
+    def grants(self, request, *args, **kwargs) -> Response:
+        from posthog.models import GuestResourceGrant
+
+        target: OrganizationMembership = self.get_object()
+
+        requesting_membership = OrganizationMembership.objects.get(organization=target.organization, user=request.user)
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only org admins and owners can manage guest grants.")
+
+        if request.method == "POST":
+            if not target.is_guest:
+                raise exceptions.ValidationError("Cannot create grants on a non-guest membership.")
+            team_id = request.data.get("team_id")
+            resource = request.data.get("resource")
+            resource_id = request.data.get("resource_id")
+            if resource not in {"dashboard", "insight", "notebook"}:
+                raise exceptions.ValidationError(f"Invalid resource: {resource}")
+            grant = GuestResourceGrant.objects.create(
+                organization_membership=target,
+                team_id=team_id,
+                resource=resource,
+                resource_id=resource_id,
+                is_pending=False,
+                created_by=request.user,
+            )
+            return Response(
+                {
+                    "id": str(grant.id),
+                    "team_id": grant.team_id,
+                    "resource": grant.resource,
+                    "resource_id": grant.resource_id,
+                    "is_pending": grant.is_pending,
+                },
+                status=201,
+            )
+
+        # GET: list grants
+        qs = GuestResourceGrant.objects.filter(organization_membership=target)
+        return Response(
+            {
+                "results": [
+                    {
+                        "id": str(g.id),
+                        "team_id": g.team_id,
+                        "resource": g.resource,
+                        "resource_id": g.resource_id,
+                        "is_pending": g.is_pending,
+                    }
+                    for g in qs
+                ]
+            }
+        )
+
+    @action(detail=True, methods=["delete"], url_path=r"grants/(?P<grant_id>[^/.]+)")
+    def delete_grant(self, request, grant_id=None, *args, **kwargs) -> Response:
+        from posthog.models import GuestResourceGrant
+
+        target: OrganizationMembership = self.get_object()
+
+        requesting_membership = OrganizationMembership.objects.get(organization=target.organization, user=request.user)
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only org admins and owners can manage guest grants.")
+
+        grant = get_object_or_404(GuestResourceGrant, id=grant_id, organization_membership=target)
+        grant.delete()
+        return Response(status=204)
 
     @action(detail=True, methods=["post"], url_path="promote_to_member")
     def promote_to_member(self, request, *args, **kwargs) -> Response:
