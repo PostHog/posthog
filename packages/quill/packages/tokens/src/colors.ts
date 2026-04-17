@@ -136,16 +136,23 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
         // ── Interactive fills (reference other tokens) ─
-        'fill-hover': [
-            'oklch(0.87 0 0 / 20%)',
-            'oklch(0.55 0 0 / 15%)',
+        // Darkest fill in light mode, lightest in dark mode
+        'fill-expanded': [
+            'oklch(0.87 0 0 / 60%)',
+            'oklch(0.55 0 0 / 35%)',
             'bg-fill-hover',
         ],
-        'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
+        // Medium fill 
         'fill-selected': [
             'oklch(0.87 0 0 / 40%)',
             'oklch(0.55 0 0 / 25%)',
             'bg-fill-selected',
+        ],
+        // Lightest fill in light mode, medium in dark mode
+        'fill-hover': [
+            'oklch(0.87 0 0 / 20%)',
+            'oklch(0.55 0 0 / 15%)',
+            'bg-fill-hover',
         ],
     } as const
 }

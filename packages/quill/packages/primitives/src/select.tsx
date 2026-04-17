@@ -102,7 +102,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
         <SelectPrimitive.Item
             data-slot="select-item"
             className={cn(
-                "group/select-item relative flex min-h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 py-1 text-xs/relaxed outline-hidden select-none focus:bg-fill-hover not-hover:aria-selected:bg-fill-selected focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+                "group/select-item relative flex min-h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 py-1 text-xs/relaxed outline-hidden select-none transition-[border-radius,background-color,color] duration-100 focus:bg-fill-hover not-hover:aria-selected:bg-fill-selected focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 [&[aria-selected=true]:has(+[data-slot=select-item][aria-selected=true])]:rounded-b-none [[data-slot=select-item][aria-selected=true]+&[aria-selected=true]]:rounded-t-none",
                 className
             )}
             {...props}

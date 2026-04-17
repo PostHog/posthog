@@ -128,7 +128,7 @@ export const Checkboxes: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
         const [checkedOne, setCheckedOne] = useState(true)
-        const [checkedTwo, setCheckedTwo] = useState(false)
+        const [checkedTwo, setCheckedTwo] = useState(true)
         return (
             <DropdownMenu open={open} onOpenChange={setOpen}>
                 <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>

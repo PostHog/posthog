@@ -12,14 +12,12 @@ const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement
 
 function Combobox<Value, Multiple extends boolean | undefined = false>({
     children,
-    highlightItemOnHover = false,
     ...props
 }: ComboboxPrimitive.Root.Props<Value, Multiple>): React.ReactElement {
     const anchorRef = React.useRef<HTMLDivElement>(null!)
     return (
         <ComboboxAnchorContext.Provider value={anchorRef}>
             <ComboboxPrimitive.Root
-                    highlightItemOnHover={highlightItemOnHover}
                     {...props}
                 >
                 {children}
@@ -155,7 +153,7 @@ function ComboboxItem({ className, children, title, ...props }: ComboboxPrimitiv
                 'not-has-[>[data-slot=item]]:[&>button]:overflow-hidden',
                 className
             )}
-            render={<Button left className="aria-selected:pe-7" />}
+            render={<Button left className="aria-selected:pe-7 aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1 " />}
             {...props}
         >
             <span className="truncate" title={title ?? (typeof children === 'string' ? children : undefined)}>{children}</span>
