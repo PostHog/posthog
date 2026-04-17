@@ -1,6 +1,7 @@
 from typing import Any
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -8,6 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.permissions import OrganizationAdminWritePermissions
@@ -63,7 +65,45 @@ class OrganizationIntegrationViewSet(
     serializer_class = OrganizationIntegrationSerializer
     permission_classes = [OrganizationAdminWritePermissions]
 
+    @extend_schema(operation_id="organization_integrations_destroy")
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().destroy(request, *args, **kwargs)
+
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
+        is_marketplace = instance.config.get("type") != "connectable"
+
+        if is_marketplace:
+            try:
+                from ee.vercel.integration import VercelIntegration
+
+                VercelIntegration.delete_installation(instance.integration_id)
+                team_integrations_deleted, _ = Integration.objects.filter(
+                    team__organization=instance.organization,
+                    kind=Integration.IntegrationKind.VERCEL,
+                ).delete()
+                logger.info(
+                    "organization_integration.deleted",
+                    organization_id=str(instance.organization_id),
+                    integration_id=instance.integration_id,
+                    kind=instance.kind,
+                    team_integrations_deleted=team_integrations_deleted,
+                )
+                return
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "organization_id": str(instance.organization_id),
+                        "integration_id": instance.integration_id,
+                    },
+                )
+                logger.warning(
+                    "organization_integration.delete_installation_failed",
+                    organization_id=str(instance.organization_id),
+                    integration_id=instance.integration_id,
+                    error=str(e),
+                )
+
         team_integrations_deleted, _ = Integration.objects.filter(
             team__organization=instance.organization,
             kind=Integration.IntegrationKind.VERCEL,
