@@ -8,7 +8,7 @@ chronologically.
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.clickhouse.client import sync_execute
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 def get_person_and_distinct_ids_for_identifier(
     team_id: int,
     distinct_id: Optional[str] = None,
-    person_id: Optional[Union[str, int]] = None,
+    person_id: Optional[str] = None,
 ) -> tuple[Optional["Person"], list[str]]:
     """
     Helper function to get person object and all distinct_ids for a person based on either distinct_id or person_id.
@@ -36,8 +36,6 @@ def get_person_and_distinct_ids_for_identifier(
         ValueError: If parameters are invalid or both distinct_id and person_id are provided
         Exception: If person lookup fails
     """
-    from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid
-
     # Validation
     if distinct_id is not None and person_id is not None:
         raise ValueError("Cannot provide both distinct_id and person_id - choose one")
@@ -52,24 +50,41 @@ def get_person_and_distinct_ids_for_identifier(
         raise ValueError("person_id must be a non-empty value")
 
     try:
+        from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid
+
         if distinct_id is not None:
             person = get_person_by_distinct_id(team_id, distinct_id)
         else:
-            person = get_person_by_uuid(team_id, str(person_id))
+            assert person_id is not None
+            person = get_person_by_uuid(team_id, person_id)
 
         if person is None:
             return None, []
 
-        return person, list(person.distinct_ids)
+        # The personhog-routed functions already include distinct_ids
+        if hasattr(person, "distinct_ids"):
+            distinct_ids = person.distinct_ids
+        else:
+            # Fallback for ORM-only path
+            from posthog.models import PersonDistinctId
+            from posthog.models.person.person import READ_DB_FOR_PERSONS
 
-    except Exception as e:
-        raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
+            distinct_ids = list(
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(team_id=team_id, person_id=person.pk)
+                .values_list("distinct_id", flat=True)
+            )
+
+        return person, distinct_ids
+
+    except Exception:
+        raise
 
 
 def get_distinct_ids_for_person_identifier(
     team_id: int,
     distinct_id: Optional[str] = None,
-    person_id: Optional[Union[str, int]] = None,
+    person_id: Optional[str] = None,
 ) -> list[str]:
     """
     Legacy helper function that returns only distinct_ids.
@@ -87,8 +102,7 @@ def build_person_properties_at_time(
     distinct_ids: list[str],
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
-    return_debug_info: bool = False,
-) -> Union[dict[str, Any], tuple[dict[str, Any], list, str, dict[str, Any]]]:
+) -> dict[str, Any]:
     """
     Build person properties as they existed at a specific point in time.
 
@@ -101,11 +115,9 @@ def build_person_properties_at_time(
         distinct_ids: List of distinct_ids to query for person properties
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
-        return_debug_info: If True, also returns query and params for debugging (default: False)
 
     Returns:
-        If return_debug_info=False: Dictionary of person properties as they existed at the specified time
-        If return_debug_info=True: Tuple of (properties dict, raw_rows, query_string, query_params)
+        Dictionary of person properties as they existed at the specified time
 
     Raises:
         ValueError: If parameters are invalid
@@ -114,9 +126,6 @@ def build_person_properties_at_time(
     # Validation
     if not isinstance(team_id, int) or team_id <= 0:
         raise ValueError("team_id must be a positive integer")
-
-    if not isinstance(timestamp, datetime):
-        raise ValueError("timestamp must be a datetime object")
 
     if not isinstance(distinct_ids, list) or not distinct_ids:
         raise ValueError("distinct_ids must be a non-empty list")
@@ -178,7 +187,7 @@ def build_person_properties_at_time(
     person_properties = {}
 
     for row in rows:
-        properties_json, event_timestamp, event_name = row
+        properties_json, _, event_name = row
 
         if properties_json:
             try:
@@ -213,7 +222,56 @@ def build_person_properties_at_time(
                 # Skip events with malformed property data
                 continue
 
-    if return_debug_info:
-        return person_properties, rows, query, params
-    else:
-        return person_properties
+    return person_properties
+
+
+def person_existed_at_timestamp(team_id: int, timestamp: datetime, distinct_ids: list[str]) -> bool:
+    """
+    Check if a person existed at a specific timestamp by looking for any events.
+
+    A person is considered to have existed if there were any events for their
+    distinct_ids at or before the given timestamp.
+
+    Args:
+        team_id: The team ID to filter events by
+        timestamp: The point in time to check person existence at
+        distinct_ids: List of distinct_ids to query for person existence
+
+    Returns:
+        True if the person had any activity at or before the timestamp, False otherwise
+
+    Raises:
+        ValueError: If parameters are invalid
+        Exception: If ClickHouse query fails
+    """
+    # Validation
+    if not isinstance(team_id, int) or team_id <= 0:
+        raise ValueError("team_id must be a positive integer")
+
+    if not isinstance(distinct_ids, list) or not distinct_ids:
+        raise ValueError("distinct_ids must be a non-empty list")
+
+    if not all(isinstance(did, str) and did for did in distinct_ids):
+        raise ValueError("All distinct_ids must be non-empty strings")
+
+    # Query to check if any events exist for this person at or before the timestamp
+    query = """
+    SELECT 1
+    FROM events
+    WHERE team_id = %(team_id)s
+        AND distinct_id IN %(distinct_ids)s
+        AND timestamp <= %(timestamp)s
+    LIMIT 1
+    """
+
+    params = {
+        "team_id": team_id,
+        "distinct_ids": distinct_ids,
+        "timestamp": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    try:
+        rows = sync_execute(query, params, settings={"max_execution_time": 10})
+        return len(rows) > 0
+    except Exception as e:
+        raise Exception(f"Failed to check person existence: {str(e)}") from e

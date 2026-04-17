@@ -574,6 +574,8 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
         };
 
         if params_both_none.version.is_none() && params_both_none.config.is_none() {
@@ -592,6 +594,8 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
         };
 
         if params_version_missing.version.is_none() && params_version_missing.config.is_none() {
@@ -608,6 +612,8 @@ mod tests {
             config: None,
             compression: None,
             lib_version: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
         };

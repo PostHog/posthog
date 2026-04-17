@@ -37,6 +37,7 @@ pub async fn check_limits(
 ///
 /// Only increments billing counters if there are billable flags present.
 /// Survey and product tour targeting flags are not billable.
+/// Internal requests (with matching internal_request_token) are not billed.
 ///
 /// The `library` parameter is passed in to avoid duplicate detection - it should
 /// be detected once at the start of request processing and reused.
@@ -47,6 +48,11 @@ pub async fn record_usage(
     library: Library,
 ) {
     if *context.state.config.skip_writes {
+        return;
+    }
+
+    // Check if this is an internal request (non-billable)
+    if super::authentication::is_internal_request(context) {
         return;
     }
 
@@ -87,6 +93,7 @@ fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
 pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
     contains_billable_flags(filtered_flags)
 }
+
 
 #[cfg(test)]
 mod tests {

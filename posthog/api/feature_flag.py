@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import json
 import math
@@ -80,9 +81,14 @@ from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.feature_flag.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
+    reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
 from posthog.models.group.group import Group
+from posthog.models.person.point_in_time_properties import (
+    build_person_properties_at_time,
+    get_person_and_distinct_ids_for_identifier,
+)
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
@@ -1094,7 +1100,12 @@ class FeatureFlagSerializer(
                             code="invalid_value",
                         )
                     try:
-                        if float(prop.value[0]) > float(prop.value[1]):
+                        min_val = prop.value[0]
+                        max_val = prop.value[1]
+                        # Type check: ensure both values can be converted to float
+                        if not isinstance(min_val, (int, float, str)) or not isinstance(max_val, (int, float, str)):
+                            raise ValueError("Values must be numeric")
+                        if float(min_val) > float(max_val):
                             raise serializers.ValidationError(
                                 detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
                                 code="invalid_value",
@@ -1913,6 +1924,77 @@ class DependentFlagSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Feature flag ID")
     key = serializers.CharField(help_text="Feature flag key")
     name = serializers.CharField(help_text="Feature flag name")
+
+
+class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="User distinct ID to test against (mutually exclusive with person_id)",
+    )
+    person_id = serializers.CharField(
+        required=False, allow_blank=False, help_text="Person ID to test against (mutually exclusive with distinct_id)"
+    )
+    timestamp = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)",
+    )
+    groups = GroupsJSONField(required=False)
+
+    def validate(self, attrs):
+        distinct_id = attrs.get("distinct_id")
+        person_id = attrs.get("person_id")
+
+        if not distinct_id and not person_id:
+            raise serializers.ValidationError("Either distinct_id or person_id must be provided")
+
+        if distinct_id and person_id:
+            raise serializers.ValidationError("Cannot provide both distinct_id and person_id - choose one")
+
+        return attrs
+
+
+class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Property key")
+    operator = serializers.CharField(help_text="Comparison operator")
+    value = serializers.JSONField(help_text="Expected property value")
+    type = serializers.CharField(help_text="Property type (person, group, etc.)")
+    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    matched = serializers.BooleanField(help_text="Whether this property condition matched")
+    explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
+
+
+class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
+    index = serializers.IntegerField(help_text="Index of this condition in the feature flag")
+    matched = serializers.BooleanField(help_text="Whether this condition was the one that matched")
+    explanation = serializers.CharField(
+        help_text="Human-readable explanation of why this condition matched/didn't match"
+    )
+    rollout_percentage = serializers.FloatField(help_text="Rollout percentage for this condition (0.0-100.0)")
+    rollout_excluded = serializers.BooleanField(
+        help_text="Whether this condition matched properties but was excluded due to rollout"
+    )
+    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    properties = FeatureFlagConditionPropertyAnalysisSerializer(
+        many=True, help_text="Analysis of each property in this condition"
+    )
+
+
+class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
+    flag_key = serializers.CharField(help_text="Feature flag key")
+    result = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
+    reason = serializers.CharField(help_text="The reason for the evaluation result")
+    condition_index = serializers.IntegerField(
+        allow_null=True, help_text="The index of the condition that matched, if applicable"
+    )
+    payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
+    person_properties = serializers.DictField(
+        help_text="Person properties at the time of evaluation (for historical evaluations)"
+    )
+    conditions = FeatureFlagConditionAnalysisSerializer(
+        many=True, help_text="Detailed analysis of each condition in the feature flag"
+    )
 
 
 class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
@@ -3293,6 +3375,243 @@ class FeatureFlagViewSet(
             {"status": flag_status, "reason": reason},
             status=status.HTTP_200_OK,
         )
+
+    @validated_request(
+        request_serializer=FeatureFlagTestEvaluationRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=FeatureFlagTestEvaluationResponseSerializer),
+            400: OpenApiResponse(description="Invalid parameters"),
+            404: OpenApiResponse(description="Person not found"),
+            500: OpenApiResponse(description="Server error"),
+        },
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:read"])
+    def test_evaluation(self, request: request.Request, **kwargs):
+        """
+        Test feature flag evaluation against a specific user at an optional point in time.
+
+        This endpoint allows testing how a feature flag would evaluate for a specific user,
+        optionally at a historical timestamp. When a timestamp is provided, both the flag
+        conditions and person properties are evaluated as they existed at that time.
+        """
+        feature_flag = self.get_object()
+
+        # Extract validated data - prioritize person_id over distinct_id
+        distinct_id = request.validated_data.get("distinct_id")
+        person_id = request.validated_data.get("person_id")
+        timestamp = request.validated_data.get("timestamp")
+        groups = request.validated_data.get("groups") or {}
+
+        # Resolve person and distinct_ids
+        try:
+            person, distinct_ids = get_person_and_distinct_ids_for_identifier(
+                team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
+            )
+        except ValueError as e:
+            return Response({"error": f"Invalid parameters: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            capture_exception(e)
+            return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not person or not distinct_ids:
+            identifier_type = "distinct_id" if distinct_id else "person_id"
+            identifier_value = distinct_id or person_id
+            return Response(
+                {
+                    "error": f"Person not found for {identifier_type}: {identifier_value}. "
+                    "Please verify the identifier exists in your PostHog instance."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
+        # since rollout/variant assignment can depend on the exact distinct_id used.
+        # If person_id was provided, use the first distinct_id associated with that person.
+        evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else distinct_ids[0]
+        person_properties: dict[str, Any] = {}
+
+        # Build person properties at timestamp if provided
+        if timestamp:
+            try:
+                # First check if the person actually existed at the timestamp
+                from posthog.models.person.point_in_time_properties import person_existed_at_timestamp
+
+                person_existed = person_existed_at_timestamp(
+                    team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids
+                )
+
+                if not person_existed:
+                    return Response(
+                        {
+                            "error": f"Unable to build person properties at the selected timestamp. "
+                            f"This person may not have had any recorded activity at that time, "
+                            f"or the timestamp may be too far in the past."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                person_properties = build_person_properties_at_time(
+                    team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
+                )
+            except Exception:
+                logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
+                return Response(
+                    {"error": "Failed to build person properties at specified timestamp."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        else:
+            # Use current person properties
+            person_properties = person.properties or {}
+
+        # If timestamp is provided, reconstruct the flag at that point in time
+        evaluation_flag = feature_flag
+        if timestamp:
+            try:
+                # Reconstruct the flag at the timestamp using the efficient single-pass method
+                reconstructed_flag_data = reconstruct_flag_at_timestamp(
+                    flag=feature_flag,
+                    timestamp=timestamp,
+                    team_id=self.team_id,
+                )
+
+                # Create a temporary flag-like object with the reconstructed data for evaluation
+                evaluation_flag = FeatureFlag(
+                    id=feature_flag.id,
+                    key=feature_flag.key,
+                    name=reconstructed_flag_data.get("name", feature_flag.name),
+                    active=reconstructed_flag_data.get("active", feature_flag.active),
+                    team=feature_flag.team,
+                    created_at=feature_flag.created_at,
+                    created_by=feature_flag.created_by,
+                    deleted=reconstructed_flag_data.get("deleted", False),
+                    version=reconstructed_flag_data.get("version", 1),
+                )
+                # Set the reconstructed filters
+                evaluation_flag.filters = reconstructed_flag_data.get("filters", {})
+
+            except VersionNotFound:
+                return Response(
+                    {"error": f"Feature flag '{feature_flag.key}' did not exist at the specified timestamp."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except VersionHistoryIncomplete:
+                return Response(
+                    {"error": "Could not reconstruct flag at timestamp due to incomplete history."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception:
+                logger.exception("Failed to reconstruct flag at timestamp for flag %s", feature_flag.key)
+                return Response(
+                    {"error": "Failed to reconstruct flag at specified timestamp."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # Evaluate the flag
+        try:
+            # Get team API token for Rust service
+            team_token = self.team.api_token
+
+            # If we have a reconstructed flag, pass it as override definition
+            override_definitions = None
+            if timestamp:
+                # Convert the reconstructed flag to the format expected by Rust service
+                try:
+                    from django.forms.models import model_to_dict
+
+                    flag_dict = model_to_dict(
+                        evaluation_flag, exclude=["created_by", "last_modified_by", "team", "usage_dashboard"]
+                    )
+                    # Convert datetime fields to strings for JSON serialization
+                    if flag_dict.get("created_at"):
+                        flag_dict["created_at"] = flag_dict["created_at"].isoformat()
+                    if flag_dict.get("updated_at"):
+                        flag_dict["updated_at"] = flag_dict["updated_at"].isoformat()
+
+                    # Add team_id since Rust FeatureFlag struct requires it
+                    flag_dict["team_id"] = evaluation_flag.team_id
+
+                    override_definitions = {feature_flag.key: flag_dict}
+                except Exception as e:
+                    # Log the error but continue without override definitions
+                    logging.exception(f"Failed to serialize flag for override: {e}")
+                    override_definitions = None
+
+            rust_response = get_flags_from_service(
+                token=team_token,
+                distinct_id=evaluation_distinct_id,
+                groups=groups,
+                detailed_analysis=True,
+                person_properties=person_properties,
+                only_use_override_person_properties=timestamp is not None,
+                flag_keys=[feature_flag.key],
+                internal_request_token=os.getenv("INTERNAL_REQUEST_TOKEN"),
+                override_flags_definitions=override_definitions,
+            )
+
+            # Extract the flag result from the Rust response
+            flags = rust_response.get("flags", {})
+            flag_result = flags.get(feature_flag.key)
+
+            # Initialize defaults
+            condition_index = None
+            payload = None
+            detailed_conditions: list[dict] = []
+            result: bool | str = False
+
+            if flag_result is None:
+                result = False
+                reason = "flag_not_found"
+            else:
+                # Extract the detailed flag result data
+                if isinstance(flag_result, dict):
+                    result = flag_result.get("enabled", False)
+                    variant = flag_result.get("variant")
+                    reason_data = flag_result.get("reason", {})
+                    metadata = flag_result.get("metadata", {})
+
+                    # Extract values from the correct nested structures
+                    reason = reason_data.get("code", "unknown") if reason_data else "unknown"
+                    condition_index = reason_data.get("condition_index") if reason_data else None
+                    payload = metadata.get("payload") if metadata else None
+                    # Try to find conditions in different possible locations
+                    detailed_conditions = (
+                        flag_result.get("conditions", [])
+                        or flag_result.get("analysis", {}).get("conditions", [])
+                        or rust_response.get("conditions", [])
+                        or rust_response.get("analysis", {}).get("conditions", [])
+                        or []
+                    )
+
+                    # If there's a variant, use it as the result
+                    if variant is not None:
+                        result = variant
+                elif isinstance(flag_result, bool):
+                    result = flag_result
+                    reason = "flag_matched" if flag_result else "no_condition_match"
+                elif isinstance(flag_result, str):
+                    result = flag_result
+                    reason = "flag_matched"
+                else:
+                    result = bool(flag_result)
+                    reason = "flag_matched" if result else "no_condition_match"
+
+            response_data = {
+                "flag_key": feature_flag.key,
+                "result": result,
+                "reason": reason,
+                "condition_index": condition_index,
+                "payload": payload,
+                "person_properties": person_properties,
+                "conditions": detailed_conditions,
+            }
+
+            response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
+            response_serializer.is_valid(raise_exception=True)
+            return Response(response_serializer.data)
+
+        except Exception as e:
+            logger.exception("Error evaluating flag: %s", e)
+            return Response({"error": "Failed to evaluate flag"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(
         methods=["GET"],

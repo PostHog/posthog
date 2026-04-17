@@ -193,6 +193,7 @@ async fn process_request_inner(
                 &context.headers,
                 request.evaluation_runtime,
                 request.evaluation_contexts.as_ref(),
+                request.override_flags_definitions.as_ref(),
             )
             .await?;
 
@@ -214,6 +215,12 @@ async fn process_request_inner(
                 context.request_id,
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
+                if context.meta.detailed_analysis.unwrap_or(false) && authentication::is_internal_request(&context) {
+                    Some(true)
+                } else {
+                    Some(false)
+                },
+                context.meta.only_use_override_person_properties,
             )
             .await?;
 

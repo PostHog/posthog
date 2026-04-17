@@ -137,15 +137,62 @@ pub async fn fetch_and_filter(
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
     environment_tags: Option<&Vec<String>>,
+    override_flags_definitions: Option<&HashMap<String, Value>>,
 ) -> Result<FeatureFlagList, FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(team_id).await?;
 
     // Record cache source in canonical log for observability
     with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
-    let flags = flag_result.flag_list.flags;
+    let mut flags = flag_result.flag_list.flags;
     let evaluation_metadata = flag_result.flag_list.evaluation_metadata;
     let cohorts = flag_result.flag_list.cohorts;
+
+    // Apply override flag definitions if provided
+    if let Some(override_defs) = override_flags_definitions {
+        let mut overridden_keys = Vec::new();
+        tracing::info!("Processing {} override definitions", override_defs.len());
+        for (flag_key, override_def) in override_defs {
+            tracing::info!("Processing override for flag: {}", flag_key);
+            // Find the flag to override
+            if let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) {
+                tracing::info!(
+                    "Found flag to override: {}, current filters: {:?}",
+                    flag_key,
+                    flag.filters
+                );
+                // Parse and apply the override definition
+                match serde_json::from_value::<FeatureFlag>(override_def.clone()) {
+                    Ok(override_flag) => {
+                        tracing::info!(
+                            "Successfully parsed override flag: {}, new filters: {:?}",
+                            flag_key,
+                            override_flag.filters
+                        );
+                        *flag = override_flag;
+                        overridden_keys.push(flag_key.clone());
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to parse override definition for flag {}: {}",
+                            flag_key,
+                            e
+                        );
+                        tracing::debug!("Override definition: {:?}", override_def);
+                    }
+                }
+            } else {
+                tracing::warn!("Flag not found for override: {}", flag_key);
+            }
+        }
+
+        // Record override usage in canonical log
+        if !overridden_keys.is_empty() {
+            with_canonical_log(|log| {
+                log.flags_overridden = Some(overridden_keys);
+            });
+        }
+    }
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
@@ -246,6 +293,8 @@ pub async fn evaluate_for_request(
     request_id: Uuid,
     disable_flags: bool,
     flag_keys: Option<Vec<String>>,
+    detailed_analysis: Option<bool>,
+    only_use_override_person_properties: Option<bool>,
 ) -> Result<FlagsResponse, FlagError> {
     // If flags are disabled, return empty FlagsResponse
     if disable_flags {
@@ -284,12 +333,16 @@ pub async fn evaluate_for_request(
             .0,
         parallel_eval_threshold: state.config.parallel_eval_threshold,
         rayon_dispatcher: state.rayon_dispatcher.clone(),
-        skip_writes: *state.config.skip_writes,
+        skip_writes: detailed_analysis.unwrap_or(false)
+            || only_use_override_person_properties.unwrap_or(false)
+            || *state.config.skip_writes,
         cohort_membership_provider: state.cohort_membership_provider.clone(),
         enable_realtime_cohort_evaluation: state
             .config
             .realtime_cohort_evaluation_team_ids
             .includes_team(team_id),
+        detailed_analysis: detailed_analysis.unwrap_or(false),
+        only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

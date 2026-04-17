@@ -23,3 +23,27 @@ pub async fn parse_and_authenticate(
 
     Ok((distinct_id, team, request))
 }
+
+/// Checks if the request is an internal request.
+/// Returns true if the Authorization header contains a Bearer token that matches
+/// the configured internal_request_token.
+pub fn is_internal_request(context: &RequestContext) -> bool {
+    let Some(internal_token) = &context.state.config.internal_request_token else {
+        // No internal token configured, so no requests are internal
+        return false;
+    };
+
+    // Empty token should never be considered valid
+    if internal_token.trim().is_empty() {
+        return false;
+    }
+
+    use crate::api::auth::extract_bearer_token;
+
+    if let Some(auth_token) = extract_bearer_token(&context.headers) {
+        // Ensure auth token is not empty either
+        !auth_token.trim().is_empty() && auth_token == *internal_token
+    } else {
+        false
+    }
+}
