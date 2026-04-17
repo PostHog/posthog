@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, MarketingAnalyticsTableQuery
 
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
@@ -47,13 +49,21 @@ class TestMarketingAnalyticsTelemetry(BaseTest):
         assert "timings" in props
         assert "error_message" not in props
 
+    @parameterized.expand(
+        [
+            ("short_message", ValueError, "boom", "boom"),
+            ("long_message_is_truncated", RuntimeError, "x" * 5000, "x" * 500),
+        ]
+    )
     @patch.object(MarketingAnalyticsTableQueryRunner, "_calculate")
     @patch(TELEMETRY_PATH)
-    def test_emits_failed_event_on_error_and_reraises(self, mock_capture, mock_calculate):
-        mock_calculate.side_effect = ValueError("boom")
+    def test_emits_failed_event_on_error_and_reraises(
+        self, _name, exc_class, message, expected_message, mock_capture, mock_calculate
+    ):
+        mock_calculate.side_effect = exc_class(message)
         runner = self._runner()
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(exc_class):
             runner.calculate()
 
         mock_capture.assert_called_once()
@@ -61,22 +71,9 @@ class TestMarketingAnalyticsTelemetry(BaseTest):
         assert kwargs["event"] == "marketing analytics query failed"
         props = kwargs["properties"]
         assert props["query_kind"] == "MarketingAnalyticsTableQuery"
-        assert props["error_name"] == "ValueError"
-        assert props["error_message"] == "boom"
+        assert props["error_name"] == exc_class.__name__
+        assert props["error_message"] == expected_message
         assert "timings" not in props
-
-    @patch.object(MarketingAnalyticsTableQueryRunner, "_calculate")
-    @patch(TELEMETRY_PATH)
-    def test_error_message_is_truncated(self, mock_capture, mock_calculate):
-        long_msg = "x" * 5000
-        mock_calculate.side_effect = RuntimeError(long_msg)
-        runner = self._runner()
-
-        with self.assertRaises(RuntimeError):
-            runner.calculate()
-
-        props = mock_capture.call_args.kwargs["properties"]
-        assert len(props["error_message"]) == 500
 
     @patch.object(MarketingAnalyticsTableQueryRunner, "_calculate")
     @patch(TELEMETRY_PATH)
