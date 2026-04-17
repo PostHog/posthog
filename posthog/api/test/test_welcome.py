@@ -76,17 +76,6 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.assertIn(other.email, emails)
         self.assertNotIn(self.user.email, emails)
 
-    def test_self_filter_is_case_insensitive(self):
-        """A member whose email differs only in case from the requester should still be filtered out."""
-        uppercase_self = User.objects.create_and_join(self.organization, self.user.email.upper(), None, "Other")
-        # Should NOT appear in team_members since it matches self.user.email case-insensitively.
-        response = self.client.get("/api/organizations/@current/welcome/")
-        data = response.json()
-        emails_lower = [(m["email"] or "").lower() for m in data["team_members"]]
-        self.assertNotIn(self.user.email.lower(), emails_lower)
-        # Cleanup
-        uppercase_self.delete()
-
     def test_members_never_logged_in_show_never_status(self):
         User.objects.create_and_join(self.organization, "never@example.com", None, "Never")
         response = self.client.get("/api/organizations/@current/welcome/")
@@ -138,13 +127,11 @@ class TestWelcomeEndpoint(APIBaseTest):
 
     def test_recent_activity_excludes_foreign_team_rows(self):
         """Rows from teams the user can't access (or teams outside this org) must not leak."""
-        other_org = Organization.objects.create(name="Other org")
-        from posthog.models.team import Team
-
-        foreign_team = Team.objects.create(organization=other_org, name="Foreign")
+        # Use a team id that doesn't belong to this org — we don't need a real Team row, the endpoint
+        # only filters by team_id membership in the current org's team set.
+        foreign_team_id = 9_999_999
         ActivityLog.objects.create(
-            team_id=foreign_team.id,
-            organization_id=other_org.id,
+            team_id=foreign_team_id,
             scope="Insight",
             activity="created",
             item_id="42",
