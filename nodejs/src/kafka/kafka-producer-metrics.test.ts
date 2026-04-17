@@ -233,4 +233,18 @@ describe('ProducerStatsTracker', () => {
         const tracker = new ProducerStatsTracker('DEFAULT')
         expect(() => tracker.track('not json')).not.toThrow()
     })
+
+    it('swallows payloads that fail schema validation without emitting metrics', async () => {
+        const tracker = new ProducerStatsTracker('DEFAULT')
+        // msg_cnt should be a number — librdkafka suddenly emitting a string shape
+        // means we've drifted. Don't throw, don't emit bogus metrics.
+        expect(() => tracker.track(JSON.stringify({ msg_cnt: 'oops' }))).not.toThrow()
+        expect(await gaugeValue(kafkaProducerQueueMessages, { producer_name: 'DEFAULT' })).toBeUndefined()
+    })
+
+    it('ignores unknown top-level fields', async () => {
+        const tracker = new ProducerStatsTracker('DEFAULT')
+        tracker.track(makeStats({ msg_cnt: 5, some_new_upstream_field: 'hello' }))
+        expect(await gaugeValue(kafkaProducerQueueMessages, { producer_name: 'DEFAULT' })).toBe(5)
+    })
 })

@@ -2,7 +2,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
-import { BrokerStats, parseBrokerStatistics } from './kafka-client-metrics'
+import { BrokerStats, TopicStats, producerStatsSchema } from './kafka-producer-stats-schema'
 
 export const kafkaProducerQueueMessages = new Gauge({
     name: 'kafka_producer_queue_messages',
@@ -128,11 +128,6 @@ type CumulativeBrokerStats = {
     rxerrs: number
 }
 
-type TopicStats = {
-    batchsize?: { avg?: number }
-    batchcnt?: { avg?: number }
-}
-
 /**
  * Tracks per-broker cumulative counter deltas so we can expose librdkafka's
  * monotonic counters as Prometheus counters. Stateful per producer instance.
@@ -146,47 +141,58 @@ export class ProducerStatsTracker {
     }
 
     track(statsJson: string): void {
-        let parsed: any
+        let raw: unknown
         try {
-            parsed = parseJSON(statsJson)
+            raw = parseJSON(statsJson)
         } catch (error) {
-            logger.error('📊', 'Failed to parse producer statistics', {
+            logger.warn('📊', 'Failed to parse producer statistics JSON', {
                 producer_name: this.producerName,
                 error: error instanceof Error ? error.message : String(error),
             })
             return
         }
 
+        const result = producerStatsSchema.safeParse(raw)
+        if (!result.success) {
+            logger.warn('📊', 'Producer statistics did not match expected schema', {
+                producer_name: this.producerName,
+                issues: result.error.issues,
+            })
+            return
+        }
+        const stats = result.data
+
         const labels = { producer_name: this.producerName }
 
-        if (typeof parsed.msg_cnt === 'number') {
-            kafkaProducerQueueMessages.set(labels, parsed.msg_cnt)
+        if (stats.msg_cnt !== undefined) {
+            kafkaProducerQueueMessages.set(labels, stats.msg_cnt)
         }
-        if (typeof parsed.msg_size === 'number') {
-            kafkaProducerQueueBytes.set(labels, parsed.msg_size)
+        if (stats.msg_size !== undefined) {
+            kafkaProducerQueueBytes.set(labels, stats.msg_size)
         }
-        if (typeof parsed.msg_max === 'number') {
-            kafkaProducerQueueMaxMessages.set(labels, parsed.msg_max)
+        if (stats.msg_max !== undefined) {
+            kafkaProducerQueueMaxMessages.set(labels, stats.msg_max)
         }
-        if (typeof parsed.msg_size_max === 'number') {
-            kafkaProducerQueueMaxBytes.set(labels, parsed.msg_size_max)
+        if (stats.msg_size_max !== undefined) {
+            kafkaProducerQueueMaxBytes.set(labels, stats.msg_size_max)
         }
-        if (typeof parsed.replyq === 'number') {
-            kafkaProducerCallbackQueueDepth.set(labels, parsed.replyq)
-        }
-
-        const brokers = parseBrokerStatistics(parsed)
-        if (brokers.size > 0) {
-            const anyDown = [...brokers.values()].some((b) => b.state !== 'UP')
-            kafkaProducerAnyBrokersDown.set(labels, anyDown ? 1 : 0)
+        if (stats.replyq !== undefined) {
+            kafkaProducerCallbackQueueDepth.set(labels, stats.replyq)
         }
 
-        for (const [brokerName, broker] of brokers) {
-            this.trackBroker(brokerName, broker)
+        if (stats.brokers) {
+            const brokerEntries = Object.entries(stats.brokers)
+            if (brokerEntries.length > 0) {
+                const anyDown = brokerEntries.some(([, b]) => b.state !== 'UP')
+                kafkaProducerAnyBrokersDown.set(labels, anyDown ? 1 : 0)
+            }
+            for (const [brokerName, broker] of brokerEntries) {
+                this.trackBroker(brokerName, broker)
+            }
         }
 
-        if (parsed.topics && typeof parsed.topics === 'object') {
-            for (const [topic, topicStats] of Object.entries(parsed.topics as Record<string, TopicStats>)) {
+        if (stats.topics) {
+            for (const [topic, topicStats] of Object.entries(stats.topics)) {
                 this.trackTopic(topic, topicStats)
             }
         }
@@ -202,7 +208,7 @@ export class ProducerStatsTracker {
         if (broker.rtt) {
             for (const q of RTT_QUANTILES) {
                 const value = broker.rtt[q]
-                if (typeof value === 'number') {
+                if (value !== undefined) {
                     kafkaProducerBrokerRttMicroseconds.set({ ...labels, quantile: q }, value)
                 }
             }
@@ -210,7 +216,7 @@ export class ProducerStatsTracker {
         if (broker.throttle) {
             for (const q of RTT_QUANTILES) {
                 const value = broker.throttle[q]
-                if (typeof value === 'number') {
+                if (value !== undefined) {
                     kafkaProducerBrokerThrottleMilliseconds.set({ ...labels, quantile: q }, value)
                 }
             }
@@ -239,10 +245,10 @@ export class ProducerStatsTracker {
 
     private trackTopic(topic: string, stats: TopicStats): void {
         const labels = { producer_name: this.producerName, topic }
-        if (typeof stats.batchsize?.avg === 'number') {
+        if (stats.batchsize?.avg !== undefined) {
             kafkaProducerTopicBatchSizeBytesAvg.set(labels, stats.batchsize.avg)
         }
-        if (typeof stats.batchcnt?.avg === 'number') {
+        if (stats.batchcnt?.avg !== undefined) {
             kafkaProducerTopicBatchCountAvg.set(labels, stats.batchcnt.avg)
         }
     }
