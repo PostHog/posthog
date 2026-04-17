@@ -770,6 +770,8 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
+        self._validate_encrypted_payloads_require_remote_config(attrs)
+
         # Validate team-wide flag count limit before any early returns, since it
         # applies to all creates regardless of creation context (surveys, etc.)
         self._validate_flag_limits()
@@ -824,6 +826,21 @@ class FeatureFlagSerializer(
                     )
 
         return attrs
+
+    def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
+        """Encrypted payloads are only valid on remote configuration flags."""
+        # Resolve effective values: use incoming attrs, falling back to instance for updates
+        has_encrypted = attrs.get(
+            "has_encrypted_payloads",
+            getattr(self.instance, "has_encrypted_payloads", False) if self.instance else False,
+        )
+        is_remote = attrs.get(
+            "is_remote_configuration",
+            getattr(self.instance, "is_remote_configuration", False) if self.instance else False,
+        )
+
+        if has_encrypted and not is_remote:
+            raise serializers.ValidationError("Encrypted payloads require the flag to be a remote configuration.")
 
     def validate_key(self, value):
         exclude_kwargs = {}

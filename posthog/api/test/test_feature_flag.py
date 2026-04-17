@@ -900,6 +900,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_encrypted_payloads_requires_remote_configuration(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "encrypted-without-remote",
+                "name": "Encrypted Without Remote",
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": False,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"secret"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("remote configuration", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_encrypted_payloads_with_remote_configuration_succeeds(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "encrypted-with-remote",
+                "name": "Encrypted With Remote",
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"secret"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_remote_config_flag_to_non_remote_with_encrypted_payloads_fails(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "rc-encrypted",
+                "name": "RC Encrypted",
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"secret"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("remote configuration", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_non_remote_flag_to_encrypted_payloads_fails(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "non-remote-flag",
+                "name": "Non Remote",
+                "is_remote_configuration": False,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"data"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"has_encrypted_payloads": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("remote configuration", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
