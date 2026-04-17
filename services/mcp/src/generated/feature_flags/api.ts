@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -748,6 +748,42 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Test feature flag evaluation against a specific user at an optional point in time.
+
+This endpoint allows testing how a feature flag would evaluate for a specific user,
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
+ */
+export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsTestEvaluationCreateBodyGroupsDefault = `{}`
+
+export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
+    distinct_id: zod
+        .string()
+        .optional()
+        .describe('User distinct ID to test against (mutually exclusive with person_id)'),
+    person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
+    timestamp: zod.iso
+        .datetime({})
+        .nullish()
+        .describe(
+            'Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)'
+        ),
+    groups: zod
+        .string()
+        .default(featureFlagsTestEvaluationCreateBodyGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
 })
 
 /**

@@ -15,6 +15,8 @@ import {
     FeatureFlagsPartialUpdateParams,
     FeatureFlagsRetrieve2Params,
     FeatureFlagsStatusRetrieveParams,
+    FeatureFlagsTestEvaluationCreateBody,
+    FeatureFlagsTestEvaluationCreateParams,
     FeatureFlagsUserBlastRadiusCreateBody,
     ScheduledChangesCreateBody,
     ScheduledChangesDestroyParams,
@@ -23,6 +25,7 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -466,6 +469,41 @@ const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema,
     },
 })
 
+const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true }).extend(
+    FeatureFlagsTestEvaluationCreateBody.shape
+)
+
+const featureFlagsTestEvaluationCreate = (): ToolBase<
+    typeof FeatureFlagsTestEvaluationCreateSchema,
+    Schemas.FeatureFlagTestEvaluationResponse
+> =>
+    withUiApp('feature-flag-testing', {
+        name: 'feature-flags-test-evaluation-create',
+        schema: FeatureFlagsTestEvaluationCreateSchema,
+        handler: async (context: Context, params: z.infer<typeof FeatureFlagsTestEvaluationCreateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.distinct_id !== undefined) {
+                body['distinct_id'] = params.distinct_id
+            }
+            if (params.person_id !== undefined) {
+                body['person_id'] = params.person_id
+            }
+            if (params.timestamp !== undefined) {
+                body['timestamp'] = params.timestamp
+            }
+            if (params.groups !== undefined) {
+                body['groups'] = params.groups
+            }
+            const result = await context.api.request<Schemas.FeatureFlagTestEvaluationResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/test_evaluation/`,
+                body,
+            })
+            return result
+        },
+    })
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
@@ -483,4 +521,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scheduled-changes-create': scheduledChangesCreate,
     'scheduled-changes-update': scheduledChangesUpdate,
     'scheduled-changes-delete': scheduledChangesDelete,
+    'feature-flags-test-evaluation-create': featureFlagsTestEvaluationCreate,
 }
