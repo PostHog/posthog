@@ -48,10 +48,8 @@ if TYPE_CHECKING:
 
 
 def is_boxplot_query(query: BaseModel) -> bool:
-    return (
-        getattr(query, "trendsFilter", None) is not None
-        and getattr(query.trendsFilter, "display", None) == ChartDisplayType.BOX_PLOT
-    )
+    trends_filter = getattr(query, "trendsFilter", None)
+    return trends_filter is not None and getattr(trends_filter, "display", None) == ChartDisplayType.BOX_PLOT
 
 
 def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
