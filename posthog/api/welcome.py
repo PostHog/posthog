@@ -200,12 +200,9 @@ def _filter_self(members: list[dict[str, Any]], user: User) -> list[dict[str, An
 def _get_inviter(user: User, organization: Organization) -> dict[str, str] | None:
     """Return the inviter recorded on the membership, falling back to an outstanding invite row."""
     membership = (
-        OrganizationMembership.objects.filter(organization=organization, user=user)
-        .select_related("invited_by")
-        .only("invited_by__first_name", "invited_by__email", "invited_by__id")
-        .first()
+        OrganizationMembership.objects.filter(organization=organization, user=user).select_related("invited_by").first()
     )
-    inviter = getattr(membership, "invited_by", None) if membership else None
+    inviter = membership.invited_by if membership else None
     if inviter is None:
         # Fallback for pre-1102 memberships or invites accepted through legacy paths — look up a lingering invite.
         invite = (
