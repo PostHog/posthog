@@ -306,3 +306,55 @@ export const BillingProductInclusionOnlyWithAddon: Story = {
         return <BillingProduct product={product as BillingProductV2Type} />
     },
 }
+
+// A variant product whose only tier is $0 — triggers `isTemporaryFreeProduct` and shows
+// the "included with your plan" tag. In this state the BillingLimit section is skipped.
+export const BillingProductVariantTemporarilyFree: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                },
+            },
+        })
+
+        const sessionReplay = billingJson.products.find((product) => product.type === 'session_replay')!
+        const product: BillingProductV2Type = {
+            ...sessionReplay,
+            tiers: [
+                {
+                    flat_amount_usd: '0',
+                    unit_amount_usd: '0',
+                    up_to: null,
+                    current_amount_usd: '0.00',
+                    current_usage: 0,
+                    projected_usage: null,
+                    projected_amount_usd: null,
+                },
+            ],
+            current_amount_usd: '0',
+            current_amount_usd_before_addons: '0',
+            projected_amount_usd: '0',
+            projected_amount_usd_with_limit: '0',
+        }
+
+        return <BillingProduct product={product} />
+    },
+}
+
+export const BillingProductVariantNormal: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                },
+            },
+        })
+
+        const product = billingJson.products.find((product) => product.type === 'session_replay')
+
+        return <BillingProduct product={product as BillingProductV2Type} />
+    },
+}
