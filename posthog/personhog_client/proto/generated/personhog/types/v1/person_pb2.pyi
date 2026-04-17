@@ -372,3 +372,19 @@ class DeletePersonsResponse(_message.Message):
     deleted_count: int
 
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
+
+class DeletePersonsBatchForTeamRequest(_message.Message):
+    __slots__ = ("team_id", "batch_size")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    batch_size: int
+
+    def __init__(self, team_id: _Optional[int] = ..., batch_size: _Optional[int] = ...) -> None: ...
+
+class DeletePersonsBatchForTeamResponse(_message.Message):
+    __slots__ = ("deleted_count",)
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+
+    def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...

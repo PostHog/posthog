@@ -16,6 +16,20 @@ import type { heatmapLogicType } from './heatmapLogicType'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
+// Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
+// SSRF validation rejects URLs without an http(s) scheme, so we resolve it to an absolute URL.
+export function resolveHeatmapExportUrl(
+    type: HeatmapType,
+    screenshotUrl: string | null,
+    displayUrl: string | null,
+    origin: string = window.location.origin
+): string {
+    if (type === 'screenshot') {
+        return screenshotUrl ? new URL(screenshotUrl, origin).toString() : ''
+    }
+    return displayUrl ?? ''
+}
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
     props({ id: 'new' as string | number }),
@@ -51,6 +65,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         updateHeatmap: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
+        changeCaptureMethod: (type: HeatmapType) => ({ type }),
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
@@ -79,6 +94,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
     }),
     listeners(({ actions, values, props }) => ({
+        changeCaptureMethod: async ({ type }) => {
+            actions.setType(type)
+            if (!values.heatmapId) {
+                return
+            }
+            await actions.updateHeatmap()
+            if (type === 'screenshot' && !values.screenshotUrl) {
+                actions.regenerateScreenshot()
+            }
+        },
         load: async () => {
             if (!props.id || String(props.id) === 'new') {
                 return
@@ -222,7 +247,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return
             }
             actions.startHeatmapExport({
-                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
                 heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
                 width: values.widthOverride,

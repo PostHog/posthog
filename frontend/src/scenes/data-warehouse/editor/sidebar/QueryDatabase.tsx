@@ -31,12 +31,13 @@ import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelect
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -80,7 +81,7 @@ export const QueryDatabase = ({
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
+    const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
         useActions(sqlEditorLogic)
@@ -315,9 +316,11 @@ export const QueryDatabase = ({
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     const currentQueryInput = builtTabLogic.values.queryInput
-                    setQueryInput(
-                        buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
-                    )
+                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                        .then(setQueryInput)
+                        .catch(() => {
+                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
+                        })
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {

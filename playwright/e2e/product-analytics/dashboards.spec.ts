@@ -365,6 +365,62 @@ test.describe('Dashboard duplication', () => {
     })
 })
 
+test.describe('Dashboard link variable and filter overrides', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
+            insights: [
+                {
+                    name: 'Variable insight',
+                    query: {
+                        kind: 'DataVisualizationNode',
+                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
+                        chartSettings: {},
+                        tableSettings: {},
+                    },
+                    variable_indexes: [0],
+                },
+            ],
+            dashboards: [
+                {
+                    name: 'URL query variables seed',
+                    insight_indexes: [0],
+                    variable_overrides: { '0': 42 },
+                    filters: { date_from: '-30d' },
+                },
+            ],
+        })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('Opening a shared dashboard link applies variable and filter overrides from the URL on first load', async ({
+        page,
+    }) => {
+        const dashboard = new DashboardPage(page)
+        const seededDashboardId = workspace!.created_dashboards![0].id
+        const urlOverride = 77
+        const searchParams = new URLSearchParams()
+        searchParams.set('query_variables', JSON.stringify({ test_var: urlOverride }))
+        searchParams.set('query_filters', JSON.stringify({ date_from: '-7d' }))
+
+        await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}?${searchParams.toString()}`, {
+            waitUntil: 'domcontentloaded',
+        })
+
+        await expect(dashboard.insightCards).toBeVisible()
+        await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
+        await expect(dashboard.dateFilter).toContainText('Last 7 days')
+        await expect(dashboard.overridesBanner).toBeVisible()
+    })
+})
+
 test.describe('Dashboard compact cards and inline editing', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 

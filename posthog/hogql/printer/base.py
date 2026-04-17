@@ -1735,7 +1735,9 @@ class HogQLPrinter(Visitor[str]):
                 return f"toBoolean({self.visit(node.expr)})"
             case "date":
                 return f"toDate({self.visit(node.expr)})"
-            case "datetime" | "timestamp" | "timestamptz":
+            case (
+                "datetime" | "timestamp" | "timestamptz" | "timestamp with time zone" | "timestamp with local time zone"
+            ):
                 return f"toDateTime({self.visit(node.expr)}, '{self._get_timezone()}')"
             case _:
                 raise QueryError(f"Unsupported type cast to '{node.type_name}'")

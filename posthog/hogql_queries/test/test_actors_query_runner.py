@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
@@ -396,6 +398,20 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = self._create_runner(query)
             response = runner.calculate()
             self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+
+    def test_source_lifecycle_query_runs_lifecycle_validations(self):
+        query = ActorsQuery(
+            source=InsightActorsQuery(
+                source=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
+                    interval=IntervalType.DAY,
+                    series=[],
+                )
+            )
+        )
+
+        with pytest.raises(ValidationError, match="Lifecycle insights require at least one series."):
+            self._create_runner(query).calculate()
 
     def test_persons_query_grouping(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"

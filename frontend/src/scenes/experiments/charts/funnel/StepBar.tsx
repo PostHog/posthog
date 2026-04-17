@@ -15,6 +15,7 @@ import {
 import { getVariantColor } from '~/scenes/experiments/utils'
 import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
+import type { Experiment } from '~/types'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { useTooltip } from './FunnelBarVertical'
@@ -41,11 +42,13 @@ function openExperimentPersonsModalForSeries({
     stepIndex,
     converted,
     experimentQuery,
+    experiment,
 }: {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     converted: boolean
     experimentQuery: ExperimentQuery
+    experiment: Experiment
 }): void {
     const stepNo = stepIndex + 1
     const variantKey = step.breakdown_value as string
@@ -88,13 +91,21 @@ function openExperimentPersonsModalForSeries({
     // Frontend step 3 drop-off = "completed step 2 (click) but not step 3 (next event)" = backend -3 = -stepIndex
     const funnelStep = converted ? backendStepNo : -backendStepNo
 
-    // Create ExperimentActorsQuery (same pattern as FunnelsActorsQuery)
+    // Create ExperimentActorsQuery with exposure configuration
     const query: ExperimentActorsQuery = {
         kind: NodeKind.ExperimentActorsQuery,
         source: experimentQuery,
         funnelStep,
         funnelStepBreakdown: variantKey, // Filter by variant
         includeRecordings: true,
+        // Add exposure configuration from experiment
+        exposureConfig: experiment?.exposure_criteria?.exposure_config || {
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: '$feature_flag_called',
+            properties: [],
+        },
+        multipleVariantHandling: experiment?.exposure_criteria?.multiple_variant_handling || 'exclude',
+        featureFlagKey: experiment?.feature_flag?.key || '',
     }
 
     // Open standard PersonsModal (same as regular funnels!)
@@ -105,12 +116,19 @@ function openExperimentPersonsModalForSeries({
     })
 }
 
-export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
+export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useTooltip()
     const { experimentResult, experiment, experimentQuery } = useFunnelChartData()
     const { openModal } = useActions(sampledSessionsModalLogic)
     const hasActorsQueryFeature = useFeatureFlag('EXPERIMENT_FUNNEL_ACTORS_QUERY')
+
+    /**
+     * bail if the experiment is not loaded. also, this serves as type guard for the experiment.
+     */
+    if (!experiment) {
+        return null
+    }
 
     const variantKey = Array.isArray(step.breakdown_value)
         ? step.breakdown_value[0]?.toString() || ''
@@ -150,6 +168,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 stepIndex: stepIndex,
                 converted: false, // Dropoffs
                 experimentQuery,
+                experiment,
             })
         } else {
             // Fall back to legacy behavior
@@ -164,6 +183,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 stepIndex: stepIndex,
                 converted: true, // Conversions
                 experimentQuery,
+                experiment,
             })
         } else {
             // Fall back to legacy behavior

@@ -866,6 +866,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_keyword_named_function_call(self):
+            self.assertEqual(
+                self._expr("if(1, 2, 3)"),
+                ast.Call(
+                    name="if",
+                    params=None,
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ],
+                    distinct=False,
+                ),
+            )
+
         def test_alias(self):
             self.assertEqual(
                 self._expr("1 as asd"),
@@ -882,6 +897,84 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(
                 self._expr("(1 as b) as `🍄`"),
                 ast.Alias(alias="🍄", expr=ast.Alias(alias="b", expr=ast.Constant(value=1))),
+            )
+
+        def test_quoted_reserved_keyword_alias(self):
+            self.assertEqual(
+                self._select('select 1 "from"'),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias="from", expr=ast.Constant(value=1))],
+                ),
+            )
+
+        def test_quoted_reserved_keyword_alias_with_from_clause(self):
+            self.assertEqual(
+                self._select('select 1 "from" from events'),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias="from", expr=ast.Constant(value=1))],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        def test_not_expression_is_not_parsed_as_implicit_alias(self):
+            self.assertEqual(
+                self._select("select not true"),
+                ast.SelectQuery(
+                    select=[ast.Not(expr=ast.Constant(value=True))],
+                ),
+            )
+
+        @parameterized.expand(
+            [["ascending"], ["cohort"], ["date"], ["descending"], ["final"], ["id"], ["return"], ["top"], ["totals"]]
+        )
+        def test_allowed_keyword_implicit_aliases(self, alias: str):
+            self.assertEqual(
+                self._select(f"select 1 {alias} from events"),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias=alias, expr=ast.Constant(value=1))],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        @parameterized.expand([["name"], ["timestamp"]])
+        def test_disallowed_keyword_implicit_aliases(self, alias: str):
+            with self.assertRaises(SyntaxError):
+                self._select(f"select 1 {alias} from events")
+
+        def test_from_cannot_precede_implicit_alias(self):
+            with self.assertRaises(ExposedHogQLError):
+                self._select("select from foo")
+
+        def test_select_trailing_comma_before_from(self):
+            self.assertEqual(
+                self._select(
+                    """
+                    select
+                      session.id as session_id,
+                    from events
+                    where
+                      session_id = '019d4492-db9b-713e-b5ba-211e88348587'
+                      and timestamp >= '1970-01-01'
+                    """
+                ),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["session", "id"]))],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["session_id"]),
+                                right=ast.Constant(value="019d4492-db9b-713e-b5ba-211e88348587"),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value="1970-01-01"),
+                                op=ast.CompareOperationOp.GtEq,
+                            ),
+                        ]
+                    ),
+                ),
             )
 
         def test_expr_with_ignored_sql_comment(self):
@@ -1573,6 +1666,123 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand(
+            [
+                (
+                    "count_cast_with_as",
+                    "select count(*)::int as num_events from active_events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="num_events",
+                                expr=ast.TypeCast(
+                                    expr=ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                                    type_name="int",
+                                ),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["active_events"])),
+                    ),
+                ),
+                (
+                    "paren_count_cast_without_as",
+                    "select (count(*))::int num_events from active_events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="num_events",
+                                expr=ast.TypeCast(
+                                    expr=ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                                    type_name="int",
+                                ),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["active_events"])),
+                    ),
+                ),
+                (
+                    "qualified_field_cast",
+                    "select e.event::text as event_name from events e",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="event_name",
+                                expr=ast.TypeCast(expr=ast.Field(chain=["e", "event"]), type_name="text"),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                    ),
+                ),
+                (
+                    "compound_type_cast",
+                    "select now()::timestamp with time zone as ts from events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="ts",
+                                expr=ast.TypeCast(
+                                    expr=ast.Call(name="now", args=[]),
+                                    type_name="timestamp with time zone",
+                                ),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                ),
+                (
+                    "interval_cast",
+                    "select 1::interval as i from events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="i",
+                                expr=ast.TypeCast(expr=ast.Constant(value=1), type_name="interval"),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                ),
+                (
+                    "int_cast_with_as",
+                    "select 1::int as value",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="value",
+                                expr=ast.TypeCast(expr=ast.Constant(value=1), type_name="int"),
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    "literal_cast",
+                    "select '123'::int as x from events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="x",
+                                expr=ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                ),
+            ]
+        )
+        def test_type_cast_alias_parsing(self, _, query, expected):
+            self.assertEqual(self._select(query), expected)
+
+        @parameterized.expand(
+            [
+                ("with_alone", "select 1::with"),
+                ("zone_alone", "select 1::zone"),
+                ("local_alone", "select 1::local"),
+            ]
+        )
+        def test_type_cast_rejects_partial_with_time_zone_keywords(self, _, query):
+            with self.assertRaises(SyntaxError):
+                self._select(query)
+
         def test_order_by(self):
             self.assertEqual(
                 parse_order_expr("1 ASC"),
@@ -2258,6 +2468,29 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._select(query)
             self.assertEqual(e.exception.start, 7)
             self.assertEqual(e.exception.end, 16)
+
+        def test_unquoted_reserved_keyword_alias_is_invalid(self):
+            with self.assertRaises(SyntaxError):
+                self._select("select 1 from")
+
+        def test_quoted_reserved_keyword_identifier(self):
+            self.assertEqual(
+                self._select('select "from" from events'),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["from"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        @parameterized.expand([["id"], ["name"], ["timestamp"], ["time"], ["date"], ["key"]])
+        def test_non_reserved_keywords_can_be_used_as_identifiers(self, identifier: str):
+            self.assertEqual(
+                self._select(f"select {identifier} from events"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=[identifier])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
 
         def test_malformed_sql(self):
             query = "SELEC 2"

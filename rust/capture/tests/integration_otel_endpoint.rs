@@ -98,6 +98,25 @@ fn make_span(
     }
 }
 
+fn make_irrelevant_http_span(trace_id: Vec<u8>, span_id: Vec<u8>) -> Span {
+    make_span(
+        trace_id,
+        span_id,
+        vec![],
+        1_704_067_200_000_000_000,
+        vec![
+            make_kv(
+                "http.request.method",
+                any_value::Value::StringValue("POST".to_string()),
+            ),
+            make_kv(
+                "url.full",
+                any_value::Value::StringValue("https://example.com/api".to_string()),
+            ),
+        ],
+    )
+}
+
 #[derive(Default)]
 struct TestClientOptions {
     redis: Option<Arc<MockRedisClient>>,
@@ -447,7 +466,16 @@ async fn test_multiple_resource_spans() {
                 }),
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![1; 16], vec![1; 8], vec![], 0, vec![])],
+                    spans: vec![make_span(
+                        vec![1; 16],
+                        vec![1; 8],
+                        vec![],
+                        0,
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4o-mini".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
@@ -468,7 +496,16 @@ async fn test_multiple_resource_spans() {
                 }),
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![2; 16], vec![2; 8], vec![], 0, vec![])],
+                    spans: vec![make_span(
+                        vec![2; 16],
+                        vec![2; 8],
+                        vec![],
+                        0,
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("claude-3-5-sonnet".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
@@ -486,6 +523,75 @@ async fn test_multiple_resource_spans() {
     let data1 = parse_event_data(&events[1]);
     assert_eq!(data0["properties"]["service.name"], "svc-a");
     assert_eq!(data1["properties"]["service.name"], "svc-b");
+}
+
+#[tokio::test]
+async fn test_irrelevant_http_spans_are_ignored() {
+    let sink = CapturingSink::new();
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("user-http".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![make_irrelevant_http_span(vec![9; 16], vec![8; 8])],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request(&sink, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert!(events.is_empty());
+}
+
+#[tokio::test]
+async fn test_mixed_requests_only_emit_relevant_ai_spans() {
+    let sink = CapturingSink::new();
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("user-mixed".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_irrelevant_http_span(vec![3; 16], vec![1; 8]),
+                    make_span(
+                        vec![3; 16],
+                        vec![2; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request(&sink, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event.event, "$ai_generation");
 }
 
 #[tokio::test]
@@ -594,7 +700,18 @@ async fn test_too_many_spans_returns_400() {
     let client = make_test_client(&sink);
 
     let spans: Vec<Span> = (0..101)
-        .map(|i| make_span(vec![0; 16], vec![i as u8; 8], vec![], 0, vec![]))
+        .map(|i| {
+            make_span(
+                vec![0; 16],
+                vec![i as u8; 8],
+                vec![],
+                0,
+                vec![make_kv(
+                    "gen_ai.operation.name",
+                    any_value::Value::StringValue("chat".to_string()),
+                )],
+            )
+        })
         .collect();
 
     let request = ExportTraceServiceRequest {
@@ -603,6 +720,57 @@ async fn test_too_many_spans_returns_400() {
                 attributes: vec![make_kv(
                     "posthog.distinct_id",
                     any_value::Value::StringValue("user-limit".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans,
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn test_too_many_raw_spans_returns_400() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    // 1001 non-AI spans exceeds the MAX_RAW_SPANS_PER_REQUEST limit of 1000.
+    let spans: Vec<Span> = (0..1001u16)
+        .map(|i| {
+            let id_bytes: Vec<u8> = i.to_be_bytes().iter().chain(&[0u8; 6]).copied().collect();
+            make_span(
+                vec![0; 16],
+                id_bytes,
+                vec![],
+                0,
+                vec![make_kv(
+                    "http.request.method",
+                    any_value::Value::StringValue("GET".to_string()),
+                )],
+            )
+        })
+        .collect();
+
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("user-raw-limit".to_string()),
                 )],
                 dropped_attributes_count: 0,
             }),

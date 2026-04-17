@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+import { LLM_TRACES_PAGE_SIZE } from '../utils'
 import type { llmAnalyticsTracesTabLogicType } from './llmAnalyticsTracesTabLogicType'
 
 export interface LLMAnalyticsTracesTabLogicProps {
@@ -91,7 +92,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.TracesQuery,
-                        limit: 100,
+                        limit: LLM_TRACES_PAGE_SIZE,
                         dateRange: {
                             date_from: dateFilter.dateFrom || undefined,
                             date_to: dateFilter.dateTo || undefined,
@@ -112,12 +113,12 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                         'person',
                         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] ? ['__llm_sentiment'] : []),
                         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] ? ['__llm_tools'] : []),
-                        'errors',
+                        'errorCount',
                         'totalLatency',
                         'usage',
                         'totalCost',
                         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW] ? ['review'] : []),
-                        'timestamp',
+                        'createdAt',
                     ],
                     showDateRange: true,
                     showReload: true,

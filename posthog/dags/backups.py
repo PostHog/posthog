@@ -245,6 +245,7 @@ class BackupConfig(dagster.Config):
         description="The table to backup. If not specified, the entire database will be backed up.",
     )
     workload: Workload = Workload.OFFLINE
+    node_role: NodeRole = NodeRole.DATA
 
 
 def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatus]:
@@ -274,12 +275,14 @@ def check_running_backup_for_table(
     Check if a backup for the requested table is in progress (it shouldn't, so fail if that's the case).
     """
     table = Table(name=config.table)
-    is_running_backup = (
-        cluster.map_hosts_by_role(table.is_backup_in_progress, node_role=NodeRole.DATA, workload=config.workload)
-        .result()
-        .values()
-    )
-    if any(is_running_backup):
+    results = cluster.map_hosts_by_role(
+        table.is_backup_in_progress, node_role=config.node_role, workload=config.workload
+    ).result()
+    if not results:
+        raise dagster.Failure(
+            description=f"No hosts found for node_role={config.node_role}, workload={config.workload}. Check cluster configuration."
+        )
+    if any(results.values()):
         raise dagster.Failure(
             description=f"A backup for table {table.name} is still in progress, this run shouldn't have been triggered. Review concurrency limits / schedule triggering logic. If there is not Dagster job running and there is a backup going on, it's worth checking what happened."
         )
@@ -351,9 +354,9 @@ def get_latest_successful_backup(
     def map_hosts(func: Callable[[Client], Any]):
         if latest_backup.shard:
             return cluster.map_hosts_in_shard_by_role(
-                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=config.workload
+                fn=func, shard_num=latest_backup.shard, node_role=config.node_role, workload=config.workload
             )
-        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
+        return cluster.map_hosts_by_role(fn=func, node_role=config.node_role, workload=config.workload)
 
     context.log.info(f"Find latest successful created backup")
     for latest_backup in latest_backups:
@@ -418,13 +421,13 @@ def run_backup(
     if backup.shard:
         cluster.map_any_host_in_shards_by_role(
             {backup.shard: backup.create},
-            node_role=NodeRole.DATA,
+            node_role=config.node_role,
             workload=config.workload,
         ).result()
     else:
         cluster.any_host_by_role(
             backup.create,
-            node_role=NodeRole.DATA,
+            node_role=config.node_role,
             workload=config.workload,
         ).result()
 
@@ -454,9 +457,9 @@ def wait_for_backup(
     def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
             return cluster.map_hosts_in_shard_by_role(
-                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=config.workload
+                fn=func, shard_num=backup.shard, node_role=config.node_role, workload=config.workload
             )
-        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
+        return cluster.map_hosts_by_role(fn=func, node_role=config.node_role, workload=config.workload)
 
     done = False
     tries = 0
@@ -524,9 +527,9 @@ def cleanup_old_backups(
     def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
             return cluster.map_hosts_in_shard_by_role(
-                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=config.workload
+                fn=func, shard_num=backup.shard, node_role=config.node_role, workload=config.workload
             )
-        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
+        return cluster.map_hosts_by_role(fn=func, node_role=config.node_role, workload=config.workload)
 
     if not backup.incremental:
         # backup is the full we just created — wait_for_backup already confirmed success,
@@ -642,10 +645,20 @@ def non_sharded_backup():
     cleanup_old_backups(backup=completed_backup, all_backups=all_backups)
 
 
-def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
+def prepare_run_config(
+    config: BackupConfig,
+    cluster_resource: BackupsClickhouseClusterResource | None = None,
+) -> dagster.RunConfig:
+    # Dagster's config system expects enum names (e.g. "DATA"), not values (e.g. "data").
+    # model_dump(mode="json") serializes StrEnum as the value string, so we override
+    # enum fields to use their name instead.
+    config_dict = config.model_dump(mode="json")
+    config_dict["workload"] = config.workload.name
+    config_dict["node_role"] = config.node_role.name
+
     return dagster.RunConfig(
-        {
-            op.name: {"config": config.model_dump(mode="json")}
+        ops={
+            op.name: {"config": config_dict}
             for op in [
                 check_running_backup_for_table,
                 get_latest_backups,
@@ -654,7 +667,8 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
                 wait_for_backup,
                 cleanup_old_backups,
             ]
-        }
+        },
+        resources={"cluster": cluster_resource} if cluster_resource else {},
     )
 
 
@@ -664,6 +678,8 @@ def run_backup_request(
     context: dagster.ScheduleEvaluationContext,
     owner: JobOwners = JobOwners.TEAM_CLICKHOUSE,
     workload: Workload = Workload.OFFLINE,
+    node_role: NodeRole = NodeRole.DATA,
+    cluster_resource: BackupsClickhouseClusterResource | None = None,
 ) -> Optional[dagster.RunRequest]:
     skip_reason = check_for_concurrent_runs(
         context,
@@ -681,11 +697,12 @@ def run_backup_request(
         table=table,
         incremental=incremental,
         workload=workload,
+        node_role=node_role,
     )
 
     return dagster.RunRequest(
         run_key=f"{timestamp.strftime('%Y%m%d')}-{table}",
-        run_config=prepare_run_config(config),
+        run_config=prepare_run_config(config, cluster_resource=cluster_resource),
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
@@ -756,9 +773,18 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
 )
 def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for logs tables"""
+    cluster_resource = BackupsClickhouseClusterResource(
+        host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
+    )
     for table in LOGS_TABLES:
         request = run_backup_request(
-            table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+            table,
+            incremental=False,
+            context=context,
+            owner=JobOwners.TEAM_LOGS,
+            workload=Workload.LOGS,
+            node_role=NodeRole.LOGS,
+            cluster_resource=cluster_resource,
         )
         if request:
             yield request
@@ -771,9 +797,18 @@ def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
 )
 def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for logs tables"""
+    cluster_resource = BackupsClickhouseClusterResource(
+        host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
+    )
     for table in LOGS_TABLES:
         request = run_backup_request(
-            table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+            table,
+            incremental=True,
+            context=context,
+            owner=JobOwners.TEAM_LOGS,
+            workload=Workload.LOGS,
+            node_role=NodeRole.LOGS,
+            cluster_resource=cluster_resource,
         )
         if request:
             yield request

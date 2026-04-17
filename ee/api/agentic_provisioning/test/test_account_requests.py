@@ -7,6 +7,7 @@ from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.response import Response
 
 from posthog.models.user import User
@@ -122,6 +123,18 @@ class TestAccountRequests(StripeProvisioningTestBase):
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         user = User.objects.get(email="jane@example.com")
         assert user.first_name == "Jane"
+
+    @parameterized.expand(
+        [
+            ("with_name", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
+            ("without_name", {"region": "US"}, "Stripe (orgname@example.com)"),
+        ]
+    )
+    def test_new_user_organization_name(self, _name, config, expected_org_name):
+        payload = self._account_request_payload(email="orgname@example.com", configuration=config)
+        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        user = User.objects.get(email="orgname@example.com")
+        assert user.organization.name == expected_org_name
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")

@@ -21,6 +21,9 @@ import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
 import { isCohortBreakdown, isMultipleBreakdownType, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
+// Kept in sync with the `@maxItems` on `BreakdownFilter.breakdowns` in schema-general.ts.
+const MAX_TRENDS_BREAKDOWNS = 3
+
 export type TaxonomicBreakdownFilterLogicProps = {
     insightProps: InsightLogicProps
     breakdownFilter: BreakdownFilter
@@ -148,31 +151,38 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         isMultipleBreakdownsEnabled: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
-        isAddBreakdownDisabled: [
+        addBreakdownDisabledReason: [
             (s, p) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.hasDataWarehouseSeries, p.isFunnels],
             (
                 { breakdown, breakdowns, breakdown_type },
                 isMultipleBreakdownsEnabled,
                 hasDataWarehouseSeries,
                 isFunnels
-            ) => {
+            ): string | null => {
                 // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
                 if (
                     isMultipleBreakdownsEnabled &&
                     !hasDataWarehouseSeries &&
                     (!breakdown_type || isMultipleBreakdownType(breakdown_type))
                 ) {
-                    return !!breakdowns && breakdowns.length >= 3
+                    if (!!breakdowns && breakdowns.length >= MAX_TRENDS_BREAKDOWNS) {
+                        return `You can break down trends by up to ${MAX_TRENDS_BREAKDOWNS} properties. Remove one to add another.`
+                    }
+                    return null
                 }
 
                 // Funnels only supports a single cohort breakdown
                 const hasFunnelCohortBreakdown =
                     isFunnels && breakdown_type === 'cohort' && Array.isArray(breakdown) && breakdown.length >= 1
                 if (hasFunnelCohortBreakdown) {
-                    return true
+                    return 'Funnels support a single cohort breakdown. Remove the existing one to change it.'
                 }
 
-                return !Array.isArray(breakdown) && breakdown != null
+                if (!Array.isArray(breakdown) && breakdown != null) {
+                    return 'This insight type supports a single breakdown. Remove the existing one to change it.'
+                }
+
+                return null
             },
         ],
         taxonomicBreakdownType: [

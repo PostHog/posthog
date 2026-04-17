@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 
 
 class TestLogsAlertConfiguration(BaseTest):
@@ -64,13 +64,16 @@ class TestLogsAlertConfiguration(BaseTest):
         alert = self._create_alert(
             state=LogsAlertConfiguration.State.FIRING,
             next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+            consecutive_failures=3,
         )
         updated = alert.mark_for_recheck(reset_state=True)
         alert.save(update_fields=updated)
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         assert alert.next_check_at is None
+        assert alert.consecutive_failures == 0
         assert "state" in updated
+        assert "consecutive_failures" in updated
         assert "next_check_at" in updated
 
     def test_mark_for_recheck_preserves_state(self):
@@ -151,29 +154,35 @@ class TestLogsAlertCheck(BaseTest):
         return LogsAlertCheck.objects.create(**defaults)
 
     @freeze_time("2026-03-09T12:00:00Z")
-    def test_clean_up_old_checks_deletes_expired(self):
+    def test_clean_up_old_checks_prunes_rows_older_than_event_retention(self):
         alert = self._create_alert()
-        old_check = self._create_check(alert)
-        # Backdate beyond retention
-        LogsAlertCheck.objects.filter(pk=old_check.pk).update(created_at=datetime.now(UTC) - timedelta(days=15))
-        recent_check = self._create_check(alert)
+        old_errored = self._create_check(alert, error_message="CH timeout")
+        recent_transition = self._create_check(
+            alert, state_before="not_firing", state_after="firing", threshold_breached=True
+        )
+        LogsAlertCheck.objects.filter(pk=old_errored.pk).update(
+            created_at=datetime.now(UTC) - timedelta(days=LogsAlertCheck.EVENT_RETENTION_DAYS + 1)
+        )
 
         deleted = LogsAlertCheck.clean_up_old_checks()
 
         assert deleted == 1
-        assert not LogsAlertCheck.objects.filter(pk=old_check.pk).exists()
-        assert LogsAlertCheck.objects.filter(pk=recent_check.pk).exists()
+        assert not LogsAlertCheck.objects.filter(pk=old_errored.pk).exists()
+        assert LogsAlertCheck.objects.filter(pk=recent_transition.pk).exists()
 
     @freeze_time("2026-03-09T12:00:00Z")
-    def test_clean_up_old_checks_keeps_within_retention(self):
+    def test_clean_up_old_checks_does_not_prune_non_event_rows(self):
+        # Non-event rows are the activity's problem (inline cap). If a stale OK row sits
+        # in the table, clean_up_old_checks should leave it alone — the activity will
+        # trim it on the next tick.
         alert = self._create_alert()
-        self._create_check(alert)
-        self._create_check(alert)
+        for _ in range(MAX_EVALUATION_PERIODS + 5):
+            self._create_check(alert)
 
         deleted = LogsAlertCheck.clean_up_old_checks()
 
         assert deleted == 0
-        assert LogsAlertCheck.objects.count() == 2
+        assert LogsAlertCheck.objects.filter(alert=alert).count() == MAX_EVALUATION_PERIODS + 5
 
     def test_cascade_delete_with_alert(self):
         alert = self._create_alert()

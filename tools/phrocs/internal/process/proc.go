@@ -240,12 +240,20 @@ func (p *Process) Lines() []string {
 	return result
 }
 
-// ClearLines empties the scrollback buffer.
+// resetEmulatorLocked replaces the emulator with a fresh instance at the given
+// dimensions. Must be called with p.mu held.
+func (p *Process) resetEmulatorLocked(w, h int) {
+	p.emulator = vt.NewSafeEmulator(w, h)
+	p.emulator.SetScrollbackSize(p.maxLines)
+}
+
+// ClearLines empties the scrollback buffer and active screen.
 func (p *Process) ClearLines() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.emulator != nil {
-		p.emulator.ClearScrollback()
+		w, h := p.emulator.Width(), p.emulator.Height()
+		p.resetEmulatorLocked(w, h)
 	}
 }
 
@@ -391,8 +399,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	if p.emulator != nil {
 		w, h = p.emulator.Width(), p.emulator.Height()
 	}
-	p.emulator = vt.NewSafeEmulator(w, h)
-	p.emulator.SetScrollbackSize(p.maxLines)
+	p.resetEmulatorLocked(w, h)
 	p.metrics = nil
 	p.exitCode = nil
 	p.startedAt = time.Now()

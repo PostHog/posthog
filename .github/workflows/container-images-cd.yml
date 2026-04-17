@@ -78,13 +78,23 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
+            - name: report failure to DevEx PostHog
+              if: failure()
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
+                  event: 'posthog-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
 
             - name: get PR labels
               id: labels
@@ -265,7 +275,7 @@ jobs:
             - name: Check for changes that affect messaging temporal worker
               id: check_changes_messaging_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^products/web_analytics/backend/temporal|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for config file changes that affect analytics platform temporal worker
               id: check_non_python_changes_analytics_platform_temporal_worker

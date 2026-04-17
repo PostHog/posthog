@@ -66,7 +66,7 @@ limitAndOffsetClauseOptional
 selectStmt:
     with=withClause?
     SELECT DISTINCT? topClause?
-    columns=selectColumnExprList
+    columns=selectColumnExprListBeforeFrom
     from=fromClause?
     arrayJoinClause?
     prewhereClause?
@@ -173,14 +173,32 @@ columnTypeExpr
     ;
 // Restricted type expr for :: casts — no parenthesized variants to avoid ambiguity with function calls
 columnTypeCastExpr
-    : identifier identifier+                                                                 # ColumnTypeCastExprCompound
-    | identifier                                                                             # ColumnTypeCastExprSimple
+    : columnTypeCastIdentifier WITH LOCAL? TIME ZONE                                          # ColumnTypeCastExprWithTimeZone
+    | columnTypeCastIdentifier                                                               # ColumnTypeCastExprSimple
+    ;
+columnTypeCastIdentifier
+    : IDENTIFIER
+    | QUOTED_IDENTIFIER
+    | interval
+    | keywordForTypeCast
+    ;
+keywordForTypeCast
+    : DATE
+    | TIME
+    | TIMESTAMP
+    | INTERVAL
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
+selectColumnExprListBeforeFrom
+    : selectColumnExpr (COMMA selectColumnExpr)* COMMA                                 # SelectColumnExprListBeforeFromTrailingComma
+    | selectColumnExprList                                                              # SelectColumnExprListBeforeFromPlain
+    ;
 selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)* COMMA?;
 selectColumnExpr
     : identifier COLON columnExpr                                                   # ColumnExprAliasBefore
+    | FROM implicitAlias                                                             # ColumnExprInvalidFromImplicitAlias
     | columnExpr                                                                    # ColumnExprSelectValue
+    | columnExpr implicitAlias                                                      # ColumnExprAliasImplicit
     ;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
@@ -263,7 +281,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
+    | columnExpr AS (identifier | STRING_LITERAL)                                         # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK (EXCLUDE LPAREN identifierList RPAREN)?             # ColumnExprAsterisk  // single-column only
     | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                       # ColumnExprColonLambda
     | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
@@ -370,17 +388,30 @@ keyword
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
     | GROUPING | IF | IGNORE | ILIKE | INCLUDE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
-    | NAME | NATURAL | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
+    | LOCAL | NAME | NATURAL | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PIVOT | POSITIONAL | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
-    | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
+    | THEN | TIES | TIME | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
     | UNBOUNDED | UNION | UNPIVOT | USING | VALUES | WHEN | WHERE | WINDOW | WITH
+    | ZONE
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY
     ;
-alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
-identifier: IDENTIFIER | interval | keyword;
+keywordForImplicitAlias
+    : ASCENDING
+    | COHORT
+    | DATE
+    | DESCENDING
+    | FINAL
+    | ID
+    | RETURN
+    | TOP
+    | TOTALS
+    ;
+alias: IDENTIFIER | QUOTED_IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
+implicitAlias: IDENTIFIER | QUOTED_IDENTIFIER | keywordForImplicitAlias;
+identifier: IDENTIFIER | QUOTED_IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
 placeholder: LBRACE columnExpr RBRACE;
 

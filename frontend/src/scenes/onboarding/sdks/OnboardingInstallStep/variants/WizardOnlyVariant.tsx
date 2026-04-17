@@ -10,6 +10,7 @@ import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
 import { VariantProps } from '../types'
 import { WizardCommandBlock } from '../WizardCommandBlock'
+import { WizardOnlyIntro } from './WizardOnlyIntro'
 
 /**
  * ONBOARDING_WIZARD_PROMINENCE = "wizard-only"
@@ -21,6 +22,11 @@ import { WizardCommandBlock } from '../WizardCommandBlock'
  * modal and opens the instructions modal; closing the instructions modal re-opens the
  * manual-setup modal (back-button behavior). That coordination can't live in the
  * parent, so the shared modal in index.tsx is skipped for this variant.
+ *
+ * Nested experiment (ONBOARDING_WIZARD_INSTALLATION_IMPROVED_COPY, #team-growth):
+ *   WizardOnlyIntro dispatches between control and test copy internally. The
+ *   variant stays agnostic — it just renders the intro and the shared
+ *   WizardCommandBlock; the intro file handles the copy swap.
  */
 export function WizardOnlyVariant({
     sdkGridProps,
@@ -59,13 +65,7 @@ export function WizardOnlyVariant({
             {header}
             {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6 space-y-8">
-                <div className="text-center max-w-lg mx-auto">
-                    <h2 className="text-2xl font-bold mb-2">Install PostHog with one command</h2>
-                    <p className="text-muted">
-                        Our AI wizard detects your framework, installs the right SDK, and configures event capture
-                        automatically.
-                    </p>
-                </div>
+                <WizardOnlyIntro />
 
                 <div className="max-w-xl mx-auto">
                     <WizardCommandBlock />

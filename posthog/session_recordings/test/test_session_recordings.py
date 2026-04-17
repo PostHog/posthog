@@ -19,6 +19,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 from django.utils.timezone import now
 
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
@@ -2082,7 +2083,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch("posthog.session_recordings.session_recording_api.stream_recording_summary")
-    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session")
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
     @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     @patch("posthoganalytics.feature_enabled")
@@ -2109,17 +2110,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_feature_enabled.side_effect = feature_flag_side_effect
 
-        async def mock_async_summarize(*args, **kwargs):
-            return {"summary": "test"}
+        async def mock_video_stream(*args, **kwargs):
+            yield "data: test\n\n"
 
-        mock_execute_summarize.side_effect = mock_async_summarize
+        mock_execute_summarize.side_effect = mock_video_stream
         mock_stream_summary.return_value = iter(["data: test\n\n"])
 
         response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize")
 
         assert response.status_code == status.HTTP_200_OK
-        # Consume streaming response to trigger the generator
-        list(response.streaming_content)  # type: ignore[attr-defined]
+        # Consume streaming response to trigger the generator — the video-based
+        # path returns an async generator, so iterate via async_to_sync.
+        streaming_content = response.streaming_content  # type: ignore[attr-defined]
+        if hasattr(streaming_content, "__aiter__"):
+
+            async def _drain() -> None:
+                async for _ in streaming_content:
+                    pass
+
+            async_to_sync(_drain)()
+        else:
+            list(streaming_content)
 
         if video_based_enabled:
             mock_execute_summarize.assert_called_once()
@@ -2127,7 +2138,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert call_kwargs["session_id"] == session_id
             assert call_kwargs["user"] == self.user
             assert call_kwargs["team"] == self.team
-            assert call_kwargs["video_validation_enabled"] == "full"
             mock_stream_summary.assert_not_called()
         else:
             mock_stream_summary.assert_called_once_with(session_id=session_id, user=self.user, team=self.team)

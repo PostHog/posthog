@@ -12,7 +12,6 @@ from posthog.schema import PropertyOperator, RecordingPropertyFilter, Recordings
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.sync import database_sync_to_async
@@ -20,6 +19,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     GetSessionsToPrimeResult,
     PrimeSessionEmbeddingsActivityInputs,
 )
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
 from products.signals.backend.models import SignalSourceConfig
 

@@ -8,12 +8,13 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import {
     VALID_NON_NATIVE_MARKETING_SOURCES,
@@ -136,7 +137,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         className="justify-start"
                     >
                         <span className="flex items-center gap-2">
-                            <DataWarehouseSourceIcon type={integrationId} size="xsmall" disableTooltip />
+                            <SourceIcon type={integrationId} size="xsmall" disableTooltip />
                             <span className="flex flex-col items-start">
                                 <span className="font-medium">{integrationId}</span>
                             </span>

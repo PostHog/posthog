@@ -40,7 +40,7 @@ Migration Summary
 """
 
 
-def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
+def generate_insert_into_op(partition_gte: int, partition_lt: int | None = None) -> AsyncMigrationOperation:
     lt_expression = f"AND toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
     op = AsyncMigrationOperationSQL(
         database=AnalyticsDBMS.CLICKHOUSE,

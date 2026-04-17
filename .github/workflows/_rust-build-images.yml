@@ -176,6 +176,14 @@ jobs:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: ${{ inputs.event-name }}
                   properties: ${{ steps.failure-props.outputs.json }}
+            - name: Report failure to DevEx PostHog
+              if: failure() && github.event_name != 'pull_request'
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: ${{ inputs.event-name }}
+                  properties: ${{ steps.failure-props.outputs.json }}
 
             - name: Container image digest
               env:

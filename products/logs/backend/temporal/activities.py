@@ -6,7 +6,7 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 
 import structlog
 import temporalio.activity
@@ -16,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.logs.backend.alert_check_query import AlertCheckQuery
 from products.logs.backend.alert_state_machine import (
+    AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
     CheckResult,
@@ -24,7 +25,7 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
 
 logger = structlog.get_logger(__name__)
@@ -61,6 +62,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
         )
         .select_related("team")
         .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
+        .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
@@ -224,6 +226,40 @@ def _evaluate_single_alert(
 
         alert.save(update_fields=update_fields)
 
+    # Per-alert cap on non-event rows, enforced inline so the table stays bounded between
+    # daily cleanup runs. Errored rows and state transitions survive (event-retention task).
+    # Best-effort and deliberately outside the transaction above: a missed check would skew
+    # the alert's N-of-M window, a missed prune just leaves one extra row that the next
+    # tick's prune will mop up. Prefer the eventual-consistency failure mode.
+    # Upper-bound the slice so a one-time backlog (e.g. first deploy, or a disabled alert
+    # that accumulated rows) doesn't materialize thousands of IDs in one tick — subsequent
+    # ticks finish the job.
+    try:
+        prunable_ids = list(
+            LogsAlertCheck.objects.filter(
+                alert=alert,
+                error_message__isnull=True,
+                state_before=F("state_after"),
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)[MAX_EVALUATION_PERIODS : MAX_EVALUATION_PERIODS + 500]
+        )
+        if prunable_ids:
+            LogsAlertCheck.objects.filter(id__in=prunable_ids).delete()
+    except Exception:
+        logger.exception("Failed to prune non-event check rows", alert_id=str(alert.id))
+
+    transitioned_to_broken = committed_state == AlertState.BROKEN and state_before != AlertState.BROKEN.value
+    if transitioned_to_broken:
+        logger.warning(
+            "Alert broken after consecutive failures",
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            team_id=alert.team_id,
+            consecutive_failures=outcome.consecutive_failures,
+        )
+        _emit_auto_disabled_event(alert, outcome, now)
+
     stats["checked"] += 1
 
     if outcome.error_message:
@@ -251,31 +287,12 @@ def _evaluate_single_alert(
         logger.exception("Failed to record alert check metrics", alert_id=str(alert.id))
 
 
-def _emit_alert_event(
+def _produce_alert_internal_event(
     alert: LogsAlertConfiguration,
     event_name: str,
-    check_result: CheckResult,
+    properties: dict,
     now: datetime,
-    *,
-    date_from: datetime,
-    date_to: datetime,
 ) -> bool:
-    """Produce an internal event to Kafka for CDP processing. Returns True on success."""
-    properties: dict = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "threshold_count": alert.threshold_count,
-        "threshold_operator": alert.threshold_operator,
-        "window_minutes": alert.window_minutes,
-        "result_count": check_result.result_count,
-        "filters": alert.filters,
-        "service_names": alert.filters.get("serviceNames", []),
-        "severity_levels": alert.filters.get("severityLevels", []),
-        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
-        "triggered_at": now.isoformat(),
-    }
-
     try:
         produce_internal_event(
             team_id=alert.team_id,
@@ -290,3 +307,47 @@ def _emit_alert_event(
     except Exception as e:
         capture_exception(e, {"alert_id": str(alert.id), "event": event_name})
         return False
+
+
+def _emit_alert_event(
+    alert: LogsAlertConfiguration,
+    event_name: str,
+    check_result: CheckResult,
+    now: datetime,
+    *,
+    date_from: datetime,
+    date_to: datetime,
+) -> bool:
+    properties: dict = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name,
+        "team_id": alert.team_id,
+        "threshold_count": alert.threshold_count,
+        "threshold_operator": alert.threshold_operator,
+        "window_minutes": alert.window_minutes,
+        "result_count": check_result.result_count,
+        "filters": alert.filters,
+        "service_names": alert.filters.get("serviceNames", []),
+        "severity_levels": alert.filters.get("severityLevels", []),
+        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
+        "triggered_at": now.isoformat(),
+    }
+    return _produce_alert_internal_event(alert, event_name, properties, now)
+
+
+def _emit_auto_disabled_event(
+    alert: LogsAlertConfiguration,
+    outcome: AlertCheckOutcome,
+    now: datetime,
+) -> None:
+    properties: dict = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name,
+        "team_id": alert.team_id,
+        "consecutive_failures": outcome.consecutive_failures,
+        "last_error_message": outcome.error_message or "",
+        "service_names": alert.filters.get("serviceNames", []),
+        "severity_levels": alert.filters.get("severityLevels", []),
+        "triggered_at": now.isoformat(),
+    }
+    _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)

@@ -13,6 +13,7 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 
+BROKEN = AlertState.BROKEN
 ERRORED = AlertState.ERRORED
 FIRING = AlertState.FIRING
 NOT_FIRING = AlertState.NOT_FIRING
@@ -236,6 +237,44 @@ class TestErrorHandling(TestCase):
         outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
         assert outcome.new_state == NOT_FIRING
         assert outcome.notification == NotificationAction.NONE
+
+
+class TestBrokenTransition(TestCase):
+    @parameterized.expand(
+        [
+            ("below_threshold", 3, ERRORED, 4),
+            ("one_below_threshold", 4, BROKEN, 5),
+            ("at_threshold", 5, BROKEN, 6),
+        ]
+    )
+    def test_error_trips_broken_at_max_consecutive_failures(
+        self,
+        _name: str,
+        prior_failures: int,
+        expected_state: AlertState,
+        expected_failures: int,
+    ) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=prior_failures)
+        outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
+        assert outcome.new_state == expected_state
+        assert outcome.consecutive_failures == expected_failures
+        assert outcome.error_message == "ClickHouse timeout"
+
+    # Scheduler excludes BROKEN so these shouldn't occur, but belt-and-braces:
+    # a BROKEN alert must not silently self-heal and its failure counter stays frozen
+    # until an explicit unbreak path resets it.
+    @parameterized.expand(
+        [
+            ("on_error", _check(error="still down")),
+            ("on_success", _check(breached=False)),
+        ]
+    )
+    def test_broken_stays_broken(self, _name: str, check: CheckResult) -> None:
+        snapshot = _snapshot(state=BROKEN, consecutive_failures=5)
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == BROKEN
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.consecutive_failures == 5
 
 
 class TestSnooze(TestCase):

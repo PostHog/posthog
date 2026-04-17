@@ -1,10 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useFeatureFlagEnabled, useFeatureFlagVariantKey } from 'posthog-js/react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { AlertWizard } from 'scenes/hog-functions/AlertWizard/AlertWizard'
 import {
     AlertCreationView,
@@ -25,7 +23,7 @@ const ERROR_TRACKING_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
     'error-tracking-issue-spiking',
 ]
 
-const BASE_ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
+const ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
     {
         key: 'error-tracking-issue-created',
         name: 'Issue created',
@@ -36,13 +34,12 @@ const BASE_ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
         name: 'Issue reopened',
         description: 'Get notified when a previously resolved issue comes back',
     },
+    {
+        key: 'error-tracking-issue-spiking',
+        name: 'Issue spiking',
+        description: 'Get notified when an issue starts occurring more frequently than usual',
+    },
 ]
-
-const SPIKE_TRIGGER: WizardTrigger = {
-    key: 'error-tracking-issue-spiking',
-    name: 'Issue spiking',
-    description: 'Get notified when an issue starts occurring more frequently than usual',
-}
 
 const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
     {
@@ -94,14 +91,10 @@ const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map(getFiltersF
 ) as CyclotronJobFiltersType[]
 
 export function ErrorTrackingAlerting(): JSX.Element {
-    const spikeAlertingEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.ERROR_TRACKING_SPIKE_ALERTING)
-
     const wizardProps: AlertWizardLogicProps = {
         logicKey: 'error-tracking',
         subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
-        triggers: spikeAlertingEnabled
-            ? [...BASE_ERROR_TRACKING_TRIGGERS, SPIKE_TRIGGER]
-            : BASE_ERROR_TRACKING_TRIGGERS,
+        triggers: ERROR_TRACKING_TRIGGERS,
         destinations: ERROR_TRACKING_DESTINATIONS,
     }
 
@@ -115,10 +108,8 @@ export function ErrorTrackingAlerting(): JSX.Element {
 function ErrorTrackingAlertingInner(): JSX.Element {
     const { alertCreationView, subTemplateIds } = useValues(alertWizardLogic)
     const { setAlertCreationView, resetWizard } = useActions(alertWizardLogic)
-    const wizardVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.ERROR_TRACKING_ALERTS_WIZARD)
-    const isWizardEnabled = wizardVariant === 'test'
 
-    if (isWizardEnabled && alertCreationView === AlertCreationView.Wizard) {
+    if (alertCreationView === AlertCreationView.Wizard) {
         return (
             <AlertWizard
                 onCancel={() => {
@@ -136,10 +127,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
         )
     }
 
-    if (
-        alertCreationView === AlertCreationView.Traditional ||
-        (!isWizardEnabled && alertCreationView === AlertCreationView.Wizard)
-    ) {
+    if (alertCreationView === AlertCreationView.Traditional) {
         return (
             <HogFunctionTemplateList
                 type="destination"
@@ -177,11 +165,10 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                     type="primary"
                     size="small"
                     onClick={() => {
-                        const source = isWizardEnabled ? 'wizard_button' : 'traditional_button'
                         posthog.capture('error_tracking_alert_creation_started', {
-                            source,
+                            source: 'wizard_button',
                         })
-                        setAlertCreationView(isWizardEnabled ? AlertCreationView.Wizard : AlertCreationView.Traditional)
+                        setAlertCreationView(AlertCreationView.Wizard)
                     }}
                 >
                     New notification

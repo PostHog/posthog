@@ -20,7 +20,8 @@ import structlog
 import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
@@ -46,7 +47,7 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import create_from_template
+from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -73,7 +74,6 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
     DashboardTemplateCreationJSONSchemaParser,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
@@ -275,6 +275,44 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         representation["is_cached"] = insight_representation.get("is_cached", False)
 
         return representation
+
+
+class InsightResultSerializer(InsightSerializer):
+    """InsightSerializer restricted to identifiers + result only."""
+
+    class Meta:
+        model = Insight
+        fields = [
+            "id",
+            "short_id",
+            "name",
+            "derived_name",
+            "result",
+        ]
+        read_only_fields = fields
+
+    def to_representation(self, instance: Insight):
+        # Skip InsightSerializer.to_representation which references fields
+        # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer.
+        return serializers.ModelSerializer.to_representation(self, instance)
+
+
+class DashboardTileResultSerializer(DashboardTileSerializer):
+    """DashboardTileSerializer restricted to tile id + insight result fields."""
+
+    insight = InsightResultSerializer()
+
+    class Meta:
+        model = DashboardTile
+        fields = ["id", "insight"]
+        read_only_fields = ["id", "insight"]
+
+
+class RunInsightsResponseSerializer(serializers.Serializer):
+    results = DashboardTileResultSerializer(
+        many=True,
+        help_text="Results for each insight tile on the dashboard.",
+    )
 
 
 class DashboardBasicSerializer(
@@ -1440,6 +1478,85 @@ class DashboardsViewSet(
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "refresh",
+                OpenApiTypes.STR,
+                enum=["force_cache", "blocking", "force_blocking"],
+                description=(
+                    "Cache behavior. 'force_cache' (default) serves from cache even if stale. "
+                    "'blocking' uses cache if fresh, otherwise recalculates. "
+                    "'force_blocking' always recalculates."
+                ),
+            ),
+            OpenApiParameter(
+                "output_format",
+                OpenApiTypes.STR,
+                enum=["optimized", "json"],
+                description=(
+                    "'optimized' (default) returns LLM-friendly formatted text per insight. "
+                    "'json' returns the raw query result objects."
+                ),
+            ),
+        ],
+        responses={200: RunInsightsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["query:read"])
+    def run_insights(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Run all insights on a dashboard and return their results."""
+        dashboard = self.get_object()
+        output_format = request.query_params.get("output_format", "optimized")
+
+        context = self.get_serializer_context()
+        context["dashboard"] = dashboard
+
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
+            Prefetch(
+                "insight__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            ),
+        )
+        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
+
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, "sm")
+
+        tile_results = []
+        for order, tile in enumerate(sorted_tiles):
+            if not tile.insight or not tile.insight.query:
+                continue
+            tile_context = {**context, "dashboard_tile": tile, "order": order}
+            tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
+
+            if output_format == "optimized":
+                insight_data = tile_data.get("insight") or {}
+                formatted = self._format_insight_for_llm(tile.insight, insight_data)
+                if formatted is not None and insight_data:
+                    insight_data["result"] = formatted
+
+            tile_results.append(tile_data)
+
+        return Response({"results": tile_results})
+
+    def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
+        if not settings.EE_AVAILABLE:
+            return None
+        try:
+            from ee.hogai.context.insight.format import format_query_results_for_llm
+
+            query_dict = insight.query
+            if not query_dict:
+                return None
+            query = InsightVizNode.model_validate(query_dict)
+            if not query.source:
+                return None
+            result_dict = {"results": insight_data.get("result"), "columns": insight_data.get("columns")}
+            return format_query_results_for_llm(query.source, result_dict, self.team)
+        except Exception:
+            logger.warning("dashboard_run_insights_format_failed", exc_info=True, insight_id=insight.id)
+            return None
+
     @action(
         methods=["POST"],
         detail=False,
@@ -1453,9 +1570,16 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = DashboardTemplate(**request.data["template"])
+            dashboard_template = dashboard_template_from_creation_payload(request.data["template"])
             creation_context = request.data.get("creation_context")
             create_from_template(dashboard, dashboard_template, cast(User, request.user))
+
+            template_body = request.data["template"]
+            raw_scope = template_body.get("scope")
+            if raw_scope is None or raw_scope == "":
+                template_scope_props: dict[str, str | None] = {"template_scope": None}
+            else:
+                template_scope_props = {"template_scope": raw_scope if isinstance(raw_scope, str) else str(raw_scope)}
 
             report_user_action(
                 request.user,
@@ -1464,6 +1588,7 @@ class DashboardsViewSet(
                     **dashboard.get_analytics_metadata(),
                     "from_template": True,
                     "template_key": dashboard_template.template_name,
+                    **template_scope_props,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,

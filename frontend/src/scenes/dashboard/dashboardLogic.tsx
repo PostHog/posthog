@@ -32,7 +32,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, dashboardToSaveableTemplate } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -1354,52 +1354,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
-                return dashboard
-                    ? {
-                          template_name: dashboard.name,
-                          dashboard_description: dashboard.description,
-                          dashboard_filters: dashboard.filters,
-                          tags: dashboard.tags || [],
-                          tiles: dashboard.tiles
-                              .filter((tile) => !tile.error) // Skip error tiles when creating templates
-                              .map((tile) => {
-                                  if (tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          query: tile.insight.query,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.button_tile) {
-                                      return {
-                                          button_tile: {
-                                              url: tile.button_tile.url,
-                                              text: tile.button_tile.text,
-                                              placement: tile.button_tile.placement,
-                                              style: tile.button_tile.style,
-                                          },
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  throw new Error('Unknown tile type')
-                              }),
-                          variables: [],
-                      }
-                    : undefined
-            },
+            (dashboard: DashboardType): DashboardTemplateEditorType | undefined =>
+                dashboardToSaveableTemplate(dashboard),
         ],
         placement: [
             () => [(_, props) => props.placement],
@@ -1505,8 +1461,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         effectiveLastRefresh: [
             (s) => [s.lastDashboardRefresh, s.oldestRefreshed],
             (lastDashboardRefresh, oldestRefreshed): Dayjs | null => {
-                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d): d is Dayjs => d != null)
-                return sortDayJsDates(dates)[dates.length - 1]
+                // Pessimistic: the banner must not claim the dashboard is fresher than the stalest insight
+                // tile (per-tile menus use insight.last_refresh). `last_dashboard.last_refresh` and client
+                // `updateDashboardLastRefresh(dayjs())` can otherwise run ahead of embedded tile metadata.
+                return oldestRefreshed ?? lastDashboardRefresh ?? null
             },
         ],
 
@@ -1569,6 +1527,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           AccessControlLevel.Editor
                       )
                     : false
+            },
+        ],
+        /** Save-as-project-template from dashboard scene: editor on dashboard, payload has tiles; customers also need authoring flag. Staff use the same modal, with an optional JSON editor entry inside. */
+        canSaveProjectDashboardTemplate: [
+            (s) => [userLogic.selectors.user, s.featureFlags, s.canEditDashboard, s.asDashboardTemplate],
+            (user, featureFlags, canEditDashboard, asDashboardTemplate): boolean => {
+                if (!canEditDashboard || !(asDashboardTemplate?.tiles?.length ?? 0)) {
+                    return false
+                }
+                if (user?.is_staff) {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]
             },
         ],
         /** AI dashboard title/description: editor access, tiles present, main dashboard scene only, not shared/embed routes. */

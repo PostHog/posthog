@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -49,6 +50,19 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
         alert?.threshold.configuration.bounds?.upper != null &&
         !isNaN(alert?.threshold.configuration.bounds.upper)
     )
+}
+
+export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
+    switch (interval) {
+        case AlertCalculationInterval.HOURLY:
+            return '-48h'
+        case AlertCalculationInterval.DAILY:
+            return '-30d'
+        case AlertCalculationInterval.WEEKLY:
+            return '-12w'
+        case AlertCalculationInterval.MONTHLY:
+            return '-12m'
+    }
 }
 
 export interface AlertFormLogicProps {
@@ -123,19 +137,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
-                    const defaultRange =
-                        values.alertForm.calculation_interval === AlertCalculationInterval.HOURLY
-                            ? '-48h'
-                            : values.alertForm.calculation_interval === AlertCalculationInterval.WEEKLY
-                              ? '-12w'
-                              : values.alertForm.calculation_interval === AlertCalculationInterval.MONTHLY
-                                ? '-12m'
-                                : '-30d'
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
                         series_index: values.alertForm.config?.series_index ?? 0,
-                        date_from: values.simulationDateFrom ?? defaultRange,
+                        date_from:
+                            values.simulationDateFrom ??
+                            getDefaultSimulationRange(values.alertForm.calculation_interval),
                     })
                 },
                 clearSimulation: () => null,
@@ -317,6 +325,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 getParentLogic()?.actions.loadAlerts()
             },
             simulateAlertSuccess: ({ simulationResult }) => {
+                // simulateAlert returns null early for threshold alerts (no API call),
+                // so null here means nothing actually ran — skip the event.
+                if (simulationResult) {
+                    const detectorConfig = values.alertForm.detector_config
+                    const isBreakdown = Boolean(
+                        simulationResult.breakdown_results && simulationResult.breakdown_results.length > 0
+                    )
+                    const totalPoints = isBreakdown
+                        ? (simulationResult.breakdown_results?.reduce((sum, br) => sum + br.total_points, 0) ?? 0)
+                        : simulationResult.total_points
+                    const anomalyCount = isBreakdown
+                        ? (simulationResult.breakdown_results?.reduce((sum, br) => sum + br.anomaly_count, 0) ?? 0)
+                        : simulationResult.anomaly_count
+                    posthog.capture('alert simulation run', {
+                        success: true,
+                        detector_type: detectorConfig?.type ?? null,
+                        ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
+                        date_from:
+                            values.simulationDateFrom ??
+                            getDefaultSimulationRange(values.alertForm.calculation_interval),
+                        anomaly_count: anomalyCount,
+                        total_points: totalPoints,
+                        is_breakdown: isBreakdown,
+                    })
+                }
+
                 const parent = getParentLogic()
                 if (!parent || !simulationResult) {
                     return
@@ -348,6 +382,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 parent.actions.setSimulationAnomalyPoints(anomalyPoints)
             },
             simulateAlertFailure: ({ error }) => {
+                const detectorConfig = values.alertForm.detector_config
+                posthog.capture('alert simulation run', {
+                    success: false,
+                    detector_type: detectorConfig?.type ?? null,
+                    ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
+                    date_from:
+                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    error: error ?? 'Unknown error',
+                })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
         }

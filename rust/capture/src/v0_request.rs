@@ -164,7 +164,6 @@ pub enum DataType {
     AnalyticsHistorical,
     ClientIngestionWarning,
     HeatmapMain,
-    ExceptionMain,
     ExceptionErrorTracking,
     SnapshotMain,
 }

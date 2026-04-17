@@ -50,24 +50,24 @@ You typically run phrocs via `hogli start` rather than directly.
 
 ## Keybindings
 
-| Key    | Action                                          |
-| ------ | ----------------------------------------------- |
-| `tab`  | Swap focus sidebar/output                       |
-| `↓/j`  | Next process (sidebar) / scroll down (output)   |
-| `↑/k`  | Previous process (sidebar) / scroll up (output) |
-| `pgdn` | Scroll output down                              |
-| `pgup` | Scroll output up                                |
-| `home` | Jump to top of output                           |
-| `end`  | Jump to bottom of output                        |
-| `r`    | Restart selected process                        |
-| `s`    | Stop selected process                           |
-| `c`    | Enter copy mode                                 |
-| `i`    | Show process info in pager                      |
-| `o`    | Sort processes by <name/CPU/RAM/status>         |
-| `/`    | Enter search mode                               |
-| `esc`  | Exit copy and search modes                      |
-| `?`    | Toggle full help                                |
-| `q`    | Quit                                            |
+| Key    | Action                                                    |
+| ------ | --------------------------------------------------------- |
+| `tab`  | Swap focus sidebar/output                                 |
+| `↓/j`  | Next process (sidebar) / scroll down (output)             |
+| `↑/k`  | Previous process (sidebar) / scroll up (output)           |
+| `pgdn` | Scroll output down                                        |
+| `pgup` | Scroll output up                                          |
+| `home` | Jump to top of output                                     |
+| `end`  | Jump to bottom of output                                  |
+| `r`    | Restart selected process                                  |
+| `s`    | Stop selected process                                     |
+| `c`    | Enter copy mode                                           |
+| `i`    | Show process info in pager                                |
+| `o`    | Sort processes by <name/CPU/RAM/status>                   |
+| `/`    | Enter search mode (then `enter` to switch to filter mode) |
+| `esc`  | Exit copy, search, and filter modes                       |
+| `?`    | Toggle full help                                          |
+| `q`    | Quit                                                      |
 
 Mouse clicks switch focus; mouse wheel scrolls the output pane.
 
@@ -77,11 +77,21 @@ Press `c` to enter copy mode in the output pane.
 Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `c` to copy to clipboard.
 Press `esc` to exit without copying.
 
-### Search mode
+### Search and filter modes
 
-Press `/` to enter search mode, type a query, then press `enter` to keep highlights active.
-Use `↵` and `⇧↵` to jump to the next/previous match.
-Press `esc` to clear the active search.
+Press `/` to enter search mode, type a query, then use `↓`/`↑` to jump between matches.
+Press `enter` to switch to **filter mode**, which hides all non-matching lines and shows a count of matches in the footer.
+Press `tab` in filter mode to return to search mode (the query is preserved).
+Press `esc` to exit and clear the query.
+
+Queries support multiple space-separated tokens — all must match for a line to be included:
+
+| Pattern       | Description                                         |
+| ------------- | --------------------------------------------------- |
+| `term`        | Case-insensitive substring match                    |
+| `!term`       | Negative match — exclude lines containing `term`    |
+| `re:pattern`  | Regex match (case-insensitive)                      |
+| `!re:pattern` | Negative regex — exclude lines matching the pattern |
 
 ### Info panel
 

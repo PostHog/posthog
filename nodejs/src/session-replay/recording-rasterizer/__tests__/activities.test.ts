@@ -125,6 +125,8 @@ describe('rasterizeRecordingActivity', () => {
             expect.stringContaining('ph-video-'),
             playerHtml,
             expect.any(Function),
+            // Progress object — phase transitions to 'upload' after capture completes.
+            { phase: 'upload', frame: 0, estimatedTotalFrames: 0 },
             undefined,
             expect.any(Object)
         )
@@ -142,6 +144,7 @@ describe('rasterizeRecordingActivity', () => {
             'my-bucket',
             'exports/mp4/team-99/task-42',
             expect.any(String),
+            'mp4',
             expect.any(Function)
         )
     })

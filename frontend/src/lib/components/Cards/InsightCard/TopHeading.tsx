@@ -1,12 +1,13 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText } from 'lib/utils'
-import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     dateRangeFor,
+    getInterval,
     isDataTableNode,
     isInsightQueryNode,
     isInsightVizNode,
@@ -56,7 +57,9 @@ export function TopHeading({
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
 
-    const resolvedDateTooltip = formatResolvedDateRange(resolvedDateRange)
+    const insightQueryNode = isInsightVizNode(query) ? query.source : isInsightQueryNode(query) ? query : null
+    const interval = insightQueryNode ? getInterval(insightQueryNode) : null
+    const resolvedDateTooltip = formatResolvedDateRange(alignResolvedDateRangeToInterval(resolvedDateRange, interval))
 
     return (
         <div className="flex items-center gap-1">

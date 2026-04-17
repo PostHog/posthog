@@ -35,6 +35,14 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
+// Reactivity note (#53893): `cache.store` (SnapshotStore) and `cache.scheduler`
+// (LoadingScheduler) live outside Kea. Their mutations are invisible to
+// selectors unless `storeUpdated()` is dispatched. Any listener that
+// mutates either — scheduler.seekTo, scheduler.clearSeek, store.markLoaded,
+// store.setSources — MUST dispatch `storeUpdated()` afterwards. Any selector
+// that reads `cache.scheduler.currentMode` or `cache.store` state MUST depend
+// on `storeUpdateCount` (not `storeVersion`, which only bumps on data mutations
+// and would memoize to stale values across pure mode transitions).
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -63,7 +71,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
-        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
+        // dispatch after any mutation to cache.store or cache.scheduler —
+        // these live outside Kea's reactivity and need explicit invalidation
         storeUpdated: true,
     }),
     reducers(() => ({
@@ -232,19 +241,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
                 // If we can already play at this position (data is loaded), no need to seek —
                 // this handles segment transitions during normal forward playback
-                if (cache.store?.canPlayAt(timestamp)) {
+                if (cache.store.canPlayAt(timestamp)) {
                     actions.loadNextSnapshotSource()
                     return
                 }
                 // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
-                // buffer_ahead loading already starts from the beginning
-                const targetIndex = cache.store?.getSourceIndexForTimestamp(timestamp) ?? 0
+                // buffer_ahead loading already starts from the beginning. An empty store
+                // returns null here, which naturally falls through to scheduler.seekTo —
+                // that's required for ?t=<past-end> URLs that arrive before sources load
+                // (see #53893).
+                const targetIndex = cache.store.getSourceIndexForTimestamp(timestamp)
                 if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
                     actions.loadNextSnapshotSource()
                     return
                 }
 
                 cache.scheduler.seekTo(timestamp)
+                actions.storeUpdated()
                 actions.loadNextSnapshotSource()
             }
         },
@@ -420,7 +433,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (!cache.scheduler || !cache.store) {
                 return
             }
+            // getNextBatch may flip the scheduler out of seek mode without
+            // mutating the store. Kea can't see that, so dispatch storeUpdated
+            // to invalidate selectors that read scheduler state (#53893).
+            const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
             const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
+            if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {
+                actions.storeUpdated()
+            }
             if (!batch) {
                 actions.maybeStartPolling()
                 return
@@ -486,7 +506,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         isWaitingForPlayableFullSnapshot: [
-            (s) => [s.storeVersion],
+            // Depends on storeUpdateCount (not storeVersion) because this
+            // selector reads scheduler state, which can mutate without
+            // bumping store.version — storeVersion would memoize to a
+            // stale value. storeUpdateCount invalidates on every storeUpdated.
+            (s) => [s.storeUpdateCount],
             (): boolean => {
                 if (!cache.scheduler || !cache.store) {
                     return false

@@ -4,10 +4,12 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db.models import F
+
 from parameterized import parameterized
 
 from products.logs.backend.alert_check_query import AlertCheckCountResult
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 from products.logs.backend.temporal.activities import CheckAlertsOutput, _check_alerts_sync, _evaluate_single_alert
 
 
@@ -53,6 +55,14 @@ class TestCheckAlertsSync(APIBaseTest):
         )
         result = _check_alerts_sync()
         assert result.alerts_checked == 0
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_skips_broken_alerts(self, mock_query_cls):
+        self._make_alert(state=LogsAlertConfiguration.State.BROKEN)
+        result = _check_alerts_sync()
+        assert result.alerts_checked == 0
+        mock_query_cls.assert_not_called()
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -177,6 +187,37 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         alert.refresh_from_db()
         assert alert.next_check_at is not None and alert.next_check_at > now
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_inline_cap_trims_oldest_non_event_rows(self, _mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert()
+
+        # Seed MAX_EVALUATION_PERIODS non-event rows (the allowed headroom).
+        for _ in range(MAX_EVALUATION_PERIODS):
+            LogsAlertCheck.objects.create(
+                alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
+            )
+        # Seed an event row the activity should never touch.
+        errored = LogsAlertCheck.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="Old CH timeout",
+        )
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        # Cap is MAX_EVALUATION_PERIODS + the new check that was just inserted.
+        non_event_count = LogsAlertCheck.objects.filter(
+            alert=alert, error_message__isnull=True, state_before=F("state_after")
+        ).count()
+        assert non_event_count == MAX_EVALUATION_PERIODS
+        # The errored row survives the cap — events are retention-managed, not count-managed.
+        assert LogsAlertCheck.objects.filter(pk=errored.pk).exists()
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -401,3 +442,68 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         # But notification is suppressed by cooldown
         mock_produce.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "hits_threshold",
+                4,
+                LogsAlertConfiguration.State.NOT_FIRING,
+                LogsAlertConfiguration.State.BROKEN,
+                5,
+                1,
+            ),
+            (
+                "below_threshold",
+                3,
+                LogsAlertConfiguration.State.NOT_FIRING,
+                LogsAlertConfiguration.State.ERRORED,
+                4,
+                0,
+            ),
+            (
+                "already_broken",
+                5,
+                LogsAlertConfiguration.State.BROKEN,
+                LogsAlertConfiguration.State.BROKEN,
+                5,
+                0,
+            ),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_break_on_consecutive_failures(
+        self,
+        _name,
+        initial_failures,
+        initial_state,
+        expected_state,
+        expected_failures,
+        expected_events,
+        mock_produce,
+        mock_query_cls,
+    ):
+        alert = self._make_alert(
+            threshold_count=5,
+            consecutive_failures=initial_failures,
+            state=initial_state,
+        )
+        mock_query_cls.return_value.execute.side_effect = Exception("ClickHouse timeout")
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.state == expected_state
+        assert alert.consecutive_failures == expected_failures
+        auto_disabled_calls = [
+            c
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_auto_disabled"
+        ]
+        assert len(auto_disabled_calls) == expected_events
+        if expected_events:
+            props = auto_disabled_calls[0].kwargs["event"].properties
+            assert props["consecutive_failures"] == expected_failures
+            assert "ClickHouse timeout" in props["last_error_message"]

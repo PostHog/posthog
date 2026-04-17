@@ -176,7 +176,9 @@ export class MCP extends McpAgent<Env> {
     }
 
     async api(): Promise<ApiClient> {
-        if (!this._api) {
+        // The mcp-session-id can stay the same across requests while the inbound OAuth token rotates,
+        // so we must rebuild the cached client whenever the token changes.
+        if (!this._api || this._api.config.apiToken !== this.requestProperties.apiToken) {
             const baseUrl = await this.getBaseUrl()
             await this.resolveClientInfo()
             this._api = new ApiClient({

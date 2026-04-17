@@ -1,10 +1,7 @@
 import uuid
-import itertools
 from abc import ABC
 from functools import cached_property
 from typing import Any, Optional, Union
-
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -56,77 +53,6 @@ class FunnelBase(ABC):
         ):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
-
-        # validate funnel steps range
-        max_series_index = len(self.context.query.series) - 1
-        if self.context.funnelsFilter.funnelFromStep is not None:
-            if not (0 <= self.context.funnelsFilter.funnelFromStep <= max_series_index - 1):
-                raise ValidationError(
-                    f"funnelFromStep is out of bounds. It must be between 0 and {max_series_index - 1}."
-                )
-
-        if self.context.funnelsFilter.funnelToStep is not None:
-            if not (1 <= self.context.funnelsFilter.funnelToStep <= max_series_index):
-                raise ValidationError(f"funnelToStep is out of bounds. It must be between 1 and {max_series_index}.")
-
-            if (
-                self.context.funnelsFilter.funnelFromStep is not None
-                and self.context.funnelsFilter.funnelFromStep >= self.context.funnelsFilter.funnelToStep
-            ):
-                raise ValidationError(
-                    "Funnel step range is invalid. funnelToStep should be greater than funnelFromStep."
-                )
-
-        # validate exclusions
-        if self.context.funnelsFilter.exclusions is not None:
-            for exclusion in self.context.funnelsFilter.exclusions:
-                if exclusion.funnelFromStep >= exclusion.funnelToStep:
-                    raise ValidationError(
-                        "Exclusion event range is invalid. End of range should be greater than start."
-                    )
-
-                if exclusion.funnelFromStep >= len(self.context.query.series) - 1:
-                    raise ValidationError(
-                        "Exclusion event range is invalid. Start of range is greater than number of steps."
-                    )
-
-                if exclusion.funnelToStep > len(self.context.query.series) - 1:
-                    raise ValidationError(
-                        "Exclusion event range is invalid. End of range is greater than number of steps."
-                    )
-
-                for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
-                    if is_equal(entity, exclusion) or is_superset(entity, exclusion):
-                        raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
-
-        has_optional_steps = any(getattr(node, "optionalInFunnel", False) for node in self.context.query.series)
-
-        if has_optional_steps:
-            # validate that optional steps are only allowed in Ordered Steps funnels
-            allows_optional_steps = (
-                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, FunnelVizType.FLOW, None)
-                and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
-            )
-            if not allows_optional_steps:
-                raise ValidationError(
-                    'Optional funnel steps are only supported in funnels with step order Sequential or Strict and the graph type "Conversion Steps".'
-                )
-
-            # validate that the first step is not optional
-            if self.context.query.series and getattr(self.context.query.series[0], "optionalInFunnel", False):
-                raise ValidationError("The first step of a funnel cannot be optional.")
-
-            # Validate that an optional step never follows a required step that is exactly the same right after it
-            # In that case, the optional step will show up as never converting.
-            # Not trying to be overly clever here - putting filters in different order or using SQL queries that are slightly different could
-            # get around this, but want to stop the naive case from spawning support issues.
-            for i, j in itertools.pairwise(self.context.query.series):
-                if (
-                    (is_equal(i, j) or is_superset(j, i))
-                    and getattr(i, "optionalInFunnel", True)
-                    and not getattr(j, "optionalInFunnel", False)
-                ):
-                    raise ValidationError("An optional step cannot be the same as the following required step.")
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()

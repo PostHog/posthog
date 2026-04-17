@@ -29,7 +29,6 @@ from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries imp
     MAIN_INNER_QUERY,
     PATH_BOUNCE_AND_AVG_TIME_QUERY,
     PATH_BOUNCE_QUERY,
-    PATH_SCROLL_BOUNCE_QUERY,
 )
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
@@ -74,8 +73,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
                 return self.to_main_query(self._counts_breakdown_value())
-            elif self.query.includeScrollDepth and self.query.includeBounceRate:
-                return self.to_path_scroll_bounce_query()
             elif self.query.includeAvgTimeOnPage:
                 return self.to_path_bounce_and_avg_time_query()
             elif self.query.includeBounceRate:
@@ -182,35 +179,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
     def to_entry_bounce_query(self) -> ast.SelectQuery:
         query = self.to_main_query(self._bounce_entry_pathname_breakdown())
-        return query
-
-    def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
-        with self.timings.measure("stats_table_bounce_query"):
-            query = parse_select(
-                PATH_SCROLL_BOUNCE_QUERY,
-                timings=self.timings,
-                placeholders={
-                    "session_properties": self._session_properties(),
-                    "event_properties": self._event_properties(),
-                    "event_properties_for_scroll": self._event_properties_for_scroll(),
-                    "breakdown_value": self._counts_breakdown_value(),
-                    "scroll_breakdown_value": self._scroll_prev_pathname_breakdown(),
-                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                    "current_period": self._current_period_expression(),
-                    "previous_period": self._previous_period_expression(),
-                    "inside_periods": self._periods_expression(),
-                },
-            )
-        assert isinstance(query, ast.SelectQuery)
-
-        # Compute query order based on the columns we're selecting
-        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
-        query.order_by = self._order_by(columns)
-
-        fill_fraction = self._fill_fraction(query.order_by)
-        if fill_fraction:
-            query.select.append(fill_fraction)
-
         return query
 
     def to_path_bounce_query(self) -> ast.SelectQuery:

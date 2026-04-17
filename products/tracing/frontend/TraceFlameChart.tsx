@@ -400,8 +400,10 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 const widthPct = Math.max(Math.min(rawWidthPct, 100 - leftPct), 0.3)
 
                 const isError = span.status_code === 2
+                const isUnmatched = !span.matched_filter
                 const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
                 const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
+                const barColor = isUnmatched ? 'var(--border)' : seriesColor
                 const isSelected = selectedSpanId === span.uuid
 
                 return (
@@ -437,7 +439,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                 )}
                                 <Tooltip title={span.name}>
                                     <span
-                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'}`}
+                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
                                     >
                                         {span.name}
                                     </span>
@@ -481,11 +483,13 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                             left: `${leftPct}%`,
                                             width: `${widthPct}%`,
                                             minWidth: 2,
-                                            backgroundColor: `color-mix(in srgb, ${seriesColor} 20%, transparent)`,
-                                            borderLeft: `1px solid ${seriesColor}`,
+                                            backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
+                                            borderLeft: `1px solid ${barColor}`,
                                         }}
                                     >
-                                        <span className="text-[11px] truncate whitespace-nowrap flex items-center gap-1.5">
+                                        <span
+                                            className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                                        >
                                             <span className="text-muted-alt font-medium">{span.service_name}</span>
                                             <span className="text-muted">{formatDuration(span.duration_nano)}</span>
                                         </span>

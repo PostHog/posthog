@@ -63,6 +63,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     QuerySchema,
     QueryStatus,
@@ -273,6 +274,7 @@ export enum AccessControlResourceType {
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
+    DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
@@ -388,6 +390,8 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    web_analytics_weekly_digest: boolean
+    web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
 }
 
@@ -439,6 +443,7 @@ export interface OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     is_active: boolean | null
     is_not_active_reason: string | null
+    is_pending_deletion: boolean
 }
 
 interface OrganizationMetadata {
@@ -639,6 +644,7 @@ export interface ConversationsSettings {
     slack_team_id?: string | null
     slack_channel_id?: string | null
     slack_channel_name?: string | null
+    slack_channel_ids?: string[] | null
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
@@ -648,6 +654,7 @@ export interface ConversationsSettings {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -658,7 +665,6 @@ export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
     recording_domains: string[]
-    slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
@@ -1243,7 +1249,6 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
-    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
@@ -2398,8 +2403,8 @@ export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
     // matches on template name, description, and tags
     search?: string
-    /** When set, sort by template name (not searching). Omit for server default order. Ignored when `search` is set. */
-    ordering?: 'template_name' | '-template_name'
+    /** When set, sort (not searching). Omit for server default order. Ignored when `search` is set. */
+    ordering?: 'template_name' | '-template_name' | 'created_at' | '-created_at'
     /** When true, only curated featured templates. When false, only non-featured. */
     is_featured?: boolean
 }
@@ -2422,14 +2427,53 @@ export enum TemplateAvailabilityContext {
     ONBOARDING = 'onboarding',
 }
 
-export interface DashboardTemplateType<T = InsightModel> {
+/**
+ * One row in `DashboardTemplate.tiles` / save-as-template JSON — matches `dashboardToSaveableTemplate` and backend seed templates,
+ * not the live dashboard `DashboardTile` shape (nested `insight` / `text` / `id`).
+ */
+export type DashboardTemplateStoredInsightTile = {
+    type: 'INSIGHT'
+    name?: string
+    description?: string
+    /** Serialized HogQL / insight node tree from the API; often plain JSON with string `kind` literals, not only `Node`/`NodeKind`. */
+    query?: Node | Record<string, unknown> | null
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+    filters?: Record<string, unknown>
+}
+
+export type DashboardTemplateStoredTextTile = {
+    type: 'TEXT'
+    body: string
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredButtonTile = {
+    button_tile: {
+        url: string
+        text: string
+        placement: 'left' | 'right'
+        style: 'primary' | 'secondary'
+    }
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredTile =
+    | DashboardTemplateStoredInsightTile
+    | DashboardTemplateStoredTextTile
+    | DashboardTemplateStoredButtonTile
+
+export interface DashboardTemplateType {
     id: string
     team_id?: number
     created_at?: string
+    created_by?: UserBasicType | null
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile<T>[]
+    tiles: DashboardTemplateStoredTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
@@ -2437,15 +2481,17 @@ export interface DashboardTemplateType<T = InsightModel> {
     availability_contexts?: TemplateAvailabilityContext[]
     /** Manually curated highlight flag. */
     is_featured?: boolean
+    /** Soft delete; API allows PATCH for staff undo (restore). */
+    deleted?: boolean
 }
 
 export interface MonacoMarker {
     message: string
 }
 
-// makes the DashboardTemplateType properties optional and the tiles properties optional
+// makes the DashboardTemplateType properties optional; tiles stay API/wire JSON shape
 export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
-    tiles: Partial<DashboardTile>[]
+    tiles: DashboardTemplateStoredTile[]
 }
 
 export interface DashboardTemplateVariableType {
@@ -3995,6 +4041,7 @@ export interface OrganizationFeatureFlag {
     created_at: string | null
     filters: FeatureFlagFilters
     active: boolean
+    evaluations_7d?: number | null
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -4484,7 +4531,6 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
-    exposure_preaggregation_enabled?: boolean
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -4931,6 +4977,8 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    summary_enabled?: boolean
+    summary_prompt_guide?: string
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -4976,6 +5024,9 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5092,6 +5143,7 @@ export interface HeatmapExportContext {
     heatmap_color_palette?: string | null
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
+    width?: number
 }
 
 export type ExportContext = (
@@ -5673,12 +5725,21 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
 }
 
+export interface AvailableColumn {
+    label: string
+    field: string
+    type: string
+    nullable: boolean
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
     supports_webhooks: boolean
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
     cdc_available?: boolean
 }
 
@@ -5709,6 +5770,9 @@ export interface ExternalDataSourceSyncSchema {
     supports_webhooks: boolean
     description?: string | null
     should_sync_default: boolean
+    primary_key_columns: string[] | null
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5723,6 +5787,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
+    primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
 }
 
@@ -5994,7 +6059,9 @@ export type RawBatchExportRun = {
     data_interval_end: string
     last_updated_at?: string
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type BatchExportRun = {
@@ -6014,7 +6081,9 @@ export type BatchExportRun = {
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type GroupedBatchExportRuns = {
@@ -6099,10 +6168,12 @@ export enum SDKKey {
     API = 'api',
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
+    CLOUDFLARE_AI_GATEWAY = 'cloudflare_ai_gateway',
     COHERE = 'cohere',
     CONVEX = 'convex',
     CREWAI = 'crewai',
     DJANGO = 'django',
+    DEDALUS = 'dedalus',
     DEEPSEEK = 'deepseek',
     DOCUSAURUS = 'docusaurus',
     DOTNET = 'dotnet',
@@ -6446,6 +6517,7 @@ export type HogFunctionSubTemplateIdType =
     | 'experiment-significant'
     | 'logs-alert-firing'
     | 'logs-alert-resolved'
+    | 'logs-alert-auto-disabled'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -6725,7 +6797,8 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
-    messages: RootAssistantMessage[]
+    /** undefined = not yet fetched, [] = fetched but empty, [...] = fetched with content */
+    messages?: RootAssistantMessage[]
 }
 
 export enum UserRole {
@@ -6768,7 +6841,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }

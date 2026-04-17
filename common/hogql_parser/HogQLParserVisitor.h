@@ -183,17 +183,29 @@ public:
 
     virtual std::any visitColumnTypeExprCompound(HogQLParser::ColumnTypeExprCompoundContext *context) = 0;
 
-    virtual std::any visitColumnTypeCastExprCompound(HogQLParser::ColumnTypeCastExprCompoundContext *context) = 0;
+    virtual std::any visitColumnTypeCastExprWithTimeZone(HogQLParser::ColumnTypeCastExprWithTimeZoneContext *context) = 0;
 
     virtual std::any visitColumnTypeCastExprSimple(HogQLParser::ColumnTypeCastExprSimpleContext *context) = 0;
 
+    virtual std::any visitColumnTypeCastIdentifier(HogQLParser::ColumnTypeCastIdentifierContext *context) = 0;
+
+    virtual std::any visitKeywordForTypeCast(HogQLParser::KeywordForTypeCastContext *context) = 0;
+
     virtual std::any visitColumnExprList(HogQLParser::ColumnExprListContext *context) = 0;
+
+    virtual std::any visitSelectColumnExprListBeforeFromTrailingComma(HogQLParser::SelectColumnExprListBeforeFromTrailingCommaContext *context) = 0;
+
+    virtual std::any visitSelectColumnExprListBeforeFromPlain(HogQLParser::SelectColumnExprListBeforeFromPlainContext *context) = 0;
 
     virtual std::any visitSelectColumnExprList(HogQLParser::SelectColumnExprListContext *context) = 0;
 
     virtual std::any visitColumnExprAliasBefore(HogQLParser::ColumnExprAliasBeforeContext *context) = 0;
 
+    virtual std::any visitColumnExprInvalidFromImplicitAlias(HogQLParser::ColumnExprInvalidFromImplicitAliasContext *context) = 0;
+
     virtual std::any visitColumnExprSelectValue(HogQLParser::ColumnExprSelectValueContext *context) = 0;
+
+    virtual std::any visitColumnExprAliasImplicit(HogQLParser::ColumnExprAliasImplicitContext *context) = 0;
 
     virtual std::any visitColumnExprColumnsAll(HogQLParser::ColumnExprColumnsAllContext *context) = 0;
 
@@ -401,7 +413,11 @@ public:
 
     virtual std::any visitKeywordForAlias(HogQLParser::KeywordForAliasContext *context) = 0;
 
+    virtual std::any visitKeywordForImplicitAlias(HogQLParser::KeywordForImplicitAliasContext *context) = 0;
+
     virtual std::any visitAlias(HogQLParser::AliasContext *context) = 0;
+
+    virtual std::any visitImplicitAlias(HogQLParser::ImplicitAliasContext *context) = 0;
 
     virtual std::any visitIdentifier(HogQLParser::IdentifierContext *context) = 0;
 

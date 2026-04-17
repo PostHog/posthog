@@ -11,6 +11,12 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
+# Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
+# cap on retained OK check rows — the N-of-M evaluator never reads more than this many
+# non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
+# max_value so the two can't drift.
+MAX_EVALUATION_PERIODS = 10
+
 
 class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -37,6 +43,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         PENDING_RESOLVE = "pending_resolve", "Pending resolve"
         ERRORED = "errored", "Errored"
         SNOOZED = "snoozed", "Snoozed"
+        BROKEN = "broken", "Broken"
 
     class ThresholdOperator(models.TextChoices):
         ABOVE = "above", "Above"
@@ -106,7 +113,9 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         updated: list[str] = []
         if reset_state:
             self.state = self.State.NOT_FIRING
+            self.consecutive_failures = 0
             updated.append("state")
+            updated.append("consecutive_failures")
         self.next_check_at = None
         updated.append("next_check_at")
         return updated
@@ -136,7 +145,9 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
 
 class LogsAlertCheck(UUIDModel):
-    RETENTION_DAYS = 14
+    # Events (errored, breached, state-transition rows) retained this long for forensics.
+    # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
+    EVENT_RETENTION_DAYS = 90
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,
@@ -159,6 +170,12 @@ class LogsAlertCheck(UUIDModel):
 
     @classmethod
     def clean_up_old_checks(cls) -> int:
-        oldest_allowed = datetime.now(UTC) - timedelta(days=cls.RETENTION_DAYS)
-        count, _ = cls.objects.filter(created_at__lt=oldest_allowed).delete()
+        """Delete every check row older than EVENT_RETENTION_DAYS.
+
+        In steady state this only touches errored rows and state-transition rows: the
+        Temporal activity caps non-event rows to MAX_EVALUATION_PERIODS per alert
+        inline. Rows from silent or disabled alerts also age out through this path.
+        """
+        oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
+        count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count

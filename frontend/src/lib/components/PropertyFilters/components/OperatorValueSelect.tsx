@@ -189,6 +189,25 @@ export function OperatorValueSelect({
             )
         }
 
+        // Restrict trace_id and span_id to only equals/not equals
+        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
+        // Restrict duration to equals, not equals, and numeric comparisons
+        if (propertyKey === 'duration' && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.GreaterThan,
+                    PropertyOperator.GreaterThanOrEqual,
+                    PropertyOperator.LessThan,
+                    PropertyOperator.LessThanOrEqual,
+                ].includes(op)
+            )
+        }
+
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)

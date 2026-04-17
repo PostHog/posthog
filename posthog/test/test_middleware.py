@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -558,7 +558,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def get_csrf_token_payload(self):
@@ -719,7 +719,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_other_user(self):
@@ -910,7 +910,7 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_other_user(self):
@@ -1030,7 +1030,7 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def test_impersonation_rejected_without_reason(self):
@@ -1089,7 +1089,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()  # type: ignore[assignment]
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_read_only(self):
@@ -1378,6 +1378,68 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/dashboard")
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
+
+    @parameterized.expand(
+        [
+            ("/dashboard", status.HTTP_302_FOUND, "/organization-pending-deletion"),
+            ("/some-page", status.HTTP_302_FOUND, "/organization-pending-deletion"),
+            ("/organization-pending-deletion", status.HTTP_200_OK, None),
+            ("/api/users/@me/", status.HTTP_200_OK, None),
+        ]
+    )
+    def test_pending_deletion_routing(self, path, expected_status, expected_location):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_location:
+            self.assertEqual(response.headers["Location"], expected_location)
+
+
+class TestActivityLoggingMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        from django.test import RequestFactory
+
+        from posthog.middleware import ActivityLoggingMiddleware
+        from posthog.models.activity_logging.utils import activity_storage
+
+        self.activity_storage = activity_storage
+        self.factory = RequestFactory()
+        self.captured: dict[str, Any] = {}
+
+        def get_response(request):
+            self.captured["client"] = activity_storage.get_client()
+            self.captured["user"] = activity_storage.get_user()
+            from django.http import HttpResponse
+
+            return HttpResponse()
+
+        self.middleware = ActivityLoggingMiddleware(get_response)
+
+    def test_captures_x_posthog_client_header(self):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["client"], "posthog-js/1.234.0")
+        # Storage is cleared after the request finishes
+        self.assertIsNone(self.activity_storage.get_client())
+
+    def test_missing_header_leaves_client_unset(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
+
+    def test_long_header_value_is_truncated(self):
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
 
 
 class TestCSPMiddleware(APIBaseTest):

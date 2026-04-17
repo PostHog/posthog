@@ -749,6 +749,9 @@ export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPo
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
 
+    // Higher than NotebookDefaultBlockOnEnter (200) so slash popover handles Enter first
+    priority: 300,
+
     addProseMirrorPlugins() {
         return [
             Suggestion({

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = z.object({
-    evaluationId: z.string().uuid().describe('The UUID of the evaluation to run.'),
+    evaluationId: z.string().describe('The UUID of the evaluation to run.'),
     target_event_id: z.string().describe('The UUID of the $ai_generation event to evaluate.'),
     timestamp: z.string().describe('ISO 8601 timestamp of the target event (needed for efficient lookup).'),
     event: z.string().optional().describe('Event name. Defaults to "$ai_generation".'),

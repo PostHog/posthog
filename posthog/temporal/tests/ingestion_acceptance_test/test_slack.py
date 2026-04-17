@@ -215,7 +215,7 @@ class TestSendSlackTimeoutNotification:
         context_text = payload["blocks"][1]["elements"][0]["text"]
         assert "test.posthog.com" in context_text
         assert "12345" in context_text
-        assert "600s" in context_text
+        assert "3600s" in context_text
         assert "phc_test_k..." in context_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")

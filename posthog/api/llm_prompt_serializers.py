@@ -5,7 +5,7 @@ from typing import Any
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.llm_prompt import LLMPrompt
+from posthog.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
@@ -195,6 +195,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         if isinstance(value, str):
             return value
         return value.isoformat().replace("+00:00", "Z")
+
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if "prompt" in data:
+            data["prompt"] = normalize_prompt_to_string(data["prompt"])
+        return data
 
     def validate_name(self, value: str) -> str:
         return validate_prompt_name_value(value)

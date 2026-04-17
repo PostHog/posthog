@@ -343,7 +343,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnTypeCastExprCompound(HogQLParser::ColumnTypeCastExprCompoundContext *ctx) override {
+  virtual std::any visitColumnTypeCastExprWithTimeZone(HogQLParser::ColumnTypeCastExprWithTimeZoneContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -351,7 +351,23 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnTypeCastIdentifier(HogQLParser::ColumnTypeCastIdentifierContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitKeywordForTypeCast(HogQLParser::KeywordForTypeCastContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprList(HogQLParser::ColumnExprListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitSelectColumnExprListBeforeFromTrailingComma(HogQLParser::SelectColumnExprListBeforeFromTrailingCommaContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitSelectColumnExprListBeforeFromPlain(HogQLParser::SelectColumnExprListBeforeFromPlainContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -363,7 +379,15 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprInvalidFromImplicitAlias(HogQLParser::ColumnExprInvalidFromImplicitAliasContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprSelectValue(HogQLParser::ColumnExprSelectValueContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprAliasImplicit(HogQLParser::ColumnExprAliasImplicitContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -779,7 +803,15 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitKeywordForImplicitAlias(HogQLParser::KeywordForImplicitAliasContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitAlias(HogQLParser::AliasContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitImplicitAlias(HogQLParser::ImplicitAliasContext *ctx) override {
     return visitChildren(ctx);
   }
 

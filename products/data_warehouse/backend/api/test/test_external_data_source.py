@@ -56,8 +56,10 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -811,6 +813,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "description": schema.description,
+                    "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                 }
             ],
@@ -1890,6 +1893,10 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "available_columns": [
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                    ],
+                    "detected_primary_keys": ["id"],
                 }
             ]
 
@@ -1943,6 +1950,10 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "available_columns": [
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                    ],
+                    "detected_primary_keys": ["id"],
                 }
             ]
 
@@ -3362,6 +3373,44 @@ class TestExternalDataSource(APIBaseTest):
                 # This should not trigger additional queries due to select_related
                 _ = source.revenue_analytics_config.enabled
 
+    def test_enabling_revenue_analytics_creates_person_join(self):
+        source = self._create_external_data_source()
+        source.revenue_analytics_config_safe.enabled = False
+        source.revenue_analytics_config_safe.save()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(
+            team=self.team,
+            source_table_name=view_name,
+            joining_table_name="persons",
+            field_name="persons",
+            deleted=False,
+        ).exists()
+
+    def test_disabling_revenue_analytics_removes_person_join(self):
+        source = self._create_external_data_source()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": False},
+        )
+
+        assert not DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=True).exists()
+
     def test_create_external_data_source_rejects_invalid_prefix(self):
         """Test that invalid characters in prefix are rejected."""
         invalid_prefixes = [
@@ -3474,6 +3523,15 @@ class TestCreateWebhook(APIBaseTest):
             should_sync=True,
         )
 
+    def _create_webhook_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="webhook",
+            should_sync=True,
+        )
+
     def _create_hog_function_template(self):
         from posthog.models.hog_function_template import HogFunctionTemplate
 
@@ -3530,7 +3588,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        schema = self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3579,7 +3637,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3600,7 +3658,7 @@ class TestCreateWebhook(APIBaseTest):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3616,7 +3674,7 @@ class TestCreateWebhook(APIBaseTest):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3634,7 +3692,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
 
         # First call: creates HogFunction with Charge schema
         response = self.client.post(
@@ -3643,7 +3701,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         # Now add a Customer schema and call again
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
         )
@@ -3665,7 +3723,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_create_webhook_template_not_in_db(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3683,7 +3741,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3706,7 +3764,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         # First create the webhook to set up the HogFunction
         self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
@@ -3728,7 +3786,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_rejects_invalid_keys(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -3742,7 +3800,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_no_hog_function(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -3752,6 +3810,40 @@ class TestCreateWebhook(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No webhook function found" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
+        """Regression: creating a source with multiple webhook tables then hitting the
+        create_webhook endpoint must populate schema_mapping for every webhook schema.
+        Webhook schemas have sync_type='webhook' (not 'incremental')."""
+        mock_create_webhook.return_value = self._webhook_result()
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        customer_schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        charge_schema = self._create_webhook_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        invoice_schema = self._create_webhook_schema(source, STRIPE_INVOICE_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.inputs is not None
+
+        schema_mapping = hog_function.inputs["schema_mapping"]["value"]
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CUSTOMER_RESOURCE_NAME]] == str(customer_schema.id)
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CHARGE_RESOURCE_NAME]] == str(charge_schema.id)
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_INVOICE_RESOURCE_NAME]] == str(invoice_schema.id)
+        assert len(schema_mapping) == 3
+
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
 class TestSensitiveFieldClassification(APIBaseTest):
@@ -4189,6 +4281,15 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
+    def _create_webhook_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="webhook",
+            should_sync=True,
+        )
+
     def _create_full_refresh_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name=name,
@@ -4224,9 +4325,9 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.enabled is False
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_blocked_by_incremental_schemas(self, _mock_flag):
+    def test_delete_webhook_blocked_by_webhook_schemas(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, "Customers")
+        self._create_webhook_schema(source, "Customers")
         self._create_hog_function(source)
 
         response = self.client.post(
@@ -4234,7 +4335,8 @@ class TestDeleteWebhook(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "incremental sync" in response.json()["message"]
+        assert "webhook sync" in response.json()["message"]
+        assert "Customers" in response.json()["message"]
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")

@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo, IconPlay, IconTrends } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -38,6 +38,7 @@ import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import { statusReasonLabel } from './statusDisplay'
 import { EvaluationType } from './types'
 
 export function LLMAnalyticsEvaluation(): JSX.Element {
@@ -183,9 +184,15 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             <LemonTag type="primary">New</LemonTag>
                         ) : (
                             <>
-                                <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                    {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                                </LemonTag>
+                                {evaluation.status === 'error' ? (
+                                    <LemonTag type="danger" icon={<IconWarning />}>
+                                        Error
+                                    </LemonTag>
+                                ) : (
+                                    <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
+                                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                                    </LemonTag>
+                                )}
                                 {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
                             </>
                         )}
@@ -233,6 +240,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     )}
                 </div>
             </div>
+
+            {evaluation.status === 'error' && (
+                <LemonBanner type="error">
+                    <div className="space-y-1">
+                        <p className="font-semibold">This evaluation was automatically disabled</p>
+                        <p>
+                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
+                            supported model or add a provider API key in settings), then re-enable the evaluation to
+                            resume running.
+                        </p>
+                    </div>
+                </LemonBanner>
+            )}
 
             {evaluationProviderKeyIssue && (
                 <LemonBanner type="warning">

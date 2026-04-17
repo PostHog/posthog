@@ -803,6 +803,19 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
+    const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+
+    if (hasError) {
+        return (
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
+        )
+    }
+
     if (activeTab === OutputTab.Visualization) {
         if (!response && !responseLoading && !insightLoading) {
             return (
@@ -846,17 +859,6 @@ const Content = ({
         )
     }
 
-    if (responseError) {
-        return (
-            <ErrorState
-                responseError={responseError}
-                sourceQuery={sourceQuery}
-                queryCancelled={queryCancelled}
-                response={response}
-            />
-        )
-    }
-
     if (!response) {
         const msg =
             activeTab === OutputTab.Results
@@ -864,11 +866,12 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t"
+                className="flex flex-1 justify-center items-center border-t px-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 <span className="text-secondary mt-3">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
+                    statements with <code>;</code> to run them independently.
                 </span>
             </div>
         )

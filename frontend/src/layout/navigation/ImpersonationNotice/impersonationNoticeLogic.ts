@@ -1,10 +1,26 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { UserType } from '~/types'
+import { Region, UserType } from '~/types'
 
 import type { impersonationNoticeLogicType } from './impersonationNoticeLogicType'
+
+export interface ImpersonationTicketContext {
+    ticketId: string
+    email: string
+    region?: Region
+}
+
+function adminLoginUrlForTicket(context: ImpersonationTicketContext): string | null {
+    if (!context.region) {
+        return null
+    }
+    const domain = CLOUD_HOSTNAMES[context.region]
+    return `https://${domain}/admin/posthog/user/?q=${encodeURIComponent(context.email)}`
+}
 
 export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     path(['layout', 'navigation', 'ImpersonationNotice', 'impersonationNoticeLogic']),
@@ -21,6 +37,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         closeUpgradeModal: true,
         setPageVisible: (visible: boolean) => ({ visible }),
         clearPageHiddenAt: true,
+        setTicketContext: (context: ImpersonationTicketContext | null) => ({ context }),
     }),
 
     reducers({
@@ -47,11 +64,26 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 clearPageHiddenAt: () => null,
             },
         ],
+        ticketContext: [
+            null as ImpersonationTicketContext | null,
+            {
+                setTicketContext: (_, { context }) => context,
+            },
+        ],
     }),
 
     selectors({
         isReadOnly: [(s) => [s.user], (user: UserType | null): boolean => user?.is_impersonated_read_only ?? true],
         isImpersonated: [(s) => [s.user], (user: UserType | null): boolean => user?.is_impersonated ?? false],
+        adminLoginUrl: [
+            (s) => [s.ticketContext],
+            (ticketContext: ImpersonationTicketContext | null): string | null => {
+                if (!ticketContext?.email) {
+                    return null
+                }
+                return adminLoginUrlForTicket(ticketContext)
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -75,6 +107,14 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 if (secondsAway > 30) {
                     actions.maximize()
                 }
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_params, _searchParams, _hashParams, { pathname }) => {
+            if (values.ticketContext && !pathname.startsWith('/support/tickets/')) {
+                actions.setTicketContext(null)
             }
         },
     })),
