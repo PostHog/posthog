@@ -2796,6 +2796,42 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No active sandbox", response.json()["error"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_shell_execute(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {
+                "jsonrpc": "2.0",
+                "id": "req-shell",
+                "result": {"executionId": "exec-xyz"},
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "shell_execute",
+                "params": {"command": "echo vojta"},
+                "id": "req-shell",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["result"]["executionId"], "exec-xyz")
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "shell_execute")
+        self.assertEqual(call_kwargs["json"]["params"]["command"], "echo vojta")
+
     @parameterized.expand(
         [
             ("missing_jsonrpc", {"method": "user_message", "params": {"content": "hi"}}),
@@ -2826,6 +2862,56 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             (
                 "set_config_option_empty_params",
                 {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
+            ),
+            ("shell_execute_missing_command", {"jsonrpc": "2.0", "method": "shell_execute", "params": {}}),
+            ("shell_execute_empty_command", {"jsonrpc": "2.0", "method": "shell_execute", "params": {"command": "  "}}),
+            (
+                "shell_execute_timeout_too_large",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "shell_execute",
+                    "params": {"command": "ls", "timeoutMs": 600001},
+                },
+            ),
+            (
+                "shell_execute_negative_timeout",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "shell_execute",
+                    "params": {"command": "ls", "timeoutMs": -1},
+                },
+            ),
+            (
+                "shell_execute_bool_timeout",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "shell_execute",
+                    "params": {"command": "ls", "timeoutMs": True},
+                },
+            ),
+            (
+                "shell_execute_non_string_cwd",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "shell_execute",
+                    "params": {"command": "ls", "cwd": 123},
+                },
+            ),
+            (
+                "shell_execute_empty_execution_id",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "shell_execute",
+                    "params": {"command": "ls", "executionId": ""},
+                },
+            ),
+            (
+                "shell_execute_execution_id_too_long",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "shell_execute",
+                    "params": {"command": "ls", "executionId": "x" * 129},
+                },
             ),
         ]
     )
