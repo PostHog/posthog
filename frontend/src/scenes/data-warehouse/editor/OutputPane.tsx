@@ -37,6 +37,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -704,6 +705,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-2"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
         )

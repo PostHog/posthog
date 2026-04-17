@@ -34,6 +34,13 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
+# Applied to the row-streaming connection so large result preparation
+# (e.g. filesort on a multi-GB table) doesn't hit MySQL's default 60s
+# net_write_timeout before the first rows are ready. Used for both the
+# client-side PyMySQL read_timeout and the server-side SET SESSION
+# net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
+STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
+
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
     """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
@@ -686,10 +693,22 @@ def mysql_source(
                 user=user,
                 password=password,
                 connect_timeout=10,
+                read_timeout=STATEMENT_TIMEOUT_SECONDS,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
+                # Bump server-side timeouts for large table scans. The
+                # defaults (60s each) are too low for multi-GB unbuffered
+                # queries — the server drops the connection before the first
+                # rows are ready.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute(
+                            f"SET SESSION net_write_timeout = {STATEMENT_TIMEOUT_SECONDS}, net_read_timeout = {STATEMENT_TIMEOUT_SECONDS}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(
                         schema,
