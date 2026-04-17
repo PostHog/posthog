@@ -144,11 +144,12 @@ class TestTailscaleRoutesAccepted:
     def test_ensure_noop_when_already_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         calls: list[list[str]] = []
-        monkeypatch.setattr(
-            coder.subprocess,
-            "run",
-            lambda args, **kwargs: calls.append(args) or subprocess.CompletedProcess(args, 0),
-        )
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
 
         coder.ensure_tailscale_routes_accepted()
 
