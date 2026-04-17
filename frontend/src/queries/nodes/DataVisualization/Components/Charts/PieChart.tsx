@@ -132,6 +132,66 @@ export function PieChart({
         )
     }
 
+    const chart = (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <InsightPieChart
+                data-attr="sql-pie-chart"
+                type={GraphType.Pie}
+                labelGroupType="none"
+                formula="-"
+                showPersonsModal={false}
+                tooltip={{
+                    showHeader: false,
+                    hideColorCol: true,
+                }}
+                datasets={[
+                    {
+                        id: 0,
+                        data: slices.map((slice) => slice.value),
+                        labels: slices.map((slice) => slice.label),
+                        backgroundColor: slices.map((slice) => slice.color),
+                        borderColor: slices.map((slice) => slice.color),
+                    },
+                ]}
+                labels={slices.map((slice) => slice.label)}
+                showValuesOnSeries={chartSettings.showValuesOnSeries ?? true}
+            />
+        </BindLogic>
+    )
+
+    const totalDisplay = showPieTotal ? (
+        <div className="pt-4 text-center shrink-0">
+            <div className="text-5xl font-bold">
+                {String(formatDataWithSettings(total, formattingSettings) ?? total)}
+            </div>
+        </div>
+    ) : null
+
+    const legend = showLegend ? (
+        <div className="w-full xl:w-80 shrink-0 border border-border rounded bg-surface-secondary overflow-visible xl:overflow-auto">
+            <div className="divide-y divide-border">
+                {slices.map((slice) => {
+                    const percent = total > 0 ? ((slice.value / total) * 100).toFixed(1) : '0.0'
+
+                    return (
+                        <div key={slice.label} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <LemonColorGlyph color={slice.color} className="shrink-0" />
+                                <span className="truncate">{slice.label}</span>
+                            </div>
+                            <div className="text-right shrink-0">
+                                <div className="font-semibold">
+                                    {String(formatDataWithSettings(slice.value, formattingSettings) ?? slice.value)}
+                                </div>
+                                <div className="text-xs text-secondary">{percent}%</div>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+    ) : null
+
     return (
         <div
             className={clsx(className, 'rounded bg-surface-primary flex flex-1 p-4 gap-4', {
@@ -139,73 +199,31 @@ export function PieChart({
                 'h-full': !presetChartHeight,
             })}
         >
-            <div className={clsx('flex flex-1 gap-4 min-h-0', { 'flex-col lg:flex-row': showLegend })}>
-                <div className="flex flex-1 flex-col min-h-0">
-                    <div className={clsx('relative flex-1 min-h-[18rem]', { 'lg:min-h-0': showLegend })}>
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <InsightPieChart
-                                data-attr="sql-pie-chart"
-                                type={GraphType.Pie}
-                                labelGroupType="none"
-                                formula="-"
-                                showPersonsModal={false}
-                                tooltip={{
-                                    showHeader: false,
-                                    hideColorCol: true,
-                                }}
-                                datasets={[
-                                    {
-                                        id: 0,
-                                        data: slices.map((slice) => slice.value),
-                                        labels: slices.map((slice) => slice.label),
-                                        backgroundColor: slices.map((slice) => slice.color),
-                                        borderColor: slices.map((slice) => slice.color),
-                                    },
-                                ]}
-                                labels={slices.map((slice) => slice.label)}
-                                showValuesOnSeries={chartSettings.showValuesOnSeries ?? true}
-                            />
-                        </BindLogic>
+            {!showLegend ? (
+                <div className="flex flex-1 min-h-0">
+                    <div className="flex flex-1 flex-col min-h-0">
+                        <div className="relative flex-1 min-h-[18rem]">{chart}</div>
+                        {totalDisplay}
                     </div>
-                    {showPieTotal && (
-                        <div className="pt-4 text-center">
-                            <div className="text-5xl font-bold">
-                                {String(formatDataWithSettings(total, formattingSettings) ?? total)}
-                            </div>
-                        </div>
-                    )}
                 </div>
-                {showLegend && (
-                    <div className="w-full lg:w-80 border border-border rounded bg-surface-secondary overflow-auto">
-                        <div className="divide-y divide-border">
-                            {slices.map((slice) => {
-                                const percent = total > 0 ? ((slice.value / total) * 100).toFixed(1) : '0.0'
-
-                                return (
-                                    <div
-                                        key={slice.label}
-                                        className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                                    >
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <LemonColorGlyph color={slice.color} className="shrink-0" />
-                                            <span className="truncate">{slice.label}</span>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                            <div className="font-semibold">
-                                                {String(
-                                                    formatDataWithSettings(slice.value, formattingSettings) ??
-                                                        slice.value
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-secondary">{percent}%</div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
+            ) : (
+                <>
+                    <div className="flex flex-col gap-4 w-full xl:hidden">
+                        <div className="flex flex-col">
+                            <div className="relative h-[18rem]">{chart}</div>
+                            {totalDisplay}
                         </div>
+                        {legend}
                     </div>
-                )}
-            </div>
+                    <div className="hidden xl:flex flex-1 gap-4 min-h-0">
+                        <div className="flex flex-1 flex-col min-h-0">
+                            <div className="relative flex-1 min-h-[18rem]">{chart}</div>
+                            {totalDisplay}
+                        </div>
+                        {legend}
+                    </div>
+                </>
+            )}
         </div>
     )
 }
