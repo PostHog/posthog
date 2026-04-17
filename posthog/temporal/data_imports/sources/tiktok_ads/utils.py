@@ -413,7 +413,7 @@ class TikTokAdsAuth(AuthConfigBase):
     'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
     """
 
-    access_token: TSecretStrValue = None
+    access_token: TSecretStrValue | None = None
 
     def parse_native_representation(self, value: Any) -> None:
         if isinstance(value, str):
@@ -423,6 +423,9 @@ class TikTokAdsAuth(AuthConfigBase):
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
         """Add TikTok Ads authentication headers to the request."""
+        if self.access_token is None:
+            raise ValueError("TikTok Ads access token is not configured")
+
         request.headers["Access-Token"] = self.access_token
         request.headers["Content-Type"] = "application/json"
 
