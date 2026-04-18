@@ -482,7 +482,16 @@ export function EditAlertModal({
                                         alertForm.detector_config &&
                                         investigationAgentEnabled && (
                                             <div className="deprecated-space-y-2">
-                                                <h4 className="m-0">Investigation agent</h4>
+                                                <div className="flex items-center gap-1">
+                                                    <h4 className="m-0">Investigation agent</h4>
+                                                    <Tooltip
+                                                        title="An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
+                                                        placement="right"
+                                                        delayMs={0}
+                                                    >
+                                                        <IconInfo />
+                                                    </Tooltip>
+                                                </div>
                                                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                                                     <LemonCheckbox
                                                         data-attr="alertForm-investigation-agent-enabled"
