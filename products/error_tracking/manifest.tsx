@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { SettingId } from 'scenes/settings/types'
 import { urls } from 'scenes/urls'
 
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -40,19 +41,16 @@ export const manifest: ProductManifest = {
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
     redirects: {
-        '/error_tracking/configuration': (_params, searchParams, hashParams) => {
+        '/error_tracking/configuration': (_params, searchParams) => {
             const { tab, ...restSearchParams } = searchParams
             return combineUrl(
-                '/error_tracking',
-                { ...restSearchParams, activeTab: 'configuration' },
-                { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
+                urls.settings('environment-error-tracking', tab as SettingId | undefined),
+                restSearchParams
             ).url
         },
     },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-        errorTrackingConfiguration: (params = {}): string =>
-            combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
         errorTrackingIssue: (
             id: string,
             params: {

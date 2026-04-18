@@ -34,7 +34,6 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
-    | 'environment-error-tracking-configuration'
     | 'environment-logs'
     | 'environment-conversations'
     | 'environment-visual-review'
@@ -266,6 +265,12 @@ export type Setting = {
 
     /** Platform/SDK availability rendered as badges to the right of the title */
     platformSupport?: PlatformSupportConfig
+
+    /**
+     * Optional sub-group label. Settings with the same `subGroup` within a section are rendered
+     * together under a sticky divider with the sub-group label, to aid scannability in long sections.
+     */
+    subGroup?: string
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
