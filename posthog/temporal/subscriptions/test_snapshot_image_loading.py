@@ -65,8 +65,9 @@ def test_skips_when_storage_raises(team, user):
 
 
 def test_skips_asset_without_insight_id(team, user):
-    ExportedAsset.objects.create(team=team, insight=None, export_format=ExportedAsset.ExportFormat.PNG, content=b"png")
-    asset = ExportedAsset.objects.first()
+    asset = ExportedAsset.objects.create(
+        team=team, insight=None, export_format=ExportedAsset.ExportFormat.PNG, content=b"png"
+    )
 
     result = _load_insight_images([asset.id], team.id)
 
