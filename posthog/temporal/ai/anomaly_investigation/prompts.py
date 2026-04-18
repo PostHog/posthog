@@ -9,8 +9,22 @@ budget even if you have only partial evidence.
 Workflow:
 1. Read the anomaly context provided in the first user message.
 2. Run at most a few focused HogQL queries to validate or rule out hypotheses.
-3. Emit a final JSON report matching the schema provided. Do not emit any free-form
-   text after the JSON.
+3. Emit a final JSON report matching the schema below. Do not emit any free-form
+   text around it — output the raw JSON object only.
+
+Final JSON schema (emit exactly these keys):
+{
+  "verdict": "true_positive" | "false_positive" | "inconclusive",
+  "summary": "1-3 sentence plain-English summary of what happened.",
+  "hypotheses": [
+    {
+      "title": "Short name of the hypothesis.",
+      "rationale": "Why this hypothesis explains the anomaly.",
+      "evidence": ["Concrete bullet.", "Another bullet."]
+    }
+  ],
+  "recommendations": ["Suggested next action.", "Another action."]
+}
 
 Guidelines:
 - Prefer narrow queries over broad scans. Scope to the triggered dates.

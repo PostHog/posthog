@@ -96,7 +96,14 @@ async def run_investigation(
         temperature=0,
     )
     llm_with_tools = llm.bind_tools(
-        [{"name": t["name"], "description": t["description"], "args_schema": t["args_schema"]} for t in tools_spec]
+        [
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "input_schema": t["args_schema"].model_json_schema(),
+            }
+            for t in tools_spec
+        ]
     )
 
     messages: list[Any] = [
@@ -118,6 +125,16 @@ async def run_investigation(
             break
 
         if tool_calls_used >= MAX_TOOL_CALLS:
+            # Anthropic requires every tool_use block in the latest AI message to
+            # be paired with a tool_result in the next message, so stub the
+            # pending calls before asking the model to finalize.
+            for call in tool_calls:
+                messages.append(
+                    ToolMessage(
+                        content="[skipped — tool call budget exhausted]",
+                        tool_call_id=call.get("id") or call.get("tool_call_id") or "",
+                    )
+                )
             messages.append(
                 HumanMessage(
                     content=(
@@ -126,7 +143,6 @@ async def run_investigation(
                     )
                 )
             )
-            # One more turn so the model can produce the final message.
             if heartbeat is not None:
                 heartbeat()
             final = await llm.ainvoke(messages)
