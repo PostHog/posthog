@@ -42,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { blastRadiusCountLabel } from './blastRadiusCountLabel'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -479,7 +480,14 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                <span>of total {aggregationTargetName(group.aggregation_group_type_index)}.</span>
+                                <span>
+                                    of total{' '}
+                                    {blastRadiusCountLabel(
+                                        group.aggregation_group_type_index ?? filters.aggregation_group_type_index,
+                                        aggregationTargetName(group.aggregation_group_type_index)
+                                    )}
+                                    .
+                                </span>
                                 {filters.aggregation_group_type_index == null && (
                                     <Tooltip
                                         title={

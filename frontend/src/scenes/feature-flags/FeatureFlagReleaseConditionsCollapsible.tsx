@@ -59,6 +59,7 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { blastRadiusCountLabel } from './blastRadiusCountLabel'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -136,6 +137,7 @@ interface ConditionHeaderProps {
     totalGroups: number
     affectedCount: number | undefined
     aggregationTargetName: string
+    countLabel: string
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -146,6 +148,7 @@ function ConditionHeader({
     totalGroups,
     affectedCount,
     aggregationTargetName,
+    countLabel,
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
@@ -158,7 +161,7 @@ function ConditionHeader({
             ? Math.floor((affectedCount * clamp(rollout, 0, 100)) / 100)
             : null
 
-    const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${aggregationTargetName}` : null
+    const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${countLabel}` : null
 
     return (
         <div className="flex items-center justify-between w-full gap-2">
@@ -472,6 +475,10 @@ const ConditionContent = ({
                                 totalGroups={totalGroups}
                                 affectedCount={group.sort_key ? affectedCounts[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                                countLabel={blastRadiusCountLabel(
+                                    group.aggregation_group_type_index ?? releaseFilters.aggregation_group_type_index,
+                                    aggregationTargetName(group.aggregation_group_type_index)
+                                )}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -611,21 +618,25 @@ const ConditionContent = ({
                                                     const receivingFlag = Math.floor(
                                                         (affected * clamp(rolloutPct, 0, 100)) / 100
                                                     )
+                                                    const countLabel = blastRadiusCountLabel(
+                                                        group.aggregation_group_type_index ??
+                                                            releaseFilters.aggregation_group_type_index,
+                                                        resolvedTargetName
+                                                    )
                                                     if (rolloutPct === 100) {
                                                         return (
                                                             <>
                                                                 <b>{humanFriendlyNumber(affected)}</b> of{' '}
-                                                                {humanFriendlyNumber(total)} {resolvedTargetName} match
-                                                                these filters
+                                                                {humanFriendlyNumber(total)} {countLabel} match these
+                                                                filters
                                                             </>
                                                         )
                                                     }
                                                     return (
                                                         <>
                                                             Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b> of{' '}
-                                                            {humanFriendlyNumber(total)} {resolvedTargetName} (
-                                                            {rolloutPct}% of {humanFriendlyNumber(affected)} matching
-                                                            the filters)
+                                                            {humanFriendlyNumber(total)} {countLabel} ({rolloutPct}% of{' '}
+                                                            {humanFriendlyNumber(affected)} matching the filters)
                                                         </>
                                                     )
                                                 })()}
