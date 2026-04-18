@@ -399,10 +399,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
         return representation
 
-    def get_last_run_at(self, instance: ExternalDataSource) -> str:
+    def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
 
-        return latest_completed_run.created_at if latest_completed_run else None
+        return latest_completed_run.created_at.isoformat() if latest_completed_run else None
 
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None

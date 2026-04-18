@@ -2,10 +2,17 @@ import re
 import json
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
+from posthog.models.llm_prompt import LLMPrompt, get_prompt_outline, normalize_prompt_to_string
+
+
+class LLMPromptOutlineEntrySerializer(serializers.Serializer):
+    level = serializers.IntegerField(min_value=1, max_value=6, help_text="Markdown heading level (1-6).")
+    text = serializers.CharField(help_text="Heading text with markdown link syntax preserved.")
+
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
@@ -36,11 +43,28 @@ def validate_prompt_payload_size(prompt_payload: Any) -> Any:
     return prompt_payload
 
 
+CONTENT_MODE_CHOICES = ["full", "preview", "none"]
+CONTENT_MODE_HELP = (
+    "Controls how much prompt content is included in the response. "
+    "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
+    "and 'none' omits prompt content entirely. The outline field is always included."
+)
+
+
 class LLMPromptFetchQuerySerializer(serializers.Serializer):
     version = serializers.IntegerField(
         min_value=1,
         required=False,
         help_text="Specific prompt version to fetch. If omitted, the latest version is returned.",
+    )
+
+
+class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
+    content = serializers.ChoiceField(
+        choices=CONTENT_MODE_CHOICES,
+        required=False,
+        default="full",
+        help_text=CONTENT_MODE_HELP,
     )
 
 
@@ -51,14 +75,10 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         help_text="Optional substring filter applied to prompt names and prompt content.",
     )
     content = serializers.ChoiceField(
-        choices=["full", "preview", "none"],
+        choices=CONTENT_MODE_CHOICES,
         required=False,
         default="full",
-        help_text=(
-            "Controls how much prompt content is included in list results. "
-            "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
-            "and 'none' omits prompt content entirely."
-        ),
+        help_text=CONTENT_MODE_HELP,
     )
 
 
@@ -145,6 +165,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
+    outline = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
@@ -161,6 +182,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "latest_version",
             "version_count",
             "first_version_created_at",
+            "outline",
         ]
         read_only_fields = [
             "id",
@@ -173,11 +195,16 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "latest_version",
             "version_count",
             "first_version_created_at",
+            "outline",
         ]
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
             "prompt": {"help_text": "Prompt payload as JSON or string data."},
         }
+
+    @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
+    def get_outline(self, instance: LLMPrompt) -> list[dict[str, Any]]:
+        return get_prompt_outline(instance.prompt)
 
     def get_is_latest(self, instance: LLMPrompt) -> bool:
         return bool(getattr(instance, "is_latest", False))
@@ -290,7 +317,18 @@ class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
 class LLMPromptPublicSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     name = serializers.CharField()
-    prompt = serializers.JSONField()
+    prompt = serializers.JSONField(
+        required=False,
+        help_text="Full prompt content. Omitted when 'content=preview' or 'content=none'.",
+    )
+    prompt_preview = serializers.CharField(
+        required=False,
+        help_text="First 160 characters of the prompt. Only present when 'content=preview'.",
+    )
+    outline = LLMPromptOutlineEntrySerializer(
+        many=True,
+        help_text="Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents.",
+    )
     version = serializers.IntegerField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
