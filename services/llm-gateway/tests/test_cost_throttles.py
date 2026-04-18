@@ -734,7 +734,7 @@ class TestUnconfiguredProductsUseDefaults:
         ctx_unconfigured = make_context(product=UNCONFIGURED_PRODUCT)
 
         await burst.record_cost(ctx_posthog_code, 200.0)
-        await burst.record_cost(ctx_wizard, 100.0)
+        await burst.record_cost(ctx_unconfigured, 100.0)
         await sustained.record_cost(ctx_posthog_code, 1000.0)
         await sustained.record_cost(ctx_unconfigured, 1000.0)
 
