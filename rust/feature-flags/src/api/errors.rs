@@ -716,6 +716,7 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
+            FlagError::HashKeyOverrideError,
             FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
@@ -814,6 +815,7 @@ mod tests {
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
+            FlagError::HashKeyOverrideError,
             FlagError::RayonSemaphoreTimeout(800),
             FlagError::DataParsingErrorWithContext("test".to_string()),
             FlagError::RedisUnavailable,
@@ -922,6 +924,7 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
+            FlagError::HashKeyOverrideError,
             FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
