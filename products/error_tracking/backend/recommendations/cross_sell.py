@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.logs.backend.has_logs_query_runner import team_has_logs
 
@@ -12,7 +13,7 @@ class CrossSellRecommendation(Recommendation):
     type = "cross_sell"
     refresh_interval = timedelta(seconds=30)
 
-    def compute(self, team: Team) -> dict[str, Any]:
+    def compute(self, team: Team, user: User | None = None) -> dict[str, Any]:
         return {
             "products": [
                 {

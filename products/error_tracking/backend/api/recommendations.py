@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import override
 
 from django.db import IntegrityError
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -16,6 +17,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.recommendations import RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
@@ -39,11 +41,17 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         return (obj.computed_at + rec.refresh_interval).isoformat()
 
 
-def _compute_if_stale(team_id: int, team: Team) -> None:
+def _compute_if_stale(team_id: int, team: Team, user: User) -> None:
+    """Create or refresh recommendations for the given team (and user, for user-scoped recs).
+
+    User-scoped recs are computed lazily for the requesting user only — we don't
+    pre-compute for every org member. Each user's first visit creates their row.
+    """
     now = timezone.now()
     for rec in RECOMMENDATIONS:
+        row_user = user if rec.user_scoped else None
         try:
-            _compute_single(rec, team_id, team, now)
+            _compute_single(rec, team_id, team, row_user, now)
         except Exception as e:
             capture_exception(e)
             logger.warning(
@@ -54,22 +62,23 @@ def _compute_if_stale(team_id: int, team: Team) -> None:
             )
 
 
-def _compute_single(rec: Recommendation, team_id: int, team: Team, now: datetime) -> None:
+def _compute_single(rec: Recommendation, team_id: int, team: Team, user: User | None, now: datetime) -> None:
     try:
-        obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
+        obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type, user=user)
     except ErrorTrackingRecommendation.DoesNotExist:
         try:
             ErrorTrackingRecommendation.objects.create(
                 team_id=team_id,
+                user=user,
                 type=rec.type,
-                meta=rec.compute(team),
+                meta=rec.compute(team, user),
                 computed_at=now,
             )
         except IntegrityError:
             pass
         return
     if obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval:
-        obj.meta = rec.compute(team)
+        obj.meta = rec.compute(team, user)
         obj.computed_at = now
         obj.save(update_fields=["meta", "computed_at", "updated_at"])
 
@@ -87,11 +96,14 @@ class ErrorTrackingRecommendationViewSet(
 
     @override
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        # Team-scoped recs (user IS NULL) are visible to everyone on the team.
+        # User-scoped recs are only visible to their owner — so other users
+        # can neither see nor dismiss someone else's personal recommendation.
+        return queryset.filter(team_id=self.team.id).filter(Q(user__isnull=True) | Q(user=self.request.user))
 
     @override
     def list(self, request: Request, *args, **kwargs) -> Response:
-        _compute_if_stale(self.team.id, self.team)
+        _compute_if_stale(self.team.id, self.team, request.user)
         return super().list(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
@@ -103,7 +115,7 @@ class ErrorTrackingRecommendationViewSet(
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         now = timezone.now()
         if recommendation.computed_at is None or now >= recommendation.computed_at + rec.refresh_interval:
-            recommendation.meta = rec.compute(self.team)
+            recommendation.meta = rec.compute(self.team, recommendation.user)
             recommendation.computed_at = now
             recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)

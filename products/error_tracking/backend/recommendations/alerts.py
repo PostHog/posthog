@@ -7,6 +7,7 @@ from django.db.models import Q
 
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from .base import Recommendation
 
@@ -21,7 +22,7 @@ class AlertsRecommendation(Recommendation):
     type = "alerts"
     refresh_interval = timedelta(seconds=5)
 
-    def compute(self, team: Team) -> dict[str, Any]:
+    def compute(self, team: Team, user: User | None = None) -> dict[str, Any]:
         event_filter = reduce(
             or_,
             (Q(filters__contains={"events": [{"id": trigger["event"]}]}) for trigger in ALERT_TRIGGERS),

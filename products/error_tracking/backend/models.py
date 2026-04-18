@@ -599,9 +599,21 @@ class ErrorTrackingSpikeEvent(UUIDModel):
 
 
 class ErrorTrackingRecommendation(UUIDTModel):
-    """Materialized recommendation for a team, computed live on API request."""
+    """Materialized recommendation computed live on API request.
+
+    Most recommendations are team-scoped (user is NULL) and shared across the team.
+    User-scoped recommendations (e.g. personal notification nudges) have a user set
+    so dismissal and freshness are tracked per-user.
+    """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="error_tracking_recommendations",
+    )
     # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
     # so adding new recommendations doesn't require a Django migration each time
     type = models.CharField(max_length=64)
@@ -614,5 +626,16 @@ class ErrorTrackingRecommendation(UUIDTModel):
     class Meta:
         db_table = "posthog_errortrackingrecommendation"
         constraints = [
-            models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+            # Team-scoped recommendations: one row per (team, type), user is NULL.
+            models.UniqueConstraint(
+                fields=["team", "type"],
+                condition=models.Q(user__isnull=True),
+                name="unique_error_tracking_recommendation_per_team_type",
+            ),
+            # User-scoped recommendations: one row per (team, user, type).
+            models.UniqueConstraint(
+                fields=["team", "user", "type"],
+                condition=models.Q(user__isnull=False),
+                name="unique_error_tracking_recommendation_per_team_user_type",
+            ),
         ]

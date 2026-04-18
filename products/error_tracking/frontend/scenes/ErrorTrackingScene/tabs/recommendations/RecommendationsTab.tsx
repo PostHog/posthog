@@ -5,7 +5,13 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { AlertsRecommendationCard } from './AlertsRecommendationCard'
 import { CrossSellRecommendationCard } from './CrossSellRecommendationCard'
-import { isAlertsRecommendation, isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
+import {
+    isAlertsRecommendation,
+    isCrossSellRecommendation,
+    isWeeklyDigestRecommendation,
+    recommendationsTabLogic,
+} from './recommendationsTabLogic'
+import { WeeklyDigestRecommendationCard } from './WeeklyDigestRecommendationCard'
 
 export function RecommendationsTab(): JSX.Element {
     const {
@@ -52,6 +58,13 @@ export function RecommendationsTab(): JSX.Element {
                                 </div>
                             )
                         }
+                        if (isWeeklyDigestRecommendation(recommendation)) {
+                            return (
+                                <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                    <WeeklyDigestRecommendationCard recommendation={recommendation} />
+                                </div>
+                            )
+                        }
                         return null
                     })}
                 </div>
@@ -88,6 +101,13 @@ export function RecommendationsTab(): JSX.Element {
                                     return (
                                         <div key={recommendation.id} className="break-inside-avoid mb-4">
                                             <AlertsRecommendationCard recommendation={recommendation} dismissed />
+                                        </div>
+                                    )
+                                }
+                                if (isWeeklyDigestRecommendation(recommendation)) {
+                                    return (
+                                        <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                            <WeeklyDigestRecommendationCard recommendation={recommendation} dismissed />
                                         </div>
                                     )
                                 }

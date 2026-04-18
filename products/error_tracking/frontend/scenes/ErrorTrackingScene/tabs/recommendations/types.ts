@@ -1,6 +1,6 @@
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-export type ErrorTrackingRecommendationType = 'cross_sell' | 'alerts'
+export type ErrorTrackingRecommendationType = 'cross_sell' | 'alerts' | 'weekly_digest'
 
 export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknown> = Record<string, unknown>> {
     id: string
@@ -58,6 +58,12 @@ export interface AlertRecommendationInfo {
     name: string
     reason: string
 }
+
+export interface WeeklyDigestRecommendationMeta extends Record<string, unknown> {
+    enabled: boolean
+}
+
+export type WeeklyDigestRecommendation = ErrorTrackingRecommendation<WeeklyDigestRecommendationMeta>
 
 export const ALERT_RECOMMENDATION_INFO: Record<string, AlertRecommendationInfo> = {
     'error-tracking-issue-created': {
