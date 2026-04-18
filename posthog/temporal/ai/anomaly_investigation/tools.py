@@ -10,8 +10,10 @@ raise on error so the agent loop can catch and feed the error message back.
 
 from __future__ import annotations
 
+import re
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -23,6 +25,12 @@ from posthog.models import Team
 
 MAX_HOGQL_ROWS = 50
 
+_DATE_HELP = (
+    "Accepts PostHog relative shorthands ('-7d', '-24h', 'now') — resolved to an "
+    "absolute ISO timestamp server-side before the query runs. Absolute dates "
+    "('2024-04-01', '2024-04-01 12:00:00') also work."
+)
+
 
 class RunHogQLQueryArgs(BaseModel):
     query: str = Field(description="A HogQL SELECT statement. Results are limited to a few dozen rows.")
@@ -31,15 +39,15 @@ class RunHogQLQueryArgs(BaseModel):
 class TopBreakdownArgs(BaseModel):
     event: str = Field(description="Event name, e.g. '$pageview' or 'purchase'.")
     property: str = Field(description="Property key to group by, e.g. '$browser' or 'plan'.")
-    date_from: str = Field(description="Relative start, e.g. '-7d' or '2024-04-01'.")
-    date_to: str = Field(description="Relative end, e.g. 'now' or '2024-04-08'.")
+    date_from: str = Field(description=f"Start of the window. {_DATE_HELP}")
+    date_to: str = Field(description=f"End of the window. {_DATE_HELP}")
     limit: int = Field(default=10, description="Max breakdown values to return.", ge=1, le=25)
 
 
 class RecentEventsArgs(BaseModel):
     event: str | None = Field(default=None, description="Optional event name filter. Null returns any event.")
-    date_from: str = Field(description="Relative start, e.g. '-24h'.")
-    date_to: str = Field(description="Relative end, e.g. 'now'.")
+    date_from: str = Field(description=f"Start of the window. {_DATE_HELP}")
+    date_to: str = Field(description=f"End of the window. {_DATE_HELP}")
     limit: int = Field(default=10, description="Max events to return.", ge=1, le=25)
 
 
@@ -69,14 +77,17 @@ class InvestigationToolkit:
         return json.dumps(payload, default=str)
 
     async def top_breakdowns(self, args: TopBreakdownArgs) -> str:
+        # Use bracket-notation property access so keys like '$browser' and
+        # 'utm-source' survive as-is instead of being stripped by identifier
+        # escaping.
         return await self.run_hogql_query(
             RunHogQLQueryArgs(
                 query=(
-                    f"SELECT properties.{_escape_identifier(args.property)} AS breakdown, "
+                    f"SELECT properties[{_escape_literal(args.property)}] AS breakdown, "
                     "count() AS c FROM events "
                     f"WHERE event = {_escape_literal(args.event)} "
-                    f"AND timestamp >= {_escape_literal(args.date_from)} "
-                    f"AND timestamp <= {_escape_literal(args.date_to)} "
+                    f"AND timestamp >= {_escape_literal(_resolve_date(args.date_from))} "
+                    f"AND timestamp <= {_escape_literal(_resolve_date(args.date_to))} "
                     f"GROUP BY breakdown ORDER BY c DESC LIMIT {int(args.limit)}"
                 )
             )
@@ -87,8 +98,8 @@ class InvestigationToolkit:
         query = (
             "SELECT timestamp, event, distinct_id, properties "
             "FROM events "
-            f"WHERE timestamp >= {_escape_literal(args.date_from)} "
-            f"AND timestamp <= {_escape_literal(args.date_to)} "
+            f"WHERE timestamp >= {_escape_literal(_resolve_date(args.date_from))} "
+            f"AND timestamp <= {_escape_literal(_resolve_date(args.date_to))} "
             f"{event_filter}"
             f"ORDER BY timestamp DESC LIMIT {int(args.limit)}"
         )
@@ -100,9 +111,28 @@ def _escape_literal(value: str) -> str:
     return f"'{escaped}'"
 
 
-def _escape_identifier(name: str) -> str:
-    # HogQL identifier escape: allow letters, digits, underscores, dashes, dots.
-    safe = "".join(ch for ch in name if ch.isalnum() or ch in "_.-")
-    if not safe:
-        raise ValueError("Invalid property name.")
-    return safe
+_RELATIVE_DATE = re.compile(r"^-(\d+)([smhdw])$")
+_DATE_UNIT_TO_DELTA = {
+    "s": lambda n: timedelta(seconds=n),
+    "m": lambda n: timedelta(minutes=n),
+    "h": lambda n: timedelta(hours=n),
+    "d": lambda n: timedelta(days=n),
+    "w": lambda n: timedelta(weeks=n),
+}
+
+
+def _resolve_date(value: str) -> str:
+    """Turn PostHog-style relative shorthands ('-7d', 'now') into ISO datetimes.
+
+    ClickHouse/HogQL can't implicit-cast '-7d' to a DateTime, so the agent's
+    preferred date syntax has to be resolved in Python before being embedded as
+    a string literal. Absolute strings pass through untouched.
+    """
+    v = (value or "").strip().lower()
+    if v in ("now", ""):
+        return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    m = _RELATIVE_DATE.match(v)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        return (datetime.now(UTC) - _DATE_UNIT_TO_DELTA[unit](n)).strftime("%Y-%m-%d %H:%M:%S")
+    return value

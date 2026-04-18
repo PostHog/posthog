@@ -151,19 +151,24 @@ async def run_investigation(
             break
 
         for call in tool_calls:
-            tool_calls_used += 1
             name = call.get("name")
             args = call.get("args") or {}
             tool_call_id = call.get("id") or call.get("tool_call_id") or ""
-            handler = handlers.get(name)
-            if handler is None:
-                content = f"Unknown tool: {name}"
+            # Enforce the cap per-call, not just per-turn — a single assistant
+            # response can emit several parallel tool_use blocks.
+            if tool_calls_used >= MAX_TOOL_CALLS:
+                content = "[skipped — tool call budget exhausted]"
             else:
-                try:
-                    content = await handler(args)
-                except Exception as err:
-                    logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
-                    content = f"Tool {name} failed: {err}"
+                tool_calls_used += 1
+                handler = handlers.get(name)
+                if handler is None:
+                    content = f"Unknown tool: {name}"
+                else:
+                    try:
+                        content = await handler(args)
+                    except Exception as err:
+                        logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
+                        content = f"Tool {name} failed: {err}"
             messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
 
     final_message = messages[-1]
