@@ -314,11 +314,3 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         event_name = mock_report.call_args_list[0].args[1]
         self.assertEqual(event_name, "llma evaluation report deleted")
-
-    def test_generate_returns_503_when_temporal_wiring_missing(self):
-        # The eval_reports Temporal module ships in a later PR in this stack; the endpoint
-        # should return 503 rather than a confusing 500 when those imports are unavailable.
-        report = self._create_report()
-        response = self.client.post(f"{self.base_url}{report.id}/generate/")
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("error", response.json())
