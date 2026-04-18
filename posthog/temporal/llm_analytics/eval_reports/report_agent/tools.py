@@ -792,21 +792,27 @@ def get_top_failure_reasons(
 
     rows = _execute_hogql(
         team_id,
-        f"""
+        """
         SELECT
             properties.$ai_evaluation_reasoning as reasoning,
             count() as cnt
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
+            AND properties.$ai_evaluation_id = {evaluation_id}
             AND properties.$ai_evaluation_result = false
             AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)
-            AND timestamp >= '{ts_start}'
-            AND timestamp < '{ts_end}'
+            AND timestamp >= {ts_start}
+            AND timestamp < {ts_end}
         GROUP BY reasoning
         ORDER BY cnt DESC
         LIMIT {limit}
         """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=evaluation_id),
+            "ts_start": ast.Constant(value=ts_start),
+            "ts_end": ast.Constant(value=ts_end),
+            "limit": ast.Constant(value=limit),
+        },
     )
 
     result = []
