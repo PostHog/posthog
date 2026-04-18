@@ -334,7 +334,10 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         workflow_id = f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).strftime('%Y%m%dT%H%M')}"
         try:
             client = sync_connect()
-            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+            # Temporal's start_workflow has ambiguous overloads (Callable vs str workflow)
+            # that mypy can't disambiguate for string-named workflows; silence both misc
+            # (overload resolution) and arg-type (the positional arg shapes it then infers).
+            async_to_sync(client.start_workflow)(  # type: ignore[misc,arg-type]
                 GENERATE_EVAL_REPORT_WORKFLOW_NAME,
                 GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id), manual=True),
                 id=workflow_id,
