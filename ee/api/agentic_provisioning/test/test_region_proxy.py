@@ -288,7 +288,10 @@ class TestBearerLookupDecoratorCoverage(StripeProvisioningTestBase):
         for method, url, extra in self._resource_endpoints():
             mock_proxy.reset_mock()
             cache.clear()
-            self._call(method, url, self._local_token, extra)
+            # A fresh token per iteration — the /remove handler revokes the token
+            # when scope becomes empty, so one call can invalidate the next.
+            token = self._get_bearer_token()
+            self._call(method, url, token, extra)
             assert not mock_proxy.called, f"{method} {url} should not proxy for a locally valid bearer token"
 
 

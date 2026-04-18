@@ -1433,13 +1433,19 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
 
 
 def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    teams = [t for t in (access_token.scoped_teams or []) if t != team_id]
-    access_token.scoped_teams = teams
+    remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
+    access_token.scoped_teams = remaining
     access_token.save(update_fields=["scoped_teams"])
 
     for rt in OAuthRefreshToken.objects.filter(access_token=access_token):
         rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
         rt.save(update_fields=["scoped_teams"])
+
+    if not remaining:
+        # No more resources attached to this token — revoke it so the orchestrator
+        # can't use it for anything. The user keeps their PostHog account.
+        OAuthRefreshToken.objects.filter(access_token=access_token).update(access_token=None, revoked=timezone.now())
+        access_token.delete()
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
