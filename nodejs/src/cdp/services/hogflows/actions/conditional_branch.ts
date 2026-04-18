@@ -17,6 +17,18 @@ export class ConditionalBranchHandler implements ActionHandler {
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
+        // If the consumer woke this job because a matching event arrived,
+        // take the matched branch immediately without re-evaluating conditions.
+        if (action.type === 'wait_until_condition' && invocation.state?.currentAction?.eventMatched === true) {
+            if (invocation.state.currentAction) {
+                invocation.state.currentAction.eventMatched = false
+            }
+            return {
+                nextAction: findNextAction(invocation.hogFlow, action.id, 0),
+                result: { eventMatched: true },
+            }
+        }
+
         const conditionResult = await checkConditions(
             invocation,
             action.type === 'conditional_branch'

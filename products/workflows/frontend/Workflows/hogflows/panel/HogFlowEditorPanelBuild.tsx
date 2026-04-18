@@ -72,20 +72,11 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'wait_until_condition',
-        name: 'Wait until condition',
-        description: 'Wait until a condition is met or a duration has passed.',
+        name: 'Wait until',
+        description: 'Wait until an event fires or a condition is met.',
         branchEdges: 1,
         config: {
             condition: { filters: null },
-            max_wait_duration: '5m',
-        },
-    },
-    {
-        type: 'wait_until_event',
-        name: 'Wait for event',
-        description: 'Wait until a specific event fires for the user, or until the timeout.',
-        branchEdges: 1,
-        config: {
             events: [{ filters: {} }],
             max_wait_duration: '7d',
         },

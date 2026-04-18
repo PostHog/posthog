@@ -122,9 +122,17 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
-                filters: z.any(), // type this stronger
-                name: z.string().optional(), // Custom name for the condition
+                filters: z.any(),
+                name: z.string().optional(),
             }),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),

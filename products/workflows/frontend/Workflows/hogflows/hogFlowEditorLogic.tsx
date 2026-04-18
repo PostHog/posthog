@@ -49,10 +49,10 @@ const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'
         case 'wait_until_condition': {
             const waitAction = action as Extract<HogFlowAction, { type: 'wait_until_condition' }>
             const customName = waitAction.config.condition?.name
-            return customName || 'If condition matches'
+            return customName || 'Matched'
         }
         case 'wait_until_event':
-            return 'Event matched'
+            return 'Matched'
         case 'random_cohort_branch': {
             const cohortAction = action as Extract<HogFlowAction, { type: 'random_cohort_branch' }>
             const cohort = cohortAction.config.cohorts?.[edge.index || 0]
@@ -441,7 +441,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 label: isOnlyEdgeForNode
                                     ? undefined
                                     : edge.type === 'continue'
-                                      ? edgeSourceAction?.type === 'wait_until_event'
+                                      ? edgeSourceAction?.type === 'wait_until_event' ||
+                                        edgeSourceAction?.type === 'wait_until_condition'
                                           ? 'Timeout'
                                           : 'No match'
                                       : getBranchLabel(edgeSourceAction, edge),
