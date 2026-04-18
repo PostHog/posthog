@@ -1,22 +1,13 @@
-import { PERSON_PROFILES_COUNT_LABEL, blastRadiusCountLabel } from './blastRadiusCountLabel'
+import { blastRadiusCountLabel } from './blastRadiusCountLabel'
 
 describe('blastRadiusCountLabel', () => {
     it.each([
-        [null, 'person profiles'],
-        [undefined, 'person profiles'],
-    ])('returns "person profiles" for user-level aggregation (%p)', (groupTypeIndex, expected) => {
-        expect(blastRadiusCountLabel(groupTypeIndex, 'organizations')).toBe(expected)
-    })
-
-    it.each([
-        [0, 'organizations'],
-        [1, 'accounts'],
-        [2, 'workspaces'],
-    ])('returns the group label fallback for group_type_index %p', (groupTypeIndex, fallback) => {
-        expect(blastRadiusCountLabel(groupTypeIndex, fallback)).toBe(fallback)
-    })
-
-    it('exports the canonical user-aggregation label', () => {
-        expect(PERSON_PROFILES_COUNT_LABEL).toBe('person profiles')
+        [null, 'organizations', 'person profiles'],
+        [undefined, 'organizations', 'person profiles'],
+        [0, 'organizations', 'organizations'],
+        [1, 'accounts', 'accounts'],
+        [2, 'workspaces', 'workspaces'],
+    ])('groupTypeIndex=%p with fallback=%p resolves to "%s"', (groupTypeIndex, fallback, expected) => {
+        expect(blastRadiusCountLabel(groupTypeIndex, fallback)).toBe(expected)
     })
 })
