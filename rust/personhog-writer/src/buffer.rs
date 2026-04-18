@@ -61,6 +61,11 @@ impl PersonBuffer {
         self.entries.len() >= self.capacity
     }
 
+    /// Get the current offset for a partition, if tracked.
+    pub fn partition_offset(&self, partition: i32) -> Option<i64> {
+        self.offsets.get(&partition).copied()
+    }
+
     /// Drain all entries and offsets for flushing.
     pub fn drain(&mut self) -> (Vec<Person>, HashMap<i32, i64>) {
         let persons: Vec<Person> = self.entries.drain().map(|(_, p)| p).collect();
@@ -135,6 +140,10 @@ mod tests {
         buf.insert(make_person(1, 1, 1), 0, 10);
         buf.insert(make_person(1, 2, 1), 0, 5);
         buf.insert(make_person(1, 3, 1), 1, 3);
+
+        assert_eq!(buf.partition_offset(0), Some(10));
+        assert_eq!(buf.partition_offset(1), Some(3));
+        assert_eq!(buf.partition_offset(2), None);
 
         let (_, offsets) = buf.drain();
         assert_eq!(offsets[&0], 10);

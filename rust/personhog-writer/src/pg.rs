@@ -105,9 +105,15 @@ impl PgWriter {
         );
 
         let query = qb.build();
+        let chunk_size = valid_persons.len() as u64;
         match query.execute(&self.pool).await {
             Ok(result) => {
-                counter!("personhog_writer_rows_upserted_total").increment(result.rows_affected());
+                let affected = result.rows_affected();
+                counter!("personhog_writer_rows_upserted_total").increment(affected);
+                let skipped = chunk_size.saturating_sub(affected);
+                if skipped > 0 {
+                    counter!("personhog_writer_rows_version_skipped_total").increment(skipped);
+                }
                 Ok(())
             }
             Err(e) => {

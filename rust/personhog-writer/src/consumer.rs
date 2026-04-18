@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lifecycle::Handle;
-use metrics::{counter, histogram};
+use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message;
 use rdkafka::consumer::StreamConsumer;
@@ -17,6 +17,9 @@ use crate::buffer::PersonBuffer;
 pub struct FlushBatch {
     pub persons: Vec<Person>,
     pub offsets: HashMap<i32, i64>,
+    /// Timestamp of the oldest Kafka message in this batch (millis since epoch).
+    /// Used to compute end-to-end latency from ingestion to PG commit.
+    pub oldest_message_ts_ms: Option<i64>,
 }
 
 /// Reads from Kafka, decodes Person protos, buffers with dedup, and
@@ -28,6 +31,8 @@ pub struct ConsumerTask {
     flush_interval: Duration,
     flush_buffer_size: usize,
     handle: Handle,
+    /// Oldest message timestamp in the current buffer (millis since epoch).
+    oldest_message_ts_ms: Option<i64>,
 }
 
 impl ConsumerTask {
@@ -46,6 +51,7 @@ impl ConsumerTask {
             flush_interval,
             flush_buffer_size,
             handle,
+            oldest_message_ts_ms: None,
         }
     }
 
@@ -69,14 +75,16 @@ impl ConsumerTask {
 
                 _ = self.handle.shutdown_recv() => {
                     info!("Shutdown signal, flushing remaining buffer");
-                    counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "shutdown").increment(1);
+                    counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "shutdown")
+                        .increment(1);
                     self.send_flush().await;
                     break;
                 }
 
                 _ = flush_timer.tick() => {
                     if !self.buffer.is_empty() {
-                        counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "timer").increment(1);
+                        counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "timer")
+                            .increment(1);
                         self.send_flush().await;
                     }
                 }
@@ -87,20 +95,48 @@ impl ConsumerTask {
                             let partition = borrowed_msg.partition();
                             let offset = borrowed_msg.offset();
 
+                            gauge!(
+                                "personhog_writer_partition_offset",
+                                "partition" => partition.to_string()
+                            )
+                            .set(offset as f64);
+
+                            // Track the oldest message timestamp for e2e latency
+                            if let Some(ts_ms) = borrowed_msg.timestamp().to_millis() {
+                                match self.oldest_message_ts_ms {
+                                    Some(existing) if ts_ms < existing => {
+                                        self.oldest_message_ts_ms = Some(ts_ms);
+                                    }
+                                    None => {
+                                        self.oldest_message_ts_ms = Some(ts_ms);
+                                    }
+                                    _ => {}
+                                }
+                            }
+
                             if let Some(payload) = borrowed_msg.payload() {
                                 match Person::decode(payload) {
                                     Ok(person) => {
-                                        counter!("personhog_writer_messages_consumed_total").increment(1);
+                                        counter!("personhog_writer_messages_consumed_total")
+                                            .increment(1);
                                         self.buffer.insert(person, partition, offset);
 
                                         if self.buffer.len() >= self.flush_buffer_size {
-                                            counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "size").increment(1);
+                                            counter!(
+                                                "personhog_writer_flushes_by_trigger_total",
+                                                "trigger" => "size"
+                                            )
+                                            .increment(1);
                                             self.send_flush().await;
                                         }
                                     }
                                     Err(e) => {
-                                        counter!("personhog_writer_decode_errors_total").increment(1);
-                                        warn!(error = %e, partition, offset, "failed to decode Person proto");
+                                        counter!("personhog_writer_decode_errors_total")
+                                            .increment(1);
+                                        warn!(
+                                            error = %e, partition, offset,
+                                            "failed to decode Person proto"
+                                        );
                                     }
                                 }
                             }
@@ -126,7 +162,11 @@ impl ConsumerTask {
         }
 
         let count = persons.len();
-        let batch = FlushBatch { persons, offsets };
+        let batch = FlushBatch {
+            persons,
+            offsets,
+            oldest_message_ts_ms: self.oldest_message_ts_ms.take(),
+        };
 
         let start = std::time::Instant::now();
         if self.flush_tx.send(batch).await.is_err() {

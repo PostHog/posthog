@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lifecycle::Handle;
-use metrics::counter;
+use metrics::{counter, histogram};
 use rdkafka::consumer::StreamConsumer;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
@@ -71,6 +71,17 @@ impl WriterTask {
                             }
 
                             counter!("personhog_writer_offset_commits_total").increment(1);
+
+                            if let Some(ts_ms) = batch.oldest_message_ts_ms {
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as i64;
+                                let latency_ms = now_ms.saturating_sub(ts_ms);
+                                histogram!("personhog_writer_e2e_latency_seconds")
+                                    .record(latency_ms as f64 / 1000.0);
+                            }
+
                             debug!(rows = count, "flushed to Postgres");
                         }
                         Err(e) => {
