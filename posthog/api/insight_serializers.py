@@ -213,7 +213,7 @@ class FunnelSerializer(GenericInsightsSerializer, BreakdownMixin):
         choices=get_args(FUNNEL_WINDOW_INTERVAL_TYPES),
         required=False,
         help_text="The type of interval. Used in combination with `funnel_window_intervals`.",
-        default="days",
+        default="DAY",
     )
     funnel_viz_type = serializers.ChoiceField(
         choices=[el.value for el in FunnelVizType],

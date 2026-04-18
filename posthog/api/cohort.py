@@ -11,7 +11,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -81,6 +81,36 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
+
+
+class CohortPersonResultSerializer(serializers.Serializer):
+    """Shape of a single person entry returned by the cohort persons endpoint.
+
+    Mirrors the `SerializedPerson` TypedDict in `posthog/queries/actor_base_query.py`
+    so the generated OpenAPI schema matches the actual runtime response.
+    """
+
+    id = serializers.CharField(help_text="Numeric person ID or UUID string.")
+    uuid = serializers.UUIDField(help_text="Unique identifier (UUID) for this person.")
+    type = serializers.ChoiceField(choices=["person"])
+    name = serializers.CharField(allow_null=True, help_text="Display name derived from person properties.")
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="Up to 10 distinct IDs belonging to this person."
+    )
+    properties = serializers.DictField(help_text="Key-value map of person properties.")
+    created_at = serializers.DateTimeField(allow_null=True, help_text="When this person was first seen.")
+    last_seen_at = serializers.DateTimeField(allow_null=True, help_text="Timestamp of the last event from this person.")
+    is_identified = serializers.BooleanField(allow_null=True)
+    matched_recordings = serializers.ListField(child=serializers.DictField(), required=False)
+    value_at_data_point = serializers.FloatField(allow_null=True, required=False)
+
+
+class CohortPersonsResponseSerializer(serializers.Serializer):
+    """Response shape for the paginated cohort persons endpoint."""
+
+    results = CohortPersonResultSerializer(many=True)
+    next = serializers.URLField(allow_null=True, help_text="URL for the next page of results, or null.")
+    previous = serializers.URLField(allow_null=True, help_text="URL for the previous page of results, or null.")
 
 
 def validate_filters_and_compute_realtime_support(
@@ -1224,6 +1254,25 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of persons to return per page (defaults to 100).",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Number of persons to skip before starting to return results.",
+            ),
+        ],
+        responses={200: CohortPersonsResponseSerializer},
+    )
     @action(
         methods=["GET"],
         detail=True,
