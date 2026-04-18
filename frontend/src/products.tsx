@@ -252,56 +252,36 @@ export const productConfiguration: Record<string, any> = {
     Actions: {
         name: 'Actions',
         projectBased: true,
-        defaultDocsPath: '/docs/data/actions',
         activityScope: 'Action',
         description:
             'Combine several related events into one, which you can then analyze in insights and dashboards as if it were a single event.',
         iconType: 'action',
     },
-    Action: {
-        name: 'Action',
-        projectBased: true,
-        defaultDocsPath: '/docs/data/actions',
-        activityScope: 'Action',
-        iconType: 'action',
-    },
-    NewAction: {
-        name: 'New Action',
-        projectBased: true,
-        defaultDocsPath: '/docs/data/actions',
-        activityScope: 'Action',
-        iconType: 'action',
-    },
+    Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     Transformations: {
         projectBased: true,
         name: 'Transformations',
         description:
             'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
         activityScope: 'HogFunction',
-        defaultDocsPath: '/docs/cdp/transformations',
         iconType: 'data_pipeline',
     },
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
-        defaultDocsPath: '/docs/customer-analytics',
         projectBased: true,
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
-    CustomerAnalyticsConfiguration: {
-        defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
-        projectBased: true,
-        name: 'Customer analytics configuration',
-    },
+    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
-        defaultDocsPath: '/docs/data-warehouse',
         activityScope: 'DataWarehouse',
         description:
             'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
@@ -310,15 +290,13 @@ export const productConfiguration: Record<string, any> = {
     Models: {
         name: 'Models',
         projectBased: true,
-        defaultDocsPath: '/docs/data-warehouse',
         description: 'Create and manage views and materialized views for transforming and organizing your data.',
         iconType: 'sql_editor',
     },
-    NodeDetail: { name: 'Model detail', projectBased: true, defaultDocsPath: '/docs/data-warehouse' },
+    NodeDetail: { name: 'Model detail', projectBased: true },
     SQLEditor: {
         projectBased: true,
         name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
         description: 'Write and execute SQL queries against your data warehouse',
@@ -329,49 +307,22 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
         activityScope: ActivityScope.HOG_FUNCTION,
-        defaultDocsPath: '/docs/data-warehouse',
         iconType: 'data_pipeline',
     },
-    DataWarehouseSource: { projectBased: true, name: 'Data warehouse source', defaultDocsPath: '/docs/cdp/sources' },
-    DataWarehouseSourceNew: {
-        projectBased: true,
-        name: 'New data warehouse source',
-        defaultDocsPath: async () => {
-            try {
-                const { sourceWizardLogic } =
-                    await import('products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic')
-                const logic = sourceWizardLogic.findMounted()
-                if (logic) {
-                    const { selectedConnector } = logic.values
-                    if (selectedConnector?.docsUrl) {
-                        const parsedUrl = new URL(selectedConnector.docsUrl)
-                        return parsedUrl.pathname
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to get default docs path for new data warehouse source', error)
-            }
-            return '/docs/cdp/sources'
-        },
-    },
+    DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
+    DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         description: 'Allow your users to individually enable or disable features that are in public beta.',
         iconType: 'early_access_feature',
     },
-    EarlyAccessFeature: {
-        name: 'Early access feature',
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-    },
+    EarlyAccessFeature: { name: 'Early access feature', projectBased: true },
     EndpointsScene: {
         projectBased: true,
         name: 'Endpoints',
         activityScope: 'Endpoints',
         layout: 'app-container',
-        defaultDocsPath: '/docs/endpoints',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
     },
@@ -379,61 +330,38 @@ export const productConfiguration: Record<string, any> = {
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
-        defaultDocsPath: '/docs/error-tracking',
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
-    FeatureFlagTemplates: {
-        projectBased: true,
-        name: 'Feature flag templates',
-        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
-    },
+    FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     Links: {
         name: 'Links',
         projectBased: true,
-        defaultDocsPath: '/docs/link-tracking',
         activityScope: 'Link',
         description: 'Start creating links for your marketing campaigns, referral programs, and more.',
         iconType: 'link',
     },
-    Link: { name: 'Link', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
+    Link: { name: 'Link', projectBased: true, activityScope: 'Link' },
     LiveDebugger: { name: 'Live Debugger', projectBased: true },
     LLMAnalytics: {
         projectBased: true,
         name: 'LLM analytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         description: 'Analyze and understand your LLM usage and performance.',
         iconType: 'llm_analytics',
     },
-    LLMAnalyticsTrace: {
-        projectBased: true,
-        name: 'LLM analytics trace',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/traces',
-    },
-    LLMAnalyticsSession: {
-        projectBased: true,
-        name: 'LLM analytics session',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/sessions',
-    },
-    LLMAnalyticsUsers: {
-        projectBased: true,
-        name: 'LLM analytics users',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
-    },
+    LLMAnalyticsTrace: { projectBased: true, name: 'LLM analytics trace', layout: 'app-container' },
+    LLMAnalyticsSession: { projectBased: true, name: 'LLM analytics session', layout: 'app-container' },
+    LLMAnalyticsUsers: { projectBased: true, name: 'LLM analytics users', layout: 'app-container' },
     LLMAnalyticsPlayground: {
         projectBased: true,
         name: 'Playground',
         description: 'Test and experiment with LLM prompts in a sandbox environment.',
         layout: 'app-full-scene-height',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_playground',
     },
     LLMAnalyticsDatasets: {
@@ -441,14 +369,12 @@ export const productConfiguration: Record<string, any> = {
         name: 'Datasets',
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_datasets',
     },
     LLMAnalyticsDataset: {
         projectBased: true,
         name: 'LLM analytics dataset',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_datasets',
     },
     LLMAnalyticsEvaluations: {
@@ -457,7 +383,6 @@ export const productConfiguration: Record<string, any> = {
         description: 'Configure and monitor automated LLM output evaluations.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/evaluations',
         iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluation: {
@@ -465,7 +390,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'LLM analytics evaluation',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluationTemplates: {
@@ -473,7 +397,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'LLM analytics evaluation templates',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_evaluations',
     },
     LLMAnalyticsPrompts: {
@@ -481,14 +404,12 @@ export const productConfiguration: Record<string, any> = {
         name: 'Prompts',
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/prompts',
         iconType: 'llm_prompts',
     },
     LLMAnalyticsPrompt: {
         projectBased: true,
         name: 'LLM analytics prompt',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_prompts',
     },
     LLMAnalyticsClusters: {
@@ -496,14 +417,12 @@ export const productConfiguration: Record<string, any> = {
         name: 'Clusters',
         description: 'Discover patterns and clusters in your LLM usage.',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/clusters',
         iconType: 'llm_clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
         name: 'LLM analytics cluster',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_clusters',
     },
     Logs: {
@@ -513,8 +432,6 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
-        defaultDocsPath: '/docs/logs',
-        changelogTeamSlug: 'Logs',
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
@@ -522,7 +439,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'Metrics',
         projectBased: true,
         layout: 'app-container',
-        defaultDocsPath: '/docs/metrics',
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
@@ -530,7 +446,6 @@ export const productConfiguration: Record<string, any> = {
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
-        defaultDocsPath: '/docs/revenue-analytics',
         iconType: 'revenue_analytics',
         description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
     },
@@ -550,7 +465,6 @@ export const productConfiguration: Record<string, any> = {
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
-        defaultDocsPath: '/docs/tasks',
         activityScope: 'TaskTracker',
         description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
@@ -566,7 +480,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'Tracing',
         projectBased: true,
         layout: 'app-container',
-        defaultDocsPath: '/docs/tracing',
         activityScope: 'Tracing',
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
         iconType: 'tracing',

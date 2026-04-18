@@ -141,7 +141,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         return cohortMembershipChanges
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
 
         this.warpstreamProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
@@ -169,7 +169,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
         await this.warpstreamProducer?.disconnect()
