@@ -20,6 +20,7 @@ from posthog.tasks.email import send_error_tracking_weekly_digest, send_hog_func
 from posthog.tasks.feature_flags import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
+    cleanup_stale_hash_key_overrides,
     compute_feature_flag_metrics,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
@@ -208,6 +209,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="15"),
         cleanup_stale_flags_expiry_tracking_task.s(),
         name="flags cache expiry tracking cleanup",
+    )
+
+    # Hash key override cleanup - daily at 4:00 AM
+    sender.add_periodic_task(
+        crontab(hour="4", minute="0"),
+        cleanup_stale_hash_key_overrides.s(),
+        name="cleanup stale hash key overrides",
     )
 
     # Feature flag metrics for Grafana dashboards - hourly at minute 30

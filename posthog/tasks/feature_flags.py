@@ -396,3 +396,64 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
 
     entries_cleaned_gauge.set(total_removed)
     logger.info("Completed flag definitions expiry tracking cleanup", total_removed_count=total_removed)
+
+
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def cleanup_stale_hash_key_overrides(self: PushGatewayTask) -> None:
+    """
+    Periodic task to delete FeatureFlagHashKeyOverride rows that reference soft-deleted feature flags.
+
+    When a feature flag is soft-deleted (deleted=True), its hash key overrides become orphaned
+    but are never cleaned up. This task finds those orphaned rows and removes them.
+
+    Runs daily. Processes per-team to keep queries bounded and avoid cross-database JOINs
+    (FeatureFlag lives in the default DB, FeatureFlagHashKeyOverride lives in persons_db).
+    """
+    from django.db import router
+
+    from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+
+    overrides_deleted_gauge = Gauge(
+        "posthog_cleanup_stale_hash_key_overrides_deleted",
+        "Number of orphaned hash key override rows deleted",
+        registry=self.metrics_registry,
+    )
+
+    team_ids_with_deleted_flags = list(
+        FeatureFlag.objects.filter(deleted=True).values_list("team_id", flat=True).distinct()
+    )
+
+    if not team_ids_with_deleted_flags:
+        logger.info("No teams with deleted feature flags, skipping hash key override cleanup")
+        overrides_deleted_gauge.set(0)
+        return
+
+    total_deleted = 0
+
+    for team_id in team_ids_with_deleted_flags:
+        deleted_flag_keys = list(
+            FeatureFlag.objects.filter(team_id=team_id, deleted=True).values_list("key", flat=True)
+        )
+
+        if not deleted_flag_keys:
+            continue
+
+        queryset = FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, feature_flag_key__in=deleted_flag_keys)
+        count = queryset.count()
+        if count > 0:
+            db_alias = router.db_for_write(FeatureFlagHashKeyOverride)
+            queryset._raw_delete(db_alias)
+            total_deleted += count
+            logger.info(
+                "Cleaned up hash key overrides for team",
+                team_id=team_id,
+                deleted_count=count,
+                deleted_flag_keys_count=len(deleted_flag_keys),
+            )
+
+    overrides_deleted_gauge.set(total_deleted)
+    logger.info(
+        "Completed hash key override cleanup",
+        total_deleted=total_deleted,
+        teams_processed=len(team_ids_with_deleted_flags),
+    )
