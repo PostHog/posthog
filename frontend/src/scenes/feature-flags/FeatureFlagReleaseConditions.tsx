@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -47,6 +47,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
+import { MultipleProfilesTooltip } from './MultipleProfilesTooltip'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
@@ -480,24 +481,7 @@ export function FeatureFlagReleaseConditions({
                                     return ''
                                 })()}{' '}
                                 <span>of total {aggregationTargetName(group.aggregation_group_type_index)}.</span>
-                                {filters.aggregation_group_type_index == null && (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                A user may have{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                    target="_blank"
-                                                >
-                                                    multiple profiles
-                                                </Link>
-                                            </>
-                                        }
-                                        interactive
-                                    >
-                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                    </Tooltip>
-                                )}
+                                {filters.aggregation_group_type_index == null && <MultipleProfilesTooltip />}
                             </div>
                         </div>
                     )}

@@ -68,6 +68,7 @@ import {
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
+import { MultipleProfilesTooltip } from './MultipleProfilesTooltip'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -631,22 +632,7 @@ const ConditionContent = ({
                                                 })()}
                                                 {(group.aggregation_group_type_index ??
                                                     releaseFilters.aggregation_group_type_index) == null && (
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                A user may have{' '}
-                                                                <Link
-                                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                                    target="_blank"
-                                                                >
-                                                                    multiple profiles
-                                                                </Link>
-                                                            </>
-                                                        }
-                                                        interactive
-                                                    >
-                                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                                    </Tooltip>
+                                                    <MultipleProfilesTooltip />
                                                 )}
                                             </div>
                                         ) : (
