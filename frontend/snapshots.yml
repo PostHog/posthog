@@ -3481,21 +3481,21 @@ snapshots:
     products-workflows-customerioimportmodal--both-steps-completed--light:
         hash: v1.k794b7964.da3363082eab54e837e37632b95118d7bf0bfce834683ae6afe292dc5a30fd3c._jH7nYX3XKVc_P0I0gXCLecLyitzAGRbkWzxixzKQ3w
     products-workflows-customerioimportmodal--both-steps-not-completed--dark:
-        hash: v1.k794b7964.4989e2f59516da6d322797b64b947d49143b6c35ce21572ffe5d1f78ecae2d9e.1Zr-RXzrmwslMhGidikbCI_6LvPWzdtCtlVyTpwuX_Q
+        hash: v1.k794b7964.767bdbbcce5cdf51933f1da2a78cba7d8cc360f5dc29376941c07735c66274bb.tKApeWxdmAzvvdc0OkueZ1cv4q1R3_af0eeFez6mqLw
     products-workflows-customerioimportmodal--both-steps-not-completed--light:
-        hash: v1.k794b7964.0b3c6e8bea5d2efc0eb1a9cb0f1a9da104a44485cf0276cc5fc6f18b7978fa69.vmSqjH1StEqisNDtudG0mQprThi7meaLI131qqi40kQ
+        hash: v1.k794b7964.df6730eaac4b5838eabda1066dfc345bb7167289cd2bdd66419fa3524e7176d5.ReYubtRdp6fUxztXbrB5WUqFYnv4dlN0nigxBwK0IaY
     products-workflows-customerioimportmodal--step-1-completed--dark:
-        hash: v1.k794b7964.d961df84397a6278f38b090d4978e3e4fd581eb95851e4e2e078133692cfbdfc.fNZ9wUZZ9iqfacmix570Ob2XnC3PeL-95RodGi0eDOY
+        hash: v1.k794b7964.357df095176da092fa8fd88d7f3663e7b401a15c3525296f619cbc9907086443.RQX0w1FDNSTbbICdd9Zq8pN-e_OdJ75nklYw-aSyemw
     products-workflows-customerioimportmodal--step-1-completed--light:
-        hash: v1.k794b7964.3e5a663d8a2f7edbe5e0933224dc55495de342cb405fff6529f157bc5c8c4b44.E5VSKEn1mOzwd1wDcy-dast7Zvyooj_Aupll_mPt4Nc
+        hash: v1.k794b7964.0b1ae371973a0df6e6e39140bd26cabdf82cafbf5a3293898de3392953ad1b14.ukcBjTGSjjVDARd0qGrGvWQCI9Eoh240hi2aSVLNyoI
     products-workflows-customerioimportmodal--step-1-completed-but-key-deleted--dark:
-        hash: v1.k794b7964.d961df84397a6278f38b090d4978e3e4fd581eb95851e4e2e078133692cfbdfc.wfQXK7QmQcgDYPrLUvjt3XhSlYaPgBFK3G4f_P0w5-Q
+        hash: v1.k794b7964.357df095176da092fa8fd88d7f3663e7b401a15c3525296f619cbc9907086443.jeZu4VMaBkE9hVODMOOLj8EcywVoAiGYZn5po9SYCGw
     products-workflows-customerioimportmodal--step-1-completed-but-key-deleted--light:
-        hash: v1.k794b7964.3e5a663d8a2f7edbe5e0933224dc55495de342cb405fff6529f157bc5c8c4b44.WZjmpLtk-M4IyStYb1l7EHRS9joIaUSB-UtpaOsuAfA
+        hash: v1.k794b7964.0b1ae371973a0df6e6e39140bd26cabdf82cafbf5a3293898de3392953ad1b14.4rPzu0C7Ah2sihrFXF8nkv4RjtcDyuueemQ-SWd7Wrw
     products-workflows-customerioimportmodal--step-1-failed-invalid-key--dark:
-        hash: v1.k794b7964.3d14320fd51e9cd54aef9fcc7f0f4cfc680ab49b4f54a75a14d4f0baeadfc904.L4DNJO2nn1ApTgK6xGb2elbiBmOkihZ67qUOYF3s_QM
+        hash: v1.k794b7964.9686443c6f3f042091d692c16622a3b45a17ce81052d360511d8ce45319d611b.UkBjl8WgS0Sgsv8vmbemnaegH_xXaykpz8IrGSkXPT0
     products-workflows-customerioimportmodal--step-1-failed-invalid-key--light:
-        hash: v1.k794b7964.68a17c83d2da81300fb885f40b73aba3918a23bca57c255b23c900d853a59a49.tHl-x5bap9BqCfa0IMmyBYCntjyjyEcUE0ZLAT-FdFk
+        hash: v1.k794b7964.54217699434da9f424c95f4982af095ecb9b3129af74edba086bae6112145ef1.urecG7fwczu_Y-sSgPLcXjYGn4uex6Vq__JTMenVOMg
     products-workflows-customerioimportmodal--step-2-failed--dark:
         hash: v1.k794b7964.bd8d96fca9c829d94d480d6efeb7d627ecc1752d9865a36b0e2d9cf2d6276929.mapm2l4BqCadPa302I-zOKpJvWIQcgYoQU_ady3dr0k
     products-workflows-customerioimportmodal--step-2-failed--light:
@@ -3705,9 +3705,9 @@ snapshots:
     replay-sharing--template--light:
         hash: v1.k794b7964.f5a4af44ae5c02dd82c04b56cb8ca214af99e092f1ee12e04bfc9b53de36613b.H_rRptcXO8eBdBuLKM7_lAs-1PlxvjB6HD2kcs01_14
     replay-tabs-collections--recordings-play-lists--dark:
-        hash: v1.k794b7964.077da343bd4ccad03a03da035bc3079a8e524dd78b7f054a1f07cdf787474b15.NZoL9oHCfVFfiAXQFd8RohMTw4EqYVDM7NT2A_Cg2HU
+        hash: v1.k794b7964.b83fb937a62b86250e0b1176018fd0fcb6da9228bc993c3dd025556d9c597e5b.wsOLiCkabAahDC-2_mVpFRhoM759ZMW9u-ziqcTCYnQ
     replay-tabs-collections--recordings-play-lists--light:
-        hash: v1.k794b7964.31fd11a77a9f7c79055e0df9ec29c4df0566830c3def0b7708003e53909c55e1.WUNjSKu13ApN4fM3bzKF0YQ_NObBpjoJ4WezKwurSPw
+        hash: v1.k794b7964.6f9ddea23717ae9f2ced525f4a5b4fe2f9a22beadb54a37e551a3cda1ce3b05b.pi7mxrfT6jXLYOykUTV5SeWBz557X8bQAMEfgJh46R8
     replay-tabs-home-failure--not-found--dark:
         hash: v1.k794b7964.f14f964478ec173429ba7a77dbefc11eeadc8b871f4866874e2fd540b8fca5d4.YqOARQwseT1f8ZmMc8AqAWgRGOG_k110K88zfsaNjiw
     replay-tabs-home-failure--not-found--light:
@@ -3737,21 +3737,21 @@ snapshots:
     replay-tabs-home-success--filters-expanded--light:
         hash: v1.k794b7964.efc082fb8c989d59f8e08a3e50a8e05116bb3e3eb6b4e0ccfbe5c7a0462ba36e.XFwIB4UYPSJwpK0I0XQaMR9dXALDJDHh8bQ2bTBZurk
     replay-tabs-home-success--filters-expanded-lots-of-results--dark:
-        hash: v1.k794b7964.f4a65a9aa1fd706d4f16dc46888e135a3568afe679ec77c83ed4122717fcb777.JYN7sPh0DDpivx6I2Euz-Ur6bZeX8AnioS9yZZywj1M
+        hash: v1.k794b7964.a292c82f838be6a015cb068c0dc81abdade13dd677edfcb2082b9ae57488e32a.M-9FW5s2Pw9ocsPt827tP79_pIKbHWz6FpbfoMpIRyQ
     replay-tabs-home-success--filters-expanded-lots-of-results--light:
-        hash: v1.k794b7964.7a74e72b9c6163edf0b30cb18bf246dc75a3aae8f89c370be3e552ad31e33e81.qC4_Ns4RoM9XHIw-gn7OMUI6giVTze1AX93PAtfaZeU
+        hash: v1.k794b7964.58ccc2f7677d669c288b15bdc12aefd0c7b6ba76e1f3fd110967c1bc79a3c741.MetklNmQAumhuv5UlRyN1Yu1x8A6R5jdOpU4GKiSmFA
     replay-tabs-home-success--filters-expanded-lots-of-results-narrow--dark:
-        hash: v1.k794b7964.a3c30e7f6ff875ff9ed1189855c52f8a7ee2f22870679b981104008fe03e31d9.1Zo1_ogUv71c3uK0kvhrp-r__C3Tb9JY3vb1ImmnutU
+        hash: v1.k794b7964.195acddc1c595516618604f8bf6a355a3e3cad9292416c5ff8a85989b057b21c.DTbPDZNo11g9gyHpmbpx-O5mpnlQKPVwY3qmo7QI0w0
     replay-tabs-home-success--filters-expanded-lots-of-results-narrow--light:
-        hash: v1.k794b7964.fbfbe4f2ea983f4f03f4bad36f7ce01b5b602027647ee7be6d3334732183c994.4zbm3rFlXs_trnHK1iksrgCgJuKBv7EJrj2GL1NEqE8
+        hash: v1.k794b7964.118092e7aa1b1f33a3df79f5eee2f763aaa869269955a2f73ce6202c04073731.zQQRY3bGmcc254TBgob-Mf5BL0AGtrQxMuF8yv72nbY
     replay-tabs-home-success--recent-recordings--dark:
         hash: v1.k794b7964.a22d6e5f278f717196ff17166ed63fe9a6b78e3f9eeb513cc19932ce4e53be76.XVRcNv7ACq7ePrJdyfS3Gkkoar-OLGyPE1lpDvC_jBc
     replay-tabs-home-success--recent-recordings--light:
         hash: v1.k794b7964.fde422f7943ebff1d9f8bb6f21934293a86b6b2d423083d49d4ff582d8ac2257.c9M5v5plE76kgWh_UTZU3maLmi6DAtvPccX9F5KnqNI
     replay-tabs-home-success--recent-recordings-empty--dark:
-        hash: v1.k794b7964.ca2fd868f81cfd772ff7655a7b672c59c022527a9c8b8799722bab7bcf4b959b.eZBf_lPm9IZy3E5VEvU2meWaC7qoxflo9KWirPe2Y4w
+        hash: v1.k794b7964.2ff3f60cf523098433185c853e7ad73fa7d1cac5c497aba4d1185b5720646768.kukKK7AF-QpKX9oKbAgRm3ZipaXyib88qj8PwHrc5ww
     replay-tabs-home-success--recent-recordings-empty--light:
-        hash: v1.k794b7964.7d033d4005a0dbeba2d0985b7cfe9c28cb2b1b8081112c3a7790188982ed622a.xOoI3gt5CjaGSCu6-g3I7VB9-nlyBmbdG50jfbuYyyw
+        hash: v1.k794b7964.216c311791cf377d76c1a0646b4b1c34d1a71c282c86b173f674b6252898b4e6.Hu0AQva2T0SoLBv40ofkV-iBIL0iPNiRAKR3cdX7QQo
     replay-tabs-home-success--recordings-play-list-no-pinned-recordings--dark:
         hash: v1.k794b7964.a84db66a1d863f19382ecb2b4c77515d1e551c83319e0356d65c57a3860758ff.NNWl922I1-cCjr1J2dQ2iA2rmvgipO8Y5qxmGuiLlgg
     replay-tabs-home-success--recordings-play-list-no-pinned-recordings--light:
