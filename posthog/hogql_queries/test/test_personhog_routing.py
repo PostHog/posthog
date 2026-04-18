@@ -145,8 +145,17 @@ class TestSessionsQueryRunnerPersonRouting(PersonhogTestMixin, BaseTest):
     def test_person_join_qualifies_distinct_id_chain_with_person_select(self):
         person = self._seed_person(team=self.team, distinct_ids=["id1"])
 
-        query_with_join = SessionsQuery(
+        # person_display_name alone triggers post-query enrichment (no SQL join),
+        # so distinct_id doesn't need sessions. qualification
+        query_with_display_name = SessionsQuery(
             kind="SessionsQuery", select=["session_id", "person_display_name"], personId=str(person.uuid)
         )
-        ast_with = SessionsQueryRunner(query=query_with_join, team=self.team).to_query()
-        assert _extract_distinct_id_field_chain(ast_with.where) == ["sessions", "distinct_id"]
+        ast_display_name = SessionsQueryRunner(query=query_with_display_name, team=self.team).to_query()
+        assert _extract_distinct_id_field_chain(ast_display_name.where) == ["distinct_id"]
+
+        # person.properties.X in SELECT forces the SQL join, so distinct_id needs qualification
+        query_with_prop = SessionsQuery(
+            kind="SessionsQuery", select=["session_id", "person.properties.email"], personId=str(person.uuid)
+        )
+        ast_prop = SessionsQueryRunner(query=query_with_prop, team=self.team).to_query()
+        assert _extract_distinct_id_field_chain(ast_prop.where) == ["sessions", "distinct_id"]
