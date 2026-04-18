@@ -1,8 +1,5 @@
 import '@react-email/editor/themes/default.css'
 import '@react-email/editor/styles/bubble-menu.css'
-import '@react-email/editor/styles/link-bubble-menu.css'
-import '@react-email/editor/styles/button-bubble-menu.css'
-import '@react-email/editor/styles/image-bubble-menu.css'
 import '@react-email/editor/styles/slash-command.css'
 
 import { EmailEditor, EmailEditorRef } from '@react-email/editor'

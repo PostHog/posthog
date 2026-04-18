@@ -49,8 +49,4 @@ declare module '@react-email/editor' {
 
 declare module '@react-email/editor/themes/default.css'
 declare module '@react-email/editor/styles/bubble-menu.css'
-declare module '@react-email/editor/styles/link-bubble-menu.css'
-declare module '@react-email/editor/styles/button-bubble-menu.css'
-declare module '@react-email/editor/styles/image-bubble-menu.css'
 declare module '@react-email/editor/styles/slash-command.css'
-declare module '@react-email/editor/styles/inspector.css'
