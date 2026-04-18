@@ -49,7 +49,7 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
 
     if (status === 'done' && shortId) {
         return (
-            <div className="flex flex-col gap-1.5 items-end max-w-md text-right">
+            <div className="flex flex-col gap-1.5 items-start max-w-md w-fit ml-auto text-left">
                 {verdict && <VerdictTag verdict={verdict} />}
                 {summary && <SummaryText summary={summary} />}
                 <Link to={`/notebooks/${shortId}`}>View notebook</Link>
