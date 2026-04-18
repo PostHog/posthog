@@ -11,7 +11,6 @@ export const manifest: ProductManifest = {
     scenes: {
         CustomerAnalytics: {
             import: () => import('./frontend/CustomerAnalyticsScene'),
-            defaultDocsPath: '/docs/customer-analytics',
             projectBased: true,
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
@@ -20,7 +19,6 @@ export const manifest: ProductManifest = {
         CustomerAnalyticsConfiguration: {
             import: () =>
                 import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-            defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
             projectBased: true,
             name: 'Customer analytics configuration',
         },

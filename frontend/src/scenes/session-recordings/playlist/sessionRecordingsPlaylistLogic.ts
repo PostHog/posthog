@@ -546,7 +546,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     props({} as SessionRecordingPlaylistLogicProps),
     key(
         (props: SessionRecordingPlaylistLogicProps) =>
-            `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
+            `${props.logicKey ?? ''}-${props.personUUID ?? ''}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
     connect(() => ({
         actions: [

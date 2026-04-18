@@ -1,15 +1,20 @@
-import { IconCheck, IconChevronLeft, IconChevronRight, IconGithub } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import type { SnapshotApi, SnapshotHistoryEntryApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
     snapshotHistory?: SnapshotHistoryEntryApi[]
     snapshotHistoryLoading?: boolean
+    toleratedHashes?: ToleratedHashEntryApi[]
+    toleratedHashesLoading?: boolean
     onApprove?: () => void
+    onMarkTolerated?: () => void
     onPrevious?: () => void
     onNext?: () => void
     hasPrevious?: boolean
@@ -25,7 +30,10 @@ export function SnapshotDiffViewer({
     snapshot,
     snapshotHistory,
     snapshotHistoryLoading,
+    toleratedHashes,
+    toleratedHashesLoading,
     onApprove,
+    onMarkTolerated,
     onPrevious,
     onNext,
     hasPrevious = false,
@@ -43,7 +51,9 @@ export function SnapshotDiffViewer({
     const height = snapshot.current_artifact?.height || snapshot.baseline_artifact?.height
 
     const isApproved = snapshot.review_state === 'approved'
+    const isTolerated = snapshot.review_state === 'tolerated'
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
+    const needsAction = hasChanges && !isApproved && !isTolerated
 
     // Parse identifier for display (e.g., "Feature-Flags-settings--e2e-test--dark--1440x900")
     const parts = snapshot.identifier.split('--')
@@ -54,27 +64,8 @@ export function SnapshotDiffViewer({
         <div className="flex gap-4">
             {/* Main content area */}
             <div className="flex-1 min-w-0 overflow-hidden">
-                {/* Header */}
-                <div className="flex items-center gap-2 mb-4">
-                    <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
-                    {variant && (
-                        <span className="text-sm text-muted">
-                            @ {variant}
-                            {width && height && ` · ${width}×${height}`}
-                        </span>
-                    )}
-                </div>
-
-                <VisualImageDiffViewer
-                    baselineUrl={baselineUrl || null}
-                    currentUrl={currentUrl || null}
-                    diffUrl={snapshot.diff_artifact?.download_url || null}
-                    diffPercentage={snapshot.diff_percentage ?? null}
-                    result={(snapshot.result || 'unchanged') as VisualDiffResult}
-                />
-
                 {/* Navigation and actions */}
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                         <LemonButton
                             size="small"
@@ -94,19 +85,62 @@ export function SnapshotDiffViewer({
                         </LemonButton>
                     </div>
 
-                    {hasChanges && !isApproved && (
-                        <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
-                            Accept change
-                        </LemonButton>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <SnapshotStatusIndicator
+                            result={snapshot.result || 'unchanged'}
+                            reviewState={snapshot.review_state}
+                            classificationReason={snapshot.classification_reason}
+                        />
 
-                    {isApproved && (
-                        <span className="flex items-center gap-1 text-sm text-success font-medium">
-                            <IconCheck className="w-4 h-4" />
-                            Approved
+                        {needsAction && (
+                            <>
+                                <LemonButton type="primary" size="small" onClick={onApprove}>
+                                    Accept change
+                                </LemonButton>
+                                {snapshot.result === 'changed' && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Tolerate this difference?',
+                                                description:
+                                                    'Marks this as rendering noise — future runs with the same hash pass automatically. ' +
+                                                    'If this is a bug, fix it instead.',
+                                                primaryButton: {
+                                                    children: 'Tolerate',
+                                                    onClick: onMarkTolerated,
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }}
+                                    >
+                                        Tolerate
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* Snapshot title */}
+                <div className="flex items-center gap-2 mb-4">
+                    <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
+                    {variant && (
+                        <span className="text-sm text-muted">
+                            @ {variant}
+                            {width && height && ` · ${width}×${height}`}
                         </span>
                     )}
                 </div>
+
+                <VisualImageDiffViewer
+                    baselineUrl={baselineUrl || null}
+                    currentUrl={currentUrl || null}
+                    diffUrl={snapshot.diff_artifact?.download_url || null}
+                    diffPercentage={snapshot.diff_percentage ?? null}
+                    result={(snapshot.result || 'unchanged') as VisualDiffResult}
+                />
             </div>
 
             {/* Right sidebar — flat, no nested cards */}
@@ -167,10 +201,28 @@ export function SnapshotDiffViewer({
                             <span className="font-mono">{snapshot.diff_percentage}%</span>
                         </div>
                     )}
+                    {snapshot.baseline_artifact?.content_hash && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted">Baseline</span>
+                            <span className="font-mono">{snapshot.baseline_artifact.content_hash.slice(0, 10)}…</span>
+                        </div>
+                    )}
+                    {snapshot.current_artifact?.content_hash && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted">Current</span>
+                            <span className="font-mono">{snapshot.current_artifact.content_hash.slice(0, 10)}…</span>
+                        </div>
+                    )}
                     {isApproved && snapshot.reviewed_at && (
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-muted">Approved</span>
                             <span className="text-success">{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
+                        </div>
+                    )}
+                    {isTolerated && snapshot.reviewed_at && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted">Tolerated</span>
+                            <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
                         </div>
                     )}
                 </div>
@@ -207,6 +259,30 @@ export function SnapshotDiffViewer({
                         </div>
                     ) : (
                         <p className="text-xs text-muted">No history yet</p>
+                    )}
+                </div>
+
+                {/* Known tolerated hashes */}
+                <div>
+                    <h4 className="text-xs font-semibold text-muted mb-2">Tolerated hashes</h4>
+                    {toleratedHashesLoading ? (
+                        <div className="space-y-2">
+                            <LemonSkeleton className="h-4 w-full" />
+                            <LemonSkeleton className="h-4 w-3/4" />
+                        </div>
+                    ) : toleratedHashes && toleratedHashes.length > 0 ? (
+                        <div className="space-y-1.5">
+                            {toleratedHashes.map((entry) => (
+                                <div key={entry.id} className="flex items-center justify-between text-xs">
+                                    <span className="font-mono text-muted">{entry.alternate_hash.slice(0, 10)}…</span>
+                                    <LemonTag type="muted" size="small">
+                                        {entry.reason === 'human' ? 'manual' : 'auto'}
+                                    </LemonTag>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-muted">None</p>
                     )}
                 </div>
             </div>

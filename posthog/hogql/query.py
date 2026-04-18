@@ -183,7 +183,7 @@ class LenientDirectPostgresDateLoader(DateLoader):
 
 @dataclasses.dataclass
 class HogQLQueryExecutor:
-    query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     team: Team
     _: dataclasses.KW_ONLY
     query_type: str = "hogql_query"
@@ -340,7 +340,7 @@ class HogQLQueryExecutor:
 
         with self.timings.measure("prepare_ast_for_printing"):
             select_query_hogql = cast(
-                ast.SelectQuery,
+                ast.SelectQuery | ast.SelectSetQuery,
                 prepare_ast_for_printing(node=cloned_query, context=self.hogql_context, dialect="hogql"),
             )
 
@@ -361,12 +361,13 @@ class HogQLQueryExecutor:
                 if isinstance(node, ast.Alias):
                     self.print_columns.append(node.alias)
                 else:
+                    stack = [select_query_hogql] if isinstance(select_query_hogql, ast.SelectQuery) else None
                     self.print_columns.append(
                         print_prepared_ast(
                             node=node,
                             context=self.hogql_context,
                             dialect="hogql",
-                            stack=[select_query_hogql],
+                            stack=stack,
                         )
                     )
 

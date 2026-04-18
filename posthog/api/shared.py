@@ -240,7 +240,7 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         membership = OrganizationMembership.objects.filter(
             organization=organization, user=self.context["request"].user
         ).first()
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
 
 
 class FilterBaseSerializer(serializers.Serializer):

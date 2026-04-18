@@ -130,6 +130,48 @@ class TestResolveTailscale:
         assert "not installed" in capsys.readouterr().out
 
 
+class TestTailscaleRoutesAccepted:
+    """Test auto-enabling subnet route acceptance for devbox connectivity."""
+
+    def test_detects_routes_not_accepted_from_health_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {"Health": ["Some peers are advertising routes but --accept-routes is false"]},
+        )
+        assert coder._tailscale_routes_accepted() is False
+
+    def test_ensure_noop_when_already_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.ensure_tailscale_routes_accepted()
+
+        assert calls == []
+
+    def test_ensure_invokes_tailscale_set_accept_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
+        monkeypatch.setattr(coder.sys, "platform", "darwin")
+        captured: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.ensure_tailscale_routes_accepted()
+
+        assert captured == [[coder._MACOS_TAILSCALE_CLI, "set", "--accept-routes"]]
+
+
 class TestCoderConfig:
     """Test config and runtime preflight helpers."""
 
@@ -170,6 +212,7 @@ class TestCoderConfig:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
+        monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
         with pytest.raises(SystemExit):
@@ -182,6 +225,76 @@ class TestCoderConfig:
 
         with pytest.raises(RuntimeError, match="stdout pipe was not opened"):
             coder._run_build(["coder", "start", "devbox-test-user"])
+
+
+class TestCoderVersion:
+    """Test Coder CLI version pinning and mismatch warnings."""
+
+    def test_get_server_version_queries_buildinfo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HOGLI_DEVBOX_CODER_VERSION", raising=False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"version": "v2.30.5+abc123"}
+
+        with patch("hogli.devbox.coder.requests.get", return_value=mock_resp) as mock_get:
+            assert coder.get_server_version() == "2.30.5"
+            mock_get.assert_called_once_with("https://coder.example.com/api/v2/buildinfo", timeout=5)
+
+    @pytest.mark.parametrize(
+        "raw_version, expected",
+        [
+            ("v1.0.0", "1.0.0"),
+            ("v2.30.5+3b2ded6", "2.30.5"),
+            ("1.0.0+abc123", "1.0.0"),
+            ("v0.1.0-rc1+build.42", "0.1.0-rc1"),
+        ],
+    )
+    def test_get_installed_coder_version_normalizes(
+        self, monkeypatch: pytest.MonkeyPatch, raw_version: str, expected: str
+    ) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, capture_output=False: subprocess.CompletedProcess(
+                args, 0, json.dumps({"version": raw_version}), ""
+            ),
+        )
+        assert coder.get_installed_coder_version() == expected
+
+    def test_warn_version_mismatch_prints_warning(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "2.0.0")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+        coder._warn_version_mismatch()
+        output = capsys.readouterr().out
+        assert "v2.0.0" in output
+        assert "v1.0.0" in output
+        assert "curl -fsSL https://coder.example.com/install.sh | sh" in output
+
+    def test_ensure_coder_installed_uses_deployment_install_script(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
+
+        captured_cmd: list[str] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured_cmd.extend(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.ensure_coder_installed()
+        full_cmd = " ".join(captured_cmd)
+        assert "curl -fsSL https://coder.example.com/install.sh" in full_cmd
+        assert f"--prefix {tmp_path}" in full_cmd
 
 
 class TestWorkspaceNaming:
@@ -302,15 +415,10 @@ class TestResolveWorkspaceName:
     """Test the CLI workspace resolution logic."""
 
     def test_explicit_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            devbox_cli,
-            "get_workspace_name",
-            lambda label=None: f"devbox-test-user-{label}" if label else "devbox-test-user",
-        )
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         name, workspaces = devbox_cli.resolve_workspace_name("api")
         assert name == "devbox-test-user-api"
-        assert workspaces == []
+        assert workspaces is None
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
@@ -376,12 +484,13 @@ class TestDevboxCommands:
         calls: list[str] = []
 
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: calls.append("install"))
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: calls.append("routes"))
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_ssh",
-            lambda configure_ssh: calls.append(f"ssh:{configure_ssh}"),
+            lambda configure_ssh, **kw: calls.append(f"ssh:{configure_ssh}"),
         )
         monkeypatch.setattr(
             devbox_cli,
@@ -414,6 +523,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert calls == [
             "tailscale",
+            "routes",
             "install",
             "login",
             "ssh:False",
@@ -429,9 +539,10 @@ class TestDevboxCommands:
         devbox_config_path: Path,
     ) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -459,9 +570,10 @@ class TestDevboxCommands:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -478,7 +590,7 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
@@ -527,7 +639,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "resolve_workspace_name",
-            lambda label: (f"devbox-test-user-{label}" if label else "devbox-test-user", []),
+            lambda ws: (f"devbox-test-user-{ws}" if ws else "devbox-test-user", []),
         )
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: "api")
@@ -564,20 +676,20 @@ class TestDevboxCommands:
             ),
         )
 
-        result = runner.invoke(cli, ["devbox:start", "--name", "api"])
+        result = runner.invoke(cli, ["devbox:start", "api"])
 
         assert result.exit_code == 0
         assert captured["name"] == "devbox-test-user-api"
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
-        assert "--name api" in result.output
+        assert "devbox:ssh api" in result.output
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -600,7 +712,7 @@ class TestDevboxCommands:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -623,7 +735,7 @@ class TestDevboxCommands:
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -657,7 +769,7 @@ class TestDevboxCommands:
 
     def test_devbox_status_shows_update_hint_when_outdated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -674,7 +786,7 @@ class TestDevboxCommands:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
         monkeypatch.setattr(
             devbox_cli,
@@ -692,7 +804,7 @@ class TestDevboxCommands:
 
     def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
 
         result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
@@ -794,6 +906,7 @@ class TestDevboxList:
     def test_devbox_list_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "list_shared_workspaces", lambda: [])
 
         result = runner.invoke(cli, ["devbox:list"])
 
@@ -803,6 +916,8 @@ class TestDevboxList:
     def test_devbox_list_shows_workspaces(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: "api" if "api" in name else None)
+        monkeypatch.setattr(devbox_cli, "list_shared_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "get_shared_users", lambda name: [])
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -818,6 +933,189 @@ class TestDevboxList:
         assert "(default)" in result.output
         assert "api" in result.output
         assert "devbox-test-user-api" in result.output
+
+    def test_devbox_list_shows_shared_workspaces(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_shared_workspaces",
+            lambda: [
+                {
+                    "name": "devbox-alice",
+                    "latest_build": {"status": "running"},
+                    "owner_name": "alice",
+                },
+            ],
+        )
+
+        result = runner.invoke(cli, ["devbox:list"])
+
+        assert result.exit_code == 0
+        assert "Shared with you" in result.output
+        assert "devbox-alice" in result.output
+        assert "from alice" in result.output
+
+
+class TestWorkspaceTargetParsing:
+    """Test @user workspace target resolution."""
+
+    @pytest.mark.parametrize(
+        "target, expected",
+        [
+            ("@alice", "devbox-alice"),
+            ("@alice/ml-lab", "devbox-alice-ml-lab"),
+            ("@bob/test", "devbox-bob-test"),
+        ],
+    )
+    def test_parse_workspace_target_shared(self, monkeypatch: pytest.MonkeyPatch, target: str, expected: str) -> None:
+        assert coder.parse_workspace_target(target) == expected
+
+    def test_parse_workspace_target_own_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.parse_workspace_target("api") == "devbox-test-user-api"
+
+
+class TestDevboxShare:
+    """Test the devbox:share command."""
+
+    def test_share_grants_access(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "share_workspace",
+            lambda name, users, role="use": captured.update({"name": name, "users": users, "role": role}),
+        )
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"])
+
+        assert result.exit_code == 0
+        assert captured == {"name": "devbox-test-user", "users": ["alice"], "role": "use"}
+        assert "Shared" in result.output
+        assert "alice" in result.output
+
+    def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "unshare_workspace",
+            lambda name, users: captured.update({"name": name, "users": users}),
+        )
+
+        result = runner.invoke(cli, ["devbox:unshare", "--user", "alice"])
+
+        assert result.exit_code == 0
+        assert captured == {"name": "devbox-test-user", "users": ["alice"]}
+        assert "Revoked" in result.output
+        assert "Restart" in result.output
+
+    def test_unshare_without_user_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+
+        result = runner.invoke(cli, ["devbox:unshare"])
+
+        assert result.exit_code != 0
+        assert "--user" in result.output
+
+    def test_unshare_with_positional_username_hints_to_use_user_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+
+        result = runner.invoke(cli, ["devbox:unshare", "georgesa"])
+
+        assert result.exit_code != 0
+        assert "--user georgesa" in result.output
+
+    def test_share_list_shows_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_sharing_status",
+            lambda name: subprocess.CompletedProcess([], 0, "alice  use\nbob  admin\n", ""),
+        )
+
+        result = runner.invoke(cli, ["devbox:share", "--list"])
+
+        assert result.exit_code == 0
+        assert "alice" in result.output
+        assert "bob" in result.output
+
+    def test_share_without_user_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+
+        result = runner.invoke(cli, ["devbox:share"])
+
+        assert result.exit_code != 0
+        assert "--user" in result.output
+
+    def test_share_with_positional_username_hints_to_use_user_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+
+        result = runner.invoke(cli, ["devbox:share", "georgesa"])
+
+        assert result.exit_code != 0
+        assert "--user georgesa" in result.output
+
+
+class TestSharingFunctions:
+    """Test coder.py sharing subprocess wrappers."""
+
+    def test_share_workspace_builds_correct_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured_args: list[str] = []
+
+        def fake_run(args: list[str], capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+            captured_args.extend(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder, "_run", fake_run)
+
+        coder.share_workspace("devbox-test-user", ["alice", "bob"], role="admin")
+        assert captured_args == ["coder", "sharing", "share", "devbox-test-user", "--user", "alice:admin,bob:admin"]
+
+    def test_list_shared_workspaces_parses_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ws_data = [{"name": "devbox-alice", "latest_build": {"status": "running"}}]
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, capture_output=False: subprocess.CompletedProcess(args, 0, json.dumps(ws_data), ""),
+        )
+
+        result = coder.list_shared_workspaces()
+        assert len(result) == 1
+        assert result[0]["name"] == "devbox-alice"
 
 
 class TestKeychain:

@@ -93,16 +93,17 @@ describe('PlaybackController', () => {
         })
     })
 
-    describe('endTimestamp cutoff', () => {
-        it('stops and pauses when event timestamp reaches endTimestamp', () => {
+    describe('endOffsetS cutoff', () => {
+        it('stops and pauses when event timestamp reaches end offset', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
+            // firstTimestamp=1000, endOffsetS=4 → absolute cutoff at 1000 + 4*1000 = 5000
             const _controller = new PlaybackController(
                 replayer as any,
                 [],
                 1000,
                 {
-                    endTimestamp: 5000,
+                    endOffsetS: 4,
                 },
                 bridge
             )
@@ -117,7 +118,7 @@ describe('PlaybackController', () => {
             expect(replayer.pause).toHaveBeenCalled()
         })
 
-        it('does not register event-cast listener when no endTimestamp', () => {
+        it('does not register event-cast listener when no endOffsetS', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
             new PlaybackController(replayer as any, [], 0, {}, bridge)
