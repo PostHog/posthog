@@ -339,7 +339,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 GENERATE_EVAL_REPORT_WORKFLOW_NAME,  # type: ignore[arg-type]
                 GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id), manual=True),  # type: ignore[arg-type]
                 id=workflow_id,
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.LLMA_TASK_QUEUE,
             )
         except Exception as exc:
             # Temporal's WorkflowAlreadyStarted is a subclass of RPCError / Exception depending

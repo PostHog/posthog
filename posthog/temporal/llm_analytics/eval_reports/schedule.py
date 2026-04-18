@@ -27,7 +27,7 @@ async def create_eval_reports_schedule(client: Client):
             SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME,
             asdict(ScheduleAllEvalReportsWorkflowInputs()),
             id=SCHEDULE_ID,
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.LLMA_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
     )
@@ -45,7 +45,7 @@ async def create_count_trigger_schedule(client: Client):
             CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
             asdict(CheckCountTriggeredReportsWorkflowInputs()),
             id=COUNT_TRIGGER_SCHEDULE_ID,
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.LLMA_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))]),
     )
