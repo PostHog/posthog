@@ -368,6 +368,24 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
     return rows[0][0] < 100
 
 
+def _check_no_mutations(client: Client, source_table: str) -> int:
+    """Return the cluster-wide count of in-progress mutations on the source table.
+
+    Mutations running concurrently with a part break would mutate the old
+    part but not our new broken parts (or vice versa), producing inconsistent
+    data. Part breaker must not proceed while mutations are in-flight
+    anywhere in the cluster — mutations can run on a single replica independently.
+    """
+    database = _get_database()
+    cluster = settings.CLICKHOUSE_CLUSTER
+    rows = client.execute(
+        "SELECT count() FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "WHERE database = %(db)s AND table = %(table)s AND is_done = 0",
+        {"cluster": cluster, "db": database, "table": source_table},
+    )
+    return rows[0][0]
+
+
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
     """Create the non-replicated staging table if it doesn't exist.
 
@@ -775,6 +793,12 @@ def break_part(
             repl_ok = _check_replication_healthy(client, source_table)
             context.log.info(f"  Replication health: {'OK' if repl_ok else 'UNHEALTHY — queue > 100 entries'}")
 
+            # Check in-flight mutations
+            mutation_count = _check_no_mutations(client, source_table)
+            context.log.info(
+                f"  In-flight mutations: {'OK (none)' if mutation_count == 0 else f'BLOCKED ({mutation_count} in progress)'}"
+            )
+
             # Get disk/path info
             disk_paths = _get_disk_paths(client)
             part_disk = _get_part_disk(client, source_table, part.part_name)
@@ -863,6 +887,13 @@ def break_part(
 
             if not _check_replication_healthy(client, source_table):
                 raise dagster.Failure(description=f"Replication queue is backed up (>100 entries) for {source_table}")
+
+            in_flight_mutations = _check_no_mutations(client, source_table)
+            if in_flight_mutations > 0:
+                raise dagster.Failure(
+                    description=f"{in_flight_mutations} in-progress mutation(s) on {source_table}. "
+                    f"Part breaker would risk data inconsistency — skipping."
+                )
 
             # -- Step 3: Get paths and establish SSH connection --
             disk_paths = _get_disk_paths(client)
