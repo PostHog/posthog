@@ -137,8 +137,25 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
         investigation_status=InvestigationStatus.DONE,
+        investigation_summary=_truncate_summary(result.report.summary),
         investigation_error=None,
     )
+
+
+MAX_SUMMARY_CHARS = 500
+
+
+def _truncate_summary(summary: str | None) -> str | None:
+    """Clamp the agent's summary for list rendering and email/Slack follow-ups.
+
+    The full write-up already lives in the notebook — this field is just a teaser.
+    """
+    if not summary:
+        return None
+    trimmed = summary.strip()
+    if len(trimmed) <= MAX_SUMMARY_CHARS:
+        return trimmed
+    return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
 
 async def _update_status(alert_check, status: str) -> None:

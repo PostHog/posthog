@@ -89,6 +89,7 @@ export interface AlertCheck {
     interval?: string | null
     triggered_metadata?: Record<string, unknown> | null
     investigation_status?: InvestigationStatus | null
+    investigation_summary?: string | null
     investigation_notebook_short_id?: string | null
 }
 

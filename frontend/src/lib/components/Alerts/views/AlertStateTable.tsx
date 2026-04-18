@@ -10,11 +10,20 @@ import { formatDate } from 'lib/utils'
 
 import type { AlertCheck, AlertType } from '../types'
 
+const SUMMARY_PREVIEW_CHARS = 140
+
 function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
+    const summary = check.investigation_summary?.trim() || null
+
     if (status === 'done' && shortId) {
-        return <Link to={`/notebooks/${shortId}`}>View notebook</Link>
+        return (
+            <div className="flex flex-col gap-0.5 items-end max-w-80 text-right">
+                {summary && <SummaryText summary={summary} />}
+                <Link to={`/notebooks/${shortId}`}>View notebook</Link>
+            </div>
+        )
     }
     if (status === 'running' || status === 'pending') {
         return (
@@ -38,6 +47,13 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
         )
     }
     return <span className="text-secondary">—</span>
+}
+
+function SummaryText({ summary }: { summary: string }): JSX.Element {
+    const needsTruncation = summary.length > SUMMARY_PREVIEW_CHARS
+    const preview = needsTruncation ? summary.slice(0, SUMMARY_PREVIEW_CHARS - 1).trimEnd() + '…' : summary
+    const content = <span className="text-secondary text-xs leading-snug">{preview}</span>
+    return needsTruncation ? <Tooltip title={summary}>{content}</Tooltip> : content
 }
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {

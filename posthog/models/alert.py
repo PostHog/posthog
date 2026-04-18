@@ -285,6 +285,9 @@ class AlertCheck(UUIDTModel):
         blank=True,
         related_name="+",
     )
+    # Short plain-text summary the agent emits. Safe to show inline in lists, emails,
+    # and Slack follow-ups so a user can decide whether to click into the notebook.
+    investigation_summary = models.TextField(null=True, blank=True)
     investigation_error = models.JSONField(null=True, blank=True)
 
     def __str__(self):

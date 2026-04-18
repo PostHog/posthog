@@ -113,6 +113,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "interval",
             "triggered_metadata",
             "investigation_status",
+            "investigation_summary",
             "investigation_notebook_short_id",
         ]
         read_only_fields = fields
