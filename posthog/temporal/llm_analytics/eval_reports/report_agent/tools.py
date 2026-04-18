@@ -704,7 +704,10 @@ def list_recent_report_runs(
 
     runs = EvaluationReportRun.objects.filter(
         report__evaluation_id=evaluation_id,
-        period_end__lt=period_start,
+        # `lte` (not `lt`) so the immediately preceding back-to-back run — the most
+        # useful one for delta analysis — is included. The current run hasn't been
+        # stored yet at tool-call time, so this can't accidentally pull it in.
+        period_end__lte=period_start,
         period_end__gte=since,
     ).order_by("-period_end")[:limit]
 
@@ -712,14 +715,18 @@ def list_recent_report_runs(
     for run in runs:
         content = run.content if isinstance(run.content, dict) else {}
         metadata = run.metadata if isinstance(run.metadata, dict) else {}
+        # Metrics live in `content.metrics` per the agent output contract; a parallel
+        # `metadata` mirror is maintained in the store activity for legacy consumers.
+        # Prefer content so this tool stays correct even if the mirror is removed.
+        metrics = content.get("metrics", {}) if isinstance(content.get("metrics"), dict) else {}
         result.append(
             {
                 "run_id": str(run.id),
                 "period_start": str(run.period_start),
                 "period_end": str(run.period_end),
                 "title": content.get("title", ""),
-                "pass_rate": metadata.get("pass_rate"),
-                "total_runs": metadata.get("total_runs"),
+                "pass_rate": metrics.get("pass_rate", metadata.get("pass_rate")),
+                "total_runs": metrics.get("total_runs", metadata.get("total_runs")),
                 "delivery_status": run.delivery_status,
             }
         )

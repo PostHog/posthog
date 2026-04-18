@@ -317,6 +317,46 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(len(result["content"]["sections"]), 1)
         self.assertEqual(result["metadata"]["pass_rate"], 94.2)
 
+    def test_list_includes_back_to_back_previous_run(self):
+        # Regression: period_end exactly equal to the current period_start used to be
+        # excluded by a strict `lt` filter, dropping the immediately previous report —
+        # the most useful one for delta/continuity analysis.
+        boundary_start = dt.datetime.fromisoformat(self.state["period_start"])
+        boundary_run = self.EvaluationReportRun.objects.create(
+            report=self.report,
+            content={"title": "Back-to-back report", "sections": []},
+            metadata={"pass_rate": 77.7, "total_runs": 11},
+            period_start=boundary_start - dt.timedelta(hours=1),
+            period_end=boundary_start,
+        )
+        result = json.loads(_list_recent_report_runs_fn(state=self.state))
+        titles = [r["title"] for r in result]
+        self.assertIn("Back-to-back report", titles)
+        boundary_entry = next(r for r in result if r["run_id"] == str(boundary_run.id))
+        self.assertEqual(boundary_entry["pass_rate"], 77.7)
+        self.assertEqual(boundary_entry["total_runs"], 11)
+
+    def test_list_falls_back_to_content_metrics_when_metadata_empty(self):
+        # The agent's output contract carries metrics inside content; only the
+        # downstream store activity mirrors them into metadata. The tool must read
+        # either source so it stays correct if the mirror is removed.
+        now = timezone.now()
+        content_only_run = self.EvaluationReportRun.objects.create(
+            report=self.report,
+            content={
+                "title": "Content-only metrics",
+                "sections": [],
+                "metrics": {"pass_rate": 42.5, "total_runs": 8},
+            },
+            metadata={},
+            period_start=now - dt.timedelta(hours=2),
+            period_end=now - dt.timedelta(hours=1),
+        )
+        result = json.loads(_list_recent_report_runs_fn(state=self.state))
+        entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
+        self.assertEqual(entry["pass_rate"], 42.5)
+        self.assertEqual(entry["total_runs"], 8)
+
     def test_get_rejects_non_uuid(self):
         result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
         self.assertIn("error", result)
