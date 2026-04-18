@@ -2103,6 +2103,10 @@
             "description": "Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
             "type": "number"
         },
+        "investigation_agent_enabled": {
+            "description": "When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+            "type": "boolean"
+        },
         "name": {
             "description": "Human-readable name for the alert.",
             "type": "string"
