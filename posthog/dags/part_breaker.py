@@ -9,7 +9,7 @@ Tables to scan are configured via the PART_BREAKER_ELIGIBLE_TABLES env var
 
 The process per oversized part:
 1. Create non-replicated staging tables if needed (SQL)
-2. Pre-flight checks — disk space, no concurrent breaker, staging tables empty (SQL)
+2. Pre-flight checks — disk space, no concurrent breaker, staging tables empty, replication healthy, no in-flight mutations (SQL)
 3. Named FREEZE the partition containing the oversized part — creates hardlinks in shadow/<name>/ (SQL)
 4. Copy the frozen part to source staging table's detached dir (SSH, hardlink or real copy via store/ paths)
 5. ATTACH the part to source staging table (SQL)
@@ -369,13 +369,7 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
 
 
 def _check_no_mutations(client: Client, source_table: str) -> int:
-    """Return the cluster-wide count of in-progress mutations on the source table.
-
-    Mutations running concurrently with a part break would mutate the old
-    part but not our new broken parts (or vice versa), producing inconsistent
-    data. Part breaker must not proceed while mutations are in-flight
-    anywhere in the cluster — mutations can run on a single replica independently.
-    """
+    """Return cluster-wide count of in-progress mutations on the source table."""
     database = _get_database()
     cluster = settings.CLICKHOUSE_CLUSTER
     rows = client.execute(
