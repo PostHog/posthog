@@ -179,3 +179,20 @@ class TestPeriodForScheduledReport(BaseTest):
         report = self._make("NOT_A_RRULE")
         period = _period_for_scheduled_report(report, dt.datetime.now(tz=dt.UTC))
         self.assertEqual(period, dt.timedelta(days=1))
+
+    def test_daily_rrule_reports_23h_gap_across_dst_spring_forward(self):
+        # America/New_York springs forward at 2026-03-08 02:00 local.
+        # 09:00 EST on 2026-03-07 == 14:00 UTC; 09:00 EDT on 2026-03-08 == 13:00 UTC.
+        # The real wall-clock gap between consecutive "9am local" fires is 23h.
+        # A tz-naive rrulestr(..., dtstart=starts_at).before() would report 24h.
+        report = EvaluationReport(
+            team=self.team,
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
+            starts_at=dt.datetime(2026, 3, 1, 14, 0, tzinfo=dt.UTC),  # 9am EST
+            timezone_name="America/New_York",
+        )
+        # `now` sits after the transition so prev/prev_prev straddle it.
+        now = dt.datetime(2026, 3, 8, 18, 0, tzinfo=dt.UTC)  # 14:00 EDT, after 9am EDT fire
+        period = _period_for_scheduled_report(report, now)
+        self.assertEqual(period, dt.timedelta(hours=23))

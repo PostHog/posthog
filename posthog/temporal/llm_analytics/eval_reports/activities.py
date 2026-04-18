@@ -1,6 +1,7 @@
 """Activities for evaluation reports workflow."""
 
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import temporalio.activity
 from dateutil.rrule import rrulestr
@@ -188,20 +189,31 @@ def _period_for_scheduled_report(report, now: dt.datetime) -> dt.timedelta:
     Used as the "one period" lookback for scheduled reports — e.g. an hourly
     RRULE yields 1h, a weekly RRULE yields 7d. Falls back to 1 day if the rule
     hasn't accumulated enough history yet (fewer than two past occurrences).
+
+    The RRULE is expanded in the report's local timezone so that e.g. "daily
+    9am America/New_York" yields a true 23h/25h gap across DST transitions,
+    matching the real wall-clock firing cadence rather than a naive UTC delta.
     """
     if not report.rrule or not report.starts_at:
         return _DEFAULT_PERIOD
     try:
-        rule = rrulestr(report.rrule, dtstart=report.starts_at)
+        tz = ZoneInfo(report.timezone_name or "UTC")
+        starts_local = report.starts_at.astimezone(tz).replace(tzinfo=None)
+        rule = rrulestr(report.rrule, dtstart=starts_local, ignoretz=True)
     except (ValueError, TypeError):
         return _DEFAULT_PERIOD
-    prev = rule.before(now, inc=False)
+    now_local = now.astimezone(tz).replace(tzinfo=None)
+    prev = rule.before(now_local, inc=False)
     if prev is None:
         return _DEFAULT_PERIOD
     prev_prev = rule.before(prev, inc=False)
     if prev_prev is None:
         return _DEFAULT_PERIOD
-    return prev - prev_prev
+    # Reattach the target tz and normalize to UTC so the returned delta reflects
+    # the real wall-clock gap (23/24/25h around DST), not the naive-local delta.
+    prev_utc = prev.replace(tzinfo=tz).astimezone(dt.UTC)
+    prev_prev_utc = prev_prev.replace(tzinfo=tz).astimezone(dt.UTC)
+    return prev_utc - prev_prev_utc
 
 
 @temporalio.activity.defn
