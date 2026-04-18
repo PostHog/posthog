@@ -483,25 +483,26 @@ export function EditAlertModal({
                                         investigationAgentEnabled && (
                                             <div className="deprecated-space-y-2">
                                                 <h4 className="m-0">Investigation agent</h4>
-                                                <div className="flex gap-1 items-center">
+                                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                                                     <LemonCheckbox
                                                         data-attr="alertForm-investigation-agent-enabled"
                                                         checked={!!alertForm.investigation_agent_enabled}
                                                         onChange={(checked) =>
                                                             setAlertFormValue('investigation_agent_enabled', checked)
                                                         }
-                                                        fullWidth
-                                                        label="Run investigation agent when this alert fires"
+                                                        label={
+                                                            <span className="flex items-center gap-1">
+                                                                Run investigation agent when this alert fires
+                                                                <Tooltip
+                                                                    title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </span>
+                                                        }
                                                     />
-                                                    <Tooltip
-                                                        title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
-                                                        placement="right"
-                                                        delayMs={0}
-                                                    >
-                                                        <IconInfo />
-                                                    </Tooltip>
-                                                </div>
-                                                <div className="flex gap-1 items-center">
                                                     <LemonCheckbox
                                                         data-attr="alertForm-investigation-gates-notifications"
                                                         checked={!!alertForm.investigation_gates_notifications}
@@ -516,16 +517,19 @@ export function EditAlertModal({
                                                                 ? 'Enable the investigation agent first'
                                                                 : undefined
                                                         }
-                                                        fullWidth
-                                                        label="Wait for the verdict before notifying"
+                                                        label={
+                                                            <span className="flex items-center gap-1">
+                                                                Wait for the verdict before notifying
+                                                                <Tooltip
+                                                                    title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </span>
+                                                        }
                                                     />
-                                                    <Tooltip
-                                                        title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
-                                                        placement="right"
-                                                        delayMs={0}
-                                                    >
-                                                        <IconInfo />
-                                                    </Tooltip>
                                                 </div>
                                                 {alertForm.investigation_agent_enabled &&
                                                     alertForm.investigation_gates_notifications && (
