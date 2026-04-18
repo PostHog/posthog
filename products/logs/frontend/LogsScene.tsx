@@ -122,9 +122,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 </LemonBanner>
             )}
 
-            {showServicesView && (
-                <LemonTabs<LogsSceneActiveTab> activeKey={activeTab} onChange={setActiveTab} tabs={tabs} sceneInset />
-            )}
+            <LemonTabs<LogsSceneActiveTab> activeKey={activeTab} onChange={setActiveTab} tabs={tabs} sceneInset />
             {activeTab === 'viewer' && (
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
