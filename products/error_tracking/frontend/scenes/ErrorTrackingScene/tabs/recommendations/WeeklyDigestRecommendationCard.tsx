@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -18,7 +17,7 @@ export function WeeklyDigestRecommendationCard({
 }: {
     recommendation: WeeklyDigestRecommendation
     dismissed?: boolean
-}): JSX.Element | null {
+}): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { updateUser, updateETWeeklyDigestForTeam } = useActions(userLogic)
@@ -44,7 +43,6 @@ export function WeeklyDigestRecommendationCard({
             })
         }
         updateETWeeklyDigestForTeam(currentTeamId, true)
-
         refreshRecommendation(recommendation.id)
     }
 
@@ -53,28 +51,20 @@ export function WeeklyDigestRecommendationCard({
             recommendationId={recommendation.id}
             nextRefreshAt={recommendation.next_refresh_at}
             title="Weekly digest"
-            description="Every Monday we'll email you a summary of top issues, new regressions, and crash-free session rate for this project."
+            description={
+                <>
+                    Every Monday we'll email you a summary of top issues, new regressions, and crash-free session rate
+                    for this project. See{' '}
+                    <Link to={urls.settings('user-notifications', 'notifications')}>notifications settings</Link>.
+                </>
+            }
             dismissed={dismissed}
+            progress={enabled ? { current: 1, total: 1, label: 'subscribed' } : undefined}
         >
-            {enabled ? (
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-success text-sm">
-                        <IconCheckCircle className="text-base" />
-                        <span className="font-medium">You're subscribed</span>
-                    </div>
-                    <LemonButton size="small" type="tertiary" to={urls.settings('user-notifications', 'notifications')}>
-                        Manage in settings
-                    </LemonButton>
-                </div>
-            ) : (
-                <div className="flex items-center gap-2">
-                    <LemonButton size="small" type="primary" onClick={handleEnable}>
-                        Send it to me
-                    </LemonButton>
-                    <LemonButton size="small" type="tertiary" to={urls.settings('user-notifications', 'notifications')}>
-                        Manage in settings
-                    </LemonButton>
-                </div>
+            {!enabled && (
+                <LemonButton size="small" type="primary" onClick={handleEnable}>
+                    Send it to me
+                </LemonButton>
             )}
         </RecommendationCard>
     )

@@ -10,7 +10,7 @@ export interface RecommendationCardProps {
     recommendationId: string
     nextRefreshAt?: string | null
     title: string
-    description?: string
+    description?: ReactNode
     progress?: { current: number; total: number; label: string }
     dismissed?: boolean
     children?: ReactNode
