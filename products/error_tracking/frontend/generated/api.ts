@@ -18,7 +18,7 @@ import type {
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
     ErrorTrackingGroupingRuleApi,
-    ErrorTrackingGroupingRulesListParams,
+    ErrorTrackingGroupingRuleListResponseApi,
     ErrorTrackingIssueFullApi,
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
@@ -41,7 +41,6 @@ import type {
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingExternalReferenceListApi,
     PaginatedErrorTrackingFingerprintListApi,
-    PaginatedErrorTrackingGroupingRuleListApi,
     PaginatedErrorTrackingIssueFullListApi,
     PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
@@ -425,37 +424,18 @@ export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     })
 }
 
-export const getErrorTrackingGroupingRulesListUrl = (
-    projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/error_tracking/grouping_rules/?${stringifiedParams}`
-        : `/api/environments/${projectId}/error_tracking/grouping_rules/`
+export const getErrorTrackingGroupingRulesListUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/`
 }
 
 export const errorTrackingGroupingRulesList = async (
     projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams,
     options?: RequestInit
-): Promise<PaginatedErrorTrackingGroupingRuleListApi> => {
-    return apiMutator<PaginatedErrorTrackingGroupingRuleListApi>(
-        getErrorTrackingGroupingRulesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ErrorTrackingGroupingRuleListResponseApi> => {
+    return apiMutator<ErrorTrackingGroupingRuleListResponseApi>(getErrorTrackingGroupingRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {

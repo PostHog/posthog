@@ -209,6 +209,7 @@ path = "products.error_tracking"
 depends_on = [
     "ee",
     "posthog",
+    "products.logs",
 ]
 layer = "modules"
 

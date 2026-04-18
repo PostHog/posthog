@@ -6,22 +6,13 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinn
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import type { RepoApi } from '../generated/api.schemas'
-import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'
-
-export const scene: SceneExport = {
-    component: VisualReviewSettingsScene,
-    logic: visualReviewSettingsSceneLogic,
-}
+import { visualReviewSettingsLogic } from './visualReviewSettingsLogic'
 
 function GitHubConnectPrompt(): JSX.Element {
     return (
@@ -137,8 +128,8 @@ snapshots: {}
 }
 
 function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
-    const { editingRepoId } = useValues(visualReviewSettingsSceneLogic)
-    const { editRepo } = useActions(visualReviewSettingsSceneLogic)
+    const { editingRepoId } = useValues(visualReviewSettingsLogic)
+    const { editRepo } = useActions(visualReviewSettingsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     const isEditing = editingRepoId === repo.id
@@ -197,8 +188,8 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
 }
 
 function RepoEditForm(): JSX.Element {
-    const { formValues, saving, hasChanges } = useValues(visualReviewSettingsSceneLogic)
-    const { setFormField, saveRepo, cancelEdit } = useActions(visualReviewSettingsSceneLogic)
+    const { formValues, saving, hasChanges } = useValues(visualReviewSettingsLogic)
+    const { setFormField, saveRepo, cancelEdit } = useActions(visualReviewSettingsLogic)
 
     return (
         <div className="border-2 border-primary rounded-lg p-4 space-y-4">
@@ -242,9 +233,8 @@ function RepoEditForm(): JSX.Element {
 }
 
 function AddRepoDropdown(): JSX.Element {
-    const { availableRepos, existingRepoNames, saving, githubManageAccessUrl } =
-        useValues(visualReviewSettingsSceneLogic)
-    const { addRepo } = useActions(visualReviewSettingsSceneLogic)
+    const { availableRepos, existingRepoNames, saving, githubManageAccessUrl } = useValues(visualReviewSettingsLogic)
+    const { addRepo } = useActions(visualReviewSettingsLogic)
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
 
     const unaddedRepos = availableRepos.filter((r: GitHubRepoApi) => !existingRepoNames.has(r.full_name))
@@ -304,8 +294,8 @@ function AddRepoDropdown(): JSX.Element {
     )
 }
 
-export function VisualReviewSettingsScene(): JSX.Element {
-    const { repos, reposLoading } = useValues(visualReviewSettingsSceneLogic)
+export function VisualReviewSettings(): JSX.Element {
+    const { repos, reposLoading } = useValues(visualReviewSettingsLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
 
     const githubIntegrations = integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
@@ -313,46 +303,35 @@ export function VisualReviewSettingsScene(): JSX.Element {
 
     if (reposLoading) {
         return (
-            <SceneContent>
-                <SceneTitleSection name="Visual review settings" resourceType={{ type: 'visual_review' }} />
-                <div className="space-y-4 max-w-2xl">
-                    <LemonSkeleton className="h-24 w-full" />
-                    <LemonSkeleton className="h-24 w-full" />
-                </div>
-            </SceneContent>
+            <div className="space-y-4 max-w-2xl">
+                <LemonSkeleton className="h-24 w-full" />
+                <LemonSkeleton className="h-24 w-full" />
+            </div>
         )
     }
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Visual review settings"
-                resourceType={{ type: 'visual_review' }}
-                actions={hasGitHub ? <AddRepoDropdown /> : undefined}
-            />
+        <div className="space-y-4 max-w-2xl">
+            {integrationsLoading ? (
+                <div className="flex items-center gap-2 text-muted">
+                    <Spinner /> Loading integrations...
+                </div>
+            ) : !hasGitHub ? (
+                <GitHubConnectPrompt />
+            ) : null}
 
-            <div className="space-y-4 max-w-2xl">
-                {integrationsLoading ? (
-                    <div className="flex items-center gap-2 text-muted">
-                        <Spinner /> Loading integrations...
-                    </div>
-                ) : !hasGitHub ? (
-                    <GitHubConnectPrompt />
-                ) : null}
+            {hasGitHub && <AddRepoDropdown />}
 
-                {repos.length === 0 && hasGitHub ? (
-                    <div className="border rounded-lg p-6 text-center text-muted">
-                        <div className="space-y-2">
-                            <IconGear className="text-2xl mx-auto" />
-                            <p>No repos configured yet. Select a repository above to get started.</p>
-                        </div>
+            {repos.length === 0 && hasGitHub ? (
+                <div className="border rounded-lg p-6 text-center text-muted">
+                    <div className="space-y-2">
+                        <IconGear className="text-2xl mx-auto" />
+                        <p>No repos configured yet. Select a repository above to get started.</p>
                     </div>
-                ) : (
-                    repos.map((repo) => <RepoCard key={repo.id} repo={repo} />)
-                )}
-            </div>
-        </SceneContent>
+                </div>
+            ) : (
+                repos.map((repo) => <RepoCard key={repo.id} repo={repo} />)
+            )}
+        </div>
     )
 }
-
-export default VisualReviewSettingsScene

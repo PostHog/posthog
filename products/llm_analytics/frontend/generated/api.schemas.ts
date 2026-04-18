@@ -1057,6 +1057,17 @@ export interface PatchedTraceReviewUpdateApi {
     queue_id?: string | null
 }
 
+export interface LLMPromptOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text with markdown link syntax preserved. */
+    text: string
+}
+
 export interface LLMPromptListApi {
     readonly id: string
     /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -1072,6 +1083,7 @@ export interface LLMPromptListApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+    readonly outline: readonly LLMPromptOutlineEntryApi[]
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
 }
@@ -1103,12 +1115,18 @@ export interface LLMPromptApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+    readonly outline: readonly LLMPromptOutlineEntryApi[]
 }
 
 export interface LLMPromptPublicApi {
     id: string
     name: string
-    prompt: unknown
+    /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
+    prompt?: unknown
+    /** First 160 characters of the prompt. Only present when 'content=preview'. */
+    prompt_preview?: string
+    /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
+    outline: LLMPromptOutlineEntryApi[]
     version: number
     created_at: string
     updated_at: string
@@ -1463,7 +1481,7 @@ export type LlmAnalyticsTraceReviewsListParams = {
 
 export type LlmPromptsListParams = {
     /**
- * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+ * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
 
 * `full` - full
 * `preview` - preview
@@ -1495,11 +1513,29 @@ export const LlmPromptsListContent = {
 
 export type LlmPromptsNameRetrieveParams = {
     /**
+ * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+* `full` - full
+* `preview` - preview
+* `none` - none
+ * @minLength 1
+ */
+    content?: LlmPromptsNameRetrieveContent
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number
 }
+
+export type LlmPromptsNameRetrieveContent =
+    (typeof LlmPromptsNameRetrieveContent)[keyof typeof LlmPromptsNameRetrieveContent]
+
+export const LlmPromptsNameRetrieveContent = {
+    Full: 'full',
+    Preview: 'preview',
+    None: 'none',
+} as const
 
 export type LlmPromptsResolveNameRetrieveParams = {
     /**

@@ -5,13 +5,11 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Breadcrumb } from '~/types'
-
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
-import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsSceneLogicType'
+import type { visualReviewSettingsLogicType } from './visualReviewSettingsLogicType'
 
 export interface RepoFormValues {
     baseline_file_paths: Record<string, string>
@@ -30,8 +28,8 @@ function formValuesFromRepo(repo: RepoApi): RepoFormValues {
     }
 }
 
-export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogicType>([
-    path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSettingsSceneLogic']),
+export const visualReviewSettingsLogic = kea<visualReviewSettingsLogicType>([
+    path(['products', 'visual_review', 'frontend', 'settings', 'visualReviewSettingsLogic']),
 
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'getGitHubRepositoriesFull'], teamLogic, ['currentProjectId']],
@@ -141,21 +139,6 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 }
                 return null
             },
-        ],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: 'visual_review',
-                    name: 'Visual review',
-                    path: '/visual_review',
-                },
-                {
-                    key: 'visual_review_settings',
-                    name: 'Settings',
-                    path: '/visual_review/settings',
-                },
-            ],
         ],
     }),
 

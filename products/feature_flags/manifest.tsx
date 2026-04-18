@@ -11,6 +11,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/FeatureFlagTemplatesScene'),
             projectBased: true,
             name: 'Feature flag templates',
+            settingsSection: 'environment-feature-flags',
         },
     },
     routes: {
