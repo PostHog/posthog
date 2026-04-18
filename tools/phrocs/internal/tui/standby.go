@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -112,29 +113,59 @@ func (m *Model) promoteStandby() (*process.Process, bool) {
 }
 
 // standbyInfoLines returns placeholder content for a standby process.
+// All labelled rows align their values to a single absolute column, regardless
+// of indent depth, so top-level and indented rows visually line up.
 func (m *Model) standbyInfoLines(p *process.Process) []string {
+	const valueCol = 16 // absolute column where key-value values begin
+
+	bold := lipgloss.NewStyle().Bold(true)
+	subtle := lipgloss.NewStyle().Foreground(colorBrightBlack)
+
+	row := func(indent int, label, value string) string {
+		w := max(valueCol-indent, 1)
+		return strings.Repeat(" ", indent) + bold.Width(w).Render(label) + value
+	}
+	section := func(title string) string {
+		return "  " + bold.Render(title)
+	}
+
 	lines := []string{
 		"",
-		"  Not in current intent config — press 's' to start",
-		"",
+		"  " + subtle.Render("Not in your current intent config — press ") +
+			bold.Render("s") +
+			subtle.Render(" to start"),
 	}
-	if p.Cfg.Shell != "" {
-		lines = append(lines, "  Command: "+p.Cfg.Shell)
-	} else if len(p.Cfg.Cmd) > 0 {
-		lines = append(lines, "  Command: "+strings.Join(p.Cfg.Cmd, " "))
+
+	// Command — on its own, with a blank line separating it from the rest
+	switch {
+	case p.Cfg.Shell != "":
+		lines = append(lines, "", row(2, "Command", inlineShell(p.Cfg.Shell)))
+	case len(p.Cfg.Cmd) > 0:
+		lines = append(lines, "", row(2, "Command", strings.Join(p.Cfg.Cmd, " ")))
 	}
+
 	if p.Cfg.Capability != "" {
-		lines = append(lines, "  Capability: "+p.Cfg.Capability)
+		lines = append(lines, "", row(2, "Capability", p.Cfg.Capability))
 	}
+
 	if len(p.Cfg.Groups) > 0 {
 		dims := make([]string, 0, len(p.Cfg.Groups))
 		for dim := range p.Cfg.Groups {
 			dims = append(dims, dim)
 		}
 		sort.Strings(dims)
+		lines = append(lines, "", section("Groups"))
 		for _, dim := range dims {
-			lines = append(lines, "  Group: "+dim+"="+p.Cfg.Groups[dim])
+			lines = append(lines, row(4, dim, p.Cfg.Groups[dim]))
 		}
 	}
+
 	return lines
+}
+
+// inlineShell collapses bash line-continuations ("\\\n") and other newlines in
+// a multi-line shell block into a single readable line, for display only.
+func inlineShell(s string) string {
+	s = strings.ReplaceAll(s, "\\\n", " ")
+	return strings.Join(strings.Fields(s), " ")
 }
