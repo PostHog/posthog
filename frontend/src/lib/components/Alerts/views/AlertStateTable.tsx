@@ -1,43 +1,33 @@
 import { useMemo } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
-import type { LemonTableColumn, LemonTagType } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import type { LemonTableColumn } from '@posthog/lemon-ui'
 
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils'
 
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 
-const VERDICT_TAG: Record<InvestigationVerdict, { label: string; type: LemonTagType; tooltip: string }> = {
+const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
     true_positive: {
         label: 'True positive',
-        type: 'danger',
+        className: 'text-danger',
         tooltip: 'Agent thinks this is a real anomaly worth looking at.',
     },
     false_positive: {
         label: 'False positive',
-        type: 'muted',
+        className: 'text-muted',
         tooltip: 'Agent thinks this was a data/release artifact, not a real anomaly.',
     },
     inconclusive: {
         label: 'Inconclusive',
-        type: 'warning',
+        className: 'text-warning',
         tooltip: 'Agent could not reach a confident conclusion from the available data.',
     },
-}
-
-function VerdictTag({ verdict }: { verdict: InvestigationVerdict }): JSX.Element {
-    const cfg = VERDICT_TAG[verdict]
-    return (
-        <Tooltip title={cfg.tooltip}>
-            <LemonTag type={cfg.type} size="small">
-                {cfg.label}
-            </LemonTag>
-        </Tooltip>
-    )
 }
 
 function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
@@ -48,8 +38,9 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     const suppressed = !!check.notification_suppressed_by_agent
 
     if (status === 'done' && shortId) {
+        const verdictCfg = verdict ? VERDICT_CONFIG[verdict] : null
         return (
-            <div className="flex flex-col gap-1.5 items-start max-w-md w-fit ml-auto text-left">
+            <div className="flex flex-col gap-1 items-start max-w-md">
                 {suppressed && (
                     <Tooltip title="The investigation agent concluded this fire wasn't worth notifying about, so we didn't send an email / Slack / webhook for it.">
                         <LemonTag type="muted" size="small">
@@ -57,15 +48,18 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         </LemonTag>
                     </Tooltip>
                 )}
-                {(verdict || summary) && (
-                    <div className="flex items-start gap-1.5">
-                        {verdict && <VerdictTag verdict={verdict} />}
-                        {summary && <SummaryText summary={summary} leadingDash={!!verdict} />}
+                <Tooltip title={summary || undefined}>
+                    <div className="text-sm leading-normal line-clamp-2 text-muted">
+                        {verdictCfg && (
+                            <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
+                        )}
+                        {verdictCfg && summary && <span> — </span>}
+                        {summary && <span>{summary}</span>}
                     </div>
-                )}
-                <LemonButton type="secondary" size="xsmall" to={`/notebooks/${shortId}`} icon={<IconNotebook />}>
-                    View notebook
-                </LemonButton>
+                </Tooltip>
+                <Link to={`/notebooks/${shortId}`} className="inline-flex items-center gap-1 text-sm">
+                    <IconNotebook /> View notebook <IconOpenInNew className="text-xs" />
+                </Link>
             </div>
         )
     }
@@ -91,18 +85,6 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
         )
     }
     return <span className="text-secondary">—</span>
-}
-
-function SummaryText({ summary, leadingDash = false }: { summary: string; leadingDash?: boolean }): JSX.Element {
-    // Line-clamp adapts to cell width / font size, unlike a fixed char budget.
-    // Full summary shows on hover via the tooltip.
-    return (
-        <Tooltip title={summary}>
-            <span className="text-secondary text-sm leading-normal line-clamp-2">
-                {leadingDash ? `— ${summary}` : summary}
-            </span>
-        </Tooltip>
-    )
 }
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
@@ -143,7 +125,6 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
         if (investigationAgentEnabled) {
             columns.push({
                 title: 'Investigation',
-                align: 'right',
                 render: (_value, check) => <InvestigationCell check={check} />,
             })
         }
