@@ -72,7 +72,11 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        frequency = attrs.get("frequency") or (self.instance.frequency if self.instance else None)
+        # On create without an explicit frequency, fall through to the model default so
+        # trigger_threshold / cooldown_minutes bounds still get enforced against every_n.
+        frequency = attrs.get("frequency") or (
+            self.instance.frequency if self.instance else EvaluationReport.Frequency.EVERY_N
+        )
         if frequency == EvaluationReport.Frequency.EVERY_N:
             threshold = (
                 attrs.get("trigger_threshold")

@@ -132,6 +132,32 @@ class TestEvaluationReportApi(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_without_frequency_enforces_trigger_threshold_max(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "trigger_threshold": EvaluationReport.TRIGGER_THRESHOLD_MAX + 1,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "trigger_threshold")
+
+    def test_create_without_frequency_enforces_trigger_threshold_min(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "trigger_threshold": EvaluationReport.TRIGGER_THRESHOLD_MIN - 1,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "trigger_threshold")
+
     def test_validate_email_target(self):
         response = self.client.post(
             self.base_url,
