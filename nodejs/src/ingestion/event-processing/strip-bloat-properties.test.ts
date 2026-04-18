@@ -51,7 +51,8 @@ describe('stripBloatProperties', () => {
         const properties = {
             ph_product_tours_foo: 'kept',
             my_ph_product_tours: 'kept',
-            $surveys_activated_at: 'kept',
+            $product_tours_activated_at: 'kept',
+            my_$override_feature_flag_payloads: 'kept',
         }
 
         stripBloatProperties(properties)
@@ -59,7 +60,8 @@ describe('stripBloatProperties', () => {
         expect(properties).toEqual({
             ph_product_tours_foo: 'kept',
             my_ph_product_tours: 'kept',
-            $surveys_activated_at: 'kept',
+            $product_tours_activated_at: 'kept',
+            my_$override_feature_flag_payloads: 'kept',
         })
         expect(mockLabels).not.toHaveBeenCalled()
     })

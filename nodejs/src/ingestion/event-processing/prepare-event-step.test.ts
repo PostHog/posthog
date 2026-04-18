@@ -138,7 +138,8 @@ describe('createPrepareEventStep', () => {
             properties: {
                 ph_product_tours_foo: 'kept',
                 my_ph_product_tours: 'kept',
-                $surveys_activated_at: 'kept',
+                $product_tours_activated_at: 'kept',
+                my_$override_feature_flag_payloads: 'kept',
             },
         })
 
@@ -149,7 +150,8 @@ describe('createPrepareEventStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.preparedEvent.properties).toHaveProperty('ph_product_tours_foo', 'kept')
             expect(result.value.preparedEvent.properties).toHaveProperty('my_ph_product_tours', 'kept')
-            expect(result.value.preparedEvent.properties).toHaveProperty('$surveys_activated_at', 'kept')
+            expect(result.value.preparedEvent.properties).toHaveProperty('$product_tours_activated_at', 'kept')
+            expect(result.value.preparedEvent.properties).toHaveProperty('my_$override_feature_flag_payloads', 'kept')
         }
     })
 

@@ -6,10 +6,7 @@ import { droppedBloatPropertyCounter } from '../../worker/ingestion/event-pipeli
 // full tour definitions up to 247 KB per event.
 export const BLOAT_PROPERTIES: ReadonlySet<string> = new Set([
     'ph_product_tours',
-    '$session_recording_remote_config',
     '$product_tours_activated',
-    '$product_tours_enabled_server_side',
-    '$surveys_activated',
     '$override_feature_flag_payloads',
 ])
 
