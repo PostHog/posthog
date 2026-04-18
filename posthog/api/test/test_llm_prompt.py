@@ -190,6 +190,37 @@ class TestLLMPromptAPI(APIBaseTest):
         if has_preview:
             assert len(prompt["prompt_preview"]) <= 163
 
+    def test_list_includes_outline_parsed_from_prompt_markdown(self, mock_feature_enabled):
+        self.create_prompt_version(name="outlined", prompt="# Role\nYou are helpful.\n## Tools\nsearch")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt = response.json()["results"][0]
+        assert prompt["outline"] == [
+            {"level": 1, "text": "Role"},
+            {"level": 2, "text": "Tools"},
+        ]
+
+    def test_list_outline_is_present_even_when_content_none(self, mock_feature_enabled):
+        self.create_prompt_version(name="outlined", prompt="# Role\n# Output")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?content=none")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt = response.json()["results"][0]
+        assert "prompt" not in prompt
+        assert "prompt_preview" not in prompt
+        assert prompt["outline"] == [{"level": 1, "text": "Role"}, {"level": 1, "text": "Output"}]
+
+    def test_list_outline_empty_for_non_markdown_prompt(self, mock_feature_enabled):
+        self.create_prompt_version(name="plain", prompt="just text, no headings")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["outline"] == []
+
     def test_list_can_order_by_prompt_size_bytes(self, mock_feature_enabled):
         self.create_prompt_version(name="small", prompt="abc")
         self.create_prompt_version(name="large", prompt="x" * 50)
@@ -216,6 +247,36 @@ class TestLLMPromptAPI(APIBaseTest):
             "+00:00", "Z"
         )
         assert "created_by" not in response.json()
+
+    def test_fetch_prompt_by_name_includes_outline(self, mock_feature_enabled):
+        self.create_prompt_version(name="outlined", prompt="# Role\n## Tools")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/outlined/")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["prompt"] == "# Role\n## Tools"
+        assert body["outline"] == [{"level": 1, "text": "Role"}, {"level": 2, "text": "Tools"}]
+
+    @parameterized.expand(
+        [
+            ("full", True, False),
+            ("preview", False, True),
+            ("none", False, False),
+        ]
+    )
+    def test_fetch_prompt_by_name_respects_content_mode(self, mock_feature_enabled, mode, has_prompt, has_preview):
+        self.create_prompt_version(name="outlined", prompt="# Role\n" + ("x" * 300))
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/outlined/?content={mode}")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert ("prompt" in body) is has_prompt
+        assert ("prompt_preview" in body) is has_preview
+        assert body["outline"] == [{"level": 1, "text": "Role"}]
+        if has_preview:
+            assert len(body["prompt_preview"]) <= 163
 
     def test_fetch_prompt_by_name_with_explicit_version_returns_historical_version(self, mock_feature_enabled):
         first_version = self.create_prompt_version(name="test-prompt", version=1, is_latest=False, prompt="v1")

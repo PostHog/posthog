@@ -4,6 +4,8 @@ from typing import Any, Optional, Union
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
@@ -563,3 +565,74 @@ WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
         assert self.generalize_sql(actual) == self.snapshot
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    # Tests for the sessionIdPushdown modifier — see
+    # https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
+
+    snapshot: Any
+
+    def print_query(self, query: str, pushdown: bool) -> str:
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionIdPushdown = pushdown
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        if prepared_ast is None:
+            return ""
+        return print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
+
+    @parameterized.expand([("with_pushdown", True), ("without_pushdown", False)])
+    def test_experiment_shape(self, _name: str, pushdown: bool):
+        # Mirrors the ExperimentQuery shape: events -> LEFT JOIN sessions filtered by a
+        # session-typed property. With the modifier on, the raw_sessions subquery must carry
+        # an IN-pushdown on session_id_v7 (printed as `globalIn(...)` or `in(...)` depending
+        # on optimizer settings); with it off, it must not.
+        query = """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-27 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND events.session.$entry_pathname = '/signup'
+"""
+        actual = self.print_query(query, pushdown=pushdown)
+        normalized = " ".join(actual.split())
+        has_in_pushdown = (
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+        )
+        assert has_in_pushdown == pushdown, f"Expected pushdown={pushdown} in:\n{actual}"
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_pushdown_noop_for_sessions_only_query(self):
+        # A standalone sessions query has no events source to push down from — pushdown
+        # should not attempt to add anything, and the query should look identical to the
+        # pushdown-disabled version.
+        query = "SELECT session_id, $entry_pathname FROM sessions WHERE $start_timestamp >= '2026-03-27'"
+        with_pushdown = self.print_query(query, pushdown=True)
+        without_pushdown = self.print_query(query, pushdown=False)
+        assert with_pushdown == without_pushdown
+
+    def test_pushdown_drops_non_events_or_branches(self):
+        # An OR between an events predicate and a session-side predicate must not be
+        # pushed down: dropping the session-side half would change semantics. So the
+        # extracted events-only WHERE is None and pushdown is skipped.
+        query = """
+SELECT events.$session_id AS sid, events.session.$entry_pathname AS entry
+FROM events
+WHERE (events.event = '$pageview') OR (events.session.$entry_pathname = '/signup')
+"""
+        actual = self.print_query(query, pushdown=True)
+        normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized
+        assert "globalIn(raw_sessions.session_id_v7" not in normalized

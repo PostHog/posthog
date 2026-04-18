@@ -96,6 +96,7 @@ depends_on = [
     "products.signals",
     "products.slack_app",
     "products.surveys",
+    "products.streamlit_apps",
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
@@ -326,6 +327,14 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.streamlit_apps"
+depends_on = [
+    "posthog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.notifications"
 depends_on = [
     "ee",
@@ -420,6 +429,7 @@ depends_on = [
     "products.event_definitions",
     "products.llm_analytics",
     "products.mcp_store",
+    "products.posthog_ai",
     "products.signals",
     "products.slack_app",
 ]

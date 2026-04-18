@@ -67,7 +67,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        logout: true,
+        logout: (preserveLocation = false) => ({ preserveLocation }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
             user,
@@ -228,10 +228,21 @@ export const userLogic = kea<userLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        logout: () => {
+    listeners(({ actions, values, cache }) => ({
+        logout: ({ preserveLocation }) => {
+            if (cache.loggingOut) {
+                return
+            }
+            cache.loggingOut = true
             posthog.reset()
-            window.location.href = '/logout'
+            if (preserveLocation) {
+                // Forward the current path so that after re-login the user lands back where they were
+                const { pathname, search, hash } = window.location
+                const path = pathname + search + hash
+                window.location.href = `/logout?next=${encodeURIComponent(path)}`
+            } else {
+                window.location.href = '/logout'
+            }
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {

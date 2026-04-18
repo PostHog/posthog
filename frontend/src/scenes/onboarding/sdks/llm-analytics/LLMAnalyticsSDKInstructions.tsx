@@ -8,9 +8,11 @@ import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/au
 import { AWSBedrockInstallation } from '@posthog/shared-onboarding/llm-analytics/aws-bedrock'
 import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/azure-openai'
 import { CerebrasInstallation } from '@posthog/shared-onboarding/llm-analytics/cerebras'
+import { CloudflareAIGatewayInstallation } from '@posthog/shared-onboarding/llm-analytics/cloudflare-ai-gateway'
 import { CohereInstallation } from '@posthog/shared-onboarding/llm-analytics/cohere'
 import { ConvexInstallation } from '@posthog/shared-onboarding/llm-analytics/convex'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
+import { DedalusInstallation } from '@posthog/shared-onboarding/llm-analytics/dedalus'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/llm-analytics/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/llm-analytics/fireworks-ai'
@@ -208,6 +210,14 @@ const LLMOpenAIAgentsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: OpenAIAgentsInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMCloudflareAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CloudflareAIGatewayInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDedalusInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DedalusInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKTagOverrides: SDKTagOverrides = {
     [SDKKey.HELICONE]: [SDKTag.GATEWAY],
@@ -223,6 +233,8 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
     [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,
     [SDKKey.OPENROUTER]: LLMOpenRouterInstructionsWrapper,
+    [SDKKey.CLOUDFLARE_AI_GATEWAY]: LLMCloudflareAIGatewayInstructionsWrapper,
+    [SDKKey.DEDALUS]: LLMDedalusInstructionsWrapper,
     [SDKKey.INSTRUCTOR]: LLMInstructorInstructionsWrapper,
     [SDKKey.CREWAI]: LLMCrewAIInstructionsWrapper,
     [SDKKey.PYDANTIC_AI]: LLMPydanticAIInstructionsWrapper,

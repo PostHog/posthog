@@ -57,9 +57,14 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality
+        name: Node.js Code quality (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
@@ -98,9 +103,14 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build
+        name: Node.js Build (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
@@ -147,15 +157,16 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests (${{matrix.shard}}/3)
+        name: Node.js Tests ${{matrix.shard}}/3 (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":1,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":2,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":3,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -204,7 +215,8 @@ jobs:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  # Avoid cross-runner pollution: shadow restores but never saves
+                  save-cache: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
@@ -216,7 +228,8 @@ jobs:
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  # Avoid cross-runner pollution: shadow restores but never saves
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Install sqlx-cli
               working-directory: rust

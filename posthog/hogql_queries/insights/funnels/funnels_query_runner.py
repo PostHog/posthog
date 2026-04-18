@@ -30,6 +30,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -62,6 +63,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             ValidateFunnelStepRange(),
             ValidateFunnelExclusions(),
             ValidateOptionalFunnelSteps(),
+            DisallowUnsupportedDataWarehouseSettings(),
         )
 
     def _refresh_frequency(self):

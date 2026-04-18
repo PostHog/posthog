@@ -51,7 +51,13 @@ class TestImageExporter(APIBaseTest):
     exported_asset: ExportedAsset
 
     def setup_method(self, method: Any) -> None:
-        insight = Insight.objects.create(team=self.team)
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT 1 as value"},
+            },
+        )
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,

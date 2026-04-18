@@ -1,14 +1,16 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FieldName, Form, Group } from 'kea-forms'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import {
+    LemonButton,
     LemonDivider,
     LemonFileInput,
     LemonInput,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
+    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
@@ -17,6 +19,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -242,6 +245,133 @@ export const sourceFieldToElement = (
     )
 }
 
+function CDCRequirementsPanel(): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div className="rounded border border-border p-3">
+            <button
+                type="button"
+                className="flex items-center text-xs text-secondary hover:text-default cursor-pointer w-full"
+                onClick={() => setExpanded((v) => !v)}
+            >
+                <span className="mr-2">{expanded ? '▾' : '▸'}</span>
+                <span>What your database needs for CDC</span>
+            </button>
+            {expanded && (
+                <div className="mt-3 text-xs space-y-2">
+                    <p className="m-0">
+                        PostgreSQL 13+ with logical replication enabled. Typical setup on your server:
+                    </p>
+                    <ul className="list-disc ml-5 space-y-1 m-0">
+                        <li>
+                            <code>wal_level = logical</code> (requires a server restart). On RDS, set{' '}
+                            <code>rds.logical_replication = 1</code>.
+                        </li>
+                        <li>
+                            <code>max_replication_slots</code> and <code>max_wal_senders</code> with at least one free
+                            slot for PostHog. Postgres' defaults (10) are plenty unless other consumers share the same
+                            database.
+                        </li>
+                        <li>
+                            Database user with <code>REPLICATION</code> (
+                            <code>ALTER USER &lt;user&gt; WITH REPLICATION</code>) — or, on AWS RDS, membership in{' '}
+                            <code>rds_replication</code>. Required for both PostHog-managed and self-managed modes;
+                            PostHog creates and reads the replication slot either way.
+                        </li>
+                        <li>
+                            <strong>PostHog-managed mode</strong> additionally needs ownership of the synced tables (or
+                            a superuser) so PostHog can run <code>CREATE PUBLICATION</code>. In{' '}
+                            <strong>self-managed mode</strong> the owner creates just the publication once — PostHog
+                            connects with a user that only needs <code>SELECT</code> on the tables and{' '}
+                            <code>REPLICATION</code>.
+                        </li>
+                        <li>Every table you want to sync must have a primary key.</li>
+                        <li>
+                            SSL/TLS is required — connect over a public endpoint with <code>sslmode=require</code>.
+                        </li>
+                    </ul>
+                    <p className="m-0 text-secondary">
+                        Click "Check database prerequisites" below to verify your configuration against a live
+                        connection.
+                    </p>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function CDCPrerequisitesCheck(): JSX.Element {
+    const {
+        sourceConnectionDetails,
+        sourceConnectionDetailsValidationErrors,
+        cdcPrereqsCheckResult,
+        cdcPrereqsCheckResultLoading,
+    } = useValues(sourceWizardLogic)
+    const { checkCdcPrereqs, touchAllSourceConnectionDetailsFields } = useActions(sourceWizardLogic)
+
+    const hasFormErrors = (errs: any): boolean => {
+        if (!errs) {
+            return false
+        }
+        if (typeof errs === 'string') {
+            return errs.length > 0
+        }
+        if (Array.isArray(errs)) {
+            return errs.some(hasFormErrors)
+        }
+        if (typeof errs === 'object') {
+            return Object.values(errs).some(hasFormErrors)
+        }
+        return false
+    }
+
+    const onClick = (): void => {
+        if (hasFormErrors(sourceConnectionDetailsValidationErrors)) {
+            touchAllSourceConnectionDetailsFields()
+            lemonToast.error('Please fill in all required connection fields before checking prerequisites.')
+            return
+        }
+        checkCdcPrereqs()
+    }
+
+    const checkedManagementMode = (sourceConnectionDetails?.payload?.cdc_management_mode || 'posthog') as
+        | 'posthog'
+        | 'self_managed'
+
+    return (
+        <div>
+            <LemonButton type="secondary" onClick={onClick} loading={cdcPrereqsCheckResultLoading}>
+                Check database prerequisites
+            </LemonButton>
+            {cdcPrereqsCheckResult && (
+                <LemonBanner type={cdcPrereqsCheckResult.valid ? 'success' : 'error'} className="mt-2">
+                    {cdcPrereqsCheckResult.valid ? (
+                        <>
+                            <p className="m-0">Your database is ready for CDC.</p>
+                            {checkedManagementMode === 'self_managed' && (
+                                <p className="m-0 text-xs mt-1">
+                                    After you pick your tables in the next step, we'll show you the{' '}
+                                    <code>CREATE PUBLICATION</code> statement to run as the table owner. PostHog creates
+                                    the replication slot itself.
+                                </p>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <p className="font-semibold mb-1">Some prerequisites are not met:</p>
+                            <ul className="list-disc ml-5 mb-0 text-sm">
+                                {cdcPrereqsCheckResult.errors.map((err: string, i: number) => (
+                                    <li key={i}>{err}</li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                </LemonBanner>
+            )}
+        </div>
+    )
+}
+
 function CDCConfigSection(): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
@@ -249,14 +379,35 @@ function CDCConfigSection(): JSX.Element {
     return (
         <Group name="payload">
             <div className="space-y-4 mt-4">
-                <LemonField name="cdc_enabled" label="Change data capture (CDC)">
+                <LemonField name="cdc_enabled">
                     {({ value: cdcEnabled, onChange }) => (
-                        <>
-                            <p className="text-xs text-secondary mb-2">
-                                CDC captures inserts, updates, and deletes via PostgreSQL logical replication.
-                            </p>
-                            <LemonSwitch checked={!!cdcEnabled} onChange={onChange} />
-                        </>
+                        <div
+                            className={`rounded border p-4 ${
+                                cdcEnabled
+                                    ? 'border-success/40 bg-success-highlight/40'
+                                    : 'border-success/40 bg-success-highlight/20'
+                            }`}
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
+                                        <LemonTag type="success">Recommended</LemonTag>
+                                    </div>
+                                    <p className="text-sm text-secondary mb-2">
+                                        Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
+                                        and <strong>deletes</strong> — the other sync modes can't. No full table scans
+                                        and no reliance on an <code>updated_at</code> field.
+                                    </p>
+                                </div>
+                                <LemonSwitch checked={!!cdcEnabled} onChange={onChange} />
+                            </div>
+                            <LemonDivider className="my-3" />
+                            <CDCRequirementsPanel />
+                            <div className="mt-2">
+                                <CDCPrerequisitesCheck />
+                            </div>
+                        </div>
                     )}
                 </LemonField>
 
@@ -289,8 +440,11 @@ function CDCConfigSection(): JSX.Element {
                                                         <div>
                                                             <div>Self-managed</div>
                                                             <div className="text-xs text-secondary">
-                                                                You manage your own replication slot and publication.
-                                                                PostHog only needs SELECT access.
+                                                                You (or your DBA) create just the publication once as
+                                                                the table owner. PostHog creates and manages the
+                                                                replication slot itself, and still needs REPLICATION (or
+                                                                rds_replication on RDS) plus SELECT on the synced
+                                                                tables.
                                                             </div>
                                                         </div>
                                                     ),
@@ -304,15 +458,6 @@ function CDCConfigSection(): JSX.Element {
                                     {({ value: managementMode }) =>
                                         managementMode === 'self_managed' ? (
                                             <div className="space-y-4">
-                                                <LemonField name="cdc_slot_name" label="Replication slot name">
-                                                    {({ value, onChange }) => (
-                                                        <LemonInput
-                                                            placeholder="posthog_slot"
-                                                            value={value || ''}
-                                                            onChange={onChange}
-                                                        />
-                                                    )}
-                                                </LemonField>
                                                 <LemonField name="cdc_publication_name" label="Publication name">
                                                     {({ value, onChange }) => (
                                                         <LemonInput
@@ -323,17 +468,12 @@ function CDCConfigSection(): JSX.Element {
                                                     )}
                                                 </LemonField>
                                                 <LemonBanner type="info">
-                                                    <p className="font-semibold mb-1">Setup SQL</p>
-                                                    <p className="text-xs mb-2">
-                                                        Run these commands on your PostgreSQL database before
-                                                        connecting:
+                                                    <p className="font-semibold mb-1">Setup SQL comes next</p>
+                                                    <p className="text-xs m-0">
+                                                        After you pick the tables to sync, we'll show you a{' '}
+                                                        <code>CREATE PUBLICATION</code> statement to run as the table
+                                                        owner. PostHog creates and manages the replication slot itself.
                                                     </p>
-                                                    <pre className="text-xs bg-surface-primary p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                                                        {`CREATE PUBLICATION posthog_pub FOR TABLE public.your_table
-  WITH (publish_via_partition_root = true);
-
-SELECT pg_create_logical_replication_slot('posthog_slot', 'pgoutput');`}
-                                                    </pre>
                                                 </LemonBanner>
                                             </div>
                                         ) : (

@@ -5,6 +5,7 @@ import pytest
 
 from posthog.schema import SignalInput
 
+from posthog.temporal.data_imports.signals.conversations_tickets import conversations_ticket_emitter
 from posthog.temporal.data_imports.signals.github_issues import github_issue_emitter
 from posthog.temporal.data_imports.signals.linear_issues import linear_issue_emitter
 from posthog.temporal.data_imports.signals.zendesk_tickets import zendesk_ticket_emitter
@@ -33,6 +34,7 @@ def _validate_output(output):
 GITHUB_RECORDS = _load_fixture("github_issues.json")
 ZENDESK_RECORDS = _load_fixture("zendesk_tickets.json")
 LINEAR_RECORDS = _load_fixture("linear_issues.json")
+CONVERSATIONS_RECORDS = _load_fixture("conversations_tickets.json")
 
 
 class TestGithubFixtureSchemaValidation:
@@ -67,5 +69,17 @@ class TestLinearFixtureSchemaValidation:
     )
     def test_emitter_output_matches_schema(self, record):
         output = linear_issue_emitter(team_id=1, record=record)
+        if output is not None:
+            _validate_output(output)
+
+
+class TestConversationsFixtureSchemaValidation:
+    @pytest.mark.parametrize(
+        "record",
+        CONVERSATIONS_RECORDS,
+        ids=[r["id"] for r in CONVERSATIONS_RECORDS],
+    )
+    def test_emitter_output_matches_schema(self, record):
+        output = conversations_ticket_emitter(team_id=1, record=record)
         if output is not None:
             _validate_output(output)
