@@ -10,8 +10,6 @@ import { formatDate } from 'lib/utils'
 
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 
-const SUMMARY_PREVIEW_CHARS = 140
-
 const VERDICT_TAG: Record<InvestigationVerdict, { label: string; type: LemonTagType; tooltip: string }> = {
     true_positive: {
         label: 'True positive',
@@ -81,10 +79,13 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
 }
 
 function SummaryText({ summary }: { summary: string }): JSX.Element {
-    const needsTruncation = summary.length > SUMMARY_PREVIEW_CHARS
-    const preview = needsTruncation ? summary.slice(0, SUMMARY_PREVIEW_CHARS - 1).trimEnd() + '…' : summary
-    const content = <span className="text-secondary text-sm leading-normal">{preview}</span>
-    return needsTruncation ? <Tooltip title={summary}>{content}</Tooltip> : content
+    // Line-clamp adapts to cell width / font size, unlike a fixed char budget.
+    // Full summary shows on hover via the tooltip.
+    return (
+        <Tooltip title={summary}>
+            <span className="text-secondary text-sm leading-normal line-clamp-2">{summary}</span>
+        </Tooltip>
+    )
 }
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
