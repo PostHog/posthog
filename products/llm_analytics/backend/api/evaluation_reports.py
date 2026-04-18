@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.integration import Integration
 from posthog.permissions import AccessControlPermission
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
@@ -117,6 +118,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
     def validate_delivery_targets(self, value: list) -> list:
         if not isinstance(value, list):
             raise serializers.ValidationError("Delivery targets must be a list.")
+        team = self.context["get_team"]()
+        slack_ids_to_verify: set[int] = set()
         for target in value:
             if not isinstance(target, dict):
                 raise serializers.ValidationError("Each delivery target must be an object.")
@@ -125,8 +128,29 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid delivery target type: {target_type}")
             if target_type == "email" and not target.get("value"):
                 raise serializers.ValidationError("Email delivery target must include a 'value' field.")
-            if target_type == "slack" and (not target.get("integration_id") or not target.get("channel")):
-                raise serializers.ValidationError("Slack delivery target must include 'integration_id' and 'channel'.")
+            if target_type == "slack":
+                integration_id = target.get("integration_id")
+                channel = target.get("channel")
+                if not integration_id or not channel:
+                    raise serializers.ValidationError(
+                        "Slack delivery target must include 'integration_id' and 'channel'."
+                    )
+                try:
+                    slack_ids_to_verify.add(int(integration_id))
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Slack integration_id must be an integer.")
+        if slack_ids_to_verify:
+            # Enforce tenant + kind boundary: only integrations that belong to this team AND
+            # are Slack integrations are valid. Prevents cross-team reuse of integration ids
+            # and rejects non-Slack kinds that happen to share an id.
+            owned = set(
+                Integration.objects.filter(
+                    team_id=team.id, kind=Integration.IntegrationKind.SLACK, id__in=slack_ids_to_verify
+                ).values_list("id", flat=True)
+            )
+            missing = slack_ids_to_verify - owned
+            if missing:
+                raise serializers.ValidationError(f"Slack integration(s) not found for this team: {sorted(missing)}.")
         return value
 
     def create(self, validated_data):

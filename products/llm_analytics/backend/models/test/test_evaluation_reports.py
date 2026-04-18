@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
 
@@ -84,6 +85,27 @@ class TestEvaluationReportModel(BaseTest):
         report.set_next_delivery_date(from_dt=from_dt)
         assert report.next_delivery_date is not None
         self.assertGreater(report.next_delivery_date, from_dt)
+
+    def test_set_next_delivery_date_stays_at_local_wall_clock_across_dst(self):
+        # 9am daily in New York: Sun 2026-03-01 14:00 UTC (EST = UTC-5).
+        # After DST begins on 2026-03-08, 9am local == 13:00 UTC (EDT = UTC-4).
+        # Naive `rrulestr(...).after()` would keep firing at 14:00 UTC, drifting to
+        # 10am local. The workflows util expands in naive local then reattaches the
+        # zoneinfo so the wall-clock stays at 09:00 across the transition.
+        ny = ZoneInfo("America/New_York")
+        anchor_utc = dt.datetime(2026, 3, 1, 14, 0, tzinfo=dt.UTC)  # 9am EST
+        report = self._scheduled_report(
+            rrule="FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
+            starts_at=anchor_utc,
+            timezone_name="America/New_York",
+        )
+        # Look for the first occurrence after DST started (2026-03-08 02:00 local).
+        report.set_next_delivery_date(from_dt=dt.datetime(2026, 3, 10, 12, 0, tzinfo=dt.UTC))
+        assert report.next_delivery_date is not None
+        # Next fire should be at 09:00 local, i.e. 13:00 UTC (EDT), not 14:00 UTC.
+        local = report.next_delivery_date.astimezone(ny)
+        self.assertEqual(local.hour, 9)
+        self.assertEqual(local.minute, 0)
 
     def test_save_with_update_fields_persists_changed_schedule_field(self):
         # Regression: save(update_fields=[...]) used to drop a changed schedule

@@ -7,7 +7,7 @@ from dateutil.rrule import rrulestr
 
 from posthog.models.utils import UUIDTModel
 
-from products.workflows.backend.utils.rrule_utils import validate_rrule
+from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 
 class EvaluationReport(UUIDTModel):
@@ -98,8 +98,20 @@ class EvaluationReport(UUIDTModel):
             # next_delivery_date is unused — the 5-minute poll checks eval counts.
             self.next_delivery_date = None
             return
+        if not self.rrule or not self.starts_at:
+            raise ValueError("rrule and starts_at must be set for scheduled reports.")
+        # Expand in naive local time so "9am Europe/Prague" stays at 9am across DST,
+        # then convert back to UTC. `rrulestr(..., dtstart=starts_at).after(...)` on
+        # its own ignores timezone_name and would drift after a DST transition.
         now = timezone.now() + timedelta(minutes=15)
-        self.next_delivery_date = self.rrule_object.after(dt=max(from_dt or now, now), inc=False)
+        occurrences = compute_next_occurrences(
+            self.rrule,
+            self.starts_at,
+            timezone_str=self.timezone_name or "UTC",
+            after=max(from_dt or now, now),
+            count=1,
+        )
+        self.next_delivery_date = occurrences[0] if occurrences else None
 
     def save(self, *args, **kwargs):
         recalc = not self.id or not self.next_delivery_date

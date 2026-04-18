@@ -7,6 +7,10 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+
 from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.llm_analytics.backend.models.evaluations import Evaluation
 
@@ -175,12 +179,58 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_validate_slack_target_valid(self):
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK, config={})
         response = self.client.post(
             self.base_url,
-            self._scheduled_payload(delivery_targets=[{"type": "slack", "integration_id": 1, "channel": "#reports"}]),
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": integration.id, "channel": "#reports"}]
+            ),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_validate_slack_target_rejects_nonexistent_integration(self):
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": 999999, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "delivery_targets")
+
+    def test_validate_slack_target_rejects_cross_team_integration(self):
+        # Integration belongs to a different team; must not be usable by this team.
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        foreign_integration = Integration.objects.create(
+            team=other_team, kind=Integration.IntegrationKind.SLACK, config={}
+        )
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": foreign_integration.id, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "delivery_targets")
+
+    def test_validate_slack_target_rejects_wrong_kind_integration(self):
+        # Same team but not a Slack integration — reject so a github id can't masquerade.
+        github_integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.GITHUB, config={}
+        )
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": github_integration.id, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "delivery_targets")
 
     def test_validate_invalid_target_type(self):
         response = self.client.post(
