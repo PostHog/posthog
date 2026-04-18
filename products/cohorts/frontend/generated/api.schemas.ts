@@ -320,6 +320,78 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
     person_ids?: string[]
 }
 
+/**
+ * * `person` - person
+ */
+export type CohortPersonResultTypeEnumApi =
+    (typeof CohortPersonResultTypeEnumApi)[keyof typeof CohortPersonResultTypeEnumApi]
+
+export const CohortPersonResultTypeEnumApi = {
+    Person: 'person',
+} as const
+
+/**
+ * Key-value map of person properties.
+ */
+export type CohortPersonResultApiProperties = { [key: string]: unknown }
+
+export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
+
+/**
+ * Shape of a single person entry returned by the cohort persons endpoint.
+
+Mirrors the `SerializedPerson` TypedDict in `posthog/queries/actor_base_query.py`
+so the generated OpenAPI schema matches the actual runtime response.
+ */
+export interface CohortPersonResultApi {
+    /** Numeric person ID or UUID string. */
+    id: string
+    /** Unique identifier (UUID) for this person. */
+    uuid: string
+    type: CohortPersonResultTypeEnumApi
+    /**
+     * Display name derived from person properties.
+     * @nullable
+     */
+    name: string | null
+    /** Up to 10 distinct IDs belonging to this person. */
+    distinct_ids: string[]
+    /** Key-value map of person properties. */
+    properties: CohortPersonResultApiProperties
+    /**
+     * When this person was first seen.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * Timestamp of the last event from this person.
+     * @nullable
+     */
+    last_seen_at: string | null
+    /** @nullable */
+    is_identified: boolean | null
+    matched_recordings?: CohortPersonResultApiMatchedRecordingsItem[]
+    /** @nullable */
+    value_at_data_point?: number | null
+}
+
+/**
+ * Response shape for the paginated cohort persons endpoint.
+ */
+export interface CohortPersonsResponseApi {
+    results: CohortPersonResultApi[]
+    /**
+     * URL for the next page of results, or null.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, or null.
+     * @nullable
+     */
+    previous: string | null
+}
+
 export interface PatchedRemovePersonRequestApi {
     /** Person UUID to remove from the cohort */
     person_id?: string
@@ -338,6 +410,14 @@ export type CohortsListParams = {
 
 export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number
 }
 
 export type CohortsPersonsRetrieveFormat =

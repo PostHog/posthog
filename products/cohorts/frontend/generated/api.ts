@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CohortApi,
+    CohortPersonsResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     PaginatedCohortListApi,
@@ -205,8 +206,8 @@ export const cohortsPersonsRetrieve = async (
     id: number,
     params?: CohortsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
+): Promise<CohortPersonsResponseApi> => {
+    return apiMutator<CohortPersonsResponseApi>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

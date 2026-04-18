@@ -1,5 +1,7 @@
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+
+from posthog.models.cohort import Cohort
 
 
 class TestAPIDocsSchema(APIBaseTest):
@@ -54,10 +56,6 @@ class TestAPIDocsSchema(APIBaseTest):
             assert not any(param.get("name") == "name" for param in method_params)
 
     def test_cohort_persons_endpoint_has_paginated_persons_response_schema(self) -> None:
-        """
-        Regression test for #18673: the cohort persons endpoint returns a paginated list of Person
-        objects, but the generated schema previously inherited the viewset's default Cohort response.
-        """
         self.client.logout()
 
         schema_response = self.client.get("/api/schema/")
@@ -89,40 +87,18 @@ class TestAPIDocsSchema(APIBaseTest):
         assert "previous" in response_schema["properties"]
 
     def test_funnel_window_interval_type_default_matches_enum(self) -> None:
-        """
-        Regression test for #18673: the default value must be one of the enum choices.
-        OpenAPI generators fail on `default: "days"` when the enum is `["DAY", "HOUR", ...]`.
-        Asserted against both the serializer (direct) and the generated schema (integration).
-        """
+        # FunnelSerializer is declared in insight_serializers.py but not wired to any viewset,
+        # so it doesn't appear in the generated /api/schema/ output. A serializer-level check
+        # is therefore the right guard against this class of bug (default not in enum choices).
         from posthog.api.insight_serializers import FunnelSerializer
 
-        # Direct serializer check — catches accidental reverts at the source
         field = FunnelSerializer().fields["funnel_window_interval_type"]
         assert field.default in field.choices, (
             f"funnel_window_interval_type default {field.default!r} is not in choices {list(field.choices)!r}. "
             f"Regression of #18673."
         )
 
-        # Schema-level check — catches drf-spectacular regressions too
-        self.client.logout()
-        schema_response = self.client.get("/api/schema/")
-        assert schema_response.status_code == 200
-
-        schemas = schema_response.data.get("components", {}).get("schemas", {})
-        funnel_schema_key = next((k for k in schemas if k.startswith("Funnel") and "properties" in schemas[k]), None)
-        if funnel_schema_key:
-            interval_type = schemas[funnel_schema_key]["properties"].get("funnel_window_interval_type")
-            if interval_type and "default" in interval_type and "enum" in interval_type:
-                assert interval_type["default"] in interval_type["enum"], (
-                    f"Generated schema default {interval_type['default']!r} not in enum {interval_type['enum']!r}"
-                )
-
     def test_week_start_day_schema_does_not_include_null_in_enum(self) -> None:
-        """
-        Regression test for #18673: `null` must NOT appear inside the enum for nullable fields.
-        OpenAPI 3.0 uses `nullable: true` as a separate attribute — a `null` value inside an
-        integer enum is invalid and breaks many client generators (reported by @kamranayub).
-        """
         self.client.logout()
 
         schema_response = self.client.get("/api/schema/")
@@ -138,3 +114,43 @@ class TestAPIDocsSchema(APIBaseTest):
                 f"week_start_day enum contains null: {week_start_day['enum']!r}. "
                 f"Use `nullable: true` as a separate attribute instead. Regression of #18673."
             )
+
+
+class TestCohortPersonsEndpointShape(ClickhouseTestMixin, APIBaseTest):
+    """Integration test: assert the cohort persons endpoint response matches its documented schema shape."""
+
+    def test_endpoint_response_matches_documented_schema(self) -> None:
+        # Create a static cohort with one matching person so we can assert on the response shape.
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test-user-1"],
+            properties={"email": "alice@example.com"},
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test cohort",
+            groups=[{"properties": [{"key": "email", "value": "alice@example.com", "type": "person"}]}],
+            is_static=True,
+        )
+        cohort.insert_users_list_by_uuid(items=[str(person.uuid)], team_id=self.team.pk)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/persons/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+
+        # Top-level shape must match CohortPersonsResponseSerializer
+        assert set(body.keys()) >= {"results", "next", "previous"}, (
+            f"Missing documented top-level keys. Got: {set(body.keys())!r}"
+        )
+
+        # Each result must carry the fields promised by CohortPersonResultSerializer.
+        assert len(body["results"]) >= 1, "Expected at least one person in the cohort"
+        documented_fields = {"id", "uuid", "type", "name", "distinct_ids", "properties", "created_at", "is_identified"}
+        actual_fields = set(body["results"][0].keys())
+        missing = documented_fields - actual_fields
+        assert not missing, (
+            f"Response is missing fields the schema promises: {missing!r}. "
+            f"Actual fields: {actual_fields!r}. "
+            f"Regression of #18673 — keep CohortPersonResultSerializer in sync with actor_base_query.SerializedPerson."
+        )
