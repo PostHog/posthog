@@ -1,3 +1,4 @@
+import re
 import json
 from typing import Any
 
@@ -10,6 +11,12 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDModel
 
+# Linear-time heading parser. `[ \t]+` / `(.*)` don't overlap with each other, so no catastrophic
+# backtracking. ATX closing hashes must be preceded by whitespace per CommonMark, which also
+# preserves literal trailing `#` in text like `C#` or `F#`.
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*)$")
+_ATX_CLOSE_RE = re.compile(r"[ \t]+#+[ \t]*$")
+
 
 def normalize_prompt_to_string(value: Any) -> str:
     if isinstance(value, str):
@@ -18,6 +25,27 @@ def normalize_prompt_to_string(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False)
     except Exception:
         return ""
+
+
+def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
+    """Extract a flat list of markdown headings from a prompt payload.
+
+    Agents consuming the MCP/API can use this as a lightweight table of contents
+    without pulling the full prompt content. Returns `[]` for non-markdown
+    payloads (e.g. message arrays serialized to JSON).
+    """
+    text = normalize_prompt_to_string(value)
+    if not text:
+        return []
+    outline: list[dict[str, Any]] = []
+    for line in text.split("\n"):
+        match = _MARKDOWN_HEADING_RE.match(line.strip())
+        if not match:
+            continue
+        heading = _ATX_CLOSE_RE.sub("", match.group(2)).rstrip()
+        if heading:
+            outline.append({"level": len(match.group(1)), "text": heading})
+    return outline
 
 
 class LLMPrompt(UUIDModel):

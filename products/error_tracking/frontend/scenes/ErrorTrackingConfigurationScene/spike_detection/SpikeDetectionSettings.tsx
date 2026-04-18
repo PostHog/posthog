@@ -36,7 +36,11 @@ export function SpikeDetectionSettings(): JSX.Element {
     return (
         <div className="space-y-8">
             <Form logic={spikeDetectionConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
-                <LemonBanner type="info" action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}>
+                <LemonBanner
+                    type="info"
+                    action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}
+                    className="mt-2"
+                >
                     <p>
                         Spike detection is in early stage. We may make changes to the defaults or replace these settings
                         as we iterate. We'd love your feedback!

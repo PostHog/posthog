@@ -2,7 +2,7 @@ from typing import Optional
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
@@ -24,7 +24,17 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee", "issue", "order_key", "disabled_data", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "filters",
+            "assignee",
+            "description",
+            "issue",
+            "order_key",
+            "disabled_data",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["team_id", "created_at", "updated_at"]
 
     @extend_schema_field(
@@ -55,6 +65,11 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
+@extend_schema_serializer(many=False)
+class ErrorTrackingGroupingRuleListResponseSerializer(serializers.Serializer):
+    results = ErrorTrackingGroupingRuleSerializer(many=True)
+
+
 def _build_issue_map(team_id: int, rule_ids: list[str]) -> dict:
     """Build a mapping of rule_id -> ErrorTrackingIssue for grouping rules."""
     if not rule_ids:
@@ -74,10 +89,12 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     scope_object = "error_tracking"
     queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
+    pagination_class = None
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
+    @extend_schema(responses={200: OpenApiResponse(response=ErrorTrackingGroupingRuleListResponseSerializer)})
     def list(self, request, *args, **kwargs) -> Response:
         queryset = list(self.filter_queryset(self.get_queryset()))
         rule_ids = [str(r.id) for r in queryset]
