@@ -40,7 +40,7 @@ export const Default: Story = {
             <div className="max-w-xs">
                 <Combobox items={frameworks}>
                     <ComboboxInput placeholder="Select a framework" />
-                    <ComboboxContent>
+                    <ComboboxContent className="max-w-[318px]">
                         <ComboboxEmpty>No items found.</ComboboxEmpty>
                         <ComboboxList>
                             {(item: (typeof frameworks)[number]) => (
