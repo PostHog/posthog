@@ -482,6 +482,7 @@ export function EditAlertModal({
                                         alertForm.detector_config &&
                                         investigationAgentEnabled && (
                                             <div className="deprecated-space-y-2">
+                                                <h4 className="m-0">Investigation agent</h4>
                                                 <div className="flex gap-1 items-center">
                                                     <LemonCheckbox
                                                         data-attr="alertForm-investigation-agent-enabled"
