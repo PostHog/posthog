@@ -60,8 +60,8 @@ AS SELECT
     tuple.2 as property_key,
     tuple.3 as property_value,
     sumSimpleState(toUInt64(1)) as property_count,
-    maxSimpleState(_timestamp) as last_seen
-FROM {database}.kafka_events_json
+    maxSimpleState(toDateTime(timestamp)) as last_seen
+FROM {database}.sharded_events
 ARRAY JOIN
     arrayConcat(
         arrayMap(kv -> ('event', kv.1, kv.2), JSONExtractKeysAndValues(properties, 'String')),
