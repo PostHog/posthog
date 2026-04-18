@@ -169,7 +169,7 @@ function DropdownMenuCheckboxItem({
             data-slot="dropdown-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center ps-8 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex cursor-default items-center ps-7.5 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             checked={checked}
@@ -207,7 +207,7 @@ function DropdownMenuRadioItem({
             data-slot="dropdown-menu-radio-item"
             data-inset={inset}
             className={cn(
-                "relative flex min-h-7 cursor-default items-center ps-8 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex min-h-7 cursor-default items-center ps-7.5 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             render={<Button className="w-full font-normal" left />}
