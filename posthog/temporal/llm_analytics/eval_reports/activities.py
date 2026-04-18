@@ -119,6 +119,9 @@ async def fetch_count_triggered_eval_reports_activity(
             rows = result.results or []
             count = rows[0][0] if rows else 0
 
+            # The queryset filters trigger_threshold__isnull=False above, so this is
+            # always set on rows we iterate — assert for mypy.
+            assert report.trigger_threshold is not None
             if count >= report.trigger_threshold:
                 due.append(str(report.id))
 
