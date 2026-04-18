@@ -13321,6 +13321,22 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    /**
+     * * `pending` - Pending
+    * `delivered` - Delivered
+    * `partial_failure` - Partial Failure
+    * `failed` - Failed
+     */
+    export type DeliveryStatusEnum = typeof DeliveryStatusEnum[keyof typeof DeliveryStatusEnum];
+
+
+    export const DeliveryStatusEnum = {
+      Pending: 'pending',
+      Delivered: 'delivered',
+      PartialFailure: 'partial_failure',
+      Failed: 'failed',
+    } as const;
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -14892,6 +14908,76 @@ export namespace Schemas {
       description: string;
       frequency: string;
       example_generation_ids: string[];
+    }
+
+    /**
+     * * `scheduled` - Scheduled
+    * `every_n` - Every N
+     */
+    export type EvaluationReportFrequencyEnum = typeof EvaluationReportFrequencyEnum[keyof typeof EvaluationReportFrequencyEnum];
+
+
+    export const EvaluationReportFrequencyEnum = {
+      Scheduled: 'scheduled',
+      EveryN: 'every_n',
+    } as const;
+
+    export interface EvaluationReport {
+      readonly id: string;
+      evaluation: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      rrule?: string;
+      /** @nullable */
+      starts_at?: string | null;
+      /** @maxLength 64 */
+      timezone_name?: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at: string | null;
+      report_prompt_guidance?: string;
+      /**
+       * Number of new eval results that triggers a report
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
+      /**
+       * Minimum minutes between count-triggered reports
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /**
+       * Maximum count-triggered report runs per calendar day (UTC)
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    export interface EvaluationReportRun {
+      readonly id: string;
+      readonly report: string;
+      readonly content: unknown;
+      readonly metadata: unknown;
+      readonly period_start: string;
+      readonly period_end: string;
+      readonly delivery_status: DeliveryStatusEnum;
+      readonly delivery_errors: unknown;
+      readonly created_at: string;
     }
 
     /**
@@ -16686,22 +16772,6 @@ export namespace Schemas {
       results: FlagValueItem[];
       refreshing: boolean;
     }
-
-    /**
-     * * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly
-     */
-    export type FrequencyEnum = typeof FrequencyEnum[keyof typeof FrequencyEnum];
-
-
-    export const FrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
 
     export type GenerateRequestStepsItem = {[key: string]: unknown};
 
@@ -21118,6 +21188,24 @@ export namespace Schemas {
       results: Evaluation[];
     }
 
+    export interface PaginatedEvaluationReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReport[];
+    }
+
+    export interface PaginatedEvaluationReportRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReportRun[];
+    }
+
     export interface PaginatedEventSchemaList {
       count: number;
       /** @nullable */
@@ -22419,6 +22507,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly
+     */
+    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
+
+
+    export const SubscriptionFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
      * Standard Subscription serializer.
      */
     export interface Subscription {
@@ -22453,7 +22557,7 @@ export namespace Schemas {
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly */
-      frequency: FrequencyEnum;
+      frequency: SubscriptionFrequencyEnum;
       /**
        * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
@@ -24769,6 +24873,52 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    export interface PatchedEvaluationReport {
+      readonly id?: string;
+      evaluation?: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      rrule?: string;
+      /** @nullable */
+      starts_at?: string | null;
+      /** @maxLength 64 */
+      timezone_name?: string;
+      /** @nullable */
+      readonly next_delivery_date?: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at?: string | null;
+      report_prompt_guidance?: string;
+      /**
+       * Number of new eval results that triggers a report
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
+      /**
+       * Minimum minutes between count-triggered reports
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /**
+       * Maximum count-triggered report runs per calendar day (UTC)
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by?: number | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedEventSchema {
       readonly id?: string;
       event_definition?: string;
@@ -26436,7 +26586,7 @@ export namespace Schemas {
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly */
-      frequency?: FrequencyEnum;
+      frequency?: SubscriptionFrequencyEnum;
       /**
        * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
@@ -34686,6 +34836,28 @@ export namespace Schemas {
     };
 
     export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsRunsListParams = {
     /**
      * Number of results to return per page.
      */
