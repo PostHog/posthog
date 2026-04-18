@@ -2413,6 +2413,7 @@
          "posthog_alertconfiguration"."snoozed_until",
          "posthog_alertconfiguration"."skip_weekend",
          "posthog_alertconfiguration"."schedule_restriction",
+         "posthog_alertconfiguration"."investigation_agent_enabled",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",

@@ -76,6 +76,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "skip_weekend": False,
             "schedule_restriction": None,
             "last_value": None,
+            "investigation_agent_enabled": False,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -823,6 +824,59 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert refreshed.json()["schedule_restriction"] == {
             "blocked_windows": [{"start": "22:00", "end": "07:00"}],
         }
+
+
+class TestInvestigationAgentValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
+
+    def _base_alert_body(self, *, detector_config: dict[str, Any] | None, enabled: bool) -> dict[str, Any]:
+        return {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "investigation alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "calculation_interval": "daily",
+            "detector_config": detector_config,
+            "investigation_agent_enabled": enabled,
+        }
+
+    def test_investigation_rejected_without_detector_config(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._base_alert_body(detector_config=None, enabled=True),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "investigation_agent_enabled" in response.json().get("attr", "")
+
+    def test_investigation_accepted_with_detector_config(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._base_alert_body(
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+                enabled=True,
+            ),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["investigation_agent_enabled"] is True
+
+    def test_investigation_disabled_allowed_without_detector_config(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._base_alert_body(detector_config=None, enabled=False),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["investigation_agent_enabled"] is False
 
 
 class TestAlertSimulate(APIBaseTest):
