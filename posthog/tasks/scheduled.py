@@ -14,6 +14,7 @@ from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
     checks_cleanup_task,
+    investigation_notification_safety_net_task,
     reset_stuck_alerts_task,
 )
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
@@ -500,6 +501,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="*/15"),
         reset_stuck_alerts_task.s(),
         name="reset_stuck_alerts_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/2"),
+        investigation_notification_safety_net_task.s(),
+        name="investigation_notification_safety_net_task",
     )
 
     sender.add_periodic_task(
