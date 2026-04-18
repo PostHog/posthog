@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
-import { LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconNotebook } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumn, LemonTagType } from '@posthog/lemon-ui'
 
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
@@ -58,7 +59,9 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                     </Tooltip>
                 )}
                 {summary && <SummaryText summary={summary} />}
-                <Link to={`/notebooks/${shortId}`}>View notebook</Link>
+                <LemonButton type="secondary" size="xsmall" to={`/notebooks/${shortId}`} icon={<IconNotebook />}>
+                    View notebook
+                </LemonButton>
             </div>
         )
     }
