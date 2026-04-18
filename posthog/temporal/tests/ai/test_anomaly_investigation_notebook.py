@@ -26,7 +26,7 @@ class TestAnomalyInvestigationNotebook(BaseTest):
 
     def test_builds_well_formed_tiptap_doc(self) -> None:
         report = InvestigationReport(
-            verdict="real_anomaly",
+            verdict="true_positive",
             summary="Traffic doubled after a marketing campaign launch.",
             hypotheses=[
                 InvestigationHypothesis(

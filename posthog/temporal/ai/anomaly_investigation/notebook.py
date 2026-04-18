@@ -17,8 +17,8 @@ from products.notebooks.backend.util import (
 )
 
 VERDICT_LABEL = {
-    "real_anomaly": "Real anomaly",
-    "likely_artifact": "Likely artifact",
+    "true_positive": "True positive",
+    "false_positive": "False positive",
     "inconclusive": "Inconclusive",
 }
 

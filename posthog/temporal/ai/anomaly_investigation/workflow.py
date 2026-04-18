@@ -137,6 +137,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
         investigation_status=InvestigationStatus.DONE,
+        investigation_verdict=result.report.verdict,
         investigation_summary=_truncate_summary(result.report.summary),
         investigation_error=None,
     )

@@ -35,6 +35,19 @@ class InvestigationStatus(models.TextChoices):
     SKIPPED = "skipped", "skipped"
 
 
+class InvestigationVerdict(models.TextChoices):
+    """The investigation agent's call on whether the firing alert was real.
+
+    We keep this independent from InvestigationStatus so that status tracks the
+    pipeline (did it run?) while verdict tracks the conclusion (was it real?).
+    Future work may let users override this field manually.
+    """
+
+    TRUE_POSITIVE = "true_positive", "true_positive"
+    FALSE_POSITIVE = "false_positive", "false_positive"
+    INCONCLUSIVE = "inconclusive", "inconclusive"
+
+
 def derive_detector_event_fields(detector_config: dict | None) -> dict:
     """Shared derivation of alert_mode/detector_type/ensemble_operator from a detector config.
 
@@ -278,6 +291,7 @@ class AlertCheck(UUIDTModel):
     # investigation_agent_enabled is true. Lives on the check record so the notebook is
     # surfaced inline with the specific firing event it investigated.
     investigation_status = models.CharField(max_length=10, choices=InvestigationStatus.choices, null=True, blank=True)
+    investigation_verdict = models.CharField(max_length=20, choices=InvestigationVerdict.choices, null=True, blank=True)
     investigation_notebook = models.ForeignKey(
         "notebooks.Notebook",
         on_delete=models.SET_NULL,

@@ -14,8 +14,9 @@ Workflow:
 
 Guidelines:
 - Prefer narrow queries over broad scans. Scope to the triggered dates.
-- If the anomaly looks like a data artifact (duplicated events, new property values,
-  a recent release), say so in your verdict.
+- Classify the firing as 'true_positive' (real business-relevant anomaly),
+  'false_positive' (data artifact, duplicated events, new property values,
+  recent release noise), or 'inconclusive' (not enough evidence).
 - If the detector looks overly sensitive for the metric's natural variance, flag
   that as a recommendation.
 - Keep summaries concrete and short. No filler. No apologies. No hedging beyond

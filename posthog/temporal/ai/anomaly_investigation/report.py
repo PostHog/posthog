@@ -17,8 +17,13 @@ class InvestigationHypothesis(BaseModel):
 class InvestigationReport(BaseModel):
     """Structured output the agent emits as its final message. Rendered into a Notebook."""
 
-    verdict: Literal["real_anomaly", "likely_artifact", "inconclusive"] = Field(
-        description="Agent's validation call: is this a real business-relevant anomaly, a data/release artifact, or inconclusive?",
+    verdict: Literal["true_positive", "false_positive", "inconclusive"] = Field(
+        description=(
+            "Agent's validation call on the alert firing. Use 'true_positive' when the anomaly "
+            "is real and business-relevant, 'false_positive' when it's a data/release artifact "
+            "or noise that shouldn't have fired, or 'inconclusive' when there isn't enough "
+            "evidence to decide."
+        ),
     )
     summary: str = Field(description="1-3 sentence plain-English summary of what happened.")
     hypotheses: list[InvestigationHypothesis] = Field(

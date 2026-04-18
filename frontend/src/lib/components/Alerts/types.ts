@@ -76,6 +76,7 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
 }
 
 export type InvestigationStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+export type InvestigationVerdict = 'true_positive' | 'false_positive' | 'inconclusive'
 
 export interface AlertCheck {
     id: string
@@ -89,6 +90,7 @@ export interface AlertCheck {
     interval?: string | null
     triggered_metadata?: Record<string, unknown> | null
     investigation_status?: InvestigationStatus | null
+    investigation_verdict?: InvestigationVerdict | null
     investigation_summary?: string | null
     investigation_notebook_short_id?: string | null
 }

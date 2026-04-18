@@ -1,25 +1,56 @@
 import { useMemo } from 'react'
 
-import { LemonTable, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-import type { LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import type { LemonTableColumn, LemonTagType } from '@posthog/lemon-ui'
 
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils'
 
-import type { AlertCheck, AlertType } from '../types'
+import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 
 const SUMMARY_PREVIEW_CHARS = 140
+
+const VERDICT_TAG: Record<InvestigationVerdict, { label: string; type: LemonTagType; tooltip: string }> = {
+    true_positive: {
+        label: 'True positive',
+        type: 'danger',
+        tooltip: 'Agent thinks this is a real anomaly worth looking at.',
+    },
+    false_positive: {
+        label: 'False positive',
+        type: 'muted',
+        tooltip: 'Agent thinks this was a data/release artifact, not a real anomaly.',
+    },
+    inconclusive: {
+        label: 'Inconclusive',
+        type: 'warning',
+        tooltip: 'Agent could not reach a confident conclusion from the available data.',
+    },
+}
+
+function VerdictTag({ verdict }: { verdict: InvestigationVerdict }): JSX.Element {
+    const cfg = VERDICT_TAG[verdict]
+    return (
+        <Tooltip title={cfg.tooltip}>
+            <LemonTag type={cfg.type} size="small">
+                {cfg.label}
+            </LemonTag>
+        </Tooltip>
+    )
+}
 
 function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
+    const verdict = check.investigation_verdict ?? null
 
     if (status === 'done' && shortId) {
         return (
-            <div className="flex flex-col gap-0.5 items-end max-w-80 text-right">
+            <div className="flex flex-col gap-1 items-end max-w-80 text-right">
+                {verdict && <VerdictTag verdict={verdict} />}
                 {summary && <SummaryText summary={summary} />}
                 <Link to={`/notebooks/${shortId}`}>View notebook</Link>
             </div>

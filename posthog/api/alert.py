@@ -113,6 +113,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "interval",
             "triggered_metadata",
             "investigation_status",
+            "investigation_verdict",
             "investigation_summary",
             "investigation_notebook_short_id",
         ]
