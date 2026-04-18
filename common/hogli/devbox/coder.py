@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import json
+import shlex
 import shutil
 import tempfile
 import itertools
@@ -20,12 +21,14 @@ from typing import Any, NoReturn
 
 import yaml
 import click
+import requests
 from hogli.core.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
+_MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
@@ -74,16 +77,55 @@ def get_coder_url() -> str:
     raise RuntimeError("Missing `metadata.devbox.coder_url` in common/hogli/manifest.yaml.")
 
 
+def _normalize_version(version: str) -> str:
+    """Strip leading ``v`` and semver build metadata (``+hash``)."""
+    return version.lstrip("v").split("+")[0]
+
+
+def get_server_version() -> str:
+    """Query the Coder deployment for its running version."""
+    if version := os.environ.get("HOGLI_DEVBOX_CODER_VERSION"):
+        return version
+
+    coder_url = get_coder_url()
+    try:
+        resp = requests.get(f"{coder_url}/api/v2/buildinfo", timeout=5)
+        data = resp.json()
+        raw = data.get("version", "")
+        if raw:
+            return _normalize_version(raw)
+    except Exception:
+        pass
+
+    raise RuntimeError(f"Could not determine server version from {coder_url}/api/v2/buildinfo.")
+
+
+def _coder_bin() -> str:
+    """Return the path to the hogli-managed coder binary, falling back to PATH."""
+    managed = _MANAGED_CODER_DIR / "coder"
+    if managed.is_file():
+        return str(managed)
+    return shutil.which("coder") or "coder"
+
+
+def _resolve_coder(args: list[str]) -> list[str]:
+    """Replace a leading ``"coder"`` arg with the managed binary path."""
+    if args and args[0] == "coder":
+        return [_coder_bin(), *args[1:]]
+    return args
+
+
 def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(args, capture_output=capture_output, text=True)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True)
 
 
 def _run_or_exit(args: list[str]) -> None:
     """Replace the current process with a Coder command or exit with its status."""
-    coder_path = shutil.which("coder")
+    resolved = _resolve_coder(args)
+    coder_path = resolved[0] if resolved else shutil.which("coder")
     if coder_path:
-        os.execvp(coder_path, args)
+        os.execvp(coder_path, resolved)
 
     sys.exit(_run(args).returncode)
 
@@ -95,7 +137,7 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     build step. In verbose mode, streams all output including Terraform
     internals. On failure the full captured output is always printed.
     """
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(_resolve_coder(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     captured: list[str] = []
     if proc.stdout is None:
         raise RuntimeError("Popen stdout pipe was not opened")
@@ -217,9 +259,52 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
 
 
+# Health warning emitted by `tailscale status` when peers advertise subnet routes
+# but the local node has `--accept-routes` disabled. The Coder ALB lives behind
+# a VPC subnet router, so DNS resolves but traffic blackholes without this.
+_ACCEPT_ROUTES_HEALTH_FRAGMENT = "--accept-routes is false"
+
+
+def _tailscale_routes_accepted() -> bool:
+    """Return whether the local node accepts advertised subnet routes."""
+    status = _tailscale_status()
+    if not status:
+        return True
+    health = status.get("Health") or []
+    return not any(_ACCEPT_ROUTES_HEALTH_FRAGMENT in (msg or "") for msg in health)
+
+
+def ensure_tailscale_routes_accepted() -> None:
+    """Enable Tailscale subnet route acceptance when peers advertise routes."""
+    if _tailscale_routes_accepted():
+        return
+
+    tailscale_path = _resolve_tailscale()
+    if not tailscale_path:
+        return
+
+    click.echo("Enabling Tailscale subnet routes (required for devbox access)...")
+    cmd = [tailscale_path, "set", "--accept-routes"]
+    if sys.platform != "darwin" and hasattr(os, "geteuid") and os.geteuid() != 0:
+        cmd = ["sudo", *cmd]
+
+    result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
+    if result.returncode != 0:
+        _fail("Failed to enable Tailscale subnet routes. Run manually: sudo tailscale set --accept-routes")
+
+
+def _config_ssh_args() -> list[str]:
+    """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
+    args = ["coder", "config-ssh"]
+    managed = _MANAGED_CODER_DIR / "coder"
+    if managed.is_file():
+        args += ["--coder-binary-path", str(managed)]
+    return args
+
+
 def _ssh_config_needs_update() -> bool:
     """Check whether ``coder config-ssh`` would make changes."""
-    result = _run(["coder", "config-ssh", "--dry-run", "--yes"], capture_output=True)
+    result = _run([*_config_ssh_args(), "--dry-run", "--yes"], capture_output=True)
     if result.returncode != 0:
         return True
     combined = result.stdout + result.stderr
@@ -227,29 +312,95 @@ def _ssh_config_needs_update() -> bool:
 
 
 def coder_installed() -> bool:
-    """Return whether the Coder CLI is available."""
-    return shutil.which("coder") is not None
+    """Return whether the Coder CLI is available (managed or on PATH)."""
+    return (_MANAGED_CODER_DIR / "coder").is_file() or shutil.which("coder") is not None
 
 
-def ensure_coder_installed() -> None:
-    """Install Coder via Homebrew when available, otherwise print exact instructions."""
-    if coder_installed():
+def get_installed_coder_version() -> str | None:
+    """Return the installed Coder CLI version, or None if undetermined."""
+    result = _run(["coder", "version", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+        version = data.get("version", "")
+        if not version:
+            return None
+        return _normalize_version(version)
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
+def _warn_version_mismatch() -> None:
+    """Warn if the installed Coder CLI doesn't match the expected version."""
+    try:
+        expected = get_server_version()
+    except RuntimeError:
+        return
+
+    installed = get_installed_coder_version()
+    if installed is None or installed == expected:
+        return
+
+    coder_url = get_coder_url()
+    click.echo(
+        click.style(
+            f"Coder CLI v{installed} does not match server v{expected}.\n"
+            f"  Run `hogli devbox:setup` or: curl -fsSL {coder_url}/install.sh | sh",
+            fg="yellow",
+        )
+    )
+
+
+def _install_coder_cli(*, verbose: bool = False) -> None:
+    """Install the Coder CLI into ~/.hogli/bin from the deployment's install script."""
+    coder_url = get_coder_url()
+    try:
+        version = get_server_version()
+        click.echo(f"Installing coder CLI v{version}...")
+    except RuntimeError:
+        version = None
+        click.echo("Installing coder CLI...")
+
+    prefix = _MANAGED_CODER_DIR.parent
+    prefix.mkdir(parents=True, exist_ok=True)
+    install_url = shlex.quote(f"{coder_url}/install.sh")
+    cmd = f"curl -fsSL {install_url} | sh -s -- --prefix {shlex.quote(str(prefix))}"
+    result = subprocess.run(["sh", "-c", cmd], text=True, capture_output=not verbose)
+    if result.returncode != 0:
+        if not verbose:
+            click.echo(result.stdout or "")
+            click.echo(result.stderr or "", err=True)
+        _fail(f"Coder CLI installation failed.\nTry manually: {cmd}")
+
+    if not verbose:
+        # Show only the preamble lines (before shell trace output starts)
+        for line in (result.stdout or "").splitlines():
+            if line.startswith("+ "):
+                break
+            stripped = line.strip()
+            if stripped:
+                click.echo(f"  {stripped}")
+
+
+def ensure_coder_installed(*, verbose: bool = False) -> None:
+    """Install the Coder CLI at the expected version, or reinstall on mismatch."""
+    if not coder_installed():
+        _install_coder_cli(verbose=verbose)
+        return
+
+    try:
+        expected = get_server_version()
+    except RuntimeError:
         click.echo("coder CLI is installed.")
         return
 
-    if not shutil.which("brew"):
-        _fail(
-            "`coder` is not installed.\n"
-            "Install Homebrew, then run:\n"
-            f"  brew install {BREW_PACKAGE}\n"
-            "Or install Coder directly:\n"
-            "  curl -L https://coder.com/install.sh | sh"
-        )
-
-    click.echo("Installing coder via Homebrew...")
-    result = _run(["brew", "install", BREW_PACKAGE])
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    installed = get_installed_coder_version()
+    if installed is not None and installed != expected:
+        click.echo(f"coder CLI v{installed} does not match server v{expected}.")
+        _install_coder_cli(verbose=verbose)
+    else:
+        click.echo("coder CLI is installed.")
 
 
 def _coder_whoami() -> subprocess.CompletedProcess[str]:
@@ -286,6 +437,7 @@ def ensure_coder_authenticated() -> None:
 def ensure_runtime_ready() -> None:
     """Verify runtime prerequisites without mutating host setup."""
     ensure_tailscale_connected()
+    ensure_tailscale_routes_accepted()
 
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
@@ -293,8 +445,10 @@ def ensure_runtime_ready() -> None:
     if not coder_authenticated():
         _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
 
+    _warn_version_mismatch()
 
-def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
+
+def maybe_configure_ssh(*, configure_ssh: bool | None, verbose: bool = False) -> None:
     """Install Coder SSH config, skipping only when explicitly opted out."""
     if not _ssh_config_needs_update():
         click.echo("Coder SSH config is up to date.")
@@ -302,15 +456,23 @@ def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
 
     if configure_ssh is False:
         click.echo("Skipping SSH config.")
-        click.echo("Run `coder config-ssh` later if you want local SSH host entries.")
+        click.echo("Run `hogli devbox:setup` later if you want local SSH host entries.")
         return
 
     click.echo("Adding Coder workspace entries to ~/.ssh/config...")
-    result = _run(["coder", "config-ssh", "--yes"])
+    result = _run([*_config_ssh_args(), "--yes"], capture_output=not verbose)
     if result.returncode != 0:
+        if not verbose:
+            click.echo(result.stdout or "")
+            click.echo(result.stderr or "", err=True)
         raise SystemExit(result.returncode)
 
-    click.echo("Run `coder config-ssh --remove` to revert.")
+    if not verbose:
+        # Show only the "Updated ..." line from coder's output
+        for line in (result.stdout or "").splitlines():
+            if "Updated" in line:
+                click.echo(f"  {line.strip()}")
+                break
 
 
 def print_setup_summary() -> None:
@@ -613,3 +775,103 @@ def open_web_ide(name: str) -> None:
     """Open code-server for the workspace."""
     username = get_username()
     webbrowser.open(f"{get_coder_url()}/@{username}/{name}/apps/code-server")
+
+
+# ---------------------------------------------------------------------------
+# Shared workspace helpers
+# ---------------------------------------------------------------------------
+
+
+def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
+    """Build a workspace name for another user's workspace.
+
+    Returns ``devbox-{user}`` for the default workspace, or
+    ``devbox-{user}-{label}`` for a labeled workspace.
+    """
+    base = f"{_WORKSPACE_PREFIX}-{user}"
+    if label is None:
+        return base
+    return f"{base}-{label}"
+
+
+def parse_workspace_target(target: str) -> str:
+    """Parse a workspace target string into a full workspace name.
+
+    Supports:
+    - ``@user`` -> another user's default workspace
+    - ``@user/label`` -> another user's labeled workspace
+    - ``label`` -> current user's labeled workspace
+    """
+    if target.startswith("@"):
+        rest = target[1:]
+        if "/" in rest:
+            user, label = rest.split("/", 1)
+            if not user or not label:
+                raise click.UsageError("Expected @user/label but got an empty user or label.")
+            return resolve_shared_workspace_name(user, label)
+        if not rest:
+            raise click.UsageError("Expected @user but got bare '@'.")
+        return resolve_shared_workspace_name(rest)
+    return get_workspace_name(target)
+
+
+def share_workspace(name: str, users: list[str], role: str = "use") -> None:
+    """Grant workspace access to one or more users."""
+    user_spec = ",".join(f"{u}:{role}" for u in users)
+    result = _run(["coder", "sharing", "share", name, "--user", user_spec])
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def unshare_workspace(name: str, users: list[str]) -> None:
+    """Revoke workspace access from one or more users."""
+    for user in users:
+        result = _run(["coder", "sharing", "remove", name, "--user", user])
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
+
+
+def get_sharing_status(name: str) -> subprocess.CompletedProcess[str]:
+    """Return the output of ``coder sharing status`` for a workspace."""
+    return _run(["coder", "sharing", "status", name], capture_output=True)
+
+
+def get_shared_users(name: str) -> list[str]:
+    """Return usernames that a workspace is shared with (empty if none)."""
+    result = get_sharing_status(name)
+    if result.returncode != 0:
+        return []
+    users: list[str] = []
+    for line in result.stdout.strip().splitlines()[1:]:  # skip header
+        parts = line.split()
+        if parts and parts[0] != "-":
+            users.append(parts[0])
+    return users
+
+
+def list_shared_workspaces() -> list[dict[str, Any]]:
+    """Return workspaces that other users have shared with the current user."""
+    result = _run(["coder", "list", "--search", "shared:true owner:!me", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    try:
+        workspaces = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    return workspaces if isinstance(workspaces, list) else []
+
+
+def list_coder_users() -> list[dict[str, Any]]:
+    """Return all active users on the Coder deployment."""
+    result = _run(["coder", "users", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    try:
+        users = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    return [u for u in users if isinstance(u, dict) and u.get("status") == "active"]

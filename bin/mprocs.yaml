@@ -29,26 +29,41 @@ procs:
             echo ''
             printf '\033[38;5;245m  ─────────────────────────────────────\033[0m\n'
             printf '  \033[38;5;245mRun \033[0m\033[38;2;29;74;255mhogli dev:setup\033[0m\033[38;5;245m to tailor this to your workflow.\033[0m\n'
+        groups:
+            layer: pinned
+            tech: pinned
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
+        groups:
+            layer: Application
+            tech: Python
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
         capability: celery_workers
         ready_pattern: 'celery@'
+        groups:
+            layer: Processing
+            tech: Python
 
     celery-beat:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery beat'
         capability: celery_scheduler
         ready_pattern: 'celery beat'
+        groups:
+            layer: Processing
+            tech: Python
 
     nodejs:
         shell: 'bin/wait-for-docker && ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
+        groups:
+            layer: Processing
+            tech: Node
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
         # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
@@ -58,36 +73,57 @@ procs:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
         capability: nodejs_error_tracking
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-logs:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-logs HTTP_SERVER_PORT=6743 ./bin/posthog-node'
         capability: nodejs_logs
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-traces:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6744 ./bin/posthog-node'
         capability: nodejs_traces
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-sessionreplay:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node'
         capability: nodejs_session_replay
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     recording-api:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node'
         capability: nodejs_session_replay
         ready_pattern: 'All systems go'
+        groups:
+            layer: Product services
+            tech: Node
 
     frontend:
         shell: './bin/start-frontend'
         autorestart: true
         ready_pattern: 'VITE.*ready in'
+        groups:
+            layer: Application
+            tech: Frontend
         # no capability: always_required via intent-map.yaml
 
     typegen:
@@ -95,6 +131,9 @@ procs:
         autostart: false
         ask_skip: true # wizard asks if user wants to skip this
         ready_pattern: 'Starting TypeScript watch mode'
+        groups:
+            layer: Tools
+            tech: Frontend
 
     temporal-worker:
         shell: |-
@@ -107,11 +146,17 @@ procs:
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue --max-concurrent-workflow-tasks=1000 --max-concurrent-activities=1000"; \
             fi
         capability: temporal_workflows
+        groups:
+            layer: Processing
+            tech: Python
 
     stripe-mock:
         shell: 'bin/start-stripe-mock'
         capability: stripe_mock
         ready_pattern: 'Application startup complete'
+        groups:
+            layer: Product services
+            tech: Python
 
     recording-rasterizer:
         shell: |-
@@ -119,6 +164,9 @@ procs:
             bin/temporal-recording-rasterizer-worker
         capability: recording_rasterizer
         ready_pattern: 'worker started'
+        groups:
+            layer: Product services
+            tech: Other
         env:
             VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
@@ -133,11 +181,17 @@ procs:
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
         capability: dagster_pipelines
         ready_pattern: 'Launching Dagster services'
+        groups:
+            layer: Processing
+            tech: Python
 
     docker-compose:
         shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f; fi'
         capability: core_infra
         ready_pattern: 'docker-compose ready'
+        groups:
+            layer: Infrastructure
+            tech: Docker
 
     cyclotron-janitor:
         shell: |-
@@ -145,6 +199,9 @@ procs:
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
         ready_pattern: 'Running janitor loop'
+        groups:
+            layer: Processing
+            tech: Rust
 
     cymbal:
         shell: |-
@@ -152,6 +209,9 @@ procs:
             bin/start-rust-service cymbal
         capability: error_symbolication
         ready_pattern: 'Server started and listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     embedding-worker:
         shell: |-
@@ -159,6 +219,9 @@ procs:
             bin/start-rust-service embedding-worker
         capability: embedding_service
         ready_pattern: 'Generated embedding'
+        groups:
+            layer: Product services
+            tech: Rust
 
     feature-flags:
         shell: |-
@@ -166,6 +229,9 @@ procs:
             bin/start-rust-service feature-flags
         capability: flag_evaluation
         ready_pattern: 'listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     hypercache-server:
         shell: |-
@@ -173,6 +239,9 @@ procs:
             bin/start-rust-service hypercache-server
         capability: hypercache
         ready_pattern: 'listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     livestream:
         shell: |-
@@ -180,6 +249,9 @@ procs:
             bin/start-go-service livestream
         capability: livestream
         ready_pattern: 'Livestream service ready'
+        groups:
+            layer: Product services
+            tech: Other
 
     property-defs-rs:
         shell: |-
@@ -187,6 +259,9 @@ procs:
             bin/start-rust-service property-defs-rs
         capability: property_definitions
         ready_pattern: 'Subscribed to topic: *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     capture:
         shell: |-
@@ -194,6 +269,9 @@ procs:
             bin/start-rust-service capture
         capability: event_ingestion
         ready_pattern: 'listening on *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     capture-replay:
         shell: |-
@@ -201,6 +279,9 @@ procs:
             bin/start-rust-service capture-replay
         capability: replay_storage
         ready_pattern: 'listening on *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     capture-ai:
         shell: |-
@@ -208,12 +289,18 @@ procs:
             bin/start-rust-service capture-ai
         capability: ai_capture
         ready_pattern: 'listening on *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     batch-import-worker:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service batch-import-worker
         capability: batch_imports
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     personhog-replica:
         shell: |-
@@ -221,6 +308,9 @@ procs:
             bin/start-rust-service personhog-replica
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-router:
         shell: |-
@@ -228,6 +318,9 @@ procs:
             bin/start-rust-service personhog-router
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-leader:
         shell: |-
@@ -235,11 +328,17 @@ procs:
             bin/start-rust-service personhog-leader
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         capability: llm_gateway
         ready_pattern: 'Application startup complete'
+        groups:
+            layer: Product services
+            tech: Python
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
@@ -250,45 +349,72 @@ procs:
         shell: 'bin/start-mcp-server'
         capability: mcp_server
         ready_pattern: 'Ready on *'
+        groups:
+            layer: Product services
+            tech: Python
 
     mcp-ui-apps:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
         ready_pattern: 'Initial build complete'
+        groups:
+            layer: Product services
+            tech: Frontend
 
     mcp-inspector:
         shell: 'cd services/mcp && pnpm run inspector'
         capability: mcp_server
         autostart: false
         ready_pattern: 'MCP Inspector'
+        groups:
+            layer: Tools
+            tech: Frontend
 
     stripe-app:
         shell: 'bin/start-stripe-app'
         capability: stripe_app
+        groups:
+            layer: Product services
+            tech: Python
 
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
 
     migrate-clickhouse:
         shell: 'bin/wait-for-docker && bin/migrate --scope=clickhouse'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
 
     migrate-cyclotron:
         shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron'
         capability: cyclotron
         ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'
         ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
         # no capability - optional migration
 
     migrate-behavioral-cohorts:
         shell: 'bin/wait-for-docker && bin/migrate --scope=behavioral-cohorts'
         ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
         # no capability - optional migration
 
     generate-demo-data:
@@ -297,6 +423,9 @@ procs:
             ./manage.py generate_demo_data
         autostart: false
         ready_pattern: 'Demo data ready'
+        groups:
+            layer: Tools
+            tech: Python
         # no capability - manual start
 
     sync-feature-flags:
@@ -305,6 +434,9 @@ procs:
             ./manage.py sync_feature_flags
         autostart: false
         ready_pattern: 'Feature flag sync complete'
+        groups:
+            layer: Tools
+            tech: Python
         # no capability - manual start
 
     sync-hog-function-templates:
@@ -313,18 +445,27 @@ procs:
             ./manage.py sync_hog_function_templates
         autostart: false
         ready_pattern: 'Hog function template sync complete'
+        groups:
+            layer: Tools
+            tech: Python
         # no capability - manual start
 
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
+        groups:
+            layer: Tools
+            tech: Frontend
         # no capability - manual start
 
     hedgebox-dummy:
         shell: 'bin/wait-for-docker && cd tools/hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
         ready_pattern: 'Ready in *'
+        groups:
+            layer: Tools
+            tech: Frontend
         # no capability - manual start
 
     warehouse-sources-load:
@@ -333,7 +474,14 @@ procs:
             python manage.py run_warehouse_sources_load --health-port 8090 --batch-size 100 --consumer-group warehouse-sources-load-dev
         autostart: false
         ready_pattern: 'health_server_started'
+        groups:
+            layer: Tools
+            tech: Python
         # no capability - manual start
+
+group_order:
+    layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]
+    tech: [Python, Frontend, Node, Rust, Docker, Migrations, Other]
 
 mouse_scroll_speed: 1
 scrollback: 10000

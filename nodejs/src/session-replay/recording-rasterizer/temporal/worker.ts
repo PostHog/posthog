@@ -86,7 +86,7 @@ function startMetricsServer(): http.Server {
         try {
             res.set('Content-Type', prometheus.register.contentType)
             res.end(await prometheus.register.metrics())
-        } catch (err) {
+        } catch {
             res.status(500).end()
         }
     })
