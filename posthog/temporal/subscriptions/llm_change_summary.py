@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 import base64
-from typing import TYPE_CHECKING, NamedTuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter
@@ -259,7 +260,8 @@ def build_initial_prompt_messages(
     ]
 
 
-class AttachedImageSummary(NamedTuple):
+@dataclass(frozen=True)
+class AttachedImageSummary:
     image_count: int
     bytes_total: int
     user_text_length: int
