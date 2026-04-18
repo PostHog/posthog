@@ -7,6 +7,7 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { MenuLabel } from './menuLabel'
+import { Separator } from './separator'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -17,9 +18,7 @@ function Combobox<Value, Multiple extends boolean | undefined = false>({
     const anchorRef = React.useRef<HTMLDivElement>(null!)
     return (
         <ComboboxAnchorContext.Provider value={anchorRef}>
-            <ComboboxPrimitive.Root
-                    {...props}
-                >
+            <ComboboxPrimitive.Root {...props}>
                 {children}
             </ComboboxPrimitive.Root>
         </ComboboxAnchorContext.Provider>
@@ -136,7 +135,7 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
         <ComboboxPrimitive.List
             data-slot="combobox-list"
             className={cn(
-                'max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0',
+                'min-h-0 max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 has-data-[slot=combobox-list-footer]:scroll-pb-10 overflow-y-auto overscroll-contain p-1 has-data-[slot=combobox-list-footer]:pb-0 data-empty:p-0',
                 className
             )}
             {...props}
@@ -156,7 +155,7 @@ function ComboboxItem({ className, children, title, ...props }: ComboboxPrimitiv
             render={<Button left className="aria-selected:pe-7 aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1 " />}
             {...props}
         >
-            <span className="truncate" title={title ?? (typeof children === 'string' ? children : undefined)}>{children}</span>
+            <span className="inline-flex items-center gap-1.5 truncate" title={title ?? (typeof children === 'string' ? children : undefined)}>{children}</span>
             <ComboboxPrimitive.ItemIndicator
                 render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
             >
@@ -261,6 +260,15 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
     )
 }
 
+function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+    return (
+        <div data-slot="combobox-list-footer" className={cn("sticky -bottom-px bg-popover mt-1 -top-px", className)}>
+            <Separator orientation="horizontal" className="-mx-2" />
+            <div className="py-1" {...props} />
+        </div>
+    )
+}
+
 function useComboboxAnchor(): React.RefObject<HTMLDivElement> {
     const contextRef = React.useContext(ComboboxAnchorContext)
     if (contextRef === null) {
@@ -279,6 +287,7 @@ export {
     ComboboxLabel,
     ComboboxCollection,
     ComboboxEmpty,
+    ComboboxListFooter,
     ComboboxSeparator,
     ComboboxChips,
     ComboboxChip,

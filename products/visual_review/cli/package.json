@@ -8,7 +8,8 @@
     "type": "module",
     "scripts": {
         "build": "tsc",
-        "dev": "tsx src/index.ts"
+        "dev": "tsx src/index.ts",
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "@napi-rs/blake-hash": "^1.3.6",
@@ -20,6 +21,6 @@
         "@types/node": "^20.0.0",
         "@types/sharp": "^0.31.1",
         "tsx": "^4.0.0",
-        "typescript": "5.8.3"
+        "typescript": "5.9.3"
     }
 }

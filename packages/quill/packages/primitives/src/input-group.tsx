@@ -1,3 +1,4 @@
+import { NumberField } from '@base-ui/react/number-field'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
@@ -140,4 +141,30 @@ function InputGroupTextarea({ className, ...props }: React.ComponentProps<'texta
     )
 }
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupTextarea }
+interface InputGroupNumberInputProps extends Omit<NumberField.Root.Props, 'className' | 'children'> {
+    className?: string
+    inputRef?: React.Ref<HTMLInputElement>
+}
+
+function InputGroupNumberInput({
+    className,
+    inputRef,
+    ...rootProps
+}: InputGroupNumberInputProps): React.ReactElement {
+    return (
+        <NumberField.Root {...rootProps}>
+            <NumberField.ScrubArea data-slot="input-group-scrub-area" className="cursor-ew-resize">
+                <NumberField.Input
+                    ref={inputRef}
+                    data-slot="input-group-control"
+                    className={cn(
+                        'h-8 w-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-2 py-0.5 text-xs tabular-nums shadow-none outline-none ring-0 transition-colors placeholder:text-muted-foreground focus-visible:ring-0 aria-invalid:ring-0 focus-visible:aria-invalid:ring-0 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-transparent',
+                        className
+                    )}
+                />
+            </NumberField.ScrubArea>
+        </NumberField.Root>
+    )
+}
+
+export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupNumberInput, InputGroupTextarea }

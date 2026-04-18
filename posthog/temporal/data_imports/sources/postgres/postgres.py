@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -1053,7 +1054,11 @@ class PostgreSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                if not self.numeric_precision or not self.numeric_scale:
+                # Use `is None` for the scale half of the guard so that legitimate `NUMERIC(X, 0)`
+                # columns (integer-valued numerics, scale == 0) are not mistakenly treated as
+                # "missing scale". Precision still uses a truthiness check — precision == 0 is a
+                # real pathology (zero-digit budget) and should keep raising from our layer.
+                if not self.numeric_precision or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
 
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
@@ -1099,8 +1104,24 @@ def _is_read_replica(cursor: psycopg.Cursor) -> bool:
 
 
 def _get_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    probe_unconstrained_numeric_scale: bool = False,
 ) -> Table[PostgreSQLColumn]:
+    """Read column metadata for `schema.table_name`.
+
+    If `probe_unconstrained_numeric_scale` is True, additionally run a `MAX(scale(col))`
+    aggregation on unconstrained `numeric` columns (those declared as `numeric` with no
+    precision/scale) to pick a source arrow decimal scale that matches the real data.
+
+    The probe is only useful when a fresh delta column is about to be created — either a
+    first-ever sync or a post-reset sync with a cleared incremental watermark — because delta
+    decimal column types are immutable after creation. On normal incremental syncs the delta
+    column already exists and the probed value is discarded, so the caller should gate
+    probing on "is a fresh schema being created" (see the equivalent gating on
+    `_get_estimated_row_count_for_partitioned_table` in `postgres_source`)."""
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -1164,11 +1185,130 @@ def _get_table(
     cursor.execute(query)
 
     numeric_data_types = {"numeric", "decimal"}
+    metadata_rows = cursor.fetchall()
+
+    # For unconstrained numeric columns (declared as `numeric` with no precision/scale),
+    # postgres returns NULL for numeric_precision/numeric_scale in information_schema. Falling
+    # back to a static default scale (18) causes the delta column to be created with less scale
+    # than the actual data requires, which later breaks merges when a chunk contains values with
+    # trailing non-zero digits past that default scale. Probe the actual data for its max used
+    # scale so the delta column is sized correctly from the start.
+    unconstrained_numeric_columns = [
+        name
+        for name, data_type, _nullable, _np, numeric_scale_candidate in metadata_rows
+        if data_type in numeric_data_types and numeric_scale_candidate is None
+    ]
+    probed_scales: dict[str, int | None] = {}
+    # Alongside scale, we also probe the max integer digits per column so we can size precision
+    # to cover BOTH dimensions. Freezing the delta column at `decimal128(38, probed_scale)` when
+    # the observed data has `int_digits + scale > 38` would cause later arrow casts to fail — the
+    # probe alone cannot protect the integer side because precision is hard-capped at 38 for
+    # decimal128.
+    probed_int_digits: dict[str, int | None] = {}
+    # Only probe when a fresh delta column is about to be created. On incremental syncs the
+    # delta column type is already set and probing wastes a full-table aggregation per sync.
+    # Skip regular views: `MAX(scale(col))` on a view forces the view definition to execute,
+    # which can be arbitrarily expensive for join/aggregate views. Materialized views are
+    # already materialized on disk and behave like tables here.
+    if unconstrained_numeric_columns and probe_unconstrained_numeric_scale and not is_view:
+        try:
+            # Isolate the probe in a savepoint so that any failure (permission denied, bad
+            # type, statement_timeout, network blip) rolls back cleanly without poisoning the
+            # enclosing metadata transaction. Without this, a probe error leaves the
+            # transaction in `INERROR` state and every subsequent query in `postgres_source`
+            # (SET LOCAL statement_timeout, _is_read_replica, _get_primary_keys, _get_rows_to_sync,
+            # ...) fails with `InFailedSqlTransaction: current transaction is aborted`.
+            with cursor.connection.transaction(savepoint_name="probe_numeric_scale"):
+                # Scope a short statement_timeout to the probe so a pathologically large table
+                # or slow aggregation can't hang schema discovery. The outer 10-minute
+                # statement_timeout isn't set until `postgres_source` continues after
+                # `_get_table` returns, so without this the probe inherits whatever role-level
+                # default postgres has — which might be "no limit" on some hosted instances.
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(30 * 1000)  # 30 seconds
+                    )
+                )
+                # `abs(col)` strips the minus sign before `::text` so negative values don't
+                # inflate the measured integer-digit count. `trunc` drops the fractional part;
+                # the result is always numeric (never scientific notation), so `length(::text)`
+                # is the integer-digit count. Pairs: (MAX(scale), MAX(int_digits)) per column,
+                # emitted in the same order as `unconstrained_numeric_columns`.
+                select_parts = sql.SQL(", ").join(
+                    sql.SQL("MAX(scale({col})), MAX(length(trunc(abs({col}))::text))").format(
+                        col=sql.Identifier(col_name)
+                    )
+                    for col_name in unconstrained_numeric_columns
+                )
+                probe_query = sql.SQL("SELECT {parts} FROM {table}").format(
+                    parts=select_parts,
+                    table=sql.Identifier(schema, table_name),
+                )
+                logger.debug(f"Probing numeric dimensions: {probe_query.as_string()}")
+                cursor.execute(probe_query)
+                row = cursor.fetchone()
+                if row is not None:
+                    for i, col_name in enumerate(unconstrained_numeric_columns):
+                        probed_scales[col_name] = row[2 * i]
+                        probed_int_digits[col_name] = row[2 * i + 1]
+        except Exception as e:
+            # Probe is best-effort. Fall back to DEFAULT_NUMERIC_SCALE and let the downstream
+            # `_process_batch` fallback chain infer the right type at row-fetching time.
+            logger.warning(
+                "Failed to probe numeric dimensions",
+                schema=schema,
+                table=table_name,
+                error=str(e),
+            )
+
     columns = []
-    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
         if data_type in numeric_data_types:
-            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+            if numeric_scale_candidate is not None:
+                # Constrained `NUMERIC(p, s)`: trust the declared precision and scale directly.
+                numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+                numeric_scale = numeric_scale_candidate
+            else:
+                probed_scale = probed_scales.get(name)
+                probed_int = probed_int_digits.get(name)
+                # Intentionally fall back to DEFAULT_NUMERIC_SCALE when probed_scale is 0 or
+                # missing. A scale of 0 means every row we saw today happens to be integer-valued,
+                # but the source column is declared as unconstrained `numeric` — meaning the schema
+                # makes no scale promise. Freezing the delta column at scale=0 based on a transient
+                # all-integer snapshot would reintroduce this PR's original bug the moment a future
+                # sync sees a fractional value. DEFAULT_NUMERIC_SCALE leaves room for that future.
+                if probed_scale is not None and probed_scale > 0:
+                    # MAX_NUMERIC_SCALE bounds the scale we're willing to write into delta.
+                    effective_scale = min(probed_scale, MAX_NUMERIC_SCALE)
+                    # Precision must cover BOTH integer digits and scale — if `int_digits +
+                    # effective_scale` fits within the decimal128 budget (38), keep precision at
+                    # 38 to leave maximum integer headroom for future rows. Otherwise escalate
+                    # precision past 38 so `build_pyarrow_decimal_type` promotes the column to
+                    # decimal256. That column will then be collapsed to `string` at delta write
+                    # time (see `ensure_delta_compatible_arrow_schema` in dlt's deltalake libs) —
+                    # a known fidelity loss that's preferable to silently truncating either
+                    # integer digits (undersized precision) or fractional digits (undersized
+                    # scale).
+                    total_needed = (probed_int or 0) + effective_scale
+                    if total_needed <= DEFAULT_NUMERIC_PRECISION:
+                        numeric_precision = DEFAULT_NUMERIC_PRECISION
+                    else:
+                        numeric_precision = total_needed
+                        logger.warning(
+                            "Unconstrained numeric column exceeds decimal128 budget; "
+                            "will be stored as string in delta to preserve fidelity",
+                            schema=schema,
+                            table=table_name,
+                            column=name,
+                            total_digits_needed=total_needed,
+                            integer_digits=probed_int,
+                            scale=effective_scale,
+                            decimal128_budget=DEFAULT_NUMERIC_PRECISION,
+                        )
+                    numeric_scale = effective_scale
+                else:
+                    numeric_precision = DEFAULT_NUMERIC_PRECISION
+                    numeric_scale = DEFAULT_NUMERIC_SCALE
         else:
             numeric_precision = None
             numeric_scale = None
@@ -1242,7 +1382,20 @@ def postgres_source(
         with connection:
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
-                table = _get_table(cursor, schema, table_name, logger)
+                # Only probe the actual data for numeric scale when a fresh delta column is
+                # about to be created — either a first-ever sync or a post-reset full scan
+                # (watermark cleared). On normal incremental syncs the delta column already
+                # exists, so probing would be a wasted full-table aggregation. Mirrors the
+                # `is_initial_sync or full_table_scan` gating used a few lines below for
+                # partitioned-table row estimation.
+                fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
+                table = _get_table(
+                    cursor,
+                    schema,
+                    table_name,
+                    logger,
+                    probe_unconstrained_numeric_scale=fresh_schema_being_created,
+                )
                 logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(

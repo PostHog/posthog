@@ -1,8 +1,24 @@
+"""Single source of truth for LogsAlertConfiguration state transitions.
+
+Any write to `LogsAlertConfiguration.state` or `LogsAlertConfiguration.consecutive_failures`
+MUST originate here — the check-driven path goes through `evaluate_alert_check`, the
+control-plane path goes through one of the `apply_*` helpers, and every caller applies
+the resulting outcome via `apply_outcome`, which is the only function in the codebase
+that mutates those two fields.
+
+The semgrep rule at `.semgrep/rules/logs-alert-state-must-go-through-state-machine.yaml`
+enforces this invariant in CI.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, StrEnum
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from products.logs.backend.models import LogsAlertConfiguration
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -20,6 +36,10 @@ class NotificationAction(Enum):
     NONE = "none"
     FIRE = "fire"
     RESOLVE = "resolve"
+
+
+class InvalidTransition(Exception):
+    """Raised by control-plane transitions when the pre-condition isn't met."""
 
 
 @dataclass(frozen=True)
@@ -51,6 +71,21 @@ class AlertCheckOutcome:
     error_message: str | None
 
 
+@dataclass(frozen=True)
+class ControlPlaneOutcome:
+    """Outcome of a user-initiated or serializer-driven transition.
+
+    Shares `new_state` + `consecutive_failures` with `AlertCheckOutcome` so both
+    can flow through `apply_outcome` uniformly.
+    """
+
+    new_state: AlertState
+    consecutive_failures: int
+
+
+Outcome = Union[AlertCheckOutcome, ControlPlaneOutcome]
+
+
 def evaluate_alert_check(
     snapshot: AlertSnapshot,
     check: CheckResult,
@@ -61,7 +96,7 @@ def evaluate_alert_check(
     check, and cooldown suppression.
     """
     if snapshot.state == AlertState.BROKEN:
-        # Terminal until manual reset — scheduler should already be excluding these,
+        # Terminal until a user reset — the scheduler already excludes BROKEN alerts,
         # this is belt-and-braces against a race.
         return AlertCheckOutcome(
             new_state=AlertState.BROKEN,
@@ -143,6 +178,56 @@ def evaluate_alert_check(
         update_last_notified_at=update_last_notified_at,
         error_message=None,
     )
+
+
+def apply_user_reset(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
+    if snapshot.state != AlertState.BROKEN:
+        raise InvalidTransition(f"Only broken alerts can be reset. Current state is {snapshot.state.value}.")
+    return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+
+
+def apply_disable(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
+    # Preserve consecutive_failures so re-enable without reset doesn't silently
+    # wipe forensic state.
+    return ControlPlaneOutcome(
+        new_state=AlertState.NOT_FIRING,
+        consecutive_failures=snapshot.consecutive_failures,
+    )
+
+
+def apply_enable(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
+    return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+
+
+def apply_snooze(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
+    return ControlPlaneOutcome(
+        new_state=AlertState.SNOOZED,
+        consecutive_failures=snapshot.consecutive_failures,
+    )
+
+
+def apply_unsnooze(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
+    return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+
+
+def apply_threshold_change(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
+    # Snoozed alerts stay snoozed on edit — editing configuration must not wake a
+    # silenced alert.
+    if snapshot.state == AlertState.SNOOZED:
+        return ControlPlaneOutcome(
+            new_state=AlertState.SNOOZED,
+            consecutive_failures=snapshot.consecutive_failures,
+        )
+    return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+
+
+def apply_outcome(alert: LogsAlertConfiguration, outcome: Outcome) -> list[str]:
+    """Mutates `alert.state` and `alert.consecutive_failures` from an outcome.
+    Returns modified field names for `save(update_fields=...)`.
+    """
+    alert.state = outcome.new_state.value
+    alert.consecutive_failures = outcome.consecutive_failures
+    return ["state", "consecutive_failures"]
 
 
 def _is_within_cooldown(
