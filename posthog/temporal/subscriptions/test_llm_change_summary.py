@@ -272,6 +272,25 @@ class TestGenerateChangeSummary:
         assert image_parts[0]["image_url"]["detail"] == "high"
 
     @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_prepends_label_text_part_before_each_image(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [
+            _make_state(1, "Pageviews", "avg 100/day", timestamp="2025-04-15T10:00:00Z"),
+            _make_state(2, "Signups", "avg 10/day", timestamp="2025-04-15T10:00:00Z"),
+        ]
+        images = {1: b"pv", 2: b"su"}
+
+        generate_change_summary(None, current, team=None, insight_images=images)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        user_content = messages[-1]["content"]
+        label_texts = [p["text"] for p in user_content if p.get("type") == "text"]
+        assert "Chart for: Pageviews" in label_texts
+        assert "Chart for: Signups" in label_texts
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
     def test_preserves_state_order_when_attaching_images(self, mock_get_client):
         import base64
 

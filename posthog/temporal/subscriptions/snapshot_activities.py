@@ -38,6 +38,7 @@ SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED = Counter(
 
 MAX_SUMMARY_IMAGES = 6
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024
 
 _MAX_LOGGED_KEYS = 15
 
@@ -191,20 +192,27 @@ def _sanitize_prompt_guide(prompt_guide: str) -> str:
     return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
 
 
-def _load_insight_images(exported_asset_ids: list[int]) -> dict[int, bytes]:
+def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[int, bytes]:
     if not exported_asset_ids:
         return {}
 
-    images: dict[int, bytes] = {}
-    assets = (
-        ExportedAsset.objects_including_ttl_deleted.filter(
+    assets_by_id = {
+        asset.id: asset
+        for asset in ExportedAsset.objects.filter(
             pk__in=exported_asset_ids,
+            team_id=team_id,
             export_format=ExportedAsset.ExportFormat.PNG,
-        )
-        .only("id", "insight_id", "content", "content_location")
-        .iterator()
-    )
-    for asset in assets:
+        ).only("id", "insight_id", "content", "content_location")
+    }
+
+    images: dict[int, bytes] = {}
+    total_bytes = 0
+    for asset_id in exported_asset_ids:
+        if len(images) >= MAX_SUMMARY_IMAGES:
+            break
+        asset = assets_by_id.get(asset_id)
+        if asset is None:
+            continue
         if asset.insight_id is None:
             SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="no_insight_id").inc()
             continue
@@ -227,9 +235,12 @@ def _load_insight_images(exported_asset_ids: list[int]) -> dict[int, bytes]:
             SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="too_large").inc()
             continue
 
+        if total_bytes + len(content) > MAX_TOTAL_IMAGE_BYTES:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="total_bytes_exceeded").inc()
+            continue
+
         images[asset.insight_id] = content
-        if len(images) >= MAX_SUMMARY_IMAGES:
-            break
+        total_bytes += len(content)
 
     return images
 
@@ -305,13 +316,15 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     if inputs.exported_asset_ids:
         try:
             insight_images = await database_sync_to_async(_load_insight_images, thread_sensitive=False)(
-                inputs.exported_asset_ids
+                inputs.exported_asset_ids, inputs.team_id
             )
         except Exception as e:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="load_failed").inc()
             await LOGGER.awarning(
                 "snapshot_subscription_insights.image_load_failed",
                 subscription_id=inputs.subscription_id,
                 error=str(e),
+                exc_info=True,
             )
 
     summary_text: str | None = None
