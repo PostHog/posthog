@@ -67,7 +67,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         try:
             validate_rrule(value)
         except ValueError as exc:
-            raise serializers.ValidationError(str(exc)) from exc
+            logger.warning("Invalid rrule provided for evaluation report", exc_info=True)
+            raise serializers.ValidationError("Invalid recurrence rule.") from exc
         return value
 
     def validate(self, attrs):
