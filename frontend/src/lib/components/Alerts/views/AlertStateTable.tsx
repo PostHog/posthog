@@ -50,7 +50,6 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     if (status === 'done' && shortId) {
         return (
             <div className="flex flex-col gap-1.5 items-start max-w-md w-fit ml-auto text-left">
-                {verdict && <VerdictTag verdict={verdict} />}
                 {suppressed && (
                     <Tooltip title="The investigation agent concluded this fire wasn't worth notifying about, so we didn't send an email / Slack / webhook for it.">
                         <LemonTag type="muted" size="small">
@@ -58,7 +57,12 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         </LemonTag>
                     </Tooltip>
                 )}
-                {summary && <SummaryText summary={summary} />}
+                {(verdict || summary) && (
+                    <div className="flex items-start gap-1.5">
+                        {verdict && <VerdictTag verdict={verdict} />}
+                        {summary && <SummaryText summary={summary} leadingDash={!!verdict} />}
+                    </div>
+                )}
                 <LemonButton type="secondary" size="xsmall" to={`/notebooks/${shortId}`} icon={<IconNotebook />}>
                     View notebook
                 </LemonButton>
@@ -89,12 +93,14 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     return <span className="text-secondary">—</span>
 }
 
-function SummaryText({ summary }: { summary: string }): JSX.Element {
+function SummaryText({ summary, leadingDash = false }: { summary: string; leadingDash?: boolean }): JSX.Element {
     // Line-clamp adapts to cell width / font size, unlike a fixed char budget.
     // Full summary shows on hover via the tooltip.
     return (
         <Tooltip title={summary}>
-            <span className="text-secondary text-sm leading-normal line-clamp-2">{summary}</span>
+            <span className="text-secondary text-sm leading-normal line-clamp-2">
+                {leadingDash ? `— ${summary}` : summary}
+            </span>
         </Tooltip>
     )
 }
