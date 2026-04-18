@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
     // Writer task
-    let pg_writer = PgWriter::new(pool, config.upsert_batch_size);
+    let pg_writer = PgWriter::new(pool, config.upsert_batch_size, config.pg_target_table.clone());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         pg_writer,

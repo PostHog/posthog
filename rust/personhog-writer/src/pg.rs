@@ -8,17 +8,19 @@ use tracing::{error, warn};
 pub struct PgWriter {
     pool: PgPool,
     upsert_batch_size: usize,
+    table_name: String,
 }
 
 impl PgWriter {
-    pub fn new(pool: PgPool, upsert_batch_size: usize) -> Self {
+    pub fn new(pool: PgPool, upsert_batch_size: usize, table_name: String) -> Self {
         Self {
             pool,
             upsert_batch_size,
+            table_name,
         }
     }
 
-    /// Batch upsert persons into the personhog_person table.
+    /// Batch upsert persons into the configured target table.
     /// Chunks the input to stay within Postgres parameter limits.
     pub async fn batch_upsert(&self, persons: &[Person]) -> Result<(), sqlx::Error> {
         let start = std::time::Instant::now();
@@ -62,13 +64,14 @@ impl PgWriter {
             return Ok(());
         }
 
-        let mut qb: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
-            "INSERT INTO personhog_person (
+        let mut qb: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(format!(
+            "INSERT INTO {} (
                 id, team_id, uuid, properties, properties_last_updated_at,
                 properties_last_operation, created_at, version, is_identified,
                 last_seen_at
             ) ",
-        );
+            self.table_name
+        ));
 
         qb.push_values(&valid_persons, |mut b, person| {
             let uuid = uuid::Uuid::parse_str(&person.uuid).unwrap();
@@ -91,7 +94,7 @@ impl PgWriter {
                 .push_bind(last_seen_at);
         });
 
-        qb.push(
+        qb.push(format!(
             " ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
@@ -101,8 +104,9 @@ impl PgWriter {
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
                 last_seen_at = EXCLUDED.last_seen_at
-            WHERE EXCLUDED.version > personhog_person.version",
-        );
+            WHERE EXCLUDED.version > {}.version",
+            self.table_name
+        ));
 
         let query = qb.build();
         let chunk_size = valid_persons.len() as u64;

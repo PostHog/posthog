@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
-    KAFKA_BOOTSTRAP, TOPIC,
+    KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
 use personhog_proto::personhog::types::v1::Person;
 use personhog_writer::buffer::PersonBuffer;
@@ -29,7 +29,7 @@ async fn writer_upserts_person_to_pg() {
     let team_id: i32 = 99_001;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let person = make_person(team_id as i64, 1, 1);
 
     writer.batch_upsert(&[person]).await.unwrap();
@@ -56,7 +56,7 @@ async fn writer_version_guard_skips_stale_updates() {
     let team_id: i32 = 99_002;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
 
     // Write version 5
     let person_v5 = make_person(team_id as i64, 1, 5);
@@ -87,7 +87,7 @@ async fn writer_batch_upserts_multiple_persons() {
     let team_id: i32 = 99_003;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let persons: Vec<Person> = (1..=10)
         .map(|i| make_person(team_id as i64, i, 1))
         .collect();
@@ -111,7 +111,7 @@ async fn writer_skips_invalid_uuids_without_failing_batch() {
     let team_id: i32 = 99_004;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
 
     let valid_person = make_person(team_id as i64, 1, 1);
     let mut bad_person = make_person(team_id as i64, 2, 1);
@@ -174,7 +174,7 @@ async fn consumer_flushes_on_buffer_size_threshold() {
     let _monitor = manager.monitor_background();
 
     // Start writer task
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -274,7 +274,7 @@ async fn consumer_flushes_on_timer() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -374,7 +374,7 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -475,7 +475,7 @@ async fn writer_processes_batch_from_channel() {
     let writer_handle = manager.register("writer", lifecycle::ComponentOptions::new());
     let _monitor = manager.monitor_background();
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -552,7 +552,7 @@ async fn writer_handles_pg_failures_with_backoff() {
         },
     )
     .unwrap();
-    let writer = PgWriter::new(bad_pool, 500);
+    let writer = PgWriter::new(bad_pool, 500, TARGET_TABLE.to_string());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -636,7 +636,7 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer = PgWriter::new(pool.clone(), 500);
+    let writer = PgWriter::new(pool.clone(), 500, TARGET_TABLE.to_string());
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,

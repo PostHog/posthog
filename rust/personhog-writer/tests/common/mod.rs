@@ -10,6 +10,7 @@ use sqlx::postgres::PgPool;
 pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/posthog_persons";
 pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
 pub const TOPIC: &str = "personhog_updates";
+pub const TARGET_TABLE: &str = "personhog_person";
 
 /// Create a mock Kafka cluster with the personhog_updates topic.
 pub async fn create_mock_kafka() -> (

@@ -24,6 +24,11 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub pg_max_connections: u32,
 
+    /// Target table for person upserts. Set to "posthog_person" for
+    /// production cutover, "personhog_person" for validation.
+    #[envconfig(default = "personhog_person")]
+    pub pg_target_table: String,
+
     // ── Flush tuning ─────────────────────────────────────────────
     /// How often to flush the buffer to Postgres, in milliseconds.
     #[envconfig(default = "5000")]
