@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import pytest
 from unittest.mock import patch
 
@@ -51,54 +53,62 @@ def test_loads_bytes_from_object_storage_when_content_empty(team, user):
     assert result == {insight.id: b"from-s3"}
 
 
-def test_skips_when_storage_raises(team, user):
-    insight = Insight.objects.create(team=team, name="pv", created_by=user)
-    asset = _create_png_asset(team, insight, content=None, content_location="s3://path")
-
-    with patch(
-        "posthog.temporal.subscriptions.snapshot_activities.object_storage.read_bytes",
-        side_effect=RuntimeError("boom"),
-    ):
-        result = _load_insight_images([asset.id], team.id)
-
-    assert result == {}
-
-
-def test_skips_asset_without_insight_id(team, user):
+@contextmanager
+def _no_insight_id_scenario(team, user):
     asset = ExportedAsset.objects.create(
         team=team, insight=None, export_format=ExportedAsset.ExportFormat.PNG, content=b"png"
     )
-
-    result = _load_insight_images([asset.id], team.id)
-
-    assert result == {}
+    yield asset.id
 
 
-def test_skips_asset_with_no_content_or_location(team, user):
+@contextmanager
+def _no_content_or_location_scenario(team, user):
     insight = Insight.objects.create(team=team, name="pv", created_by=user)
     asset = _create_png_asset(team, insight, content=None, content_location=None)
-
-    result = _load_insight_images([asset.id], team.id)
-
-    assert result == {}
+    yield asset.id
 
 
-def test_skips_non_png_exports(team, user):
+@contextmanager
+def _non_png_export_scenario(team, user):
     insight = Insight.objects.create(team=team, name="pv", created_by=user)
     asset = _create_png_asset(team, insight, content=b"csv-bytes", export_format=ExportedAsset.ExportFormat.CSV)
-
-    result = _load_insight_images([asset.id], team.id)
-
-    assert result == {}
+    yield asset.id
 
 
-def test_skips_assets_larger_than_cap(team, user):
+@contextmanager
+def _over_image_size_cap_scenario(team, user):
     from posthog.temporal.subscriptions import snapshot_activities
 
     insight = Insight.objects.create(team=team, name="pv", created_by=user)
     with patch.object(snapshot_activities, "MAX_IMAGE_BYTES", 4):
         asset = _create_png_asset(team, insight, content=b"too-long-content")
-        result = _load_insight_images([asset.id], team.id)
+        yield asset.id
+
+
+@contextmanager
+def _storage_error_scenario(team, user):
+    insight = Insight.objects.create(team=team, name="pv", created_by=user)
+    asset = _create_png_asset(team, insight, content=None, content_location="s3://path")
+    with patch(
+        "posthog.temporal.subscriptions.snapshot_activities.object_storage.read_bytes",
+        side_effect=RuntimeError("boom"),
+    ):
+        yield asset.id
+
+
+@pytest.mark.parametrize(
+    "reason,scenario",
+    [
+        ("no_insight_id", _no_insight_id_scenario),
+        ("no_content_or_location", _no_content_or_location_scenario),
+        ("non_png_export", _non_png_export_scenario),
+        ("over_image_size_cap", _over_image_size_cap_scenario),
+        ("storage_error", _storage_error_scenario),
+    ],
+)
+def test_returns_empty_for_unloadable_asset(team, user, reason, scenario):
+    with scenario(team, user) as asset_id:
+        result = _load_insight_images([asset_id], team.id)
 
     assert result == {}
 
