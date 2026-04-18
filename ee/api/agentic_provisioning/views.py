@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -1434,18 +1434,24 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
 
 def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
     remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
-    access_token.scoped_teams = remaining
-    access_token.save(update_fields=["scoped_teams"])
 
-    for rt in OAuthRefreshToken.objects.filter(access_token=access_token):
-        rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-        rt.save(update_fields=["scoped_teams"])
+    # Atomic so a refresh token can never be left with the removed team still in
+    # scope while the access token has it stripped — otherwise the orchestrator
+    # could refresh and replay the removed team right back into scope.
+    with transaction.atomic():
+        refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
 
-    if not remaining:
-        # No more resources attached to this token — revoke it so the orchestrator
-        # can't use it for anything. The user keeps their PostHog account.
-        OAuthRefreshToken.objects.filter(access_token=access_token).update(access_token=None, revoked=timezone.now())
-        access_token.delete()
+        if not remaining:
+            refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+            access_token.delete()
+            return
+
+        access_token.scoped_teams = remaining
+        access_token.save(update_fields=["scoped_teams"])
+
+        for rt in refresh_tokens:
+            rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+            rt.save(update_fields=["scoped_teams"])
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
