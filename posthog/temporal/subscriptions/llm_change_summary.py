@@ -260,7 +260,7 @@ def build_initial_prompt_messages(
 
 
 class AttachedImageSummary(NamedTuple):
-    count: int
+    image_count: int
     bytes_total: int
     user_text_length: int
 
@@ -327,7 +327,7 @@ def generate_change_summary(
         delivery_id=delivery_id,
         has_previous=bool(previous_states),
         insight_count=len(current_states),
-        image_count=attached.count,
+        image_count=attached.image_count,
         image_bytes_total=attached.bytes_total,
         user_message_length=attached.user_text_length,
     )
