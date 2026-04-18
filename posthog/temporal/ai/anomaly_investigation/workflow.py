@@ -6,6 +6,7 @@ Triggered from posthog/tasks/alerts/checks.py when an alert transitions to FIRIN
 
 from __future__ import annotations
 
+import json
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
+from posthog.temporal.common.base import PostHogWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +39,13 @@ class AnomalyInvestigationWorkflowInputs:
 
 
 @workflow.defn(name="anomaly-investigation")
-class AnomalyInvestigationWorkflow:
+class AnomalyInvestigationWorkflow(PostHogWorkflow):
     """Single-activity workflow — the heavy lifting happens inside the activity."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> AnomalyInvestigationWorkflowInputs:
+        loaded = json.loads(inputs[0])
+        return AnomalyInvestigationWorkflowInputs(**loaded)
 
     @workflow.run
     async def run(self, inputs: AnomalyInvestigationWorkflowInputs) -> None:

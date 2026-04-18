@@ -85,7 +85,7 @@ def run_investigation_notification_safety_net() -> int:
     return notified
 
 
-def _fallback_breach_descriptions(alert_check) -> list[str]:
+def _fallback_breach_descriptions(alert_check: AlertCheck) -> list[str]:
     """Minimal breach description for a safety-net dispatch (no verdict yet)."""
     triggered_dates = alert_check.triggered_dates or []
     if triggered_dates:

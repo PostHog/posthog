@@ -5,6 +5,7 @@ agent itself. The workflow is mocked at the enqueue seam.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -41,7 +42,7 @@ class TestInvestigationTrigger(BaseTest):
 
     @patch("posthog.tasks.alerts.checks.transaction.on_commit", side_effect=lambda cb: cb())
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_enqueues_on_transition_to_firing(self, mock_start, _on_commit) -> None:
+    def test_enqueues_on_transition_to_firing(self, mock_start: Any, _on_commit: Any) -> None:
         check = self._make_check()
         _maybe_start_investigation_agent(self.alert, check, previous_state=AlertState.NOT_FIRING)
         mock_start.assert_called_once_with(self.alert, check)
@@ -50,13 +51,13 @@ class TestInvestigationTrigger(BaseTest):
         assert check.investigation_status == InvestigationStatus.PENDING
 
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_does_not_enqueue_when_already_firing(self, mock_start) -> None:
+    def test_does_not_enqueue_when_already_firing(self, mock_start: Any) -> None:
         check = self._make_check()
         _maybe_start_investigation_agent(self.alert, check, previous_state=AlertState.FIRING)
         mock_start.assert_not_called()
 
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_does_not_enqueue_when_not_opted_in(self, mock_start) -> None:
+    def test_does_not_enqueue_when_not_opted_in(self, mock_start: Any) -> None:
         self.alert.investigation_agent_enabled = False
         self.alert.save()
         check = self._make_check()
@@ -64,7 +65,7 @@ class TestInvestigationTrigger(BaseTest):
         mock_start.assert_not_called()
 
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_does_not_enqueue_for_threshold_only_alerts(self, mock_start) -> None:
+    def test_does_not_enqueue_for_threshold_only_alerts(self, mock_start: Any) -> None:
         self.alert.detector_config = None
         self.alert.save()
         check = self._make_check()
@@ -73,7 +74,7 @@ class TestInvestigationTrigger(BaseTest):
 
     @patch("posthog.tasks.alerts.checks.transaction.on_commit", side_effect=lambda cb: cb())
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_cooldown_skips_when_recent_investigation_exists(self, mock_start, _on_commit) -> None:
+    def test_cooldown_skips_when_recent_investigation_exists(self, mock_start: Any, _on_commit: Any) -> None:
         now = datetime(2024, 6, 2, 10, 0, tzinfo=UTC)
         # Earlier investigation 10 minutes ago — well inside the 1h cooldown.
         with freeze_time(now - timedelta(minutes=10)):
@@ -89,7 +90,7 @@ class TestInvestigationTrigger(BaseTest):
 
     @patch("posthog.tasks.alerts.checks.transaction.on_commit", side_effect=lambda cb: cb())
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_cooldown_allows_after_expiry(self, mock_start, _on_commit) -> None:
+    def test_cooldown_allows_after_expiry(self, mock_start: Any, _on_commit: Any) -> None:
         now = datetime(2024, 6, 2, 10, 0, tzinfo=UTC)
         # Earlier investigation 2 hours ago — outside the 1h cooldown.
         with freeze_time(now - timedelta(hours=2)):
@@ -103,7 +104,7 @@ class TestInvestigationTrigger(BaseTest):
 
     @patch("posthog.tasks.alerts.checks.transaction.on_commit", side_effect=lambda cb: cb())
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow", side_effect=RuntimeError("temporal down"))
-    def test_marks_failed_when_enqueue_raises(self, _mock_start, _on_commit) -> None:
+    def test_marks_failed_when_enqueue_raises(self, _mock_start: Any, _on_commit: Any) -> None:
         check = self._make_check()
         _maybe_start_investigation_agent(self.alert, check, previous_state=AlertState.NOT_FIRING)
         check.refresh_from_db()

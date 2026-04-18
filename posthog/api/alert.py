@@ -125,9 +125,8 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         return instance.targets_notified != {}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
-        if instance.investigation_notebook_id is None:
-            return None
-        return instance.investigation_notebook.short_id
+        notebook = instance.investigation_notebook
+        return notebook.short_id if notebook is not None else None
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):

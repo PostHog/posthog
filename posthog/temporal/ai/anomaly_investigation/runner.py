@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from pydantic import BaseModel
 
 from posthog.models import Team, User
 from posthog.models.alert import AlertConfiguration
@@ -77,40 +78,40 @@ async def run_investigation(
         "simulate_detector": lambda raw: toolkit.simulate_detector(SimulateDetectorArgs.model_validate(raw)),
     }
 
-    tools_spec = [
-        {
-            "name": "run_hogql_query",
-            "description": "Run a read-only HogQL SELECT query against the team's event data. Use sparingly and keep queries narrow.",
-            "args_schema": RunHogQLQueryArgs,
-        },
-        {
-            "name": "top_breakdowns",
-            "description": "Fetch the top values of a property for an event in a time window.",
-            "args_schema": TopBreakdownArgs,
-        },
-        {
-            "name": "recent_events",
-            "description": "Fetch a handful of recent events in a time window, optionally filtered by event name.",
-            "args_schema": RecentEventsArgs,
-        },
-        {
-            "name": "fetch_metric_series",
-            "description": (
+    tools_spec: list[tuple[str, str, type[BaseModel]]] = [
+        (
+            "run_hogql_query",
+            "Run a read-only HogQL SELECT query against the team's event data. Use sparingly and keep queries narrow.",
+            RunHogQLQueryArgs,
+        ),
+        (
+            "top_breakdowns",
+            "Fetch the top values of a property for an event in a time window.",
+            TopBreakdownArgs,
+        ),
+        (
+            "recent_events",
+            "Fetch a handful of recent events in a time window, optionally filtered by event name.",
+            RecentEventsArgs,
+        ),
+        (
+            "fetch_metric_series",
+            (
                 "Return the alert's own insight time series (labels + values) at its configured "
                 "interval. Prefer this over run_hogql_query when you need the exact metric the "
                 "detector was scoring."
             ),
-            "args_schema": FetchMetricSeriesArgs,
-        },
-        {
-            "name": "simulate_detector",
-            "description": (
+            FetchMetricSeriesArgs,
+        ),
+        (
+            "simulate_detector",
+            (
                 "Run the alert's detector over a historical window and return the scored points "
                 "plus any timestamps the detector would have flagged. Use to check whether the "
                 "current fire is an isolated spike or part of a recurring pattern."
             ),
-            "args_schema": SimulateDetectorArgs,
-        },
+            SimulateDetectorArgs,
+        ),
     ]
 
     llm = MaxChatAnthropic(
@@ -125,11 +126,11 @@ async def run_investigation(
     llm_with_tools = llm.bind_tools(
         [
             {
-                "name": t["name"],
-                "description": t["description"],
-                "input_schema": t["args_schema"].model_json_schema(),
+                "name": name,
+                "description": description,
+                "input_schema": schema.model_json_schema(),
             }
-            for t in tools_spec
+            for name, description, schema in tools_spec
         ]
     )
 
