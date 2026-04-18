@@ -15,7 +15,14 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 AUTO_FILL_KEYS = ["OIDC_RSA_PRIVATE_KEY", "SANDBOX_JWT_PRIVATE_KEY", "DEBUG", "SANDBOX_PROVIDER"]
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
-EXPECTED_REDIRECT_URIS = "https://app.posthog.com/callback"
+# Canonical local-dev redirect URIs for the Array OAuth app (matches
+# posthog/demo/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
+EXPECTED_REDIRECT_URIS = (
+    "http://localhost:3000/callback "
+    "https://example.com/callback "
+    "http://localhost:8237/callback "
+    "http://localhost:8239/callback"
+)
 GITHUB_APP_NEW_URL = "https://github.com/settings/apps/new"
 GITHUB_APP_SETUP_URL = "http://localhost:8010/integrations/github/callback"
 
