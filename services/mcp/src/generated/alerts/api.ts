@@ -965,6 +965,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
         ),
+    investigation_agent_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+        ),
 })
 
 export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -1944,6 +1950,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
+        ),
+    investigation_agent_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
         ),
 })
 
