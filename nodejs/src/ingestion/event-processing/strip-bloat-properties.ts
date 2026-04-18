@@ -10,7 +10,6 @@ export const BLOAT_PROPERTIES: ReadonlySet<string> = new Set([
     '$product_tours_activated',
     '$product_tours_enabled_server_side',
     '$surveys_activated',
-    '$feature_flag_payloads',
     '$override_feature_flag_payloads',
 ])
 
