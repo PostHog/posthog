@@ -140,7 +140,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         'fill-expanded': [
             'oklch(0.87 0 0 / 60%)',
             'oklch(0.55 0 0 / 35%)',
-            'bg-fill-hover',
+            'bg-fill-expanded',
         ],
         // Medium fill 
         'fill-selected': [
