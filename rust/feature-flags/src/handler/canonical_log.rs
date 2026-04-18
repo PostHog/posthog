@@ -1234,6 +1234,7 @@ mod tests {
         #[case(FlagError::PersonNotFound, 503, "person_not_found")]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]
         #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        #[case(FlagError::HashKeyOverrideError, 500, "hash_key_override_error")]
         fn test_set_error_populates_fields(
             #[case] error: FlagError,
             #[case] expected_status: u16,
