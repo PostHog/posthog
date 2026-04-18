@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,18 +24,20 @@ export function SaveAsActionBanner({ filter }: SaveAsActionBannerProps): JSX.Ele
 
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.AUTOCAPTURE_SAVE_AS_ACTION}>
-            <LemonBanner
-                type="info"
-                className="mt-2"
-                dismissKey="autocapture-save-as-action-nudge"
-                action={{
-                    children: 'Save as action',
-                    onClick: () => openSaveAsActionDialog(filter),
-                    'data-attr': 'autocapture-save-as-action',
-                }}
-            >
-                Save this autocapture filter as a reusable action.
-            </LemonBanner>
+            <PostHogCaptureOnViewed name="autocapture-series-save-as-action-banner-shown">
+                <LemonBanner
+                    type="info"
+                    className="mt-2"
+                    dismissKey="autocapture-save-as-action-nudge"
+                    action={{
+                        children: 'Save as action',
+                        onClick: () => openSaveAsActionDialog(filter),
+                        'data-attr': 'autocapture-save-as-action',
+                    }}
+                >
+                    Save this autocapture filter as a reusable action.
+                </LemonBanner>
+            </PostHogCaptureOnViewed>
         </FlaggedFeature>
     )
 }
