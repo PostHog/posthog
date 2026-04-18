@@ -215,6 +215,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             subscription_title=subscription.title,
             prompt_guide=prompt_guide,
             team=subscription.team,
+            delivery_id=inputs.delivery_id,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

@@ -237,6 +237,7 @@ def generate_change_summary(
     subscription_title: str | None = None,
     prompt_guide: str = "",
     team: Team | None = None,
+    delivery_id: str | None = None,
 ) -> str:
     team_id = team.id if team else 0
 
@@ -249,6 +250,7 @@ def generate_change_summary(
     logger.info(
         "change_summary_prompt_ready",
         team_id=team_id,
+        delivery_id=delivery_id,
         has_previous=bool(previous_states),
         insight_count=len(current_states),
         user_message_length=len(user_message_content),
