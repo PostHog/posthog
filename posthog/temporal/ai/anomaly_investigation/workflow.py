@@ -92,7 +92,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     metric_description = insight.name or f"Insight {insight.short_id}"
     detector_type = (alert.detector_config or {}).get("type") or "threshold"
 
-    anomaly_context = build_anomaly_context(
+    anomaly_context_text = build_anomaly_context(
         alert_name=alert.name or "Unnamed alert",
         metric_description=metric_description,
         detector_type=detector_type,
@@ -102,12 +102,21 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         interval=alert_check.interval,
     )
 
+    # Render a chart of the metric with the detector's anomaly points marked and
+    # attach it to the HumanMessage so the multimodal model can reason visually
+    # before spending any tool-call budget.
+    anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
+        alert=alert,
+        context_text=anomaly_context_text,
+    )
+
     try:
         async with Heartbeater():
             result = await run_investigation(
                 team=team,
                 user=user,
                 anomaly_context=anomaly_context,
+                alert=alert,
                 heartbeat=activity.heartbeat,
             )
     except Exception as err:
@@ -174,6 +183,52 @@ async def _mark_failed(alert_check, reason: str) -> None:
         investigation_status=InvestigationStatus.FAILED,
         investigation_error={"message": reason},
     )
+
+
+def _build_multimodal_context(*, alert, context_text: str):
+    """Return a LangChain HumanMessage content value — either a plain string or a
+    list of content blocks with the text and a rendered chart PNG.
+
+    Best-effort: if the detector can't simulate or the chart fails to render, we
+    fall back to text-only so the investigation still runs.
+    """
+    from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+    from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
+
+    if alert.detector_config is None or alert.insight is None:
+        return context_text
+
+    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
+    if isinstance(sim, str) or not sim:
+        logger.info("anomaly_investigation.chart_skipped", extra={"alert_id": str(alert.id), "reason": str(sim)[:120]})
+        return context_text
+
+    dates = sim.get("dates") or []
+    values = sim.get("data") or []
+    if not dates or not values:
+        return context_text
+
+    png = render_series_chart(
+        dates=dates,
+        values=values,
+        triggered_indices=sim.get("triggered_indices") or [],
+        scores=sim.get("scores") or None,
+        title=(alert.insight.name or alert.name or "Metric")[:80],
+    )
+    if not png:
+        return context_text
+
+    return [
+        {"type": "text", "text": context_text},
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": png_to_b64(png),
+            },
+        },
+    ]
 
 
 async def _pick_investigation_user(alert) -> User | None:

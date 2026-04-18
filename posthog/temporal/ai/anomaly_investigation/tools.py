@@ -22,8 +22,10 @@ from pydantic import BaseModel, Field
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
+from posthog.models.alert import AlertConfiguration
 
 MAX_HOGQL_ROWS = 50
+MAX_SERIES_POINTS = 120
 
 _DATE_HELP = (
     "Accepts PostHog relative shorthands ('-7d', '-24h', 'now') — resolved to an "
@@ -51,12 +53,67 @@ class RecentEventsArgs(BaseModel):
     limit: int = Field(default=10, description="Max events to return.", ge=1, le=25)
 
 
+class FetchMetricSeriesArgs(BaseModel):
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for the series start. Accepts PostHog relative shorthands "
+            "('-30d', '-14d') or an ISO date. If omitted, uses the insight's configured range."
+        ),
+    )
+
+
+class SimulateDetectorArgs(BaseModel):
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Optional window override ('-30d', '-90d', or ISO). The detector needs a minimum "
+            "number of samples — the helper extends this window automatically if needed."
+        ),
+    )
+
+
+def _compact(seq: list[Any]) -> list[Any]:
+    """Tail-truncate long series so the LLM can still see the anomaly without flooding
+    its context. Keeps the last MAX_SERIES_POINTS points — that's where the fire lives.
+    """
+    if len(seq) <= MAX_SERIES_POINTS:
+        return list(seq)
+    return list(seq[-MAX_SERIES_POINTS:])
+
+
+def _run_detector_simulation(
+    *,
+    alert: AlertConfiguration,
+    team: Team,
+    date_from: str | None,
+) -> dict[str, Any] | str:
+    """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
+    dict or a short error string. Kept as a sync helper so it can be pushed to a thread
+    via ``sync_to_async`` from the async tool handlers.
+    """
+    # Imported lazily because the workflow module can't pull in heavy query machinery
+    # at Temporal workflow-definition time — only activities can.
+    from posthog.tasks.alerts.detector import simulate_detector_on_insight
+
+    try:
+        return simulate_detector_on_insight(
+            insight=alert.insight,
+            team=team,
+            detector_config=alert.detector_config or {"type": "zscore", "threshold": 0.95},
+            date_from=date_from,
+        )
+    except Exception as err:
+        return str(err)
+
+
 @dataclass
 class InvestigationToolkit:
-    """Bundles the tool implementations bound to a team. Returned strings are designed
-    to be compact — rough cap ~2KB per response to keep LLM context lean."""
+    """Bundles the tool implementations bound to a team and alert. Returned strings are
+    compact — rough cap ~2KB per response to keep LLM context lean."""
 
     team: Team
+    alert: AlertConfiguration | None = None
 
     async def run_hogql_query(self, args: RunHogQLQueryArgs) -> str:
         sql = args.query.strip()
@@ -104,6 +161,58 @@ class InvestigationToolkit:
             f"ORDER BY timestamp DESC LIMIT {int(args.limit)}"
         )
         return await self.run_hogql_query(RunHogQLQueryArgs(query=query))
+
+    async def fetch_metric_series(self, args: FetchMetricSeriesArgs) -> str:
+        """Return the alert's insight time series (labels + values) over a window."""
+        if self.alert is None or self.alert.insight is None:
+            return "Error: no insight bound to this investigation."
+
+        sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
+            alert=self.alert,
+            team=self.team,
+            date_from=args.date_from,
+        )
+        if isinstance(sim, str):
+            return f"Error fetching series: {sim}"
+
+        dates = sim.get("dates") or []
+        values = sim.get("data") or []
+        payload = {
+            "interval": sim.get("interval"),
+            "labels": _compact(dates),
+            "values": _compact(values),
+            "point_count": len(values),
+        }
+        return json.dumps(payload, default=str)
+
+    async def simulate_detector(self, args: SimulateDetectorArgs) -> str:
+        """Run the alert's detector over a historical window and return scored points."""
+        if self.alert is None or self.alert.insight is None:
+            return "Error: no insight bound to this investigation."
+        if not self.alert.detector_config:
+            return "Error: alert has no detector_config; simulation requires anomaly-detection mode."
+
+        sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
+            alert=self.alert,
+            team=self.team,
+            date_from=args.date_from,
+        )
+        if isinstance(sim, str):
+            return f"Error running simulation: {sim}"
+
+        scores = sim.get("scores") or []
+        values = sim.get("data") or []
+        dates = sim.get("dates") or []
+        payload = {
+            "interval": sim.get("interval"),
+            "labels": _compact(dates),
+            "values": _compact(values),
+            "scores": _compact(scores),
+            "triggered_dates": sim.get("triggered_dates") or [],
+            "anomaly_count": sim.get("anomaly_count") or 0,
+            "total_points": sim.get("total_points") or len(values),
+        }
+        return json.dumps(payload, default=str)
 
 
 def _escape_literal(value: str) -> str:

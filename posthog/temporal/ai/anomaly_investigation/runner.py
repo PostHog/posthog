@@ -20,12 +20,15 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from posthog.models import Team, User
+from posthog.models.alert import AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
+    FetchMetricSeriesArgs,
     InvestigationToolkit,
     RecentEventsArgs,
     RunHogQLQueryArgs,
+    SimulateDetectorArgs,
     TopBreakdownArgs,
 )
 
@@ -33,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS = 10
 AGENT_MODEL = "claude-sonnet-4-5"
+MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well under the context limit.
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
@@ -49,23 +53,28 @@ async def run_investigation(
     *,
     team: Team,
     user: User,
-    anomaly_context: str,
+    anomaly_context: Any,  # str or list[{type, ...}] LangChain content blocks
+    alert: AlertConfiguration | None = None,
     heartbeat: Callable[[], None] | None = None,
 ) -> InvestigationRunResult:
     """Drive the agent loop to completion and return the structured report.
 
-    `heartbeat` is an optional callable invoked once per iteration so the
-    enclosing Temporal activity stays alive during long LLM calls.
+    ``anomaly_context`` accepts either a plain string or a list of content blocks
+    (text + image for multimodal input). ``alert`` gives metric-specific tools a
+    handle on the insight and detector_config. ``heartbeat`` is invoked once per
+    iteration so the enclosing Temporal activity stays alive during long LLM calls.
     """
     # Imported here so the workflow module does not require the ee package at import time
     # (Temporal workflow sandbox restrictions).
     from ee.hogai.llm import MaxChatAnthropic
 
-    toolkit = InvestigationToolkit(team=team)
+    toolkit = InvestigationToolkit(team=team, alert=alert)
     handlers: dict[str, ToolHandler] = {
         "run_hogql_query": lambda raw: toolkit.run_hogql_query(RunHogQLQueryArgs.model_validate(raw)),
         "top_breakdowns": lambda raw: toolkit.top_breakdowns(TopBreakdownArgs.model_validate(raw)),
         "recent_events": lambda raw: toolkit.recent_events(RecentEventsArgs.model_validate(raw)),
+        "fetch_metric_series": lambda raw: toolkit.fetch_metric_series(FetchMetricSeriesArgs.model_validate(raw)),
+        "simulate_detector": lambda raw: toolkit.simulate_detector(SimulateDetectorArgs.model_validate(raw)),
     }
 
     tools_spec = [
@@ -83,6 +92,24 @@ async def run_investigation(
             "name": "recent_events",
             "description": "Fetch a handful of recent events in a time window, optionally filtered by event name.",
             "args_schema": RecentEventsArgs,
+        },
+        {
+            "name": "fetch_metric_series",
+            "description": (
+                "Return the alert's own insight time series (labels + values) at its configured "
+                "interval. Prefer this over run_hogql_query when you need the exact metric the "
+                "detector was scoring."
+            ),
+            "args_schema": FetchMetricSeriesArgs,
+        },
+        {
+            "name": "simulate_detector",
+            "description": (
+                "Run the alert's detector over a historical window and return the scored points "
+                "plus any timestamps the detector would have flagged. Use to check whether the "
+                "current fire is an isolated spike or part of a recurring pattern."
+            ),
+            "args_schema": SimulateDetectorArgs,
         },
     ]
 
@@ -169,6 +196,11 @@ async def run_investigation(
                     except Exception as err:
                         logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
                         content = f"Tool {name} failed: {err}"
+            # Guard against runaway tool responses pushing the conversation past
+            # Anthropic's 200K-token context window. Keep the first slice; if the
+            # agent needs more it can issue a narrower query.
+            if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
+                content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
             messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
 
     final_message = messages[-1]
