@@ -35,7 +35,7 @@ def team_has_logs(team: Team) -> bool:
     if cache.get(cache_key) is True:
         return True
 
-    result = HasLogsQueryRunner(team).run()
-    if result:
+    has_logs = HasLogsQueryRunner(team).run()
+    if has_logs:
         cache.set(cache_key, True, HAS_LOGS_CACHE_TTL)
-    return result
+    return has_logs
