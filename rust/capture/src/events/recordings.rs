@@ -527,34 +527,16 @@ mod tests {
 
     // ============ Restriction tests ============
 
-    use crate::api::CaptureError;
     use crate::config::CaptureMode;
     use crate::event_restrictions::{
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
+    use crate::sinks::test_sink::MockSink;
     use crate::sinks::Event;
-    use crate::v0_request::ProcessedEvent;
-    use async_trait::async_trait;
     use common_redis::MockRedisClient;
     use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-
-    struct MockSink {
-        events: Arc<Mutex<Vec<ProcessedEvent>>>,
-    }
-
-    #[async_trait]
-    impl Event for MockSink {
-        async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-            self.events.lock().unwrap().push(event);
-            Ok(())
-        }
-        async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-            self.events.lock().unwrap().extend(events);
-            Ok(())
-        }
-    }
 
     fn create_test_recording() -> RawRecording {
         let json = json!({
@@ -1096,28 +1078,16 @@ mod tests {
     // metadata and produces to `replay_overflow_topic` with the session_id
     // as partition key.
 
-    use crate::sinks::kafka::{KafkaSinkBase, KafkaTopicConfig};
+    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
-
-    fn e2e_topics() -> KafkaTopicConfig {
-        KafkaTopicConfig {
-            main_topic: "events_main".to_string(),
-            overflow_topic: "events_overflow".to_string(),
-            historical_topic: "events_historical".to_string(),
-            client_ingestion_warning_topic: "client_warning".to_string(),
-            heatmaps_topic: "heatmaps".to_string(),
-            replay_overflow_topic: "replay_overflow".to_string(),
-            dlq_topic: "events_dlq".to_string(),
-            error_tracking_topic: "error_tracking".to_string(),
-            traces_topic: "traces".to_string(),
-        }
-    }
 
     #[tokio::test]
     async fn e2e_replay_limited_pipeline_to_sink_routes_to_replay_overflow_with_session_key() {
         let producer = MockKafkaProducer::new();
-        let sink: Arc<dyn Event + Send + Sync> =
-            Arc::new(KafkaSinkBase::with_producer(producer.clone(), e2e_topics()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recording = create_test_recording(); // session_id = "test-session-123"

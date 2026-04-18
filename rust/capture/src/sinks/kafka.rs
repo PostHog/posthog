@@ -712,6 +712,24 @@ async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<()
     .await
 }
 
+/// Shared `KafkaTopicConfig` fixture for tests across the capture crate. Used
+/// by sink-side routing tests and pipeline-to-sink E2E tests to ensure every
+/// test site asserts against the same canonical topic names.
+#[cfg(test)]
+pub(crate) fn test_topics() -> KafkaTopicConfig {
+    KafkaTopicConfig {
+        main_topic: "events_plugin_ingestion".to_string(),
+        overflow_topic: "events_plugin_ingestion_overflow".to_string(),
+        historical_topic: "events_plugin_ingestion_historical".to_string(),
+        client_ingestion_warning_topic: "client_ingestion_warning".to_string(),
+        heatmaps_topic: "heatmaps".to_string(),
+        replay_overflow_topic: "replay_overflow".to_string(),
+        dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        error_tracking_topic: "error_tracking_events".to_string(),
+        traces_topic: "tracing_ingestion".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::api::CaptureError;
@@ -1064,7 +1082,7 @@ mod tests {
     #[cfg(test)]
     mod topic_routing {
         use super::*;
-        use crate::sinks::kafka::{KafkaSinkBase, KafkaTopicConfig, SCATTER_GATHER_MIN_BATCH};
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
@@ -1075,21 +1093,6 @@ mod tests {
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
-        const TRACES_TOPIC: &str = "tracing_ingestion";
-
-        fn create_test_topics() -> KafkaTopicConfig {
-            KafkaTopicConfig {
-                main_topic: MAIN_TOPIC.to_string(),
-                overflow_topic: OVERFLOW_TOPIC.to_string(),
-                historical_topic: HISTORICAL_TOPIC.to_string(),
-                client_ingestion_warning_topic: CLIENT_INGESTION_WARNING_TOPIC.to_string(),
-                heatmaps_topic: HEATMAPS_TOPIC.to_string(),
-                replay_overflow_topic: REPLAY_OVERFLOW_TOPIC.to_string(),
-                dlq_topic: DLQ_TOPIC.to_string(),
-                error_tracking_topic: ERROR_TRACKING_TOPIC.to_string(),
-                traces_topic: TRACES_TOPIC.to_string(),
-            }
-        }
 
         struct EventInput {
             data_type: DataType,
@@ -1152,7 +1155,7 @@ mod tests {
 
         async fn assert_routing(input: EventInput, expected: ExpectedRouting<'_>) {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let event = create_test_event(&input);
             sink.send(event).await.unwrap();
@@ -1941,7 +1944,7 @@ mod tests {
         #[tokio::test]
         async fn dlq_headers_set_when_redirect_to_dlq() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::AnalyticsMain,
@@ -1973,7 +1976,7 @@ mod tests {
         #[tokio::test]
         async fn dlq_headers_absent_for_normal_analytics() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::AnalyticsMain,
@@ -2167,7 +2170,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn send_batch_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             // 20 events, all sharing the same distinct_id (so they hash to the
             // same partition via murmur2), each with a unique UUID so we can
@@ -2228,7 +2231,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn send_batch_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             // Build a batch where event #3 is a SnapshotMain with session_id=None,
             // which causes prepare_record to return MissingSessionId. The other
@@ -2279,52 +2282,6 @@ mod tests {
 
         // ==================== send_batch fast-path + mid-batch failure tests ====================
 
-        /// Mock producer whose Nth `send()` call returns Err. All other calls
-        /// capture the record like `MockKafkaProducer`. Used to exercise the
-        /// phase-2 mid-batch enqueue failure path.
-        #[derive(Clone)]
-        struct FailAtIndexProducer {
-            records: std::sync::Arc<std::sync::Mutex<Vec<crate::sinks::producer::ProduceRecord>>>,
-            fail_at: usize,
-            counter: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-        }
-
-        impl FailAtIndexProducer {
-            fn new(fail_at: usize) -> Self {
-                Self {
-                    records: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
-                    fail_at,
-                    counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-                }
-            }
-
-            fn get_records(&self) -> Vec<crate::sinks::producer::ProduceRecord> {
-                self.records.lock().unwrap().clone()
-            }
-        }
-
-        impl crate::sinks::producer::KafkaProducer for FailAtIndexProducer {
-            type AckFuture = std::future::Ready<Result<(), CaptureError>>;
-
-            fn send(
-                &self,
-                record: crate::sinks::producer::ProduceRecord,
-            ) -> Result<Self::AckFuture, CaptureError> {
-                let idx = self
-                    .counter
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if idx == self.fail_at {
-                    return Err(CaptureError::RetryableSinkError);
-                }
-                self.records.lock().unwrap().push(record);
-                Ok(std::future::ready(Ok(())))
-            }
-
-            fn flush(&self) -> Result<(), rdkafka::error::KafkaError> {
-                Ok(())
-            }
-        }
-
         /// Builds N AnalyticsMain events with sequential distinct_ids so each
         /// record is individually identifiable in the mock producer's output.
         fn build_batch(n: usize) -> Vec<ProcessedEvent> {
@@ -2345,8 +2302,8 @@ mod tests {
             // scatter-gather threshold so phase 2 runs post-parallel-prep.
             const BATCH: usize = 10;
             const FAIL_IDX: usize = 3;
-            let producer = FailAtIndexProducer::new(FAIL_IDX);
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let producer = MockKafkaProducer::new_failing_at(FAIL_IDX);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let events = build_batch(BATCH);
             let input_distinct_ids: Vec<String> =
@@ -2392,7 +2349,7 @@ mod tests {
             // batch_size=1 exercises the serial fast path (1 < SCATTER_GATHER_MIN_BATCH)
             // and verifies the loop handles a single-element batch correctly.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let events = build_batch(1);
             sink.send_batch(events).await.expect("send_batch failed");
@@ -2408,7 +2365,7 @@ mod tests {
             // path. We can't observe "which path ran" directly, so we assert
             // behavioral equivalence: N records, correct topic, input order.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let size = SCATTER_GATHER_MIN_BATCH - 1;
             let events = build_batch(size);
@@ -2439,7 +2396,7 @@ mod tests {
             // path. Behavioral equivalence with the serial path must hold:
             // same N records, same order, same topics.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let size = SCATTER_GATHER_MIN_BATCH;
             let events = build_batch(size);
@@ -2471,7 +2428,7 @@ mod tests {
         /// and the scatter-gather path (10 events).
         async fn mixed_datatypes_routing_for_batch(pad_to: usize) {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), create_test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             // Core 5-event diverse batch.
             let mut events: Vec<ProcessedEvent> = vec![

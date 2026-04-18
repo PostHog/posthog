@@ -504,42 +504,8 @@ mod tests {
         EventRestrictionService, Restriction, RestrictionFilters, RestrictionManager,
         RestrictionScope, RestrictionType,
     };
-    use crate::sinks;
-    use async_trait::async_trait;
-    use std::sync::Mutex;
+    use crate::sinks::test_sink::MockSink;
     use std::time::Duration;
-
-    struct MockSink {
-        events: Arc<Mutex<Vec<ProcessedEvent>>>,
-    }
-
-    impl MockSink {
-        fn new() -> Self {
-            Self {
-                events: Arc::new(Mutex::new(Vec::new())),
-            }
-        }
-
-        fn get_events(&self) -> Vec<ProcessedEvent> {
-            self.events.lock().unwrap().clone()
-        }
-    }
-
-    #[async_trait]
-    impl sinks::Event for MockSink {
-        async fn send(&self, event: ProcessedEvent) -> Result<(), crate::api::CaptureError> {
-            self.events.lock().unwrap().push(event);
-            Ok(())
-        }
-
-        async fn send_batch(
-            &self,
-            events: Vec<ProcessedEvent>,
-        ) -> Result<(), crate::api::CaptureError> {
-            self.events.lock().unwrap().extend(events);
-            Ok(())
-        }
-    }
 
     #[tokio::test]
     async fn test_process_events_drop_event_restriction() {
@@ -1188,65 +1154,6 @@ mod tests {
 
     // ============ global rate limiter x overflow limiter interplay ============
 
-    /// Minimal stub of `limiters::global_rate_limiter::GlobalRateLimiter`
-    /// for pipeline-level tests. Returns `Limited` for a fixed set of keys.
-    mod global_rl_stub {
-        use super::*;
-        use async_trait::async_trait;
-        use limiters::global_rate_limiter::{
-            EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiterTrait,
-        };
-        use std::collections::HashSet;
-
-        pub struct MockLimiter {
-            limited_keys: HashSet<String>,
-        }
-
-        impl MockLimiter {
-            pub fn new(limited_keys: HashSet<String>) -> Self {
-                Self { limited_keys }
-            }
-        }
-
-        #[async_trait]
-        impl CommonGlobalRateLimiterTrait for MockLimiter {
-            async fn check_limit(
-                &self,
-                key: &str,
-                _count: u64,
-                _timestamp: Option<DateTime<Utc>>,
-            ) -> EvalResult {
-                if self.limited_keys.contains(key) {
-                    EvalResult::Limited(GlobalRateLimitResponse {
-                        key: key.to_string(),
-                        current_count: 100.0,
-                        threshold: 10,
-                        window_interval: std::time::Duration::from_secs(60),
-                        sync_interval: std::time::Duration::from_secs(15),
-                        is_custom_limited: false,
-                    })
-                } else {
-                    EvalResult::Allowed
-                }
-            }
-
-            async fn check_custom_limit(
-                &self,
-                _key: &str,
-                _count: u64,
-                _timestamp: Option<DateTime<Utc>>,
-            ) -> EvalResult {
-                EvalResult::NotApplicable
-            }
-
-            fn is_custom_key(&self, _key: &str) -> bool {
-                false
-            }
-
-            fn shutdown(&mut self) {}
-        }
-    }
-
     #[tokio::test]
     async fn test_overflow_stamp_global_rate_limiter_and_overflow_interplay() {
         // Both limiters fire on the same event: global RL sets
@@ -1257,7 +1164,6 @@ mod tests {
         // topic, keeps the partition key, and writes the skip-person header.
         // Pre-refactor these were split across pipeline + sink; this test
         // pins the end-to-end metadata contract.
-        use std::collections::HashSet;
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1274,11 +1180,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Global RL: limits (test_token, test_user) -> key `test_token:test_user`.
-        let mut limited_keys = HashSet::new();
-        limited_keys.insert("test_token:test_user".to_string());
-        let global_limiter = Arc::new(GlobalRateLimiter::new_with(
-            global_rl_stub::MockLimiter::new(limited_keys),
-        ));
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         // Overflow limiter: burst=1, preserve_locality=true -> event[1]
         // stamped RateLimited{preserve_locality: true}.
@@ -1331,22 +1233,8 @@ mod tests {
     // tests alone cover: stamp metadata in pipeline, ensure the real sink
     // reads the metadata and produces the expected topic, key, and headers.
 
-    use crate::sinks::kafka::{KafkaSinkBase, KafkaTopicConfig};
+    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
-
-    fn e2e_topics() -> KafkaTopicConfig {
-        KafkaTopicConfig {
-            main_topic: "events_main".to_string(),
-            overflow_topic: "events_overflow".to_string(),
-            historical_topic: "events_historical".to_string(),
-            client_ingestion_warning_topic: "client_warning".to_string(),
-            heatmaps_topic: "heatmaps".to_string(),
-            replay_overflow_topic: "replay_overflow".to_string(),
-            dlq_topic: "events_dlq".to_string(),
-            error_tracking_topic: "error_tracking".to_string(),
-            traces_topic: "traces".to_string(),
-        }
-    }
 
     #[tokio::test]
     async fn e2e_force_limited_pipeline_to_sink_routes_to_overflow_with_null_key_and_header() {
@@ -1361,7 +1249,10 @@ mod tests {
         )];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone(), e2e_topics()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token in reroute list -> ForceLimited stamped in pipeline.
@@ -1383,7 +1274,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "events_overflow",
+            records[0].topic, "events_plugin_ingestion_overflow",
             "ForceLimited must route to overflow topic"
         );
         assert_eq!(
@@ -1409,7 +1300,10 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone(), e2e_topics()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst=1, preserve_locality=true => event[1] stamped RateLimited{preserve_locality: true}.
@@ -1431,11 +1325,11 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 2);
         assert_eq!(
-            records[0].topic, "events_main",
+            records[0].topic, "events_plugin_ingestion",
             "event[0]: within burst -> main topic"
         );
         assert_eq!(
-            records[1].topic, "events_overflow",
+            records[1].topic, "events_plugin_ingestion_overflow",
             "event[1]: over burst -> overflow topic"
         );
         assert!(
@@ -1460,7 +1354,10 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone(), e2e_topics()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst=1, preserve_locality=false => event[1] stamped RateLimited{preserve_locality: false}.
@@ -1481,7 +1378,7 @@ mod tests {
 
         let records = producer.get_records();
         assert_eq!(records.len(), 2);
-        assert_eq!(records[1].topic, "events_overflow");
+        assert_eq!(records[1].topic, "events_plugin_ingestion_overflow");
         assert_eq!(
             records[1].key, None,
             "RateLimited{{preserve_locality:false}} must drop partition key"

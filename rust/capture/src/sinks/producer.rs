@@ -171,16 +171,30 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
     }
 }
 
-/// Mock Kafka producer for testing - captures all sent records
+/// Mock Kafka producer for testing - captures all sent records.
+///
+/// Optionally fails on a specific send index (0-based) by returning
+/// `CaptureError::RetryableSinkError`. Records before the failing index are
+/// still captured; the failing record is not. Used by send-batch tests that
+/// need to simulate a mid-batch enqueue failure.
 #[derive(Clone, Default)]
 pub struct MockKafkaProducer {
     records: std::sync::Arc<std::sync::Mutex<Vec<ProduceRecord>>>,
+    fail_at_index: Option<usize>,
+    call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl MockKafkaProducer {
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Build a producer that returns `RetryableSinkError` on the `idx`-th
+    /// `send()` call (0-based). All other calls succeed and capture the record.
+    pub fn new_failing_at(idx: usize) -> Self {
         Self {
-            records: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            fail_at_index: Some(idx),
+            ..Self::default()
         }
     }
 
@@ -199,6 +213,12 @@ impl KafkaProducer for MockKafkaProducer {
     type AckFuture = std::future::Ready<Result<(), CaptureError>>;
 
     fn send(&self, record: ProduceRecord) -> Result<Self::AckFuture, CaptureError> {
+        let idx = self
+            .call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.fail_at_index == Some(idx) {
+            return Err(CaptureError::RetryableSinkError);
+        }
         self.records.lock().unwrap().push(record);
         Ok(std::future::ready(Ok(())))
     }
