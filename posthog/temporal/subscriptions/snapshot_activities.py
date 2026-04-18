@@ -29,6 +29,8 @@ SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
     "AI summary skipped because the organization has not approved AI data processing",
 )
 
+_MAX_LOGGED_KEYS = 15
+
 
 def _get_query_kind_from_insight(insight: Insight) -> str:
     query = insight.query
@@ -42,17 +44,20 @@ def _build_states_from_content_snapshot(
     content_snapshot: dict,
     insight_query_kinds: dict[int, str] | None = None,
     timestamp: str = "unknown",
+    snapshot_role: str = "current",
 ) -> list[dict]:
     states: list[dict] = []
     for insight_snap in content_snapshot.get("insights", []):
         insight_id = insight_snap.get("id")
         insight_name = insight_snap.get("name", f"Insight {insight_id}")
         query_results = insight_snap.get("query_results")
-        query_error = insight_snap.get("query_error") or None
+
+        raw_query_error = insight_snap.get("query_error")
+        query_error: dict | None = raw_query_error if isinstance(raw_query_error, dict) and raw_query_error else None
+        malformed_query_error = raw_query_error is not None and not isinstance(raw_query_error, dict)
 
         query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
         result_payload = query_results.get("result") if query_results else None
-        result_shape = _describe_result_shape(result_payload)
 
         if query_results and result_payload:
             results_summary = build_results_summary(query_kind, result_payload)
@@ -64,12 +69,13 @@ def _build_states_from_content_snapshot(
             results_summary = "No results"
             fallback_reason = "no_query_results"
 
-        LOGGER.info(
-            "subscription_summary.insight_state_built",
+        _log_insight_state(
             insight_id=insight_id,
+            snapshot_role=snapshot_role,
             query_kind=query_kind,
-            result_shape=result_shape,
-            query_error_type=query_error.get("type") if isinstance(query_error, dict) else None,
+            result_payload=result_payload,
+            query_error=query_error,
+            malformed_query_error=malformed_query_error,
             fallback_reason=fallback_reason,
             results_summary_length=len(results_summary),
             timestamp=timestamp,
@@ -87,6 +93,38 @@ def _build_states_from_content_snapshot(
     return states
 
 
+def _log_insight_state(
+    *,
+    insight_id: int | None,
+    snapshot_role: str,
+    query_kind: str,
+    result_payload: Any,
+    query_error: dict | None,
+    malformed_query_error: bool,
+    fallback_reason: str | None,
+    results_summary_length: int,
+    timestamp: str,
+) -> None:
+    if malformed_query_error:
+        query_error_type: str | None = "non_dict"
+    elif query_error:
+        query_error_type = query_error.get("type")
+    else:
+        query_error_type = None
+
+    LOGGER.info(
+        "subscription_summary.insight_state_built",
+        insight_id=insight_id,
+        snapshot_role=snapshot_role,
+        query_kind=query_kind,
+        result_shape=_describe_result_shape(result_payload),
+        query_error_type=query_error_type,
+        fallback_reason=fallback_reason,
+        results_summary_length=results_summary_length,
+        timestamp=timestamp,
+    )
+
+
 def _describe_result_shape(result: Any) -> dict[str, Any]:
     if result is None:
         return {"type": "none"}
@@ -96,7 +134,7 @@ def _describe_result_shape(result: Any) -> dict[str, Any]:
         if result:
             first_item_type = type(result[0]).__name__
             if isinstance(result[0], dict):
-                first_item_keys = sorted(result[0].keys())[:15]
+                first_item_keys = sorted(result[0].keys())[:_MAX_LOGGED_KEYS]
         return {
             "type": "list",
             "length": len(result),
@@ -104,7 +142,7 @@ def _describe_result_shape(result: Any) -> dict[str, Any]:
             "first_item_keys": first_item_keys,
         }
     if isinstance(result, dict):
-        return {"type": "dict", "keys": sorted(result.keys())[:15]}
+        return {"type": "dict", "keys": sorted(result.keys())[:_MAX_LOGGED_KEYS]}
     return {"type": type(result).__name__}
 
 
@@ -188,6 +226,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         content_snapshot,
         insight_query_kinds=insight_query_kinds,
         timestamp=current_delivery.created_at.isoformat() if current_delivery.created_at else "unknown",
+        snapshot_role="current",
     )
     if not current_states:
         return SnapshotInsightsResult()
@@ -203,6 +242,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             previous_delivery.content_snapshot,
             insight_query_kinds=insight_query_kinds,
             timestamp=previous_delivery.created_at.isoformat() if previous_delivery.created_at else "unknown",
+            snapshot_role="previous",
         )
 
     summary_text: str | None = None
