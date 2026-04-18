@@ -23,7 +23,7 @@ factory = APIRequestFactory()
 
 def _make_drf_request(data=None):
     raw = factory.post("/", data=data or {}, format="json")
-    return Request(raw, parsers=[JSONParser()])  # type: ignore[call-arg]
+    return Request(raw, parsers=[JSONParser()])
 
 
 class TestShouldProxyBodyRegion(BaseTest):
@@ -97,7 +97,7 @@ class TestShouldProxyBearerLookup(BaseTest):
         if token is not None:
             kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
         raw = factory.post("/", data={}, format="json", **kwargs)
-        return Request(raw, parsers=[JSONParser()])  # type: ignore[call-arg]
+        return Request(raw, parsers=[JSONParser()])
 
     @patch("ee.api.agentic_provisioning.region_proxy.find_oauth_access_token", return_value=None)
     def test_proxies_when_token_not_in_db(self, mock_find):
@@ -117,7 +117,7 @@ class TestShouldProxyBearerLookup(BaseTest):
 
     def test_skips_when_non_bearer_scheme(self):
         raw = factory.post("/", data={}, format="json", HTTP_AUTHORIZATION="Basic abc123")
-        request = Request(raw, parsers=[JSONParser()])  # type: ignore[call-arg]
+        request = Request(raw, parsers=[JSONParser()])
         assert _should_proxy_bearer_lookup(request, "US") is False
 
     def test_skips_when_empty_bearer(self):
@@ -171,7 +171,7 @@ class TestProxyHeaderAllowlist(BaseTest):
             HTTP_STRIPE_SIGNATURE="t=123,v1=abc",
             HTTP_AUTHORIZATION="Bearer pha_test",
         )
-        request = Request(raw, parsers=[JSONParser()])  # type: ignore[call-arg]
+        request = Request(raw, parsers=[JSONParser()])
 
         _proxy_to_region(request, "eu.posthog.com")
 
