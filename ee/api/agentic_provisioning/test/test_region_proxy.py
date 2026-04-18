@@ -326,3 +326,161 @@ class TestDecoratorCoverageContract(BaseTest):
                 f"{view_name} must be decorated with @stripe_region_proxy(strategy={expected_strategy!r}) "
                 f"(registry has: {registered_strategy!r})"
             )
+
+
+class TestCrossRegionLoopback(StripeProvisioningTestBase):
+    """In-process E2E: mock the outbound HTTPS call inside _proxy_to_region so it re-enters
+    this Django process with CLOUD_DEPLOYMENT flipped. Proves path, body, headers, and the
+    response all round-trip correctly through a real US → EU → US loop."""
+
+    def _loopback_other_region(self, other_region: str):
+        """Build a mock side_effect that re-dispatches the proxied request via the Django
+        test client with CLOUD_DEPLOYMENT set to `other_region`."""
+        from urllib.parse import urlparse
+
+        from django.test import Client
+
+        captured: dict = {}
+
+        def side_effect(method, url, headers=None, data=None, timeout=None):
+            parsed = urlparse(url)
+            path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+            wsgi_headers = {}
+            for key, value in (headers or {}).items():
+                if key.lower() == "host":
+                    continue
+                wsgi_headers[f"HTTP_{key.upper().replace('-', '_')}"] = value
+
+            captured["path"] = path
+            captured["host"] = (headers or {}).get("Host")
+            captured["body_bytes"] = data
+            captured["method"] = method
+
+            client = Client()
+            with override_settings(CLOUD_DEPLOYMENT=other_region):
+                response = client.generic(
+                    method,
+                    path,
+                    data=data or b"",
+                    content_type=(headers or {}).get("Content-Type", "application/json"),
+                    **wsgi_headers,
+                )
+
+            fake = MagicMock()
+            fake.status_code = response.status_code
+            fake.content = response.content
+            fake.headers = {"content-type": response.get("Content-Type", "application/json")}
+            try:
+                fake.json.return_value = response.json() if response.content else {}
+            except ValueError:
+                fake.json.side_effect = ValueError("no json")
+            return fake
+
+        return side_effect, captured
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("ee.api.agentic_provisioning.region_proxy.requests.request")
+    def test_account_request_loops_us_to_eu_and_back(self, mock_request):
+        """account_requests with region=EU on the US instance should:
+        1. Hit US's account_requests handler
+        2. Trigger body_region proxy to EU
+        3. EU creates the user and returns an oauth code
+        4. US relays the EU response verbatim to the caller"""
+        side_effect, captured = self._loopback_other_region("EU")
+        mock_request.side_effect = side_effect
+
+        payload = {
+            "email": "loopback-eu-user@example.com",
+            "configuration": {"region": "EU"},
+            "scopes": ["query:read"],
+            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_eu_loop"}},
+        }
+
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+
+        assert mock_request.called, "US instance should have proxied to EU"
+        assert captured["host"] == "eu.posthog.com"
+        assert captured["path"] == "/api/agentic/provisioning/account_requests"
+        assert captured["method"] == "POST"
+        assert b"loopback-eu-user@example.com" in captured["body_bytes"], (
+            "body should be forwarded intact so EU sees the email"
+        )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["type"] == "oauth"
+        assert body["oauth"]["code"], "EU-issued auth code should surface back through US"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("ee.api.agentic_provisioning.region_proxy.requests.request")
+    def test_bearer_request_loops_us_to_eu_when_token_unknown_locally(self, mock_request):
+        """A bearer-auth resource call with a token that doesn't exist in US's DB should
+        be proxied to EU, which may or may not know the token. We assert the proxy fired
+        with the bearer preserved and the downstream status is relayed."""
+        side_effect, captured = self._loopback_other_region("EU")
+        mock_request.side_effect = side_effect
+
+        unknown_token = "pha_totally_bogus_token_not_in_db"
+        res = self._get_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}",
+            token=unknown_token,
+        )
+
+        assert mock_request.called, "US should proxy bearer-auth resource call for unknown token"
+        assert captured["host"] == "eu.posthog.com"
+        assert captured["path"] == f"/api/agentic/provisioning/resources/{self.team.id}"
+        forwarded_auth = [
+            v for k, v in mock_request.call_args.kwargs["headers"].items() if k.lower() == "authorization"
+        ]
+        assert forwarded_auth == [f"Bearer {unknown_token}"], "bearer header must round-trip unchanged"
+
+        assert res.status_code in (401, 403), "EU also doesn't know this token, should reject"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("ee.api.agentic_provisioning.region_proxy.requests.request")
+    def test_proxy_loop_header_prevents_infinite_recursion(self, mock_request):
+        """If EU ever sends a request back to US with the loop header, US must process
+        locally instead of re-proxying."""
+        from urllib.parse import urlparse
+
+        from django.test import Client
+
+        call_count = {"n": 0}
+
+        def side_effect(method, url, headers=None, data=None, timeout=None):
+            call_count["n"] += 1
+            parsed = urlparse(url)
+            wsgi_headers = {}
+            for key, value in (headers or {}).items():
+                if key.lower() == "host":
+                    continue
+                wsgi_headers[f"HTTP_{key.upper().replace('-', '_')}"] = value
+            client = Client()
+            with override_settings(CLOUD_DEPLOYMENT="EU"):
+                response = client.generic(
+                    method,
+                    parsed.path,
+                    data=data or b"",
+                    content_type=(headers or {}).get("Content-Type", "application/json"),
+                    **wsgi_headers,
+                )
+            fake = MagicMock()
+            fake.status_code = response.status_code
+            fake.content = response.content
+            fake.headers = {"content-type": response.get("Content-Type", "application/json")}
+            fake.json.return_value = response.json() if response.content else {}
+            return fake
+
+        mock_request.side_effect = side_effect
+
+        payload = {
+            "email": "loop-guard@example.com",
+            "configuration": {"region": "EU"},
+            "scopes": ["query:read"],
+            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_loop_guard"}},
+        }
+        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+
+        assert call_count["n"] == 1, (
+            f"proxy should fire exactly once (US→EU); got {call_count['n']} — loop header not respected"
+        )
