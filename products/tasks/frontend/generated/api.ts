@@ -12,6 +12,7 @@ import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     PaginatedSandboxEnvironmentListListApi,
+    PaginatedTaskAutomationListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
@@ -21,6 +22,8 @@ import type {
     SandboxEnvironmentApi,
     SandboxListParams,
     TaskApi,
+    TaskAutomationApi,
+    TaskAutomationsListParams,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -137,6 +140,50 @@ export const sandboxCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sandboxEnvironmentApi),
+    })
+}
+
+export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsList = async (
+    projectId: string,
+    params?: TaskAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskAutomationListApi> => {
+    return apiMutator<PaginatedTaskAutomationListApi>(getTaskAutomationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskAutomationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsCreate = async (
+    projectId: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
     })
 }
 
