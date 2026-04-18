@@ -21,8 +21,9 @@ def hash_key_override_cleanup(
     # so rows orphan on any deletion path: soft-delete, soft-delete-with-rename, and the flag
     # create path's hard-delete of soft-deleted rows with reused keys. The two tables also live
     # in different databases (persons_db vs default), so we iterate per team rather than run
-    # a single cross-database query.
-    team_ids = list(FeatureFlag.objects_including_soft_deleted.values_list("team_id", flat=True).distinct())
+    # a single cross-database query. Teams are sourced from the overrides table itself so
+    # cleanup covers teams whose flags were all hard-deleted (no surviving FeatureFlag row).
+    team_ids = list(FeatureFlagHashKeyOverride.objects.values_list("team_id", flat=True).distinct())
 
     total_deleted = 0
     total_stale_keys = 0
@@ -43,15 +44,22 @@ def hash_key_override_cleanup(
                 continue
 
             total_stale_keys += len(stale_keys)
+            stale_qs = FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, feature_flag_key__in=stale_keys)
 
-            for i in range(0, len(stale_keys), config.batch_size):
-                batch = stale_keys[i : i + config.batch_size]
-                qs = FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, feature_flag_key__in=batch)
-                if config.dry_run:
-                    total_deleted += qs.count()
-                else:
-                    count, _ = qs.delete()
+            if config.dry_run:
+                total_deleted += stale_qs.count()
+            else:
+                # Row-level batching: a single stale key can have unbounded override rows
+                # (one per person), so bound each DELETE by config.batch_size rows to keep
+                # individual transactions and WAL predictable.
+                while True:
+                    ids = list(stale_qs.values_list("id", flat=True)[: config.batch_size])
+                    if not ids:
+                        break
+                    count, _ = FeatureFlagHashKeyOverride.objects.filter(id__in=ids).delete()
                     total_deleted += count
+                    if len(ids) < config.batch_size:
+                        break
 
             teams_processed += 1
         except Exception:
