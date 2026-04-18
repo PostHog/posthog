@@ -141,6 +141,7 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { LinkedAccounts } from './user/LinkedAccounts'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -1732,6 +1733,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified when upcoming features are ready for preview.',
                 component: <FeaturePreviewsComingSoon />,
                 keywords: ['upcoming', 'notify', 'concept', 'future'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-linked-accounts',
+        title: 'Linked accounts',
+        settings: [
+            {
+                id: 'linked-accounts',
+                title: 'Linked accounts',
+                description:
+                    'Third-party accounts linked to your PostHog account. Each can be used as a sign-in method.',
+                component: <LinkedAccounts />,
+                keywords: ['github', 'google', 'sign in', 'login', 'oauth', 'identity', 'link', 'sso'],
             },
         ],
     },

@@ -32,6 +32,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user_social_auth_login_preference import effective_login_enabled
 
 from ee import settings
 from ee.api.scim.utils import mask_email
@@ -585,6 +586,38 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
 
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     email = details.get("email")
+
+    # Reject if the matched provider row is flagged login-disabled (user preference
+    # or product default). This runs before the SSO check so the user sees a clear
+    # reason when it's their own toggle rather than org policy.
+    uid = kwargs.get("uid")
+    if not uid and response:
+        uid = response.get("id")
+    uid = str(uid) if uid else None
+    if uid:
+        existing = (
+            UserSocialAuth.objects.filter(provider=backend.name, uid=uid)
+            .select_related("login_preference", "user")
+            .first()
+        )
+        if existing is not None:
+            if not effective_login_enabled(existing):
+                saml_logger.warning(
+                    "login_disabled_for_social_auth",
+                    attempted_backend=backend.name,
+                    **(_saml_log_context(email) if email else {"masked_email": "unknown"}),
+                )
+                # Mirror the `<provider>_sso_enforced` error-code convention so the frontend
+                # can map the code to a user-facing message; backend.name has a hyphen for
+                # Google (`google-oauth2`), but our codes use underscore-prefixed provider names.
+                provider_codes = {
+                    "google-oauth2": "google",
+                    "github": "github",
+                    "gitlab": "gitlab",
+                }
+                provider_code = provider_codes.get(backend.name, backend.name.replace("-", "_"))
+                raise AuthFailed(backend, f"{provider_code}_login_disabled_for_account")
+
     # Check if SSO enforcement is enabled for this email address
     sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
     if sso_enforcement is None or sso_enforcement == backend.name:

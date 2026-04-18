@@ -15,6 +15,7 @@ from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_django.models import UserSocialAuth
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -45,6 +46,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
 )
+from posthog.models.user_social_auth_login_preference import UserSocialAuthLoginPreference
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -170,13 +172,37 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
 
             # If the frontend forwarded an OAuth code from "Request user authorization during installation",
-            # exchange it for the connecting user's GitHub login and store it on the integration.
+            # exchange it for the connecting user's GitHub identity. Store the login on the integration
+            # (shown on the integration card) and also upsert the user's UserSocialAuth row so the install
+            # acts as a free identity-link for assignments, task attribution, etc. — including for
+            # SSO-enforced users who can't complete a GitHub sign-in.
             code = config.get("code")
             if code:
-                github_login = GitHubIntegration.github_login_from_code(code)
-                if github_login:
-                    instance.config["connecting_user_github_login"] = github_login
+                gh_user = GitHubIntegration.github_user_from_code(code)
+                if gh_user is not None:
+                    gh_id, gh_login = gh_user
+                    instance.config["connecting_user_github_login"] = gh_login
                     instance.save(update_fields=["config"])
+
+                    # If the GitHub user is already linked to a different PostHog user, silently
+                    # skip the auth-side upsert. The integration install still succeeds — the two
+                    # sides live in different GitHub Apps (integration App vs OAuth App), so this
+                    # is an implicit, best-effort identity link, not a user-visible action.
+                    existing_owner = (
+                        UserSocialAuth.objects.filter(provider="github", uid=str(gh_id))
+                        .exclude(user_id=request.user.id)
+                        .exists()
+                    )
+                    if not existing_owner:
+                        sa, sa_created = UserSocialAuth.objects.update_or_create(
+                            user=request.user,
+                            provider="github",
+                            defaults={"uid": str(gh_id), "extra_data": {"login": gh_login, "id": gh_id}},
+                        )
+                        if sa_created:
+                            # New identity link from an App install — opt out of sign-in by default.
+                            # Don't override the user's existing sign-in preference if they had a row.
+                            UserSocialAuthLoginPreference.objects.create(social_auth=sa, login_enabled=False)
 
             return instance
 

@@ -32,6 +32,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.linked_accounts import github_link_complete
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
@@ -325,6 +326,9 @@ urlpatterns = [
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
+    # GitHub account linking (identity-only, separate from the login pipeline).
+    # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
+    path("complete/github-link/", github_link_complete, name="github_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),

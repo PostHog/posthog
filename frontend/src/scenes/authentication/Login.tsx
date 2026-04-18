@@ -58,6 +58,13 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
     // our catch-all case, so the message is generic
     sso_enforced: "Please log in with your organization's required SSO method.",
+    // Raised when a user previously opted out of sign-in for a linked provider via Settings → Linked accounts.
+    github_login_disabled_for_account:
+        'Sign-in with GitHub is disabled for your account. Re-enable it in Settings → Linked accounts, or use another method.',
+    google_login_disabled_for_account:
+        'Sign-in with Google is disabled for your account. Re-enable it in Settings → Linked accounts, or use another method.',
+    gitlab_login_disabled_for_account:
+        'Sign-in with GitLab is disabled for your account. Re-enable it in Settings → Linked accounts, or use another method.',
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
