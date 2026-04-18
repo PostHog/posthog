@@ -25,10 +25,13 @@ logger = structlog.get_logger(__name__)
 class ErrorTrackingGroupingRuleFiltersField(serializers.JSONField):
     def to_internal_value(self, data):
         value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected a JSON object.")
         try:
             PropertyGroupFilterValue(**value)
         except PydanticValidationError as err:
-            raise serializers.ValidationError(str(err)) from err
+            logger.warning("Invalid grouping rule filters payload", exc_info=err)
+            raise serializers.ValidationError("Invalid filters payload.") from err
         return value
 
 
