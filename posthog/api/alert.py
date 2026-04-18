@@ -116,6 +116,8 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "investigation_verdict",
             "investigation_summary",
             "investigation_notebook_short_id",
+            "notification_sent_at",
+            "notification_suppressed_by_agent",
         ]
         read_only_fields = fields
 
@@ -226,6 +228,15 @@ class AlertSerializer(serializers.ModelSerializer):
         required=False,
         help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
     )
+    investigation_gates_notifications = serializers.BooleanField(
+        required=False,
+        help_text="When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.",
+    )
+    investigation_inconclusive_action = serializers.ChoiceField(
+        choices=[("notify", "Notify"), ("suppress", "Suppress")],
+        required=False,
+        help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
+    )
     state = serializers.CharField(
         read_only=True,
         help_text="Current alert state: Firing, Not firing, Errored, or Snoozed.",
@@ -261,6 +272,8 @@ class AlertSerializer(serializers.ModelSerializer):
             "schedule_restriction",
             "last_value",
             "investigation_agent_enabled",
+            "investigation_gates_notifications",
+            "investigation_inconclusive_action",
         ]
         read_only_fields = [
             "id",
@@ -511,6 +524,22 @@ class AlertSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
+
+        # Notification gating only makes sense when the investigation agent is on —
+        # otherwise there's no verdict to wait for and the safety-net task would
+        # end up being the only notifier, which defeats the feature.
+        gates_notifications = attrs.get(
+            "investigation_gates_notifications",
+            self.instance.investigation_gates_notifications if self.instance else False,
+        )
+        if gates_notifications and not investigation_enabled:
+            raise ValidationError(
+                {
+                    "investigation_gates_notifications": [
+                        "Notification gating requires investigation_agent_enabled=true."
+                    ]
+                }
+            )
 
         # only validate alert count when creating a new alert
         if self.context["request"].method != "POST":

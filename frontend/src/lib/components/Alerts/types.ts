@@ -54,6 +54,8 @@ export interface AnomalyPoint {
     seriesIndex: number
 }
 
+export type InvestigationInconclusiveAction = 'notify' | 'suppress'
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
@@ -65,6 +67,8 @@ export interface AlertTypeBase {
     schedule_restriction?: ScheduleRestriction | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
+    investigation_gates_notifications?: boolean
+    investigation_inconclusive_action?: InvestigationInconclusiveAction
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -73,6 +77,8 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     snoozed_until?: string | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
+    investigation_gates_notifications?: boolean
+    investigation_inconclusive_action?: InvestigationInconclusiveAction
 }
 
 export type InvestigationStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
@@ -93,6 +99,8 @@ export interface AlertCheck {
     investigation_verdict?: InvestigationVerdict | null
     investigation_summary?: string | null
     investigation_notebook_short_id?: string | null
+    notification_sent_at?: string | null
+    notification_suppressed_by_agent?: boolean
 }
 
 export interface AlertType extends AlertTypeBase {

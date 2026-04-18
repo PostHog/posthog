@@ -38,6 +38,8 @@ export type AlertFormType = Pick<
     | 'schedule_restriction'
     | 'detector_config'
     | 'investigation_agent_enabled'
+    | 'investigation_gates_notifications'
+    | 'investigation_inconclusive_action'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -184,6 +186,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     schedule_restriction: null,
                     detector_config: null,
                     investigation_agent_enabled: false,
+                    investigation_gates_notifications: false,
+                    investigation_inconclusive_action: 'notify',
                     insight: props.insightId,
                 } as AlertFormType),
             errors: (alert: AlertType | AlertFormType) =>
@@ -211,6 +215,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     investigation_agent_enabled: alert.detector_config
                         ? (alert.investigation_agent_enabled ?? false)
                         : false,
+                    // Notification gating requires the investigation agent to be on.
+                    investigation_gates_notifications:
+                        alert.detector_config && alert.investigation_agent_enabled
+                            ? (alert.investigation_gates_notifications ?? false)
+                            : false,
+                    investigation_inconclusive_action: alert.investigation_inconclusive_action ?? 'notify',
                     schedule_restriction:
                         (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
                             ? alert.schedule_restriction

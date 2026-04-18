@@ -143,16 +143,125 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         visibility=Notebook.Visibility.DEFAULT,
     )
 
+    summary_for_list = _truncate_summary(result.report.summary)
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
         investigation_status=InvestigationStatus.DONE,
         investigation_verdict=result.report.verdict,
-        investigation_summary=_truncate_summary(result.report.summary),
+        investigation_summary=summary_for_list,
         investigation_error=None,
     )
 
+    # If the alert has gating on, the main task skipped the synchronous notification
+    # and left it to us. Dispatch or suppress based on the verdict, and enrich the
+    # notification body with the agent's summary and notebook link when we do send.
+    if alert.investigation_gates_notifications:
+        await sync_to_async(_dispatch_gated_notification, thread_sensitive=False)(
+            alert=alert,
+            alert_check=alert_check,
+            verdict=result.report.verdict,
+            summary=summary_for_list or "",
+            notebook_short_id=notebook.short_id,
+        )
+
 
 MAX_SUMMARY_CHARS = 500
+
+
+def _dispatch_gated_notification(
+    *,
+    alert,
+    alert_check,
+    verdict: str | None,
+    summary: str,
+    notebook_short_id: str | None,
+) -> None:
+    """Decide whether to fire the notification now that we have the verdict.
+
+    - true_positive → notify (enriched body with verdict + summary + notebook link)
+    - false_positive → suppress, mark the check so the UI can surface why
+    - inconclusive → fall back to the alert's configured policy
+    - unknown / null verdict → notify (safest default)
+
+    Idempotent: if another codepath (retry, safety-net task) already dispatched,
+    this is a no-op.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from posthog.models.alert import AlertCheck
+    from posthog.tasks.alerts.utils import send_notifications_for_breaches
+
+    inconclusive_action = alert.investigation_inconclusive_action or "notify"
+    suppress = verdict == "false_positive" or (verdict == "inconclusive" and inconclusive_action == "suppress")
+
+    with transaction.atomic():
+        # Re-fetch under a row lock so concurrent dispatchers can't double-notify.
+        check = AlertCheck.objects.select_for_update().get(id=alert_check.id)
+        if check.notification_sent_at is not None or check.notification_suppressed_by_agent:
+            return
+
+        if suppress:
+            check.notification_suppressed_by_agent = True
+            check.save(update_fields=["notification_suppressed_by_agent"])
+            logger.info(
+                "anomaly_investigation.notification_suppressed",
+                extra={
+                    "alert_id": str(alert.id),
+                    "alert_check_id": str(alert_check.id),
+                    "verdict": verdict,
+                },
+            )
+            return
+
+        breaches = _build_breach_descriptions(
+            alert_check=check, verdict=verdict, summary=summary, notebook_short_id=notebook_short_id
+        )
+        try:
+            send_notifications_for_breaches(alert, breaches)
+        except Exception:
+            logger.exception(
+                "anomaly_investigation.gated_notification_failed",
+                extra={"alert_id": str(alert.id), "alert_check_id": str(alert_check.id)},
+            )
+            # Don't swallow — let the safety-net task retry on the next tick.
+            raise
+
+        check.notification_sent_at = timezone.now()
+        check.save(update_fields=["notification_sent_at"])
+
+
+def _build_breach_descriptions(
+    *,
+    alert_check,
+    verdict: str | None,
+    summary: str,
+    notebook_short_id: str | None,
+) -> list[str]:
+    """Compose the strings that populate the `match_descriptions` list in the
+    existing alert email template. Keeps the current template working while
+    giving gated notifications richer body content.
+    """
+    lines: list[str] = []
+    triggered_dates = alert_check.triggered_dates or []
+    if triggered_dates:
+        if len(triggered_dates) == 1:
+            lines.append(f"Anomaly detected on {triggered_dates[0]}.")
+        else:
+            lines.append(f"Anomaly detected from {triggered_dates[0]} to {triggered_dates[-1]}.")
+    elif alert_check.calculated_value is not None:
+        lines.append(f"Calculated value at fire: {alert_check.calculated_value}.")
+    else:
+        lines.append("Anomaly detected.")
+
+    verdict_label = {"true_positive": "True positive", "inconclusive": "Inconclusive"}.get(verdict or "", "")
+    if verdict_label:
+        lines.append(f"Investigation verdict: {verdict_label}.")
+    if summary:
+        lines.append(summary)
+    if notebook_short_id:
+        lines.append(f"See /notebooks/{notebook_short_id} for the full investigation.")
+    return lines
 
 
 def _truncate_summary(summary: str | None) -> str | None:

@@ -44,11 +44,19 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
     const verdict = check.investigation_verdict ?? null
+    const suppressed = !!check.notification_suppressed_by_agent
 
     if (status === 'done' && shortId) {
         return (
             <div className="flex flex-col gap-1.5 items-start max-w-md w-fit ml-auto text-left">
                 {verdict && <VerdictTag verdict={verdict} />}
+                {suppressed && (
+                    <Tooltip title="The investigation agent concluded this fire wasn't worth notifying about, so we didn't send an email / Slack / webhook for it.">
+                        <LemonTag type="muted" size="small">
+                            Notification suppressed
+                        </LemonTag>
+                    </Tooltip>
+                )}
                 {summary && <SummaryText summary={summary} />}
                 <Link to={`/notebooks/${shortId}`}>View notebook</Link>
             </div>

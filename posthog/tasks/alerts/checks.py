@@ -146,6 +146,25 @@ def reset_stuck_alerts_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+def investigation_notification_safety_net_task() -> None:
+    """Force-dispatch notifications for gated alerts whose investigation stalled.
+
+    Wraps posthog.tasks.alerts.investigation_notifications.run_investigation_notification_safety_net
+    so it fits the existing Celery beat wiring.
+    """
+    from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
+
+    try:
+        run_investigation_notification_safety_net()
+    except Exception as err:
+        logger.exception("alert.investigation_safety_net_task_failed", exc_info=err)
+        capture_exception(err)
+
+
+@shared_task(
+    ignore_result=True,
+    expires=60 * 60,
+)
 def check_alerts_task() -> None:
     """
     This runs every 2min to check for alerts that are due to recalculate
@@ -406,7 +425,18 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
                     send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
-                send_notifications_for_breaches(alert, breaches)
+                if _investigation_should_gate_notification(alert, previous_state):
+                    # Hold notification — the investigation workflow will dispatch
+                    # it after the verdict, or the safety-net task will force-fire
+                    # if the investigation stalls.
+                    logger.info(
+                        "alert.notification_gated_on_investigation",
+                        alert_id=str(alert.id),
+                        alert_check_id=str(alert_check.id),
+                    )
+                else:
+                    send_notifications_for_breaches(alert, breaches)
+                    AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
                 _maybe_start_investigation_agent(alert, alert_check, previous_state)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
@@ -417,6 +447,25 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # so we raise again as @transaction.atomic decorator won't commit db updates
         # TODO: later should have a way just to retry notification mechanism
         raise
+
+
+def _investigation_should_gate_notification(alert: AlertConfiguration, previous_state: str) -> bool:
+    """True when this fire should hold its notification until the agent verdict is in.
+
+    Gating only kicks in when the same preconditions as enqueueing the investigation
+    itself are met, so we never defer a notification for a fire that won't actually
+    get investigated — otherwise the safety-net task would be the only code path that
+    ever notifies, which defeats the point.
+    """
+    if not alert.investigation_gates_notifications:
+        return False
+    if not alert.investigation_agent_enabled:
+        return False
+    if not alert.detector_config:
+        return False
+    if previous_state == AlertState.FIRING:
+        return False
+    return True
 
 
 def _maybe_start_investigation_agent(alert: AlertConfiguration, alert_check: AlertCheck, previous_state: str) -> None:

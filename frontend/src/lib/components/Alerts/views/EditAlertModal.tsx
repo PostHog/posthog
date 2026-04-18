@@ -481,25 +481,86 @@ export function EditAlertModal({
                                     {alertMode === 'detector' &&
                                         alertForm.detector_config &&
                                         investigationAgentEnabled && (
-                                            <div className="flex gap-3 items-start p-3 border rounded bg-surface-secondary">
-                                                <LemonCheckbox
-                                                    data-attr="alertForm-investigation-agent-enabled"
-                                                    checked={!!alertForm.investigation_agent_enabled}
-                                                    onChange={(checked) =>
-                                                        setAlertFormValue('investigation_agent_enabled', checked)
-                                                    }
-                                                />
-                                                <div className="flex-1">
-                                                    <div className="font-semibold">
-                                                        Run investigation agent when this alert fires
-                                                    </div>
-                                                    <div className="text-sm text-secondary">
-                                                        When the alert transitions to firing, an agent validates the
-                                                        anomaly, investigates likely causes using read-only queries, and
-                                                        writes its findings to a notebook linked from the alert history.
-                                                        Runs once per transition.
+                                            <div className="flex flex-col gap-3 p-3 border rounded bg-surface-secondary">
+                                                <div className="flex gap-3 items-start">
+                                                    <LemonCheckbox
+                                                        data-attr="alertForm-investigation-agent-enabled"
+                                                        checked={!!alertForm.investigation_agent_enabled}
+                                                        onChange={(checked) =>
+                                                            setAlertFormValue('investigation_agent_enabled', checked)
+                                                        }
+                                                    />
+                                                    <div className="flex-1">
+                                                        <div className="font-semibold">
+                                                            Run investigation agent when this alert fires
+                                                        </div>
+                                                        <div className="text-sm text-secondary">
+                                                            When the alert transitions to firing, an agent validates the
+                                                            anomaly, investigates likely causes using read-only queries,
+                                                            and writes its findings to a notebook linked from the alert
+                                                            history. Runs once per transition.
+                                                        </div>
                                                     </div>
                                                 </div>
+                                                {alertForm.investigation_agent_enabled && (
+                                                    <div className="flex flex-col gap-3 ml-6 pl-3 border-l border-border">
+                                                        <div className="flex gap-3 items-start">
+                                                            <LemonCheckbox
+                                                                data-attr="alertForm-investigation-gates-notifications"
+                                                                checked={!!alertForm.investigation_gates_notifications}
+                                                                onChange={(checked) =>
+                                                                    setAlertFormValue(
+                                                                        'investigation_gates_notifications',
+                                                                        checked
+                                                                    )
+                                                                }
+                                                            />
+                                                            <div className="flex-1">
+                                                                <div className="font-semibold">
+                                                                    Wait for the verdict before notifying
+                                                                </div>
+                                                                <div className="text-sm text-secondary">
+                                                                    Notifications are delayed ~30–90 seconds while the
+                                                                    agent investigates. If the verdict is false positive
+                                                                    we don't notify. If the investigation stalls, a
+                                                                    safety-net task force-fires the notification after a
+                                                                    few minutes.
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        {alertForm.investigation_gates_notifications && (
+                                                            <div className="ml-6 flex flex-wrap items-center gap-3">
+                                                                <span className="text-sm">On inconclusive</span>
+                                                                <LemonSegmentedButton
+                                                                    size="small"
+                                                                    value={
+                                                                        alertForm.investigation_inconclusive_action ??
+                                                                        'notify'
+                                                                    }
+                                                                    onChange={(value) =>
+                                                                        setAlertFormValue(
+                                                                            'investigation_inconclusive_action',
+                                                                            value
+                                                                        )
+                                                                    }
+                                                                    options={[
+                                                                        {
+                                                                            value: 'notify',
+                                                                            label: 'Notify',
+                                                                            tooltip:
+                                                                                'Safest default — the agent not being sure is itself informative.',
+                                                                        },
+                                                                        {
+                                                                            value: 'suppress',
+                                                                            label: 'Suppress',
+                                                                            tooltip: 'Only notify on true positives.',
+                                                                        },
+                                                                    ]}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 
