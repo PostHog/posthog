@@ -135,7 +135,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         input: [surface(0.81, 0.5, 'light'), surface(0.30, 1.5, 'dark'), 'border-input'],
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
-        // ── Interactive fills (reference other tokens) ─
+        // ── Interactive fills for default button/ interactive elements ───────────
         // Darkest fill in light mode, lightest in dark mode
         'fill-expanded': [
             'oklch(0.87 0 0 / 60%)',
@@ -148,7 +148,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
             'oklch(0.55 0 0 / 25%)',
             'bg-fill-selected',
         ],
-        // Lightest fill in light mode, medium in dark mode
+        // Lightest fill in light mode, darkest in dark mode
         'fill-hover': [
             'oklch(0.87 0 0 / 20%)',
             'oklch(0.55 0 0 / 15%)',
