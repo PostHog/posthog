@@ -12,6 +12,7 @@ from rest_framework.test import APIRequestFactory
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.region_proxy import (
     _proxy_to_region,
+    _should_proxy_bearer_lookup,
     _should_proxy_body_region,
     _should_proxy_token_lookup,
 )
@@ -84,6 +85,72 @@ class TestShouldProxyTokenLookup(BaseTest):
     def test_skips_unsupported_grant_type(self):
         request = _make_drf_request({"grant_type": "client_credentials"})
         assert _should_proxy_token_lookup(request, "US") is False
+
+
+class TestShouldProxyBearerLookup(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def _make_request_with_bearer(self, token: str | None):
+        kwargs = {}
+        if token is not None:
+            kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
+        raw = factory.post("/", data={}, format="json", **kwargs)
+        return Request(raw, parsers=[JSONParser()])
+
+    @patch("ee.api.agentic_provisioning.region_proxy.find_oauth_access_token", return_value=None)
+    def test_proxies_when_token_not_in_db(self, mock_find):
+        request = self._make_request_with_bearer("unknown_token")
+        assert _should_proxy_bearer_lookup(request, "US") is True
+        mock_find.assert_called_once_with("unknown_token")
+
+    @patch("ee.api.agentic_provisioning.region_proxy.find_oauth_access_token")
+    def test_skips_when_token_in_db(self, mock_find):
+        mock_find.return_value = MagicMock()
+        request = self._make_request_with_bearer("known_token")
+        assert _should_proxy_bearer_lookup(request, "US") is False
+
+    def test_skips_when_no_authorization_header(self):
+        request = self._make_request_with_bearer(None)
+        assert _should_proxy_bearer_lookup(request, "US") is False
+
+    def test_skips_when_non_bearer_scheme(self):
+        raw = factory.post("/", data={}, format="json", HTTP_AUTHORIZATION="Basic abc123")
+        request = Request(raw, parsers=[JSONParser()])
+        assert _should_proxy_bearer_lookup(request, "US") is False
+
+    def test_skips_when_empty_bearer(self):
+        request = self._make_request_with_bearer("")
+        assert _should_proxy_bearer_lookup(request, "US") is False
+
+    @patch("ee.api.agentic_provisioning.region_proxy.find_oauth_access_token")
+    def test_caches_existence_result(self, mock_find):
+        mock_find.return_value = MagicMock()
+        request = self._make_request_with_bearer("cacheable_token")
+
+        assert _should_proxy_bearer_lookup(request, "US") is False
+        assert _should_proxy_bearer_lookup(request, "US") is False
+
+        mock_find.assert_called_once()
+
+    @patch("ee.api.agentic_provisioning.region_proxy.find_oauth_access_token")
+    def test_caches_non_existence_result(self, mock_find):
+        mock_find.return_value = None
+        request = self._make_request_with_bearer("unknown_cacheable_token")
+
+        assert _should_proxy_bearer_lookup(request, "US") is True
+        assert _should_proxy_bearer_lookup(request, "US") is True
+
+        mock_find.assert_called_once()
+
+    def test_different_tokens_have_independent_cache(self):
+        with patch("ee.api.agentic_provisioning.region_proxy.find_oauth_access_token") as mock_find:
+            mock_find.side_effect = [MagicMock(), None]
+            req_known = self._make_request_with_bearer("token_a")
+            req_unknown = self._make_request_with_bearer("token_b")
+            assert _should_proxy_bearer_lookup(req_known, "US") is False
+            assert _should_proxy_bearer_lookup(req_unknown, "US") is True
 
 
 class TestProxyHeaderAllowlist(BaseTest):
@@ -172,3 +239,90 @@ class TestDecoratorIntegration(StripeProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
+
+
+class TestBearerLookupDecoratorCoverage(StripeProvisioningTestBase):
+    """Confirms every bearer-auth agentic endpoint proxies unknown tokens to the other region
+    and handles known tokens locally."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self._local_token = self._get_bearer_token()
+
+    def _resource_endpoints(self) -> list[tuple[str, str, str]]:
+        return [
+            ("POST", f"/api/agentic/provisioning/resources", ""),
+            ("GET", f"/api/agentic/provisioning/resources/{self.team.id}", ""),
+            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials", ""),
+            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/update_service", "free"),
+            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/remove", ""),
+            ("POST", f"/api/agentic/provisioning/deep_links", ""),
+        ]
+
+    def _call(self, method: str, url: str, token: str, extra: str):
+        data = {}
+        if "update_service" in url:
+            data = {"service_id": extra}
+        if "deep_links" in url:
+            data = {"purpose": "dashboard"}
+
+        if method == "GET":
+            return self._get_signed_with_bearer(url, token=token)
+        return self._post_signed_with_bearer(url, data=data, token=token)
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_unknown_bearer_token_is_proxied_on_every_endpoint(self, mock_proxy):
+        mock_proxy.return_value = Response({"status": "ok"}, status=200)
+
+        for method, url, extra in self._resource_endpoints():
+            mock_proxy.reset_mock()
+            cache.clear()
+            self._call(method, url, "totally_unknown_token", extra)
+            assert mock_proxy.called, f"{method} {url} should have proxied unknown bearer to other region"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_known_bearer_token_is_not_proxied(self, mock_proxy):
+        for method, url, extra in self._resource_endpoints():
+            mock_proxy.reset_mock()
+            cache.clear()
+            self._call(method, url, self._local_token, extra)
+            assert not mock_proxy.called, f"{method} {url} should not proxy for a locally valid bearer token"
+
+
+class TestDecoratorCoverageContract(BaseTest):
+    """Catches forgotten `@stripe_region_proxy` decorators on bearer-auth endpoints.
+
+    If you add a new endpoint that accepts a bearer access token, either decorate it
+    with `stripe_region_proxy(strategy="bearer_lookup")` or add it to the allowlist here
+    with a written reason."""
+
+    REGION_AWARE_ENDPOINTS = {
+        "provisioning_resources_create": "bearer_lookup",
+        "provisioning_resource_detail": "bearer_lookup",
+        "provisioning_rotate_credentials": "bearer_lookup",
+        "provisioning_update_service": "bearer_lookup",
+        "provisioning_resource_remove": "bearer_lookup",
+        "deep_links": "bearer_lookup",
+        "account_requests": "body_region",
+        "oauth_token": "token_lookup",
+    }
+
+    def test_all_region_aware_endpoints_have_proxy_decorator(self):
+        from ee.api.agentic_provisioning import views
+        from ee.api.agentic_provisioning.region_proxy import REGION_PROXY_REGISTRY
+
+        for view_name, expected_strategy in self.REGION_AWARE_ENDPOINTS.items():
+            assert hasattr(views, view_name), f"View {view_name} is missing from views.py"
+            qualname = (
+                getattr(views, view_name).__qualname__
+                if hasattr(getattr(views, view_name), "__qualname__")
+                else view_name
+            )
+            registered_strategy = REGION_PROXY_REGISTRY.get(qualname) or REGION_PROXY_REGISTRY.get(view_name)
+            assert registered_strategy == expected_strategy, (
+                f"{view_name} must be decorated with @stripe_region_proxy(strategy={expected_strategy!r}) "
+                f"(registry has: {registered_strategy!r})"
+            )

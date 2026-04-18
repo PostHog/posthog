@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
 import functools
 from urllib.parse import urlparse, urlunparse
 
+from django.conf import settings
 from django.core.cache import cache
 
 import requests
@@ -12,7 +14,7 @@ import posthoganalytics
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.models.oauth import find_oauth_refresh_token
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.utils import get_instance_region
 
 from . import AUTH_CODE_CACHE_PREFIX
@@ -21,9 +23,13 @@ from .signature import verify_stripe_signature
 logger = structlog.get_logger(__name__)
 
 PROXY_TIMEOUT = 10
-US_DOMAIN = "us.posthog.com"
-EU_DOMAIN = "eu.posthog.com"
+US_DOMAIN = getattr(settings, "REGION_US_DOMAIN", "us.posthog.com")
+EU_DOMAIN = getattr(settings, "REGION_EU_DOMAIN", "eu.posthog.com")
 PROXY_LOOP_HEADER = "X-PostHog-Proxied"
+
+BEARER_PREFIX = "Bearer "
+BEARER_EXISTS_CACHE_PREFIX = "agentic_bearer_exists:"
+BEARER_EXISTS_CACHE_TTL = 300
 
 PROXY_HEADER_ALLOWLIST = frozenset(
     {
@@ -117,16 +123,46 @@ def _should_proxy_token_lookup(request: Request, current_region: str) -> bool:
     return False
 
 
+def _bearer_exists_locally(token_value: str) -> bool:
+    token_hash = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
+    cache_key = f"{BEARER_EXISTS_CACHE_PREFIX}{token_hash}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return bool(cached)
+
+    exists = find_oauth_access_token(token_value) is not None
+    cache.set(cache_key, exists, timeout=BEARER_EXISTS_CACHE_TTL)
+    return exists
+
+
+def _should_proxy_bearer_lookup(request: Request, current_region: str) -> bool:
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not auth_header.startswith(BEARER_PREFIX):
+        return False
+
+    token_value = auth_header[len(BEARER_PREFIX) :].strip()
+    if not token_value:
+        return False
+
+    return not _bearer_exists_locally(token_value)
+
+
 _STRATEGY_CHECKS = {
     "body_region": _should_proxy_body_region,
     "token_lookup": _should_proxy_token_lookup,
+    "bearer_lookup": _should_proxy_bearer_lookup,
 }
+
+
+REGION_PROXY_REGISTRY: dict[str, str] = {}
 
 
 def stripe_region_proxy(strategy: str):
     check_fn = _STRATEGY_CHECKS[strategy]
 
     def decorator(view_func):
+        REGION_PROXY_REGISTRY[view_func.__qualname__] = strategy
+
         @functools.wraps(view_func)
         def wrapper(request: Request, *args, **kwargs) -> Response:
             if request.META.get("HTTP_STRIPE_SIGNATURE"):
