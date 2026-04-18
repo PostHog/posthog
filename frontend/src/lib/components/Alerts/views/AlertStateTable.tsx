@@ -49,7 +49,7 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
 
     if (status === 'done' && shortId) {
         return (
-            <div className="flex flex-col gap-1 items-end max-w-80 text-right">
+            <div className="flex flex-col gap-1.5 items-end max-w-md text-right">
                 {verdict && <VerdictTag verdict={verdict} />}
                 {summary && <SummaryText summary={summary} />}
                 <Link to={`/notebooks/${shortId}`}>View notebook</Link>
@@ -83,7 +83,7 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
 function SummaryText({ summary }: { summary: string }): JSX.Element {
     const needsTruncation = summary.length > SUMMARY_PREVIEW_CHARS
     const preview = needsTruncation ? summary.slice(0, SUMMARY_PREVIEW_CHARS - 1).trimEnd() + '…' : summary
-    const content = <span className="text-secondary text-xs leading-snug">{preview}</span>
+    const content = <span className="text-secondary text-sm leading-normal">{preview}</span>
     return needsTruncation ? <Tooltip title={summary}>{content}</Tooltip> : content
 }
 

@@ -228,7 +228,7 @@ export function EditAlertModal({
     ])
 
     return (
-        <LemonModal onClose={handleClose} isOpen={isOpen} width={750} simple title="">
+        <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading ? (
                 <SpinnerOverlay />
             ) : (
