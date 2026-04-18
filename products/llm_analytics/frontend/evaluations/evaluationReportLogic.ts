@@ -119,7 +119,8 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     // Seed a default rrule when switching into scheduled mode for the first time so
                     // the Save button can commit without forcing the user to fill the field manually.
                     const rrule = frequency === 'scheduled' && !state.rrule ? DEFAULT_RRULE : state.rrule
-                    const startsAt = frequency === 'scheduled' && !state.startsAt ? new Date().toISOString() : state.startsAt
+                    const startsAt =
+                        frequency === 'scheduled' && !state.startsAt ? new Date().toISOString() : state.startsAt
                     return { ...state, frequency, rrule, startsAt }
                 },
                 setDraftRrule: (state, { rrule }) => ({ ...state, rrule }),

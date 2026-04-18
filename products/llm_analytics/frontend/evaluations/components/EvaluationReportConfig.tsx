@@ -10,8 +10,8 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
@@ -53,12 +53,7 @@ function ScheduleConfig({
         <div className="space-y-3">
             <div>
                 <label className="font-semibold text-sm">Schedule (RRULE)</label>
-                <LemonInput
-                    value={rrule}
-                    onChange={onRruleChange}
-                    placeholder={RRULE_PLACEHOLDER}
-                    fullWidth
-                />
+                <LemonInput value={rrule} onChange={onRruleChange} placeholder={RRULE_PLACEHOLDER} fullWidth />
                 <p className="text-xs text-muted mt-1">{RRULE_EXAMPLES}</p>
             </div>
             <div>
@@ -78,12 +73,7 @@ function ScheduleConfig({
             </div>
             <div>
                 <label className="font-semibold text-sm">Timezone</label>
-                <LemonInput
-                    value={timezoneName}
-                    onChange={onTimezoneChange}
-                    placeholder="UTC"
-                    fullWidth
-                />
+                <LemonInput value={timezoneName} onChange={onTimezoneChange} placeholder="UTC" fullWidth />
                 <p className="text-xs text-muted mt-1">IANA timezone name (e.g. UTC, America/New_York).</p>
             </div>
         </div>
