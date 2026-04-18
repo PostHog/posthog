@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import override
 
 from django.db import IntegrityError
@@ -14,9 +15,11 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.recommendations import RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
+from products.error_tracking.backend.recommendations.base import Recommendation
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +39,7 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         return (obj.computed_at + rec.refresh_interval).isoformat()
 
 
-def _compute_if_stale(team_id: int, team) -> None:
+def _compute_if_stale(team_id: int, team: Team) -> None:
     now = timezone.now()
     for rec in RECOMMENDATIONS:
         try:
@@ -51,7 +54,7 @@ def _compute_if_stale(team_id: int, team) -> None:
             )
 
 
-def _compute_single(rec, team_id: int, team, now) -> None:
+def _compute_single(rec: Recommendation, team_id: int, team: Team, now: datetime) -> None:
     try:
         obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
     except ErrorTrackingRecommendation.DoesNotExist:
