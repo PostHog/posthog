@@ -295,7 +295,7 @@ def _attach_images_to_user_message(
         parts.append(
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{encoded}", "detail": "high"},
+                "image_url": {"url": f"data:image/png;base64,{encoded}", "detail": "auto"},
             }
         )
         bytes_total += len(image_bytes)

@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
-from posthog.temporal.subscriptions.snapshot_activities import MAX_SUMMARY_IMAGES, _load_insight_images
+from posthog.temporal.subscriptions.snapshot_activities import (
+    MAX_SUMMARY_IMAGES,
+    SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED,
+    _load_insight_images,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -96,6 +100,12 @@ def _storage_error_scenario(team, user):
         yield asset.id
 
 
+@contextmanager
+def _missing_from_db_scenario(team, user):
+    # asset_id that doesn't exist — e.g. deleted between workflow export and snapshot activity
+    yield 999_999_999
+
+
 @pytest.mark.parametrize(
     "reason,scenario",
     [
@@ -104,6 +114,7 @@ def _storage_error_scenario(team, user):
         ("non_png_export", _non_png_export_scenario),
         ("over_image_size_cap", _over_image_size_cap_scenario),
         ("storage_error", _storage_error_scenario),
+        ("missing_from_db", _missing_from_db_scenario),
     ],
 )
 def test_returns_empty_for_unloadable_asset(team, user, reason, scenario):
@@ -111,6 +122,30 @@ def test_returns_empty_for_unloadable_asset(team, user, reason, scenario):
         result = _load_insight_images([asset_id], team.id)
 
     assert result == {}
+
+
+def test_skips_duplicate_insight_with_counter(team, user):
+    insight = Insight.objects.create(team=team, name="pv", created_by=user)
+    first = _create_png_asset(team, insight, content=b"first-png")
+    duplicate = _create_png_asset(team, insight, content=b"second-png")
+
+    before = SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight")._value.get()
+
+    result = _load_insight_images([first.id, duplicate.id], team.id)
+
+    after = SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight")._value.get()
+    assert result == {insight.id: b"first-png"}
+    assert after - before == 1
+
+
+def test_missing_asset_increments_not_found_counter(team, user):
+    before = SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="not_found")._value.get()
+
+    result = _load_insight_images([999_999_999], team.id)
+
+    after = SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="not_found")._value.get()
+    assert result == {}
+    assert after - before == 1
 
 
 def test_caps_total_images_at_max_and_keeps_input_order(team, user):

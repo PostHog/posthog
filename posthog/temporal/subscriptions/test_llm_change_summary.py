@@ -269,7 +269,7 @@ class TestGenerateChangeSummary:
         image_parts = [p for p in user_content if p.get("type") == "image_url"]
         assert len(image_parts) == 2
         assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
-        assert image_parts[0]["image_url"]["detail"] == "high"
+        assert image_parts[0]["image_url"]["detail"] == "auto"
 
     @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
     def test_prepends_label_text_part_before_each_image(self, mock_get_client):

@@ -212,11 +212,13 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
             break
         asset = assets_by_id.get(asset_id)
         if asset is None:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="not_found").inc()
             continue
         if asset.insight_id is None:
             SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="no_insight_id").inc()
             continue
         if asset.insight_id in images:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight").inc()
             continue
 
         content: bytes | None = asset.content
