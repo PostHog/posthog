@@ -45,11 +45,12 @@ export type AlertFormType = Pick<
 }
 
 export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    const upper = alert?.threshold?.configuration?.bounds?.upper
     return (
-        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
-            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
-        alert?.threshold.configuration.bounds?.upper != null &&
-        !isNaN(alert?.threshold.configuration.bounds.upper)
+        (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition?.type === AlertConditionType.RELATIVE_INCREASE) &&
+        upper != null &&
+        !isNaN(upper)
     )
 }
 
