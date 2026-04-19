@@ -7,8 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { autoCaptureEventToDescription } from 'lib/utils'
-import { eventToActionStep, isAutocaptureWithElements } from 'scenes/activity/explore/saveActionFromEvent'
+import { eventToActionStep, eventToSuggestedActionName } from 'scenes/activity/explore/saveActionFromEvent'
 import {
     filterToActionStep,
     generateActionNameFromFilter,
@@ -112,11 +111,8 @@ export const saveAsActionLogic = kea<saveAsActionLogicType>([
             })
         },
         saveFromEvent: ({ event, dataAttributes }) => {
-            if (!isAutocaptureWithElements(event)) {
-                return
-            }
             openSaveAsActionDialog({
-                suggestedName: autoCaptureEventToDescription(event),
+                suggestedName: eventToSuggestedActionName(event),
                 step: eventToActionStep(event, dataAttributes),
                 createInFolder: 'Unfiled/Actions',
             })

@@ -1,21 +1,6 @@
-import { router } from 'kea-router'
-
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
-import { autoCaptureEventToDescription } from 'lib/utils'
-import { urls } from 'scenes/urls'
 
-import {
-    ActionStepType,
-    ActionType,
-    ElementType,
-    EventType,
-    PropertyFilterType,
-    PropertyOperator,
-    TeamType,
-} from '~/types'
+import { ActionStepType, ElementType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -70,69 +55,5 @@ export function applySubmitProperty(step: ActionStepType, eventProperties: Recor
         step.properties = [
             { key: '$event_type', value: 'submit', type: PropertyFilterType.Event, operator: PropertyOperator.Exact },
         ]
-    }
-}
-
-export async function createActionFromEvent(
-    teamId: TeamType['id'],
-    event: EventType,
-    increment: number,
-    dataAttributes: string[],
-    createInFolder: string | null = null,
-    recurse: typeof createActionFromEvent = createActionFromEvent
-): Promise<void> {
-    const actionData: Pick<ActionType, 'name' | 'steps' | '_create_in_folder'> = {
-        name: '',
-        steps: [
-            {
-                event: event.event,
-                ...(event.event === '$pageview' || event.event === '$autocapture'
-                    ? {
-                          url: event.properties.$current_url,
-                          url_matching: 'exact',
-                      }
-                    : {}),
-                ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
-            },
-        ],
-        ...(typeof createInFolder === 'string' ? { _create_in_folder: createInFolder } : {}),
-    }
-
-    if (event.event === '$autocapture') {
-        actionData.name = autoCaptureEventToDescription(event)
-        if (actionData.steps?.[0]) {
-            applyDataAttributeSelector(actionData.steps[0], event.elements, dataAttributes ?? [])
-        }
-    } else if (event.event === '$pageview') {
-        actionData.name = `Pageview on ${new URL(event.properties.$current_url).pathname}`
-    } else {
-        actionData.name = `${event.event} event`
-    }
-    if (increment) {
-        actionData.name = actionData.name + ' ' + increment
-    }
-
-    if (actionData.steps?.length) {
-        applySubmitProperty(actionData.steps[0], event.properties)
-    }
-
-    let action: ActionType
-    try {
-        action = await api.actions.create(actionData)
-    } catch (response: any) {
-        if (response.data?.type === 'validation_error' && response.data?.code === 'unique' && increment < 30) {
-            return recurse(teamId, event, increment + 1, dataAttributes, createInFolder, recurse)
-        }
-        lemonToast.error(
-            <>
-                Couldn't create this action. You can try{' '}
-                <Link to={urls.createAction()}>manually creating an action instead.</Link>
-            </>
-        )
-        return
-    }
-    if (action.id) {
-        router.actions.push(urls.action(action.id))
-        lemonToast.success('Action created')
     }
 }

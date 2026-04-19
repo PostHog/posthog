@@ -194,9 +194,24 @@ describe('saveAsActionLogic', () => {
             expect(capturedBody._create_in_folder).toBe('Unfiled/Actions')
         })
 
-        it('is a no-op for non-autocapture events', () => {
-            saveAsActionLogic.actions.saveFromEvent(makeAutocaptureEvent({ event: '$pageview' }), [])
-            expect(openFormSpy).not.toHaveBeenCalled()
+        it('opens the dialog for $pageview events with a pathname-based suggested name', () => {
+            saveAsActionLogic.actions.saveFromEvent(
+                makeAutocaptureEvent({
+                    event: '$pageview',
+                    elements: [],
+                    properties: { $current_url: 'https://example.com/pricing' },
+                }),
+                []
+            )
+            expect(lastDialogConfig?.initialValues?.actionName).toBe('Pageview on /pricing')
+        })
+
+        it('opens the dialog for custom events with an event-name-based suggested name', () => {
+            saveAsActionLogic.actions.saveFromEvent(
+                makeAutocaptureEvent({ event: 'signed_up', elements: [], properties: {} }),
+                []
+            )
+            expect(lastDialogConfig?.initialValues?.actionName).toBe('signed_up event')
         })
     })
 
