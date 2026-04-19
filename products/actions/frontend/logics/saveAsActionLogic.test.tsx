@@ -1,8 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
@@ -37,85 +35,74 @@ function makeFilter(overrides: Partial<LocalFilter> = {}): LocalFilter {
     }
 }
 
-async function submitDialog(): Promise<void> {
-    const submitButton = screen.getByRole('button', { name: 'Submit' })
-    await userEvent.click(submitButton)
-}
+type OpenFormConfig = Parameters<typeof LemonDialog.openForm>[0]
 
 describe('saveAsActionLogic', () => {
+    let openFormSpy: jest.SpyInstance<void, [OpenFormConfig]>
+    let lastDialogConfig: OpenFormConfig | undefined
     let capturedBody: any
     let postStatus: number
-
-    afterEach(async () => {
-        cleanup()
-        await act(async () => {
-            await new Promise((r) => setTimeout(r, 0))
-        })
-        // LemonDialog renders via a ReactModal portal outside #root; RTL's cleanup doesn't
-        // unmount it, so any dialog left open from a test leaks into the next one.
-        // We nuke portal divs here rather than clicking Cancel because async cleanup inside
-        // afterEach is flaky when a test has already errored.
-        document.querySelectorAll('body > div:not(#root)').forEach((el) => el.remove())
-        saveAsActionLogic.unmount()
-    })
+    let postResponseBody: Record<string, unknown>
 
     beforeEach(() => {
         capturedBody = null
         postStatus = 200
+        postResponseBody = { id: 42, name: 'Test', steps: [] }
+        lastDialogConfig = undefined
         useMocks({
             get: { '/api/projects/:team/actions/': { results: [] } },
             post: {
                 '/api/projects/:team/actions/': async (req) => {
                     capturedBody = await req.json()
                     if (postStatus >= 400) {
-                        return [postStatus, { detail: 'fail' }]
+                        return [postStatus, postResponseBody]
                     }
-                    return [postStatus, { id: 42, name: capturedBody.name, steps: capturedBody.steps }]
+                    return [postStatus, { ...postResponseBody, name: capturedBody.name, steps: capturedBody.steps }]
                 },
             },
         })
         initKeaTests()
         actionsModel.mount()
         saveAsActionLogic.mount()
+        openFormSpy = jest.spyOn(LemonDialog, 'openForm').mockImplementation((config) => {
+            lastDialogConfig = config
+        })
     })
 
-    describe('openSaveAsActionDialog', () => {
-        it('opens the shared dialog with the suggested name', async () => {
-            openSaveAsActionDialog({
-                suggestedName: 'My suggestion',
-                step: { event: '$autocapture' },
-            })
+    afterEach(() => {
+        openFormSpy.mockRestore()
+        saveAsActionLogic.unmount()
+    })
 
-            await waitFor(() => {
-                expect(screen.getByDisplayValue('My suggestion')).toBeInTheDocument()
-            })
+    async function submitCapturedDialog(actionName = lastDialogConfig?.initialValues?.actionName ?? ''): Promise<void> {
+        if (!lastDialogConfig) {
+            throw new Error('No dialog was opened')
+        }
+        await lastDialogConfig.onSubmit({ actionName })
+    }
+
+    describe('openSaveAsActionDialog', () => {
+        it('opens the shared dialog with the suggested name', () => {
+            openSaveAsActionDialog({ suggestedName: 'My suggestion', step: { event: '$autocapture' } })
+            expect(lastDialogConfig?.initialValues?.actionName).toBe('My suggestion')
         })
 
-        it('disables the submit button until a name is entered', async () => {
-            openSaveAsActionDialog({
-                suggestedName: '',
-                step: { event: '$autocapture' },
-            })
+        it('wires the uniqueness validator into the form', () => {
+            actionsModel.actions.loadActionsSuccess([{ id: 1, name: 'Existing action', steps: [] }] as any)
 
-            await waitFor(() => expect(screen.getByTestId('save-as-action-name')).toBeInTheDocument())
-
-            const submitButton = screen.getByRole('button', { name: 'Submit' })
-            expect(submitButton).toHaveAttribute('aria-disabled', 'true')
+            openSaveAsActionDialog({ suggestedName: 'Fresh', step: { event: '$autocapture' } })
+            const validator = lastDialogConfig?.errors?.actionName as (value: string) => string | undefined
+            expect(validator('')).toBe('Action name is required')
+            expect(validator('Existing action')).toBe('An action with this name already exists')
+            expect(validator('Fresh')).toBeUndefined()
         })
 
         it('posts the provided step unchanged on submit', async () => {
-            const step = {
-                event: '$autocapture',
-                text: 'Submit',
-                selector: '.btn',
-            }
+            const step = { event: '$autocapture', text: 'Submit', selector: '.btn' }
 
             openSaveAsActionDialog({ suggestedName: 'Named', step })
+            await submitCapturedDialog('Named')
 
-            await waitFor(() => expect(screen.getByDisplayValue('Named')).toBeInTheDocument())
-            await submitDialog()
-
-            await waitFor(() => expect(capturedBody).not.toBeNull())
             expect(capturedBody.name).toBe('Named')
             expect(capturedBody.steps).toEqual([step])
             expect(capturedBody._create_in_folder).toBeUndefined()
@@ -127,40 +114,9 @@ describe('saveAsActionLogic', () => {
                 step: { event: '$autocapture' },
                 createInFolder: 'Unfiled/Actions',
             })
+            await submitCapturedDialog('Named')
 
-            await waitFor(() => expect(screen.getByDisplayValue('Named')).toBeInTheDocument())
-            await submitDialog()
-
-            await waitFor(() => expect(capturedBody).not.toBeNull())
             expect(capturedBody._create_in_folder).toBe('Unfiled/Actions')
-        })
-
-        it('creates the action via API on successful submit', async () => {
-            openSaveAsActionDialog({
-                suggestedName: 'Named',
-                step: { event: '$autocapture' },
-            })
-
-            await waitFor(() => expect(screen.getByDisplayValue('Named')).toBeInTheDocument())
-            await submitDialog()
-
-            await waitFor(() => expect(capturedBody).not.toBeNull())
-            expect(capturedBody.name).toBe('Named')
-        })
-
-        it('still posts to the API when the server would return an error', async () => {
-            postStatus = 500
-
-            openSaveAsActionDialog({
-                suggestedName: 'ErrorCase',
-                step: { event: '$autocapture' },
-            })
-
-            await waitFor(() => expect(screen.getByDisplayValue('ErrorCase')).toBeInTheDocument())
-            await submitDialog()
-
-            await waitFor(() => expect(capturedBody).not.toBeNull())
-            expect(capturedBody.name).toBe('ErrorCase')
         })
     })
 
@@ -179,10 +135,9 @@ describe('saveAsActionLogic', () => {
                 })
             )
 
-            await waitFor(() => expect(screen.getByDisplayValue('Autocapture: "Submit"')).toBeInTheDocument())
-            await submitDialog()
+            expect(lastDialogConfig?.initialValues?.actionName).toBe('Autocapture: "Submit"')
+            await submitCapturedDialog()
 
-            await waitFor(() => expect(capturedBody).not.toBeNull())
             expect(capturedBody.steps[0]).toMatchObject({
                 event: '$autocapture',
                 text: 'Submit',
@@ -210,11 +165,8 @@ describe('saveAsActionLogic', () => {
                     ],
                 })
             )
+            await submitCapturedDialog()
 
-            await waitFor(() => expect(screen.getByDisplayValue('Autocapture: "Submit"')).toBeInTheDocument())
-            await submitDialog()
-
-            await waitFor(() => expect(capturedBody).not.toBeNull())
             expect(capturedBody.name).toBe('Autocapture: "Submit"')
             expect(capturedBody.steps).toHaveLength(1)
             expect(capturedBody.steps[0]).toMatchObject({
@@ -230,10 +182,9 @@ describe('saveAsActionLogic', () => {
         it('pre-fills name and step from an autocapture event and sets Unfiled/Actions folder', async () => {
             saveAsActionLogic.actions.saveFromEvent(makeAutocaptureEvent(), [])
 
-            await waitFor(() => expect(screen.getByTestId('save-as-action-name')).toBeInTheDocument())
-            await submitDialog()
+            expect(lastDialogConfig).not.toBeUndefined()
+            await submitCapturedDialog('Clicked button "Submit"')
 
-            await waitFor(() => expect(capturedBody).not.toBeNull())
             expect(capturedBody.steps[0]).toMatchObject({
                 event: '$autocapture',
                 text: 'Submit',
@@ -245,8 +196,7 @@ describe('saveAsActionLogic', () => {
 
         it('is a no-op for non-autocapture events', () => {
             saveAsActionLogic.actions.saveFromEvent(makeAutocaptureEvent({ event: '$pageview' }), [])
-
-            expect(screen.queryByTestId('save-as-action-name')).not.toBeInTheDocument()
+            expect(openFormSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -300,22 +250,12 @@ describe('saveAsActionLogic', () => {
             ['empty body falls back to generic message', {}, 'Failed to create action. Please try again.'],
         ])('surfaces %s in the error toast', async (_desc, responseBody, expectedToast) => {
             const errorSpy = jest.spyOn(lemonToast, 'error')
-            useMocks({
-                post: {
-                    '/api/projects/:team/actions/': () => [400, responseBody],
-                },
-            })
+            postStatus = 400
+            postResponseBody = responseBody
 
-            openSaveAsActionDialog({
-                suggestedName: 'Whatever',
-                step: { event: '$autocapture' },
-            })
+            openSaveAsActionDialog({ suggestedName: 'Whatever', step: { event: '$autocapture' } })
+            await submitCapturedDialog('Whatever')
 
-            await waitFor(() => expect(screen.getByDisplayValue('Whatever')).toBeInTheDocument())
-            const submitButton = screen.getByRole('button', { name: 'Submit' })
-            await userEvent.click(submitButton)
-
-            await waitFor(() => expect(errorSpy).toHaveBeenCalled())
             expect(errorSpy).toHaveBeenCalledWith(expectedToast)
             errorSpy.mockRestore()
         })
