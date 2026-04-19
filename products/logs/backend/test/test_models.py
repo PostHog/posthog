@@ -32,61 +32,57 @@ class TestLogsAlertConfiguration(BaseTest):
         assert alert.consecutive_failures == 0
         assert alert.filters == {}
 
-    def test_disable_resets_state_to_not_firing(self):
-        alert = self._create_alert(state=LogsAlertConfiguration.State.FIRING)
-        alert.enabled = False
-        alert.save()
-        alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
-
-    def test_disable_with_update_fields_includes_state(self):
-        alert = self._create_alert(state=LogsAlertConfiguration.State.FIRING)
-        alert.enabled = False
-        alert.save(update_fields=["enabled"])
-        alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
-
-    def test_disable_with_update_fields_tuple(self):
-        alert = self._create_alert(state=LogsAlertConfiguration.State.FIRING)
-        alert.enabled = False
-        alert.save(update_fields=("enabled",))
-        alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
-
     def test_enabled_save_preserves_state(self):
+        # State transitions are the responsibility of the state machine now — a plain
+        # model save must not mutate state, not even as a side effect of enabled=False.
         alert = self._create_alert(state=LogsAlertConfiguration.State.FIRING)
         alert.name = "Renamed"
         alert.save()
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.FIRING
 
-    def test_mark_for_recheck_resets_state(self):
+    def test_model_save_does_not_touch_state_on_disable(self):
+        # Disabling via bare .enabled = False + save() must NOT implicitly flip state —
+        # the enable/disable state transition lives in the state machine and is driven
+        # by the serializer. This test guards against regression of the old save override.
+        alert = self._create_alert(state=LogsAlertConfiguration.State.FIRING)
+        alert.enabled = False
+        alert.save(update_fields=["enabled"])
+        alert.refresh_from_db()
+        assert alert.enabled is False
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+
+    def test_clear_next_check_only_nulls_next_check_at(self):
         alert = self._create_alert(
             state=LogsAlertConfiguration.State.FIRING,
             next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
             consecutive_failures=3,
         )
-        updated = alert.mark_for_recheck(reset_state=True)
+        updated = alert.clear_next_check()
         alert.save(update_fields=updated)
         alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         assert alert.next_check_at is None
-        assert alert.consecutive_failures == 0
-        assert "state" in updated
-        assert "consecutive_failures" in updated
-        assert "next_check_at" in updated
+        # State + consecutive_failures are untouched — that's the state machine's job.
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert alert.consecutive_failures == 3
+        assert updated == ["next_check_at"]
 
-    def test_mark_for_recheck_preserves_state(self):
+    def test_to_snapshot_captures_state_machine_inputs(self):
+        from products.logs.backend.alert_state_machine import AlertState
+
         alert = self._create_alert(
             state=LogsAlertConfiguration.State.FIRING,
-            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+            consecutive_failures=2,
+            evaluation_periods=3,
+            datapoints_to_alarm=2,
+            cooldown_minutes=15,
         )
-        updated = alert.mark_for_recheck(reset_state=False)
-        alert.save(update_fields=updated)
-        alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.FIRING
-        assert alert.next_check_at is None
-        assert "state" not in updated
+        snapshot = alert.to_snapshot()
+        assert snapshot.state == AlertState.FIRING
+        assert snapshot.consecutive_failures == 2
+        assert snapshot.evaluation_periods == 3
+        assert snapshot.datapoints_to_alarm == 2
+        assert snapshot.cooldown_minutes == 15
 
     def test_get_recent_breaches_ordering_and_limit(self):
         alert = self._create_alert(evaluation_periods=3)

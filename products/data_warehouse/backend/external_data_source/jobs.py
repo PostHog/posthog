@@ -15,6 +15,9 @@ def update_external_job_status(
     else:
         schema_status = status  # type: ignore
 
+    if model.schema_id is None:
+        raise ValueError(f"External data job {job_id} is not attached to a schema")
+
     schema = ExternalDataSchema.objects.get(id=model.schema_id, team_id=team_id)
     schema.status = schema_status
     schema.latest_error = latest_error

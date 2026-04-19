@@ -270,6 +270,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
+export const advancedActivityLogsListQueryClientsDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
@@ -279,6 +280,7 @@ export const advancedActivityLogsListQueryUsersDefault = []
 
 export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     activities: zod.array(zod.string()).default(advancedActivityLogsListQueryActivitiesDefault),
+    clients: zod.array(zod.string()).default(advancedActivityLogsListQueryClientsDefault),
     detail_filters: zod.string().optional(),
     end_date: zod.iso.datetime({}).optional(),
     hogql_filter: zod.string().optional(),

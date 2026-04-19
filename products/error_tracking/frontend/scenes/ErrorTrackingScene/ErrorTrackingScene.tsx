@@ -10,20 +10,17 @@ import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CyclotronJobFiltersType } from '~/types'
 
-import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
-import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
@@ -101,21 +98,6 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
-        {
-            key: 'configuration',
-            label: 'Configuration',
-            content: (
-                <>
-                    <IntegrationsMovedBanner />
-                    <Settings
-                        logicKey={ERROR_TRACKING_LOGIC_KEY}
-                        sectionId="environment-error-tracking-configuration"
-                        settingId="error-tracking-alerting"
-                        handleLocally
-                    />
-                </>
-            ),
-        },
     ]
 
     return (

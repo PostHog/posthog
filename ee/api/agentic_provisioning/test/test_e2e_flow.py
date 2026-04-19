@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from django.test import override_settings
 from django.utils import timezone
 
+from posthog.models.user import User
+
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
@@ -153,3 +155,62 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             token=access_token,
         )
         assert res.status_code == 401
+
+    def test_existing_user_provisioning_flow(self):
+        """E2E: existing user gets linked via email without browser redirect."""
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="existing-e2e@example.com",
+            password="testpass",
+            first_name="Existing",
+        )
+
+        # 1. Account request for existing user — should return oauth directly
+        account_request = {
+            "id": "acctreq_existing_e2e",
+            "object": "account_request",
+            "email": "existing-e2e@example.com",
+            "scopes": ["query:read", "project:read"],
+            "client_capabilities": ["browser"],
+            "confirmation_secret": "cs_existing_secret",
+            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+            "orchestrator": {
+                "type": "stripe",
+                "stripe": {
+                    "organisation": "org_e2e",
+                    "account": "acct_e2e_existing",
+                },
+            },
+        }
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=account_request)
+        assert res.status_code == 200
+        assert res.json()["type"] == "oauth"
+        auth_code = res.json()["oauth"]["code"]
+
+        # 2. Exchange authorization code for tokens
+        token_body = urlencode({"grant_type": "authorization_code", "code": auth_code}).encode()
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, token_body)
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=token_body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+        token_data = res.json()
+        access_token = token_data["access_token"]
+        assert access_token.startswith("pha_")
+        assert "available_teams" in token_data["account"]
+        assert len(token_data["account"]["available_teams"]) >= 1
+
+        # 3. Provision a resource
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=access_token,
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "complete"
+        assert "api_key" in res.json()["complete"]["access_configuration"]
