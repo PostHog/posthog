@@ -1,6 +1,6 @@
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, TeamPublicType, TeamType } from '~/types'
 
 export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
     kind: NodeKind.DataTableNode,
@@ -16,6 +16,21 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     showSavedQueries: true,
     showPersistentColumnConfigurator: true,
 })
+
+export function applyTestAccountFilter<T extends DataTableNode>(
+    base: T,
+    currentTeam: TeamType | TeamPublicType | null | undefined,
+    filterTestAccountsDefault: boolean
+): T {
+    const hasTestAccountFilters = (currentTeam?.test_account_filters ?? []).length > 0
+    return {
+        ...base,
+        source: {
+            ...base.source,
+            ...(hasTestAccountFilters ? { filterTestAccounts: filterTestAccountsDefault } : {}),
+        },
+    }
+}
 
 export const getDefaultSessionsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
     kind: NodeKind.DataTableNode,
