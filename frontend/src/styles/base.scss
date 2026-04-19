@@ -1127,6 +1127,14 @@
         outline: 2px solid var(--color-accent);
     }
 
+    /* Radix menus emit data-highlighted on pointer-move; suppress outline unless
+      focus is truly keyboard-driven */
+    [data-radix-menu-content] [data-highlighted]:not(:focus-visible),
+    [data-radix-context-menu-content] [data-highlighted]:not(:focus-visible),
+    [data-radix-select-content] [data-highlighted]:not(:focus-visible) {
+        outline: none;
+    }
+
     .input-like {
         --input-ring-color: var(--color-bg-fill-highlight-75);
         --input-ring-size: 3px;
