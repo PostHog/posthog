@@ -5,57 +5,100 @@ import { LemonBadge, LemonButton, LemonCollapse, LemonDivider } from '@posthog/l
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import type { EvaluationReportMetrics, EvaluationReportRun, EvaluationReportSection } from '../types'
+import type {
+    EvaluationReportCitation,
+    EvaluationReportMetrics,
+    EvaluationReportRun,
+    EvaluationReportSection,
+} from '../types'
 
-// Match any UUID in the content — optional single-char wrapper (backtick or angle bracket)
-// on each side. Using `?` (not `*`) avoids polynomial backtracking on inputs like "<<<<<xxx".
-const UUID_REGEX = /[`<]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]?/g
-
-// Rewrite `<uuid>` backtick tokens into markdown links pointing to the correct
-// trace URL. Uses the citations list to map generation_id → trace_id so the link
-// opens the right trace with the generation highlighted.
-function linkifyUuids(content: string, citationMap: Record<string, string>): string {
-    return content.replace(UUID_REGEX, (_match, generationId: string) => {
-        const traceId = citationMap[generationId]
-        const url = traceId
-            ? urls.llmAnalyticsTrace(traceId, { event: generationId })
-            : urls.llmAnalyticsTrace(generationId)
-        return `[\`${generationId.slice(0, 8)}...\`](${url})`
+// Rewrite each cited generation_id in the content into a markdown link to the
+// trace viewer. Uses the structured citations list (not regex scanning) so:
+// - only ids the agent explicitly cited get linked (no false positives)
+// - the trace_id for the correct URL is guaranteed available
+// - there's no ReDoS surface on arbitrary prose input
+//
+// Two-phase placeholder swap prevents double-wrapping when an id is mentioned
+// multiple times, and prevents one id's generated link from being re-matched
+// by a later citation. Wrapper variants (`uuid`, <uuid>, bare) are collapsed
+// in descending specificity so the wrappers themselves get absorbed into the
+// replacement rather than surviving around a link.
+function linkifyCitations(content: string, citations: EvaluationReportCitation[]): string {
+    if (citations.length === 0) {
+        return content
+    }
+    const tokens: Array<{ token: string; link: string }> = []
+    let out = content
+    citations.forEach((c, idx) => {
+        if (!c.generation_id) {
+            return
+        }
+        const token = `\0CITE${idx}\0`
+        const url = c.trace_id
+            ? urls.llmAnalyticsTrace(c.trace_id, { event: c.generation_id })
+            : urls.llmAnalyticsTrace(c.generation_id)
+        const link = `[\`${c.generation_id.slice(0, 8)}...\`](${url})`
+        const before = out
+        out = out.split(`\`${c.generation_id}\``).join(token)
+        out = out.split(`<${c.generation_id}>`).join(token)
+        out = out.split(c.generation_id).join(token)
+        if (out !== before) {
+            tokens.push({ token, link })
+        }
     })
+    for (const { token, link } of tokens) {
+        out = out.split(token).join(link)
+    }
+    return out
 }
 
 // Strip a leading markdown heading line if it matches the section title.
 // The agent sometimes prefixes each section's content with its own heading,
 // which duplicates the heading the renderer emits separately.
 //
-// Parsed as three independent linear scans rather than one multi-quantifier
-// regex so there's no backtracking ambiguity for CodeQL to flag: (1) find
-// the newline, (2) match just the `#` prefix on the first line with a
-// bounded regex, (3) plain string slice + trim for the title text.
+// Implemented as line-by-line string ops (no regex) — ATX headings are a
+// well-defined subset of CommonMark: up to 3 leading spaces, then 1-6 `#`,
+// then at least one space/tab, then the title text.
 function stripRedundantLeadingHeading(content: string, sectionTitle: string): string {
-    const newlineIdx = content.search(/\r?\n/)
-    const firstLine = newlineIdx === -1 ? content : content.slice(0, newlineIdx)
-    const hashMatch = firstLine.match(/^ {0,3}#{1,6}(?=[ \t])/)
-    if (!hashMatch) {
+    const lines = content.split('\n')
+    if (lines.length === 0) {
         return content
     }
-    const headingText = firstLine.slice(hashMatch[0].length).trim().toLowerCase()
+    const first = lines[0].trimStart()
+    let hashCount = 0
+    while (hashCount < 6 && first[hashCount] === '#') {
+        hashCount++
+    }
+    if (hashCount === 0) {
+        return content
+    }
+    const after = first[hashCount]
+    if (after !== ' ' && after !== '\t') {
+        return content
+    }
+    const headingText = first
+        .slice(hashCount + 1)
+        .trim()
+        .toLowerCase()
     if (!headingText.startsWith(sectionTitle.toLowerCase())) {
         return content
     }
-    // Strip the first line and any leading blank lines that followed it.
-    const afterHeading = newlineIdx === -1 ? '' : content.slice(newlineIdx + (content[newlineIdx] === '\r' ? 2 : 1))
-    return afterHeading.replace(/^[ \t]*\r?\n/, '')
+    // Drop the heading line plus any blank lines that followed it.
+    let startIdx = 1
+    while (startIdx < lines.length && lines[startIdx].trim() === '') {
+        startIdx++
+    }
+    return lines.slice(startIdx).join('\n')
 }
 
 function ReportSectionContent({
     section,
-    citationMap,
+    citations,
 }: {
     section: EvaluationReportSection
-    citationMap: Record<string, string>
+    citations: EvaluationReportCitation[]
 }): JSX.Element {
-    const markdown = linkifyUuids(stripRedundantLeadingHeading(section.content, section.title), citationMap)
+    const markdown = linkifyCitations(stripRedundantLeadingHeading(section.content, section.title), citations)
     return (
         <LemonMarkdown lowKeyHeadings className="text-sm">
             {markdown}
@@ -145,17 +188,7 @@ export function EvaluationReportViewer({
     const content = reportRun.content
     const sections = content.sections ?? []
     const metrics = content.metrics
-
-    // Build generation_id → trace_id lookup from citations for correct trace URLs
-    const citationMap = useMemo(() => {
-        const map: Record<string, string> = {}
-        for (const c of content.citations ?? []) {
-            if (c.generation_id && c.trace_id) {
-                map[c.generation_id] = c.trace_id
-            }
-        }
-        return map
-    }, [content.citations])
+    const citations = useMemo(() => content.citations ?? [], [content.citations])
 
     // Default to executive summary (first section) expanded. Memoized so Expand/Collapse all
     // buttons can set the list deterministically.
@@ -248,7 +281,7 @@ export function EvaluationReportViewer({
                         panels={sections.map((section, idx) => ({
                             key: idx.toString(),
                             header: section.title,
-                            content: <ReportSectionContent section={section} citationMap={citationMap} />,
+                            content: <ReportSectionContent section={section} citations={citations} />,
                         }))}
                     />
                 </>
