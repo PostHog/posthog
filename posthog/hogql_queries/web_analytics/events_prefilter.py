@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -27,8 +28,18 @@ class _EventsFieldCollector(TraversingVisitor):
         field_type = node.type
         if isinstance(field_type, ast.PropertyType):
             ft = field_type.field_type
-            if ft.table_type == self.events_table_type and len(field_type.chain) >= 1:
-                self.property_accesses.add((str(field_type.chain[0]), ft.name))
+            table_type = ft.table_type
+            col_name = ft.name
+            # Unwrap VirtualTableType (e.g. poe for person properties) to check if this
+            # property ultimately lives on the events table, and resolve the actual DB
+            # column name (e.g. "person_properties" instead of "properties")
+            while isinstance(table_type, ast.VirtualTableType):
+                db_field = table_type.virtual_table.fields.get(ft.name)
+                if isinstance(db_field, DatabaseField):
+                    col_name = db_field.name
+                table_type = table_type.table_type
+            if table_type == self.events_table_type and len(field_type.chain) >= 1:
+                self.property_accesses.add((str(field_type.chain[0]), col_name))
             field_type = ft
         if isinstance(field_type, ast.FieldType) and field_type.table_type == self.events_table_type:
             self.fields.add(field_type.name)
@@ -134,7 +145,8 @@ class EventsPrefilterTransformer(TraversingVisitor):
         For each property access (e.g. $pathname on properties), checks if a
         materialized column exists (mat_$pathname). If so, temporarily registers
         it on the events table schema and returns the name. If any property
-        lacks a mat column, keeps `properties` in events_columns for JSONExtractRaw.
+        lacks a mat column, keeps the corresponding JSON column (properties or
+        person_properties) in events_columns for JSONExtractRaw fallback.
         """
         from typing import cast
 
@@ -149,7 +161,7 @@ class EventsPrefilterTransformer(TraversingVisitor):
 
         mat_cols_map = get_enabled_materialized_columns("events")
         mat_column_names: set[str] = set()
-        has_unmaterialized = False
+        unmaterialized_json_columns: set[str] = set()
 
         for prop_name, table_col in property_accesses:
             key = (prop_name, cast(TableColumn, table_col))
@@ -162,11 +174,22 @@ class EventsPrefilterTransformer(TraversingVisitor):
                     table.fields[ch_name] = StringDatabaseField(name=ch_name)
                     self._temp_schema_fields.append((table, ch_name))
             else:
-                has_unmaterialized = True
+                unmaterialized_json_columns.add(table_col)
 
-        # Only keep properties if some accesses can't use mat columns
-        if not has_unmaterialized:
-            events_columns.discard("properties")
+        # Add JSON columns needed for unmaterialized property accesses and
+        # discard those fully covered by mat columns. person_properties is
+        # accessed via the poe virtual table so won't be in events_columns
+        # already — temporarily register it on the events table schema.
+        for json_col in unmaterialized_json_columns:
+            events_columns.add(json_col)
+            if json_col != "properties":
+                table = self._get_events_table(events_table_type)
+                if table is not None and json_col not in table.fields:
+                    table.fields[json_col] = StringDatabaseField(name=json_col)
+                    self._temp_schema_fields.append((table, json_col))
+        for json_col in {"properties", "person_properties"}:
+            if json_col not in unmaterialized_json_columns:
+                events_columns.discard(json_col)
 
         return mat_column_names
 

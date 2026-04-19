@@ -64,6 +64,7 @@ from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
+    EvaluationReportViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
@@ -1418,6 +1419,13 @@ environments_router.register(
     r"llm_analytics/trace_reviews",
     TraceReviewViewSet,
     "environment_llm_analytics_trace_reviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_reports",
+    EvaluationReportViewSet,
+    "environment_llm_analytics_evaluation_reports",
     ["team_id"],
 )
 

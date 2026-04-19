@@ -935,7 +935,6 @@ export enum ExperimentsTabs {
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
-    Settings = 'settings',
 }
 
 export enum ActivityTab {
@@ -6215,6 +6214,7 @@ export enum SDKKey {
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
     OPENROUTER = 'openrouter',
+    OPENTELEMETRY = 'opentelemetry',
     PERPLEXITY = 'perplexity',
     PHP = 'php',
     PORTKEY = 'portkey',
@@ -6282,23 +6282,16 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
-/*
-    WARNING: Everything below 'Notebooks' is to be removed in future releases
-*/
 export enum SidePanelTab {
-    Max = 'max',
-    Notebooks = 'notebook',
-    Support = 'support',
-    Docs = 'docs',
-    Changelog = 'changelog',
-    Settings = 'settings',
+    AccessControl = 'access-control',
     Activity = 'activity',
     Discussion = 'discussion',
-    Status = 'status',
     Exports = 'exports',
-    AccessControl = 'access-control',
-    Health = 'health',
     Info = 'info',
+    Max = 'max',
+    Notebooks = 'notebook',
+    Settings = 'settings',
+    Support = 'support',
 }
 
 export interface ProductPricingTierSubrows {
