@@ -9,12 +9,13 @@ EVAL_REPORT_AGENT_MODEL = "gpt-5.2"
 EVAL_REPORT_AGENT_RECURSION_LIMIT = 100
 EVAL_REPORT_AGENT_TIMEOUT = 600.0  # 10 minutes
 
-# Workflow names
-SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME = "schedule-all-eval-reports"
-CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME = "check-count-triggered-eval-reports"
-GENERATE_EVAL_REPORT_WORKFLOW_NAME = "generate-and-deliver-eval-report"
-SCHEDULE_ID = "schedule-all-eval-reports-schedule"
-COUNT_TRIGGER_SCHEDULE_ID = "check-count-triggered-eval-reports-schedule"
+# Workflow names — all eval-reports Temporal surface is prefixed `llma-eval-reports-`
+# to match the convention used by other LLMA products (clustering, summarization, sentiment).
+SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME = "llma-eval-reports-scheduled-coordinator"
+CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME = "llma-eval-reports-count-triggered-coordinator"
+GENERATE_EVAL_REPORT_WORKFLOW_NAME = "llma-eval-reports-generate-and-deliver"
+SCHEDULE_ID = "llma-eval-reports-scheduled-coordinator-schedule"
+COUNT_TRIGGER_SCHEDULE_ID = "llma-eval-reports-count-triggered-coordinator-schedule"
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
