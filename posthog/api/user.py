@@ -754,7 +754,7 @@ class UserViewSet(
             membership = OrganizationMembership.objects.filter(organization=organization, user=instance).first()
             if membership is None:
                 raise exceptions.NotFound("Current user is not a member of the current organization.")
-            seen_at = membership.welcome_screen_seen_at
+            seen_at = membership.welcome_screen_seen_at or now
         else:
             seen_at = now
 

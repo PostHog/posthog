@@ -204,7 +204,7 @@ class TestWelcomeScreenDismiss(APIBaseTest):
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         self.assertIsNone(membership.welcome_screen_seen_at)
 
-        response = self.client.post(f"/api/users/{self.user.uuid}/welcome_screen/dismiss/")
+        response = self.client.post("/api/users/@me/welcome_screen/dismiss/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.json()["welcome_screen_seen_at"])
 
@@ -212,11 +212,11 @@ class TestWelcomeScreenDismiss(APIBaseTest):
         self.assertIsNotNone(membership.welcome_screen_seen_at)
 
     def test_dismiss_is_idempotent(self):
-        first = self.client.post(f"/api/users/{self.user.uuid}/welcome_screen/dismiss/")
+        first = self.client.post("/api/users/@me/welcome_screen/dismiss/")
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         first_seen_at = first.json()["welcome_screen_seen_at"]
 
-        second = self.client.post(f"/api/users/{self.user.uuid}/welcome_screen/dismiss/")
+        second = self.client.post("/api/users/@me/welcome_screen/dismiss/")
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.json()["welcome_screen_seen_at"], first_seen_at)
 
@@ -257,6 +257,6 @@ class TestWelcomeScreenDismiss(APIBaseTest):
         self.assertIsNone(membership_other.welcome_screen_seen_at)
 
     def test_welcome_screen_seen_at_exposed_on_me(self):
-        self.client.post(f"/api/users/{self.user.uuid}/welcome_screen/dismiss/")
+        self.client.post("/api/users/@me/welcome_screen/dismiss/")
         response = self.client.get("/api/users/@me/")
         self.assertIsNotNone(response.json()["welcome_screen_seen_at"])

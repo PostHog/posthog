@@ -85,7 +85,7 @@ class _WelcomePopularDashboardSerializer(serializers.Serializer):
 
 
 class _WelcomeSuggestedStepSerializer(serializers.Serializer):
-    label = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
     href = serializers.CharField()
     reason = serializers.CharField(allow_blank=True)
     docs_href = serializers.CharField(required=False)
