@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,7 +21,9 @@ class MockRegistry(ProcessRegistry):
     def __init__(self, capability_units: dict[str, list[str]], ask_skip: list[str] | None = None):
         self._capability_units = capability_units
         self._ask_skip = ask_skip or []
-        self._processes = {
+        # dict[str, Any] since proc configs are heterogeneous
+        # (shell: str, capability: str, autostart: bool, ...)
+        self._processes: dict[str, dict[str, Any]] = {
             unit: {"shell": f"./bin/start-{unit}", "capability": cap}
             for cap, units in capability_units.items()
             for unit in units
