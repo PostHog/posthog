@@ -326,3 +326,136 @@ class SessionReplayEventsTable(LazyTable):
 
     def to_printed_hogql(self):
         return "session_replay_events"
+
+
+GROUPED_SESSION_REPLAY_GROUP_BY_COLUMNS = ("session_id", "team_id")
+
+
+def select_from_grouped_session_replay_events_table(requested_fields: dict[str, list[str | int]]):
+    from posthog.hogql import ast
+
+    table_name = "raw_session_replay_events"
+
+    aggregate_fields: dict[str, ast.Expr] = {
+        "start_time": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_first_timestamp"])]),
+        "end_time": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_last_timestamp"])]),
+        "first_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "first_url"])]),
+        "all_urls": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "all_urls"])]),
+        "click_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "click_count"])]),
+        "keypress_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "keypress_count"])]),
+        "mouse_activity_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "mouse_activity_count"])]),
+        "active_milliseconds": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "active_milliseconds"])]),
+        "console_log_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_log_count"])]),
+        "console_warn_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_warn_count"])]),
+        "console_error_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_error_count"])]),
+        "size": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "size"])]),
+        "event_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "event_count"])]),
+        "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
+        "snapshot_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "snapshot_source"])]),
+        "snapshot_library": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "snapshot_library"])]),
+        "retention_period_days": ast.Call(name="max", args=[ast.Field(chain=[table_name, "retention_period_days"])]),
+        "is_deleted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "is_deleted"])]),
+        "ai_tags_fixed": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_fixed"])]),
+        "ai_tags_freeform": ast.Call(
+            name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_freeform"])]
+        ),
+        "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
+        "distinct_id": ast.Call(
+            name="argMax",
+            args=[
+                ast.Field(chain=[table_name, "distinct_id"]),
+                ast.Field(chain=[table_name, "max_last_timestamp"]),
+            ],
+        ),
+    }
+
+    select_fields: list[ast.Expr] = []
+    group_by_seen: set[str] = set()
+    group_by_fields: list[ast.Expr] = []
+
+    for alias, chain in requested_fields.items():
+        column = chain[0] if len(chain) == 1 else None
+        if column in GROUPED_SESSION_REPLAY_GROUP_BY_COLUMNS:
+            select_fields.append(ast.Alias(alias=alias, expr=ast.Field(chain=[table_name, *chain])))
+            if column not in group_by_seen:
+                group_by_fields.append(ast.Field(chain=[table_name, column]))
+                group_by_seen.add(column)
+        elif column in aggregate_fields:
+            select_fields.append(ast.Alias(alias=alias, expr=aggregate_fields[column]))
+        else:
+            raise ResolutionError(
+                f"grouped_session_replay_events has no aggregation for {alias!r} (chain={chain!r}); "
+                "every projected field must either be a GROUP BY column or have an aggregation defined"
+            )
+
+    for required in GROUPED_SESSION_REPLAY_GROUP_BY_COLUMNS:
+        if required not in group_by_seen:
+            group_by_fields.append(ast.Field(chain=[table_name, required]))
+            group_by_seen.add(required)
+
+    return ast.SelectQuery(
+        select=select_fields,
+        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+        group_by=group_by_fields,
+    )
+
+
+class GroupedSessionReplayEventsTable(LazyTable):
+    fields: dict[str, FieldOrTable] = {
+        "session_id": StringDatabaseField(name="session_id", nullable=False),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+        "start_time": DateTimeDatabaseField(name="start_time", nullable=False),
+        "end_time": DateTimeDatabaseField(name="end_time", nullable=False),
+        "first_url": StringDatabaseField(name="first_url", nullable=True),
+        "all_urls": DatabaseField(name="all_urls", nullable=True),
+        "click_count": IntegerDatabaseField(name="click_count", nullable=False),
+        "keypress_count": IntegerDatabaseField(name="keypress_count", nullable=False),
+        "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count", nullable=False),
+        "active_milliseconds": IntegerDatabaseField(name="active_milliseconds", nullable=False),
+        "console_log_count": IntegerDatabaseField(name="console_log_count", nullable=False),
+        "console_warn_count": IntegerDatabaseField(name="console_warn_count", nullable=False),
+        "console_error_count": IntegerDatabaseField(name="console_error_count", nullable=False),
+        "size": IntegerDatabaseField(name="size", nullable=False),
+        "event_count": IntegerDatabaseField(name="event_count", nullable=False),
+        "message_count": IntegerDatabaseField(name="message_count", nullable=False),
+        "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
+        "snapshot_library": StringDatabaseField(name="snapshot_library", nullable=True),
+        "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
+        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+        "ai_tags_fixed": DatabaseField(name="ai_tags_fixed", nullable=True),
+        "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True),
+        "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
+        "events": LazyJoin(
+            from_field=["session_id"],
+            join_table=EventsTable(),
+            join_function=join_with_events_table,
+        ),
+        "properties": FieldTraverser(chain=["events", "properties"]),
+        "pdi": LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdsTable(),
+            join_function=join_with_person_distinct_ids_table,
+        ),
+        "console_logs": LazyJoin(
+            from_field=["session_id"],
+            join_table=ReplayConsoleLogsLogEntriesTable(),
+            join_function=join_with_console_logs_log_entries_table,
+        ),
+        "person": FieldTraverser(chain=["pdi", "person"]),
+        "person_id": FieldTraverser(chain=["pdi", "person_id"]),
+        "session": LazyJoin(
+            from_field=["session_id"],
+            join_table=SessionsTableV1(),
+            join_function=join_replay_table_to_sessions_table_v1,
+        ),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return select_from_grouped_session_replay_events_table(table_to_add.fields_accessed)
+
+    def to_printed_clickhouse(self, context):
+        return "session_replay_events"
+
+    def to_printed_hogql(self):
+        return "grouped_session_replay_events"

@@ -108,6 +108,7 @@ from posthog.hogql.database.schema.precalculated_events import PrecalculatedEven
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
+    GroupedSessionReplayEventsTable,
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
     join_replay_table_to_sessions_table_v2,
@@ -193,6 +194,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
         name="error_tracking_issue_fingerprint_overrides", table=ErrorTrackingIssueFingerprintOverridesTable()
     ),
     "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
+    "grouped_session_replay_events": TableNode(
+        name="grouped_session_replay_events", table=GroupedSessionReplayEventsTable()
+    ),
     "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
     "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
     "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
