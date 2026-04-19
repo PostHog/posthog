@@ -11,7 +11,7 @@ from .base import Recommendation
 
 class CrossSellRecommendation(Recommendation):
     type = "cross_sell"
-    refresh_interval = timedelta(seconds=30)
+    refresh_interval = timedelta(seconds=5)
 
     def compute(self, team: Team, user: User | None = None) -> dict[str, Any]:
         return {

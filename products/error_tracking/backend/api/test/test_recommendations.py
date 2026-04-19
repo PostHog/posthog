@@ -10,6 +10,7 @@ from posthog.models.hog_functions.hog_function import HogFunction
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
+from products.error_tracking.backend.recommendations.exception_autocapture import ExceptionAutocaptureRecommendation
 from products.error_tracking.backend.recommendations.weekly_digest import WeeklyDigestRecommendation
 
 MOCK_META = {"products": [{"key": "session_replay", "enabled": False}, {"key": "logs", "enabled": False}]}
@@ -22,6 +23,7 @@ MOCK_ALERTS_META = {
     ]
 }
 MOCK_WEEKLY_DIGEST_META = {"enabled": False}
+MOCK_EXCEPTION_AUTOCAPTURE_META = {"enabled": False}
 
 
 class TestRecommendationsAPI(APIBaseTest):
@@ -31,6 +33,10 @@ class TestRecommendationsAPI(APIBaseTest):
     def _refresh(self, rec_id):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
+    @patch(
+        "products.error_tracking.backend.recommendations.exception_autocapture.ExceptionAutocaptureRecommendation.compute",
+        return_value=MOCK_EXCEPTION_AUTOCAPTURE_META,
+    )
     @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
         return_value=MOCK_WEEKLY_DIGEST_META,
@@ -43,21 +49,25 @@ class TestRecommendationsAPI(APIBaseTest):
         "products.error_tracking.backend.recommendations.cross_sell.CrossSellRecommendation.compute",
         return_value=MOCK_META,
     )
-    def test_first_list_creates_recommendations(self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute):
+    def test_first_list_creates_recommendations(
+        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute, mock_exception_autocapture_compute
+    ):
         self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 3)
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
         results = response.json()["results"]
         by_type = {r["type"]: r for r in results}
         self.assertEqual(by_type["cross_sell"]["meta"], MOCK_META)
         self.assertEqual(by_type["alerts"]["meta"], MOCK_ALERTS_META)
         self.assertEqual(by_type["weekly_digest"]["meta"], MOCK_WEEKLY_DIGEST_META)
+        self.assertEqual(by_type["exception_autocapture"]["meta"], MOCK_EXCEPTION_AUTOCAPTURE_META)
         mock_compute.assert_called_once()
         mock_alerts_compute.assert_called_once()
         mock_weekly_digest_compute.assert_called_once()
+        mock_exception_autocapture_compute.assert_called_once()
 
     @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
@@ -93,6 +103,15 @@ class TestRecommendationsAPI(APIBaseTest):
         self.assertFalse(by_key["error-tracking-issue-reopened"])
         self.assertFalse(by_key["error-tracking-issue-spiking"])
 
+    def test_exception_autocapture_recommendation_reflects_team_opt_in(self):
+        self.team.autocapture_exceptions_opt_in = False
+        self.team.save()
+        self.assertFalse(ExceptionAutocaptureRecommendation().compute(self.team)["enabled"])
+
+        self.team.autocapture_exceptions_opt_in = True
+        self.team.save()
+        self.assertTrue(ExceptionAutocaptureRecommendation().compute(self.team)["enabled"])
+
     def test_alerts_recommendation_ignores_deleted_alerts(self):
         HogFunction.objects.create(
             team=self.team,
@@ -126,7 +145,7 @@ class TestRecommendationsAPI(APIBaseTest):
         rec_id = cross_sell_rec["id"]
         mock_compute.reset_mock()
 
-        frozen_time.tick(timedelta(seconds=10))
+        frozen_time.tick(timedelta(seconds=3))
         mock_compute.return_value = MOCK_META_UPDATED
         response = self._refresh(rec_id)
 
@@ -155,7 +174,7 @@ class TestRecommendationsAPI(APIBaseTest):
         rec_id = cross_sell_rec["id"]
         mock_compute.reset_mock()
 
-        frozen_time.tick(timedelta(seconds=31))
+        frozen_time.tick(timedelta(seconds=6))
         mock_compute.return_value = MOCK_META_UPDATED
         response = self._refresh(rec_id)
 

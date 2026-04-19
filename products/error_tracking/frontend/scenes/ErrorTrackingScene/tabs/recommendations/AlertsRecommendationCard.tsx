@@ -76,11 +76,8 @@ export function AlertsRecommendationCard({
                 title="Alert coverage"
                 description={
                     <>
-                        Stay ahead of new and resurfacing issues.{' '}
-                        <Link to={urls.settings('environment-error-tracking', 'error-tracking-alerting')}>
-                            See all alerts
-                        </Link>
-                        .
+                        Stay ahead of new and resurfacing issues. See your{' '}
+                        <Link to={urls.settings('environment-error-tracking', 'error-tracking-alerting')}>alerts</Link>.
                     </>
                 }
                 dismissed={dismissed}

@@ -10,6 +10,7 @@ import type {
     AlertsRecommendation,
     CrossSellRecommendation,
     ErrorTrackingRecommendation,
+    ExceptionAutocaptureRecommendation,
     WeeklyDigestRecommendation,
 } from './types'
 
@@ -94,3 +95,7 @@ export const isAlertsRecommendation = (
 export const isWeeklyDigestRecommendation = (
     recommendation: ErrorTrackingRecommendation
 ): recommendation is WeeklyDigestRecommendation => recommendation.type === 'weekly_digest'
+
+export const isExceptionAutocaptureRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is ExceptionAutocaptureRecommendation => recommendation.type === 'exception_autocapture'

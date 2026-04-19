@@ -20,7 +20,7 @@ export function WeeklyDigestRecommendationCard({
 }): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { updateUser, updateETWeeklyDigestForTeam } = useActions(userLogic)
+    const { updateUser } = useActions(userLogic)
     const { refreshRecommendation } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
@@ -31,18 +31,23 @@ export function WeeklyDigestRecommendationCard({
         }
         posthog.capture('error_tracking_weekly_digest_enabled_from_recommendation')
 
-        // Flip the ET-specific toggle on if needed, then opt this project in.
-        // We deliberately don't touch `all_weekly_digest_disabled` — that's a
-        // global preference the user set elsewhere and isn't ours to override.
-        if (user.notification_settings.error_tracking_weekly_digest === false) {
-            updateUser({
-                notification_settings: {
-                    ...user.notification_settings,
-                    error_tracking_weekly_digest: true,
+        // Flip the ET-specific toggle on AND opt this project in, in one request.
+        // Doing it as two sequential `updateUser` calls (e.g. via `updateETWeeklyDigestForTeam`)
+        // races on the server — both requests read stale state on the client and send the
+        // full `notification_settings` object, so whichever arrives last overwrites the other
+        // and `error_tracking_weekly_digest` can get reset to `false`.
+        // We deliberately don't touch `all_weekly_digest_disabled` — that's a global preference
+        // the user set elsewhere and isn't ours to override.
+        updateUser({
+            notification_settings: {
+                ...user.notification_settings,
+                error_tracking_weekly_digest: true,
+                error_tracking_weekly_digest_project_enabled: {
+                    ...user.notification_settings.error_tracking_weekly_digest_project_enabled,
+                    [currentTeamId]: true,
                 },
-            })
-        }
-        updateETWeeklyDigestForTeam(currentTeamId, true)
+            },
+        })
         refreshRecommendation(recommendation.id)
     }
 
@@ -62,8 +67,8 @@ export function WeeklyDigestRecommendationCard({
             progress={enabled ? { current: 1, total: 1, label: 'subscribed' } : undefined}
         >
             {!enabled && (
-                <LemonButton size="small" type="primary" onClick={handleEnable}>
-                    Send it to me
+                <LemonButton size="small" type="secondary" onClick={handleEnable}>
+                    Subscribe me
                 </LemonButton>
             )}
         </RecommendationCard>
