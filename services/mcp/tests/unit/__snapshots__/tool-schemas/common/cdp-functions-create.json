@@ -20,7 +20,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Execution priority for transformations. Lower values run first."
+            "description": "Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end."
         },
         "filters": {
             "description": "Event filters that control which events trigger this function.",
@@ -90,7 +90,7 @@
             "type": "object"
         },
         "hog": {
-            "description": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            "description": "Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.",
             "type": "string"
         },
         "icon_url": {
@@ -455,7 +455,7 @@
                     "type": "null"
                 }
             ],
-            "description": "ID of the template to create this function from."
+            "description": "ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates."
         },
         "type": {
             "anyOf": [
@@ -484,7 +484,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation"
+            "description": "Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation."
         }
     },
     "type": "object"

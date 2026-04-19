@@ -6,7 +6,7 @@
             "type": "string"
         },
         "enabled": {
-            "description": "Whether the function is active and processing events.",
+            "description": "Set to true to activate or false to deactivate the function.",
             "type": "boolean"
         },
         "execution_order": {

@@ -1,4 +1,5 @@
 import os
+from collections.abc import Generator
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Optional
@@ -32,10 +33,12 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
+    CsvWriter,
     ExcelWriter,
     UnexpectedEmptyJsonResponse,
     _convert_response_to_csv_data,
     _format_breakdown_value,
+    _sanitize_formula_injection,
     add_query_params,
     sanitize_value_for_excel,
 )
@@ -52,7 +55,7 @@ regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%2
 @override_settings(SITE_URL="http://testserver")
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
-    def patched_request(self):
+    def patched_request(self) -> Generator[Any, None, None]:
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
@@ -124,7 +127,7 @@ class TestCSVExporter(APIBaseTest):
         assert len(first_split_parts) == 2
         return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}
 
-    def teardown_method(self, method):
+    def teardown_method(self, method: Any) -> None:
         s3 = resource(
             "s3",
             endpoint_url=OBJECT_STORAGE_ENDPOINT,
@@ -148,7 +151,7 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt) -> None:
+    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt: Any) -> None:
         exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
 
@@ -160,6 +163,7 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
+            assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             assert (
                 content
@@ -171,7 +175,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
-        self, mocked_object_storage_write_from_file, mocked_uuidt
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
     ) -> None:
         exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
@@ -190,7 +194,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_does_not_filter_columns_on_empty_param(
-        self, mocked_object_storage_write_from_file, mocked_uuidt
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
     ) -> None:
         exported_asset = self._create_asset({"columns": []})
         mocked_uuidt.return_value = "a-guid"
@@ -208,7 +212,9 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
-    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write_from_file, mocked_uuidt) -> None:
+    def test_csv_exporter_does_filter_columns(
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
+    ) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event"]})
         mocked_uuidt.return_value = "a-guid"
@@ -226,7 +232,9 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
-    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write_from_file, mocked_uuidt) -> None:
+    def test_csv_exporter_includes_whole_dict(
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
+    ) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties"]})
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
@@ -241,7 +249,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_includes_whole_dict_alternative_order(
-        self, mocked_object_storage_write_from_file, mocked_uuidt
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
     ) -> None:
         exported_asset = self._create_asset({"columns": ["properties", "distinct_id"]})
         mocked_uuidt.return_value = "a-guid"
@@ -257,7 +265,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_does_filter_columns_and_can_handle_unexpected_columns(
-        self, mocked_object_storage_write_from_file, mocked_uuidt
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
     ) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
@@ -288,6 +296,7 @@ class TestCSVExporter(APIBaseTest):
             created_date = exported_asset.created_at.strftime("%Y-%m-%d-%H%M%S")
             assert exported_asset.filename == f"export-{created_date}.xlsx"
             assert exported_asset.content_location is None
+            assert exported_asset.content is not None
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
             ws = wb.active
@@ -303,7 +312,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.object_storage.write")
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_csv_exporter_limits_breakdown_insights_correctly(
-        self, mocked_request, mocked_object_storage_write, mocked_uuidt
+        self, mocked_request: Any, mocked_object_storage_write: Any, mocked_uuidt: Any
     ) -> None:
         path = "api/projects/1/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
         exported_asset = self._create_asset({"path": path})
@@ -371,7 +380,7 @@ class TestCSVExporter(APIBaseTest):
             assert expected_bits == actual_bits
 
     @patch("posthog.tasks.exports.csv_exporter.make_api_call")
-    def test_raises_expected_error_when_json_is_none(self, patched_api_call) -> None:
+    def test_raises_expected_error_when_json_is_none(self, patched_api_call: Any) -> None:
         mock_response = Mock()
         mock_response.json.return_value = None
         mock_response.status_code = 200
@@ -384,7 +393,9 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, CSV_EXPORT_LIMIT=10) -> None:
+    def test_csv_exporter_hogql_query(
+        self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS: int = 5, CSV_EXPORT_LIMIT: int = 10
+    ) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -411,6 +422,7 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
+            assert exported_asset.content_location is not None
 
             assert (
                 exported_asset.content_location
@@ -427,7 +439,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT: int = 10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -455,6 +467,7 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
+            assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
             self.assertEqual(len(lines), 12)
@@ -499,6 +512,7 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
+            assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
             self.assertEqual(len(lines), 12)
@@ -558,6 +572,7 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
+            assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(
@@ -704,6 +719,7 @@ class TestCSVExporter(APIBaseTest):
 
             with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
                 csv_exporter.export_tabular(exported_asset)
+                assert exported_asset.content_location is not None
                 content = object_storage.read(exported_asset.content_location)
                 lines = (content or "").split("\r\n")
                 self.assertEqual(lines[0], "error")
@@ -765,6 +781,7 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
+            assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(
@@ -1798,3 +1815,106 @@ class TestNestedColumnExport(APIBaseTest):
             # Nested objects should be flattened to dot-notation columns
             assert b"inputState.messages.0.content" in exported_asset.content
             assert b"inputState.messages.1.content" in exported_asset.content
+
+
+class TestSanitizeFormulaInjection:
+    @pytest.mark.parametrize(
+        "input_value,expected",
+        [
+            ("=SUM(A1:A10)", "'=SUM(A1:A10)"),
+            ("+SUM(A1:A10)", "'+SUM(A1:A10)"),
+            ("-SUM(A1:A10)", "'-SUM(A1:A10)"),
+            ("@SUM(A1:A10)", "'@SUM(A1:A10)"),
+            ("\tSUM(A1:A10)", "'\tSUM(A1:A10)"),
+            ("\rSUM(A1:A10)", "'\rSUM(A1:A10)"),
+            ('=CMD("cmd /C calc")', '\'=CMD("cmd /C calc")'),
+        ],
+    )
+    def test_prefixes_dangerous_strings(self, input_value: str, expected: str) -> None:
+        assert _sanitize_formula_injection(input_value) == expected
+
+    @pytest.mark.parametrize(
+        "input_value",
+        [
+            "hello",
+            "normal text",
+            "123",
+            "",
+            42,
+            -5,
+            3.14,
+            -2.5,
+            None,
+            True,
+            False,
+        ],
+    )
+    def test_passes_through_safe_values(self, input_value: Any) -> None:
+        assert _sanitize_formula_injection(input_value) == input_value
+
+    def test_csv_writer_sanitizes_values(self) -> None:
+        writer = CsvWriter()
+        writer.write_header(["name", "value"])
+        writer.write_row({"name": "=evil", "value": "safe"})
+        path = writer.finish()
+        try:
+            with open(path) as f:
+                content = f.read()
+            assert "'=evil" in content
+            assert ",safe" in content
+        finally:
+            os.unlink(path)
+
+    def test_excel_writer_sanitizes_values(self) -> None:
+        writer = ExcelWriter()
+        writer.write_header(["name", "value"])
+        writer.write_row({"name": "=evil", "value": "+dangerous"})
+        path = writer.finish()
+        try:
+            wb = load_workbook(path)
+            ws = wb.active
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            assert rows[0][0] == "'=evil"
+            assert rows[0][1] == "'+dangerous"
+        finally:
+            os.unlink(path)
+
+    def test_csv_writer_sanitizes_headers(self) -> None:
+        writer = CsvWriter()
+        writer.write_header(["=formula", "safe"])
+        writer.write_row({"=formula": "val1", "safe": "val2"})
+        path = writer.finish()
+        try:
+            with open(path) as f:
+                header_line = f.readline()
+            assert "'=formula" in header_line
+            assert ",safe" in header_line
+        finally:
+            os.unlink(path)
+
+    def test_excel_writer_sanitizes_headers(self) -> None:
+        writer = ExcelWriter()
+        writer.write_header(["=formula", "safe"])
+        writer.write_row({"=formula": "val1", "safe": "val2"})
+        path = writer.finish()
+        try:
+            wb = load_workbook(path)
+            ws = wb.active
+            headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            assert headers[0] == "'=formula"
+            assert headers[1] == "safe"
+        finally:
+            os.unlink(path)
+
+    def test_excel_writer_illegal_char_bypass(self) -> None:
+        writer = ExcelWriter()
+        writer.write_header(["col"])
+        writer.write_row({"col": "\x01=SUM(A1:B1)"})
+        path = writer.finish()
+        try:
+            wb = load_workbook(path)
+            ws = wb.active
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            assert rows[0][0] == "'=SUM(A1:B1)"
+        finally:
+            os.unlink(path)

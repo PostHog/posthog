@@ -200,8 +200,14 @@ const SeriesSelectLabel = ({
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
-        useValues(dataVisualizationLogic)
+    const {
+        columns,
+        numericalColumns,
+        responseLoading,
+        dataVisualizationProps,
+        showTableSettings,
+        effectiveVisualizationType,
+    } = useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
@@ -211,6 +217,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
+    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -245,6 +252,20 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
         ),
     }))
 
+    const settingsTabs = isPieChart
+        ? [
+              {
+                  label: Y_SERIES_SETTINGS_TABS[YSeriesSettingsTab.Formatting].label,
+                  key: YSeriesSettingsTab.Formatting,
+                  content: <YSeriesFormattingTab ySeriesLogicProps={seriesLogicProps} />,
+              },
+          ]
+        : Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+              label: label,
+              key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+              content: <Component ySeriesLogicProps={seriesLogicProps} />,
+          }))
+
     return (
         <div className="flex gap-1 mb-1">
             <LemonSelect
@@ -267,11 +288,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                             activeKey={activeSettingsTab}
                             barClassName="justify-around"
                             onChange={(tab) => setSettingsTab(tab as YSeriesSettingsTab)}
-                            tabs={Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
-                                label: label,
-                                key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
-                                content: <Component ySeriesLogicProps={seriesLogicProps} />,
-                            }))}
+                            tabs={settingsTabs}
                         />
                     </div>
                 }
@@ -399,10 +416,11 @@ export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps:
 }
 
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
+    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
@@ -459,7 +477,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                     )}
                 </div>
             )}
-            {!showTableSettings && (
+            {!showTableSettings && !isPieChart && (
                 <>
                     {!selectedSeriesBreakdownColumn && (
                         <LemonField name="trendLine" label="Trend line">

@@ -1,7 +1,7 @@
 import os
 
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "temporal")
@@ -32,6 +32,7 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
 
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
+TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
 
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True

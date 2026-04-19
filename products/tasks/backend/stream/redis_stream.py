@@ -21,6 +21,8 @@ TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
 
 DATA_KEY = b"data"
+TaskRunStreamEntry = tuple[str, dict]
+TaskRunStreamEntryOrKeepalive = TaskRunStreamEntry | None
 
 
 def _normalize_stream_id(stream_id: str | bytes) -> str:
@@ -98,8 +100,17 @@ class TaskRunRedisStream:
         start_id: str = "0",
         block_ms: int = 100,
         count: Optional[int] = TASK_RUN_STREAM_READ_COUNT,
+        keepalive_interval_seconds: float | None = None,
     ) -> AsyncGenerator[dict, None]:
-        async for _stream_id, data in self.read_stream_entries(start_id=start_id, block_ms=block_ms, count=count):
+        async for item in self.read_stream_entries(
+            start_id=start_id,
+            block_ms=block_ms,
+            count=count,
+            keepalive_interval_seconds=keepalive_interval_seconds,
+        ):
+            if item is None:
+                continue
+            _stream_id, data = item
             yield data
 
     async def read_stream_entries(
@@ -107,18 +118,23 @@ class TaskRunRedisStream:
         start_id: str = "0",
         block_ms: int = 100,
         count: Optional[int] = TASK_RUN_STREAM_READ_COUNT,
-    ) -> AsyncGenerator[tuple[str, dict], None]:
+        keepalive_interval_seconds: float | None = None,
+    ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive, None]:
         """Read events from the Redis stream.
 
         Yields Redis stream IDs and parsed JSON dicts.
+        When keepalive_interval_seconds is set, yields None after that many
+        idle seconds so callers can inject protocol-level keepalives.
         Stops when a complete sentinel is received.
         Raises TaskRunStreamError on error sentinel or timeout.
         """
         current_id = start_id
         start_time = asyncio.get_running_loop().time()
+        last_yield_time = start_time
 
         while True:
-            if asyncio.get_running_loop().time() - start_time > self._timeout:
+            now = asyncio.get_running_loop().time()
+            if now - start_time > self._timeout:
                 raise TaskRunStreamError("Stream timeout — task run took too long")
 
             try:
@@ -129,6 +145,10 @@ class TaskRunRedisStream:
                 )
 
                 if not messages:
+                    now = asyncio.get_running_loop().time()
+                    if keepalive_interval_seconds is not None and now - last_yield_time >= keepalive_interval_seconds:
+                        last_yield_time = now
+                        yield None
                     continue
 
                 for _, stream_messages in messages:
@@ -145,6 +165,7 @@ class TaskRunRedisStream:
                             elif status == "error":
                                 raise TaskRunStreamError(data.get("error", "Unknown stream error"))
                         else:
+                            last_yield_time = asyncio.get_running_loop().time()
                             yield normalized_stream_id, data
 
             except (TaskRunStreamError, GeneratorExit):

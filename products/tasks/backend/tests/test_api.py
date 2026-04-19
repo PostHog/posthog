@@ -3,10 +3,12 @@ import time
 import uuid
 import asyncio
 import threading
-from typing import ClassVar
+from collections.abc import Iterator
+from typing import ClassVar, cast
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
 
 import jwt
@@ -19,7 +21,15 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    CodeInvite,
+    CodeInviteRedemption,
+    SandboxEnvironment,
+    Task,
+    TaskAutomation,
+    TaskRun,
+)
+from products.tasks.backend.serializers import TaskAutomationSerializer
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.stream.redis_stream import (
     TaskRunRedisStream,
@@ -109,6 +119,29 @@ class BaseTaskAPITest(TestCase):
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+    def create_automation(
+        self,
+        name="Daily PRs",
+        prompt="Check my GitHub PRs",
+        repository="posthog/posthog",
+        team=None,
+        user=None,
+    ):
+        task = Task.objects.create(
+            team=team or self.team,
+            created_by=user or self.user,
+            title=name,
+            description=prompt,
+            origin_product=Task.OriginProduct.AUTOMATION,
+            repository=repository,
+        )
+        return TaskAutomation.objects.create(
+            task=task,
+            cron_expression="0 9 * * *",
+            timezone="Europe/London",
+            enabled=True,
         )
 
 
@@ -347,6 +380,74 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("default",),
+            ("acceptEdits",),
+            ("plan",),
+            ("bypassPermissions",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_initial_permission_mode(self, mode, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"initial_permission_mode": mode, "runtime_adapter": "claude", "model": "claude-sonnet-4-6"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["initial_permission_mode"] == mode
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_omits_initial_permission_mode_when_not_set(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert "initial_permission_mode" not in (task_run.state or {})
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_invalid_initial_permission_mode(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"initial_permission_mode": "invalid_mode"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_combines_pending_user_message_and_initial_permission_mode(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "pending_user_message": "Start with this",
+                "initial_permission_mode": "plan",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-6",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pending_user_message"] == "Start with this"
+        assert task_run.state["initial_permission_mode"] == "plan"
+        mock_workflow.assert_called_once()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
@@ -372,6 +473,112 @@ class TestTaskAPI(BaseTaskAPITest):
         assert get_cached_github_user_token(str(task_run.id)) == github_user_token
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_runtime_metadata(self, reasoning_effort, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["runtime_adapter"] == "codex"
+        assert task_run.state["provider"] == "openai"
+        assert task_run.state["model"] == "gpt-5.3-codex"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        assert latest_run["runtime_adapter"] == "codex"
+        assert latest_run["provider"] == "openai"
+        assert latest_run["model"] == "gpt-5.3-codex"
+        assert latest_run["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["initial_permission_mode"] == initial_permission_mode
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "claude_rejects_codex_mode",
+                "claude",
+                "claude-opus-4-6",
+                "auto",
+                "Invalid choice 'auto' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
+            ),
+            (
+                "codex_rejects_claude_mode",
+                "codex",
+                "gpt-5.4",
+                "plan",
+                "Invalid choice 'plan' for runtime_adapter 'codex'. Supported values: 'auto', 'read-only', 'full-access'.",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_mismatched_permission_mode(
+        self,
+        _case_name,
+        runtime_adapter,
+        model,
+        initial_permission_mode,
+        expected_detail,
+        mock_workflow,
+    ):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": runtime_adapter,
+                "model": model,
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": expected_detail,
+            "attr": "initial_permission_mode",
+        }
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
         task = self.create_task()
@@ -391,6 +598,103 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "github_user_token is required for user-authored cloud runs"
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_runtime_adapter", {"model": "gpt-5.3-codex"}, "runtime_adapter"),
+            ("missing_model", {"runtime_adapter": "codex"}, "model"),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_incomplete_runtime_selection(self, _case_name, payload, expected_attr, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            payload,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is required when selecting a cloud runtime.",
+            "attr": expected_attr,
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "max",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
+                "and model 'gpt-5.4'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "reasoning_effort": "high",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
+                "and model 'claude-sonnet-4-5'. Supported values: none."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["provider"] == "openai"
+        assert latest_run["provider"] == "openai"
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_allows_user_authorship_without_token_when_no_repo(self, mock_workflow):
@@ -422,6 +726,9 @@ class TestTaskAPI(BaseTaskAPITest):
                 "run_source": "signal_report",
                 "signal_report_id": "report-123",
                 "pr_base_branch": "main",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+                "reasoning_effort": "medium",
                 "snapshot_external_id": "snap-1",
             },
         )
@@ -444,8 +751,47 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["signal_report_id"] == "report-123"
         assert task_run.state["snapshot_external_id"] == "snap-1"
         assert task_run.state["pr_base_branch"] == "main"
+        assert task_run.state["runtime_adapter"] == "codex"
+        assert task_run.state["provider"] == "openai"
+        assert task_run.state["model"] == "gpt-5.3-codex"
+        assert task_run.state["reasoning_effort"] == "medium"
         # Token not cached for bot-authored runs even if the client sends one
         assert get_cached_github_user_token(str(task_run.id)) is None
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "max",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "resume_from_run_id": str(previous_run.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
+                "and model 'gpt-5.4'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
         task = self.create_task()
@@ -646,6 +992,194 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["internal"])
+
+
+class TestTaskAutomationAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.api.sync_automation_schedule")
+    def test_create_automation(self, mock_sync_schedule):
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        payload = response.json()
+        self.assertEqual(payload["name"], "Daily PRs")
+        self.assertEqual(payload["repository"], "posthog/posthog")
+        self.assertEqual(payload["cron_expression"], "0 9 * * *")
+        self.assertEqual(payload["timezone"], "Europe/London")
+        self.assertTrue(payload["enabled"])
+
+        automation = TaskAutomation.objects.get(id=payload["id"])
+        self.assertEqual(automation.task.title, "Daily PRs")
+        self.assertEqual(automation.task.description, "Check my GitHub PRs")
+        self.assertEqual(automation.task.repository, "posthog/posthog")
+        self.assertEqual(automation.cron_expression, "0 9 * * *")
+        mock_sync_schedule.assert_called_once_with(automation)
+
+    def test_list_automations(self):
+        automation = self.create_automation()
+
+        response = self.client.get("/api/projects/@current/task_automations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["id"], str(automation.id))
+        self.assertEqual(payload["results"][0]["cron_expression"], "0 9 * * *")
+
+    def test_create_automation_rejects_invalid_timezone(self):
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "UTC+99",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "'UTC+99' is not a valid IANA timezone.",
+                "attr": "timezone",
+            },
+        )
+
+    def test_create_automation_rejects_invalid_cron_expression(self):
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "not a cron",
+                "timezone": "Europe/London",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Only standard 5-field cron expressions are supported "
+                "(minute hour day month weekday). Example: '0 9 * * 1-5'.",
+                "attr": "cron_expression",
+            },
+        )
+
+    def test_create_automation_rolls_back_task_when_automation_create_fails(self):
+        serializer = TaskAutomationSerializer(
+            data={
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            context={"team": self.team, "request": MagicMock(user=self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with patch(
+            "products.tasks.backend.serializers.TaskAutomation.objects.create",
+            side_effect=RuntimeError("automation create failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        self.assertFalse(
+            Task.objects.filter(
+                team=self.team,
+                title="Daily PRs",
+                origin_product=Task.OriginProduct.AUTOMATION,
+            ).exists()
+        )
+
+    @patch("products.tasks.backend.api.sync_automation_schedule")
+    def test_update_automation(self, mock_sync_schedule):
+        automation = self.create_automation()
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{automation.id}/",
+            {
+                "name": "Updated PR check",
+                "cron_expression": "30 14 * * *",
+                "enabled": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["name"], "Updated PR check")
+        self.assertEqual(payload["cron_expression"], "30 14 * * *")
+        self.assertFalse(payload["enabled"])
+
+        automation.refresh_from_db()
+        automation.task.refresh_from_db()
+        self.assertEqual(automation.task.title, "Updated PR check")
+        self.assertEqual(automation.cron_expression, "30 14 * * *")
+        self.assertFalse(automation.enabled)
+        mock_sync_schedule.assert_called_once_with(automation)
+
+    def test_update_automation_rolls_back_automation_when_task_update_fails(self):
+        automation = self.create_automation()
+
+        serializer = TaskAutomationSerializer(
+            automation,
+            data={
+                "name": "Updated PR check",
+                "cron_expression": "30 14 * * *",
+            },
+            partial=True,
+            context={"team": self.team, "request": MagicMock(user=self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with patch.object(Task, "save", side_effect=RuntimeError("task update failed")):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        automation.refresh_from_db()
+        automation.task.refresh_from_db()
+        self.assertEqual(automation.cron_expression, "0 9 * * *")
+        self.assertEqual(automation.task.title, "Daily PRs")
+
+    @patch("products.tasks.backend.api.delete_automation_schedule")
+    def test_delete_automation(self, mock_delete_schedule):
+        automation = self.create_automation()
+
+        response = self.client.delete(f"/api/projects/@current/task_automations/{automation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_delete_schedule.assert_called_once()
+        self.assertFalse(TaskAutomation.objects.filter(id=automation.id).exists())
+
+    @patch("products.tasks.backend.api.run_task_automation")
+    def test_run(self, mock_run_task_automation):
+        automation = self.create_automation()
+
+        response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_run_task_automation.assert_called_once_with(str(automation.id))
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -1687,6 +2221,83 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(events[-1]["data"]["notification"]["params"]["message"], "late hello")
 
 
+class TestTaskRunRedisStreamKeepalive(TestCase):
+    def test_read_stream_entries_yields_keepalive_sentinel_when_idle(self):
+        class StubRedis:
+            def __init__(self):
+                self.calls = 0
+
+            async def xread(self, *_args, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return []
+                return [
+                    [
+                        b"task-run-stream:test",
+                        [
+                            (
+                                b"1-0",
+                                {b"data": json.dumps({"type": "STREAM_STATUS", "status": "complete"}).encode("utf-8")},
+                            )
+                        ],
+                    ]
+                ]
+
+        async def collect_items() -> list[object]:
+            redis_stream = TaskRunRedisStream("task-run-stream:test")
+            redis_stream._redis_client = StubRedis()
+            items: list[object] = []
+            # Force the idle branch immediately so the test does not wait on wall-clock time.
+            async for item in redis_stream.read_stream_entries(keepalive_interval_seconds=0):
+                items.append(item)
+            return items
+
+        self.assertEqual(asyncio.run(collect_items()), [None])
+
+
+class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
+    def _stream_url(self, task: Task, run: TaskRun) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/"
+
+    def test_stream_emits_keepalive_comments_while_idle(self):
+        task = self.create_task()
+        run = task.create_run()
+
+        async def fake_read_stream_entries(self, *args, **kwargs):
+            yield None
+            yield (
+                "1-0",
+                {
+                    "type": "notification",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "notification": {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/console",
+                        "params": {
+                            "sessionId": str(run.id),
+                            "level": "info",
+                            "message": "after idle gap",
+                        },
+                    },
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "wait_for_stream", new=AsyncMock(return_value=True)),
+            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream"),
+            )
+            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("event: keepalive", content)
+        self.assertIn('"type": "keepalive"', content)
+        self.assertIn("after idle gap", content)
+
+
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
@@ -1702,6 +2313,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
+        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         endpoints = [
@@ -1712,6 +2324,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
             (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
+            # TaskAutomationViewSet endpoints
+            ("/api/projects/@current/task_automations/", "GET"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
+            ("/api/projects/@current/task_automations/", "POST"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "PATCH"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "DELETE"),
+            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
             # TaskRunViewSet endpoints
             (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
@@ -1743,12 +2362,16 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
     def test_authentication_required(self):
         task = self.create_task()
+        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
 
         self.client.force_authenticate(None)
 
         endpoints = [
             ("/api/projects/@current/tasks/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/", "GET"),
+            ("/api/projects/@current/task_automations/", "GET"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
+            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
         ]
 
         for url, method in endpoints:
@@ -1778,16 +2401,44 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         response = self.client.delete(f"/api/projects/@current/tasks/{other_task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_cross_team_automation_access_forbidden(self):
+        other_automation = self.create_automation(
+            name="Other Team Automation",
+            prompt="Description",
+            team=self.other_team,
+            user=self.other_user,
+        )
+
+        response = self.client.get(f"/api/projects/@current/task_automations/{other_automation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{other_automation.id}/",
+            {"name": "Hacked Automation"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.delete(f"/api/projects/@current/task_automations/{other_automation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_list_endpoints_only_return_team_resources(self):
         # Create resources in both teams
 
         my_task = self.create_task("My Task")
+        my_automation = self.create_automation(name="My automation", prompt="Mine")
 
         other_task = Task.objects.create(
             team=self.other_team,
             title="Other Task",
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_automation = self.create_automation(
+            name="Other automation",
+            prompt="Other",
+            team=self.other_team,
+            user=self.other_user,
         )
 
         # List tasks should only return my team's tasks
@@ -1797,16 +2448,25 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         self.assertIn(str(my_task.id), task_ids)
         self.assertNotIn(str(other_task.id), task_ids)
 
+        response = self.client.get("/api/projects/@current/task_automations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        automation_ids = [a["id"] for a in response.json()["results"]]
+        self.assertIn(str(my_automation.id), automation_ids)
+        self.assertNotIn(str(other_automation.id), automation_ids)
+
     @parameterized.expand(
         [
             ("task:read", "GET", "/api/projects/@current/tasks/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:read", "GET", "/api/projects/@current/task_automations/", True),
+            ("task:read", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", False),
+            ("task:read", "POST", "/api/projects/@current/task_automations/", False),
             ("task:write", "GET", "/api/projects/@current/tasks/", True),
             ("task:write", "POST", "/api/projects/@current/tasks/", True),
             ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
@@ -1814,6 +2474,12 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:write", "GET", "/api/projects/@current/task_automations/", True),
+            ("task:write", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("task:write", "POST", "/api/projects/@current/task_automations/", True),
+            ("task:write", "PATCH", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("task:write", "DELETE", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("task:write", "POST", "/api/projects/@current/task_automations/{automation_id}/run/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
             ("*", "GET", "/api/projects/@current/tasks/", True),
@@ -1821,10 +2487,15 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("*", "GET", "/api/projects/@current/task_automations/", True),
+            ("*", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("*", "POST", "/api/projects/@current/task_automations/", True),
+            ("*", "POST", "/api/projects/@current/task_automations/{automation_id}/run/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
+        automation = self.create_automation(name="Scoped automation", prompt="Check my PRs")
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         api_key_value = generate_random_token_personal()
@@ -1836,7 +2507,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             scopes=[scope],
         )
 
-        url = url_template.format(task_id=task.id, run_id=run.id)
+        url = url_template.format(task_id=task.id, run_id=run.id, automation_id=automation.id)
 
         self.client.force_authenticate(None)
 
@@ -1847,7 +2518,17 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 "description": "Description",
                 "origin_product": Task.OriginProduct.USER_CREATED,
             }
-        elif method == "PATCH" and "tasks" in url:
+        elif method == "POST" and url == "/api/projects/@current/task_automations/":
+            data = {
+                "name": "New Automation",
+                "prompt": "Check my PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            }
+        elif method == "PATCH" and "/task_automations/" in url:
+            data = {"name": "Updated Automation"}
+        elif method == "PATCH" and "/tasks/" in url:
             data = {"title": "Updated Task"}
 
         if method == "GET":
@@ -2039,6 +2720,64 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["closed"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_permission_response(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "permission_response")
+        self.assertEqual(call_kwargs["json"]["params"]["requestId"], "perm-1")
+        self.assertEqual(call_kwargs["json"]["params"]["optionId"], "allow")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_set_config_option(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-5", "result": {"updated": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "mode", "value": "plan"},
+                "id": "req-5",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
+        self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
+        self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
     def test_command_fails_without_sandbox_url(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -2064,6 +2803,30 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("unknown_method", {"jsonrpc": "2.0", "method": "unknown_method", "params": {}}),
             ("user_message_empty_content", {"jsonrpc": "2.0", "method": "user_message", "params": {"content": ""}}),
             ("user_message_missing_content", {"jsonrpc": "2.0", "method": "user_message", "params": {}}),
+            (
+                "permission_response_missing_requestId",
+                {"jsonrpc": "2.0", "method": "permission_response", "params": {"optionId": "allow"}},
+            ),
+            (
+                "permission_response_missing_optionId",
+                {"jsonrpc": "2.0", "method": "permission_response", "params": {"requestId": "req-1"}},
+            ),
+            (
+                "permission_response_empty_params",
+                {"jsonrpc": "2.0", "method": "permission_response", "params": {}},
+            ),
+            (
+                "set_config_option_missing_configId",
+                {"jsonrpc": "2.0", "method": "set_config_option", "params": {"value": "plan"}},
+            ),
+            (
+                "set_config_option_missing_value",
+                {"jsonrpc": "2.0", "method": "set_config_option", "params": {"configId": "mode"}},
+            ),
+            (
+                "set_config_option_empty_params",
+                {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
+            ),
         ]
     )
     def test_command_rejects_invalid_payloads(self, _name, payload):

@@ -1,0 +1,239 @@
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
+// eslint-disable-next-line import/no-cycle
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+
+import type { incidentStatusLogicType } from './incidentStatusLogicType'
+
+// Raw incident.io API types
+export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
+export type IncidentIoImpact = 'partial_outage' | 'degraded_performance' | 'full_outage'
+export type IncidentIoIncidentStatus = 'investigating' | 'identified' | 'monitoring'
+export type IncidentIoMaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
+
+// Normalized status for display
+export type NormalizedStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
+
+export interface IncidentIoAffectedComponent {
+    id: string
+    name: string
+    group_name?: string
+    current_status: IncidentIoComponentStatus
+}
+
+export interface IncidentIoIncident {
+    id: string
+    name: string
+    status: IncidentIoIncidentStatus
+    url: string
+    last_update_at: string
+    last_update_message: string
+    current_worst_impact: IncidentIoImpact
+    affected_components: IncidentIoAffectedComponent[]
+}
+
+export interface IncidentIoMaintenance {
+    id: string
+    name: string
+    status: IncidentIoMaintenanceStatus
+    last_update_at: string
+    last_update_message: string
+    url: string
+    affected_components: IncidentIoAffectedComponent[]
+    started_at?: string
+    scheduled_end_at?: string
+    starts_at?: string
+    ends_at?: string
+}
+
+export interface IncidentIoSummary {
+    page_title: string
+    page_url: string
+    ongoing_incidents: IncidentIoIncident[]
+    in_progress_maintenances: IncidentIoMaintenance[]
+    scheduled_maintenances: IncidentIoMaintenance[]
+}
+
+export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
+const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
+
+const DEFAULT_STATUS: NormalizedStatus = 'operational'
+
+let currentStatus: NormalizedStatus = DEFAULT_STATUS
+
+export function setIncidentStatus(status: NormalizedStatus): void {
+    currentStatus = status
+}
+
+export function getIncidentStatus(): NormalizedStatus {
+    return currentStatus
+}
+
+// Map hostname to the group_name used in incident.io
+const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
+    'us.posthog.com': 'US Cloud 🇺🇸',
+    'eu.posthog.com': 'EU Cloud 🇪🇺',
+    localhost: 'US Cloud 🇺🇸', // Default to US for local dev
+    '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
+}
+
+function getRelevantGroupName(): string | null {
+    return RELEVANT_GROUP_NAME_MAP[window.location.hostname] || null
+}
+
+function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]): boolean {
+    const relevantGroupName = getRelevantGroupName()
+    if (!relevantGroupName) {
+        // Unknown hostname (self-hosted) — cloud incidents aren't relevant
+        return false
+    }
+    // If no affected components, show the incident (it's global)
+    if (affectedComponents.length === 0) {
+        return true
+    }
+    return affectedComponents.some((component) => component.group_name === relevantGroupName)
+}
+
+function getWorstStatusForRegion(summary: IncidentIoSummary): NormalizedStatus {
+    // Filter incidents to only those affecting the current region
+    const relevantIncidents = summary.ongoing_incidents.filter((incident) =>
+        hasRelevantComponents(incident.affected_components)
+    )
+    const relevantMaintenances = summary.in_progress_maintenances.filter((maintenance) =>
+        hasRelevantComponents(maintenance.affected_components)
+    )
+
+    const hasOngoingIncidents = relevantIncidents.length > 0
+    const hasInProgressMaintenance = relevantMaintenances.length > 0
+
+    if (!hasOngoingIncidents && !hasInProgressMaintenance) {
+        return 'operational'
+    }
+
+    // Check for worst impact across relevant ongoing incidents
+    for (const incident of relevantIncidents) {
+        if (incident.current_worst_impact === 'full_outage') {
+            return 'major_outage'
+        }
+    }
+
+    for (const incident of relevantIncidents) {
+        if (incident.current_worst_impact === 'partial_outage') {
+            return 'partial_outage'
+        }
+    }
+
+    for (const incident of relevantIncidents) {
+        if (incident.current_worst_impact === 'degraded_performance') {
+            return 'degraded_performance'
+        }
+    }
+
+    // If only maintenance is in progress, show as degraded
+    if (hasInProgressMaintenance) {
+        return 'degraded_performance'
+    }
+
+    return 'operational'
+}
+
+export const incidentStatusLogic = kea<incidentStatusLogicType>([
+    path(['lib', 'components', 'HealthMenu', 'incidentStatusLogic']),
+
+    connect(() => ({
+        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
+    })),
+
+    actions({
+        setPageVisibility: (visible: boolean) => ({ visible }),
+    }),
+
+    loaders(() => ({
+        summary: [
+            null as IncidentIoSummary | null,
+            {
+                loadSummary: async () => {
+                    const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                    const data: IncidentIoSummary = await response.json()
+                    return data
+                },
+            },
+        ],
+    })),
+
+    selectors({
+        rawStatus: [
+            (s) => [s.summary],
+            (summary: IncidentIoSummary | null): NormalizedStatus => {
+                if (!summary) {
+                    return 'operational'
+                }
+                return getWorstStatusForRegion(summary)
+            },
+        ],
+        status: [
+            (s) => [s.rawStatus, s.fakeStatusOverride, s.superpowersEnabled],
+            (rawStatus, fakeStatusOverride, superpowersEnabled): NormalizedStatus => {
+                if (superpowersEnabled && fakeStatusOverride !== 'none') {
+                    return fakeStatusOverride as NormalizedStatus
+                }
+                return rawStatus
+            },
+        ],
+        statusDescription: [
+            (s) => [s.summary, s.status],
+            (summary, status): string | null => {
+                if (!summary) {
+                    return null
+                }
+                if (status === 'operational') {
+                    return 'All systems operational'
+                }
+                // Filter to only count incidents/maintenances relevant to this region
+                const incidentCount = summary.ongoing_incidents.filter((incident: IncidentIoIncident) =>
+                    hasRelevantComponents(incident.affected_components)
+                ).length
+                const maintenanceCount = summary.in_progress_maintenances.filter((maintenance: IncidentIoMaintenance) =>
+                    hasRelevantComponents(maintenance.affected_components)
+                ).length
+                if (incidentCount > 0) {
+                    return `${incidentCount} ongoing incident${incidentCount > 1 ? 's' : ''}`
+                }
+                if (maintenanceCount > 0) {
+                    return `${maintenanceCount} maintenance${maintenanceCount > 1 ? 's' : ''} in progress`
+                }
+                return 'All systems operational'
+            },
+        ],
+    }),
+
+    listeners(({ actions, cache, values }) => ({
+        loadSummarySuccess: () => {
+            setIncidentStatus(values.status)
+
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.loadSummary(), REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'refreshTimeout')
+        },
+        setPageVisibility: ({ visible }) => {
+            if (visible) {
+                actions.loadSummary()
+            } else {
+                cache.disposables.dispose('refreshTimeout')
+            }
+        },
+    })),
+
+    afterMount(({ actions, cache }) => {
+        actions.loadSummary()
+        cache.disposables.add(() => {
+            const onVisibilityChange = (): void => {
+                actions.setPageVisibility(document.visibilityState === 'visible')
+            }
+            document.addEventListener('visibilitychange', onVisibilityChange)
+            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+        }, 'visibilityListener')
+    }),
+])

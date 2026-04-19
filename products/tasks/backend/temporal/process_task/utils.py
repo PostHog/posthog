@@ -13,6 +13,9 @@ from pydantic import BaseModel
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
 
+from products.mcp_store.backend.facade.api import get_active_installations
+from products.tasks.backend.constants import InitialPermissionMode
+
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
 
@@ -27,11 +30,128 @@ class RunSource(StrEnum):
     SIGNAL_REPORT = "signal_report"
 
 
+class RuntimeAdapter(StrEnum):
+    CLAUDE = "claude"
+    CODEX = "codex"
+
+
+class LLMProvider(StrEnum):
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+
+
+class ReasoningEffort(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+
+
+PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    ReasoningEffort.LOW,
+    ReasoningEffort.MEDIUM,
+    ReasoningEffort.HIGH,
+    ReasoningEffort.MAX,
+)
+
+
+RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
+    RuntimeAdapter.CLAUDE: LLMProvider.ANTHROPIC,
+    RuntimeAdapter.CODEX: LLMProvider.OPENAI,
+}
+
+
+CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
+    "claude-opus-4-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+    ),
+    "claude-opus-4-6": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-opus-4-7": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-sonnet-4-6": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+    ),
+}
+
+CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    ReasoningEffort.LOW,
+    ReasoningEffort.MEDIUM,
+    ReasoningEffort.HIGH,
+)
+
+
+def get_provider_for_runtime_adapter(
+    runtime_adapter: RuntimeAdapter | str | None,
+) -> LLMProvider | None:
+    if runtime_adapter is None:
+        return None
+
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    try:
+        return RUNTIME_PROVIDER_BY_ADAPTER[RuntimeAdapter(adapter_value)]
+    except ValueError:
+        return None
+
+
+def get_supported_reasoning_efforts(
+    runtime_adapter: RuntimeAdapter | str | None,
+    model: str | None,
+) -> tuple[ReasoningEffort, ...]:
+    if runtime_adapter is None or model is None:
+        return ()
+
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if adapter_value == RuntimeAdapter.CLAUDE.value:
+        return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
+    if adapter_value == RuntimeAdapter.CODEX.value:
+        return CODEX_REASONING_EFFORTS
+
+    return ()
+
+
+def get_reasoning_effort_error(
+    runtime_adapter: RuntimeAdapter | str | None,
+    model: str | None,
+    reasoning_effort: ReasoningEffort | str | None,
+) -> str | None:
+    if runtime_adapter is None or model is None or reasoning_effort is None:
+        return None
+
+    effort_value = reasoning_effort.value if isinstance(reasoning_effort, ReasoningEffort) else reasoning_effort
+    supported_efforts = get_supported_reasoning_efforts(runtime_adapter, model)
+    if any(supported_effort.value == effort_value for supported_effort in supported_efforts):
+        return None
+
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    supported_values = ", ".join(effort.value for effort in supported_efforts) or "none"
+    return (
+        f"Reasoning effort '{effort_value}' is not supported for runtime_adapter "
+        f"'{adapter_value}' and model '{model}'. Supported values: {supported_values}."
+    )
+
+
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     pr_base_branch: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
+    runtime_adapter: RuntimeAdapter | None = None
+    provider: LLMProvider | None = None
+    model: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
     resume_from_run_id: str | None = None
     snapshot_external_id: str | None = None
     sandbox_id: str | None = None
@@ -40,6 +160,7 @@ class RunState(BaseModel, extra="allow"):
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
     pending_user_message_ts: str | None = None
+    initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
@@ -81,13 +202,42 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
-def get_sandbox_mcp_configs(
+def get_user_mcp_server_configs(
+    token: str,
+    team_id: int,
+    user_id: int,
+) -> list[McpServerConfig]:
+    """Fetch the user's MCP Store installations and return sandbox configs.
+
+    Uses the mcp_store facade to get active installations, then builds
+    McpServerConfig entries with full proxy URLs and auth headers.
+
+    Returns an empty list on errors (non-fatal).
+    """
+    installations = get_active_installations(team_id, user_id)
+    api_base = get_sandbox_api_url().rstrip("/")
+
+    configs: list[McpServerConfig] = []
+    for installation in installations:
+        configs.append(
+            McpServerConfig(
+                type="http",
+                name=installation.name,
+                url=f"{api_base}{installation.proxy_path}",
+                headers=[{"name": "Authorization", "value": f"Bearer {token}"}],
+            )
+        )
+
+    return configs
+
+
+def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
     *,
     scopes: PosthogMcpScopes = "read_only",
 ) -> list[McpServerConfig]:
-    """Return MCP server configurations for sandbox agents.
+    """Return PostHog MCP server configurations for sandbox agents.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp

@@ -365,11 +365,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     sharedListeners(({ actions, values }) => ({
+        /**
+         * The editor must show the insight in the URL and the tile the user opened—not a different saved insight.
+         * After "Save as" from a dashboard, the tile still belongs to the original; if we kept the wrong editor
+         * state, going back and editing that tile could show the copy instead. Remount when those disagree, and
+         * when the URL insight does not match which insight this editor was opened from.
+         */
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
+            const mountedDashboardItemId = values.insightLogicRef?.logic.props.dashboardItemId ?? null
+            const propsMismatch = Boolean(insightId && mountedDashboardItemId && mountedDashboardItemId !== insightId)
 
-            if (logicInsightId !== insightId) {
+            if (logicInsightId !== insightId || propsMismatch) {
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {

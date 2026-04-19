@@ -37,7 +37,11 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_HEADER,
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    activity_storage,
+)
 from posthog.models.utils import generate_random_token
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -221,8 +225,8 @@ class AutoProjectMiddleware:
         self.token_allowlist = PROJECT_SWITCHING_TOKEN_ALLOWLIST
 
     def __call__(self, request: HttpRequest):
-        # Skip project switching for CLI authorization page
-        if request.path.startswith("/cli/authorize"):
+        # Skip project switching for CLI authorization page and account social-link confirmation scene
+        if request.path.startswith("/cli/authorize") or request.path.startswith("/account/social-connected"):
             return self.get_response(request)
 
         if request.user.is_authenticated:
@@ -780,6 +784,10 @@ class ActivityLoggingMiddleware:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
 
+        client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
+        if client_header:
+            activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
         try:
             response = self.get_response(request)
         finally:
@@ -944,6 +952,14 @@ class ActiveOrganizationMiddleware:
 
         if user.current_organization is None:
             return self.get_response(request)
+
+        # Check pending deletion first — takes priority over is_active
+        if user.current_organization.is_pending_deletion:
+            return (
+                self.get_response(request)
+                if request.path == "/organization-pending-deletion"
+                else redirect("/organization-pending-deletion")
+            )
 
         if user.current_organization.is_active is not False:
             return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)

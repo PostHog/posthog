@@ -195,6 +195,7 @@ export const RunsWithData: Story = {
                             data_interval_start: '2024-01-15T08:00:00Z',
                             data_interval_end: '2024-01-15T09:00:00Z',
                             records_completed: 0,
+                            latest_error: 'HTTP fetch failed on attempt 3 with status code 500.',
                         },
                         {
                             id: 'run-003',

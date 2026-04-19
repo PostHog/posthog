@@ -14,79 +14,6 @@
             "readOnlyHint": true
         }
     },
-    "experiment-get-all": {
-        "description": "Get all experiments in the project.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Get all experiments in the project.",
-        "title": "Get all experiments",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "experiment-create": {
-        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, ask for specific event sequence (e.g., ['product_view', 'add_to_cart', 'purchase']) and use funnel_steps parameter 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Create A/B test experiment with guided metric and feature flag setup",
-        "title": "Create experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-delete": {
-        "description": "Delete an experiment by ID.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Delete an experiment by ID.",
-        "title": "Delete experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-update": {
-        "description": "Update an existing experiment by ID. Can update name, description, lifecycle state, variants, metrics, and other properties. RESTART WORKFLOW: To restart a concluded experiment, set end_date=null, conclusion=null, conclusion_comment=null, and optionally set a new start_date. To make it draft again, also set start_date=null. COMMON PATTERNS: Launch draft (set start_date), stop running (set end_date + conclusion), archive (set archived=true), modify variants (update parameters.feature_flag_variants). NOTE: feature_flag_key cannot be changed after creation.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Update an existing experiment with lifecycle management and restart capability.",
-        "title": "Update experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-get": {
-        "description": "Get details of a specific experiment by ID.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Get details of a specific experiment.",
-        "title": "Get experiment details",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "experiment-results-get": {
         "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
         "category": "Experiments",
@@ -102,55 +29,11 @@
             "readOnlyHint": true
         }
     },
-    "insight-create-from-query": {
-        "description": "Create an insight from a query that you have previously tested with 'query-run'. You should check the query runs, before creating an insight. Do not create an insight before running the query, unless you know already that it is correct (e.g. you are making a minor modification to an existing query you have seen).",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Save a query as an insight.",
-        "title": "Create insight from query",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "insight-delete": {
-        "description": "Delete an insight by ID (soft delete - marks as deleted).",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Delete an insight by ID.",
-        "title": "Delete insight",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "insight-get": {
-        "description": "Get a specific insight by ID.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Get a specific insight by ID.",
-        "title": "Get insight",
-        "required_scopes": ["insight:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "insight-query": {
-        "description": "Execute a query on an existing insight to get its results/data. Provide the insight ID to retrieve the current query results.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results.",
         "category": "Insights & analytics",
         "feature": "insights",
-        "summary": "Execute a query on an existing insight to get its results/data.",
+        "summary": "Run a saved insight's query and return results.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
         "new_mcp": true,
@@ -159,35 +42,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "insights-get-all": {
-        "description": "Get all insights in the project with optional filtering. Can filter by saved status, favorited status, or search term.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Get all insights in the project with optional filtering.",
-        "title": "Get all insights",
-        "required_scopes": ["insight:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "insight-update": {
-        "description": "Update an existing insight by ID. Can update name, description, filters, and other properties. You should get the insight before update it to see it's current query structure, and only modify the parts needed to answer the user's request.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Update an existing insight by ID.",
-        "title": "Update insight",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "query-run": {
@@ -333,36 +187,6 @@
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
         "required_scopes": ["warehouse_table:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "organization-details-get": {
-        "description": "Get the details of the active organization.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the details of the active organization.",
-        "title": "Get organization details",
-        "required_scopes": ["organization:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "organizations-get": {
-        "description": "Get the organizations the user has access to.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the organizations the user has access to.",
-        "title": "Get organizations",
-        "required_scopes": ["user:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -727,21 +551,6 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "activity-logs-list": {
-        "description": "List recent activity logs for the project. Shows who changed what and when — includes feature flag updates, insight creations, dashboard modifications, experiment launches, and other project changes. Use scope parameter to filter by resource type (e.g. \"FeatureFlag\", \"Insight\", \"Dashboard\", \"Experiment\", \"Survey\", \"Cohort\"). Use item_id to filter changes for a specific resource. Returns results ordered by most recent first. Each result includes: user (who performed the action with first_name and email), activity (e.g. \"created\", \"updated\", \"deleted\"), scope (entity type like \"FeatureFlag\"), item_id (ID of the affected resource), detail (structured JSON with name, short_id, and a changes array where each change has type, action, field, before, and after values), and created_at timestamp.",
-        "category": "Activity logs",
-        "feature": "activity_logs",
-        "summary": "List activity logs",
-        "title": "List activity logs",
-        "required_scopes": ["activity_log:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "alerts-list": {
@@ -1134,8 +943,113 @@
             "readOnlyHint": false
         }
     },
+    "conversations-tickets-list": {
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "List support tickets",
+        "title": "List support tickets",
+        "required_scopes": ["ticket:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-retrieve": {
+        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Get support ticket",
+        "title": "Get support ticket",
+        "required_scopes": ["ticket:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-update": {
+        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Update support ticket",
+        "title": "Update support ticket",
+        "required_scopes": ["ticket:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-list": {
+        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List subscriptions",
+        "title": "List subscriptions",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-create": {
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create subscription",
+        "title": "Create subscription",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-retrieve": {
+        "description": "Get a specific subscription by ID. Returns the full subscription configuration including target type and value, schedule details, next delivery date, and associated insight or dashboard.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get subscription",
+        "title": "Get subscription",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-partial-update": {
+        "description": "Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update subscription",
+        "title": "Update subscription",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboards-get-all": {
-        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get all dashboards",
@@ -1150,7 +1064,7 @@
         }
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -1165,7 +1079,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
@@ -1180,7 +1094,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -1207,6 +1121,21 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "dashboard-insights-run": {
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Run dashboard insights",
+        "title": "Run dashboard insights",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "dashboard-reorder-tiles": {
@@ -1569,8 +1498,53 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-assignment-rules-list": {
+        "description": "List error tracking assignment rules for the current project. Returns rules in evaluation order with their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking assignment rules",
+        "title": "List error tracking assignment rules",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-assignment-rules-create": {
+        "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking assignment rule",
+        "title": "Create error tracking assignment rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-grouping-rules-list": {
+        "description": "List error tracking grouping rules for the current project. Returns rules in evaluation order with their filters, optional assignee, description, and linked issue when available.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking grouping rules",
+        "title": "List error tracking grouping rules",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
-        "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
+        "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "List error tracking issues",
@@ -1629,6 +1603,21 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-issues-split-create": {
+        "description": "Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required `fingerprint` and optional `name` or `description`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Split error tracking issue fingerprints",
+        "title": "Split error tracking issue fingerprints",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "query-error-tracking-issues": {
         "description": "Query error tracking issues to find, filter, and inspect errors in the project. Returns aggregated metrics per issue including occurrence count, affected users, sessions, and volume data.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nThis is a unified query tool — use it both to list issues and to get details on a specific issue:\n\n- **List issues**: omit `issueId` to get a filtered, sorted list of error tracking issues.\n- **Get issue details**: provide `issueId` to get aggregated metrics for a single issue.\n\nUse `error-tracking-issues-retrieve` to get the full issue model (description, assignee, external references) and `error-tracking-issues-partial-update` to change status or assignee.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional filtering and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `$browser`, `$os`, or `$geoip_country_code`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, the default is the last 7 days.\n\n# Parameters\n\n## issueId (optional)\n\nWhen provided, returns aggregated metrics for a single error tracking issue. When omitted, returns a paginated list of issues matching the filters.\n\n## status\n\nFilter by issue status. Available values: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, `all`. Defaults to `active`.\n\n## orderBy\n\nField to sort results by: `occurrences`, `last_seen`, `first_seen`, `users`, `sessions`. Defaults to `occurrences`.\n\n## searchQuery\n\nFree-text search across exception type, message, and stack frames. Use this when the user is looking for a specific error by name or message content.\n\n## assignee\n\nFilter issues by assignee. The value is a user ID. Use this when the user asks to see errors assigned to a specific person.\n\n## filterGroup\n\nA flat list of property filters to narrow results. Each filter specifies a property key, operator, type (event/person/session/group), and value. See the \"Property filters\" section above for usage guidelines and supported operators.\n\n## volumeResolution\n\nControls the granularity of the volume chart data returned with each issue. Use `1` (default) for list views where you want a volume sparkline. Use `0` when you only need aggregate counts without volume data.\n\n## dateRange\n\nDate range to filter results. Defaults to the last 7 days (`-7d`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps (e.g., `2024-01-15T00:00:00Z`) or relative formats: `-7d`, `-2w`, `-1m`, `-1h`, `-1mStart`, `-1yStart`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## limit / offset\n\nPagination controls. `limit` defaults to 50.\n\n# Examples\n\n## List all active errors sorted by occurrence count\n\n```json\n{}\n```\n\nAll defaults apply: `status: \"active\"`, `orderBy: \"occurrences\"`, `dateRange: { \"date_from\": \"-7d\" }`.\n\n## Search for a specific error\n\n```json\n{\n  \"searchQuery\": \"TypeError: Cannot read property\",\n  \"limit\": 10\n}\n```\n\n## Get details for a specific issue\n\n```json\n{\n  \"issueId\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"volumeResolution\": 0\n}\n```\n\n## List resolved errors from the last 30 days\n\n```json\n{\n  \"status\": \"resolved\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"orderBy\": \"last_seen\"\n}\n```\n\n## Find most recent errors\n\n```json\n{\n  \"orderBy\": \"first_seen\",\n  \"orderDirection\": \"DESC\",\n  \"dateRange\": { \"date_from\": \"-24h\" }\n}\n```\n\n## Errors from Chrome users only\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Chrome\"] }]\n}\n```\n\n## Errors from US users in the last 30 days\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$geoip_country_code\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"US\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
         "category": "Error tracking",
@@ -1642,6 +1631,186 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "experiment-get-all": {
+        "description": "Get all experiments in the project.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get all experiments",
+        "title": "Get all experiments",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-get": {
+        "description": "Get details of a specific experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment details",
+        "title": "Get experiment details",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-create": {
+        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, provide the series array with EventsNode entries for each step 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment",
+        "title": "Create experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-update": {
+        "description": "Update an existing experiment by ID. Can update name, description, variants, metrics, and other properties. Use lifecycle tools for state transitions: experiment-launch to start, experiment-end to stop, experiment-reset to return to draft, experiment-pause/experiment-resume to temporarily halt. NOTE: feature_flag_key cannot be changed after creation.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update experiment",
+        "title": "Update experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-delete": {
+        "description": "Delete an experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete experiment",
+        "title": "Delete experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-launch": {
+        "description": "Launch a draft experiment. Activates the linked feature flag, sets start_date to now, and transitions the experiment to running. Returns 400 if the experiment has already been launched.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Launch experiment",
+        "title": "Launch experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-end": {
+        "description": "End a running experiment. Sets end_date to now but does NOT modify the feature flag. Optionally provide a conclusion and comment. Returns 400 if the experiment is not running.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "End experiment",
+        "title": "End experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-archive": {
+        "description": "Archive an ended experiment to hide it from the default list view. Returns 400 if the experiment is already archived or has not ended.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Archive experiment",
+        "title": "Archive experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-ship-variant": {
+        "description": "Ship a variant to 100% of users and optionally end the experiment. Requires variant_key. Can include conclusion and conclusion_comment. Returns 400 if the experiment is in draft state.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Ship experiment variant",
+        "title": "Ship experiment variant",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-pause": {
+        "description": "Pause a running experiment by deactivating its feature flag. Users fall back to the default experience and no new exposures are recorded. Returns 400 if the experiment is not running or is already paused.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Pause experiment",
+        "title": "Pause experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-resume": {
+        "description": "Resume a paused experiment by reactivating its feature flag. Returns 400 if the experiment is not paused.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Resume experiment",
+        "title": "Resume experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-reset": {
+        "description": "Reset an experiment back to draft state. Clears start/end dates, conclusion, and archived flag. The feature flag is left unchanged. Returns 400 if the experiment is already in draft state.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Reset experiment",
+        "title": "Reset experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "feature-flag-get-all": {
@@ -2006,7 +2175,7 @@
         }
     },
     "query-logs": {
-        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.\n\nUse 'logs-list-attributes' and 'logs-list-attribute-values' to discover available attributes before building filters.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-list-attributes` to discover available attribute keys** before building filters.\n- **Use `logs-list-attribute-values` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-list-attribute-values` with `key: \"service.name\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-list-attributes` and `logs-list-attribute-values` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.\n5. **Only then query logs.** Once you have confirmed the service name, volume looks right, and relevant filters are set, call `query-logs` with `serviceNames` and any additional filters.\n\n10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Query logs",
@@ -2021,7 +2190,7 @@
         }
     },
     "logs-attributes-list": {
-        "description": "List available log attribute names for filtering. Use attribute_type \"log\" for log-level attributes or \"resource\" for resource-level attributes (e.g. k8s labels).",
+        "description": "List available log attribute names for filtering. Defaults to attribute_type \"log\" (log-level attributes). To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass attribute_type: \"resource\" — it will NOT return resource attributes unless you do. Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
         "category": "Logs",
         "feature": "logs",
         "summary": "List log attributes",
@@ -2036,11 +2205,26 @@
         }
     },
     "logs-attribute-values-list": {
-        "description": "List values for a specific log attribute key. Use to discover what values exist for a given attribute before building filters.",
+        "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
         "category": "Logs",
         "feature": "logs",
         "summary": "List log attribute values",
         "title": "List log attribute values",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "logs-sparkline-query": {
+        "description": "Get a time-bucketed sparkline of log volume, broken down by severity or service. Use this to understand log volume patterns before querying individual log entries — it is much cheaper than a full log query.\n\nAll parameters must be nested inside a `query` object.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the sparkline. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.searchTerm\n\nFull-text search across log bodies.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n## query.sparklineBreakdownBy\n\nBreak down the sparkline by `\"severity\"` (default) or `\"service\"`. Use `\"service\"` to see which services are producing the most logs.\n\n# Examples\n\n## Error volume over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Log volume by service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"service\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Log volume by severity\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"severity\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Query logs sparkline",
+        "title": "Query logs sparkline",
         "required_scopes": ["logs:read"],
         "new_mcp": true,
         "annotations": {
@@ -2455,8 +2639,113 @@
             "readOnlyHint": true
         }
     },
+    "organizations-list": {
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organizations.",
+        "title": "List organizations.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-get": {
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get organization details.",
+        "title": "Get organization details.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insights-list": {
+        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get all insights",
+        "title": "Get all insights",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-get": {
+        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get insight",
+        "title": "Get insight",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-create": {
+        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Create insight",
+        "title": "Create insight",
+        "required_scopes": ["insight:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "insight-update": {
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Update insight",
+        "title": "Update insight",
+        "required_scopes": ["insight:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "insight-delete": {
+        "description": "Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Delete insight",
+        "title": "Delete insight",
+        "required_scopes": ["insight:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "List prompts",
@@ -2471,7 +2760,7 @@
         }
     },
     "prompt-get": {
-        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "Get prompt",
@@ -2603,6 +2892,111 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "session-recording-get": {
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording",
+        "title": "Get session recording",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-delete": {
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Delete session recording",
+        "title": "Delete session recording",
+        "required_scopes": ["session_recording:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "session-recording-playlists-list": {
+        "description": "List session recording playlists in the project. Returns both user-created and synthetic (system-generated) playlists with their metadata and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recording playlists",
+        "title": "List session recording playlists",
+        "required_scopes": ["session_recording_playlist:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-get": {
+        "description": "Get a specific session recording playlist by short_id. Returns full playlist metadata including name, description, filters, type, and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording playlist",
+        "title": "Get session recording playlist",
+        "required_scopes": ["session_recording_playlist:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-create": {
+        "description": "Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters' for a saved filter view. Collections cannot have filters, and filter playlists must include at least one filter criterion.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Create session recording playlist",
+        "title": "Create session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "session-recording-playlist-update": {
+        "description": "Update an existing session recording playlist by short_id. Can update name, description, pinned status, and filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the update will fail.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Update session recording playlist",
+        "title": "Update session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "query-session-recordings-list": {
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recordings",
+        "title": "List session recordings",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "workflows-list": {
@@ -2747,6 +3141,21 @@
         "summary": "Get LLM trace",
         "title": "Get LLM trace",
         "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends-actors": {
+        "description": "List the persons behind a specific data point in a trends insight. Use this to answer \"who were the users that did X on day Y?\" or \"which users are in this breakdown bucket?\".\n\nPair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.\n\nSelectors:\n\n- `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.\n- `series`: 0-based index of the series to drill into when the trends query has multiple series.\n- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: [\"Opera\"]`. Multiple dimensions: `breakdown: [\"Opera\", \"en-US\"]`.\n- `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `count` (number of matching events for that actor). Results are limited to the top 100 actors ordered by event count; pagination will be added later.\n\nGuidance:\n\n- Keep the `source` trends query minimal — only include the filters/breakdowns needed to identify the cell.\n- If the user wants \"all users who did X\", omit `day`/`series`/`breakdown` to broaden the drill-down.\n- For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons behind a trends data point",
+        "title": "List persons behind a trends data point",
+        "required_scopes": ["query:read", "person:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

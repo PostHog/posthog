@@ -1,4 +1,4 @@
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 const ID_FIELD_CANDIDATES = ['id']
 const DISTINCT_ID_FIELD_CANDIDATES = ['distinct_id', 'email', 'person_id', 'user_id', 'customer_id']

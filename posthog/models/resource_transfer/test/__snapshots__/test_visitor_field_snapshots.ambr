@@ -451,6 +451,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotations__',
     '__doc__',
     '__module__',
     '__repr__',

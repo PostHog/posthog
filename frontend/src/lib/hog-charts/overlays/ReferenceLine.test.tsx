@@ -97,6 +97,39 @@ describe('ReferenceLine', () => {
             const fill = divs[0]
             expect(parseFloat(fill.style.top)).toBeGreaterThan(DIMENSIONS.plotTop)
         })
+
+        it('uses the matching yAxes scale when a yAxisId is specified', () => {
+            // Primary (left) scale ranges 0-100; right axis 'y1' ranges 0-1000.
+            // Rendering `value=500` on the left axis would fall outside bounds, but the
+            // right axis maps it to the middle of the plot.
+            const rightScale = (v: number): number => 368 - (v / 1000) * 352
+            const multiAxisContext: BaseChartContext = {
+                ...CONTEXT,
+                scales: {
+                    ...CONTEXT.scales,
+                    yAxes: {
+                        left: { scale: yScale, ticks: () => [0, 50, 100], position: 'left' },
+                        y1: { scale: rightScale, ticks: () => [0, 500, 1000], position: 'right' },
+                    },
+                },
+            }
+            const { container } = render(
+                <ChartContext.Provider value={multiAxisContext}>
+                    <ReferenceLine value={500} yAxisId="y1" />
+                </ChartContext.Provider>
+            )
+            const line = lineDiv(container, 'top')
+            expect(line).not.toBeNull()
+            // rightScale(500) = 192; width 2 → top = 191
+            expect(line!.style.top).toBe('191px')
+        })
+
+        it('falls back to the primary y-scale when yAxisId is unknown or absent', () => {
+            const { container } = renderInChart(<ReferenceLine value={50} yAxisId="missing" />)
+            const line = lineDiv(container, 'top')
+            // Unknown axis id → default scale → same pixel as the plain `value=50` case (191px).
+            expect(line!.style.top).toBe('191px')
+        })
     })
 
     describe('vertical', () => {

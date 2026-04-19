@@ -159,7 +159,7 @@ async def resolve_legacy_repository(issue) -> list[RepositoryContext]:
         return []
 
     github = GitHubIntegration(integration)
-    repositories = github.list_repositories()
+    repositories, _ = github.list_repositories()
 
     if not repositories:
         return []

@@ -53,6 +53,12 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
         assert "scope" not in data
         assert "account" in data
         assert data["account"]["id"] == str(self.organization.id)
+        assert "available_teams" in data["account"]
+        assert len(data["account"]["available_teams"]) >= 1
+        team_entry = data["account"]["available_teams"][0]
+        assert "id" in team_entry
+        assert "name" in team_entry
+        assert "organization_id" in team_entry
 
     def test_invalid_code_returns_400(self):
         body = self._token_request_body(code="nonexistent")
@@ -112,6 +118,7 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
         assert res2.json()["error"] == "invalid_grant"
 
     def test_missing_signature_returns_401(self):
+        self._store_auth_code("test_code")
         body = self._token_request_body()
         res = self.client.post(
             "/api/agentic/oauth/token",

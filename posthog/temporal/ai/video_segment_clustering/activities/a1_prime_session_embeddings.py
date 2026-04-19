@@ -12,7 +12,6 @@ from posthog.schema import PropertyOperator, RecordingPropertyFilter, Recordings
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.sync import database_sync_to_async
@@ -20,10 +19,14 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     GetSessionsToPrimeResult,
     PrimeSessionEmbeddingsActivityInputs,
 )
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
 from products.signals.backend.models import SignalSourceConfig
 
-from ee.hogai.session_summaries.constants import MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S
+from ee.hogai.session_summaries.constants import (
+    MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+    MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+)
 from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
@@ -108,6 +111,12 @@ _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
         key="active_seconds",
         operator=PropertyOperator.GTE,
         value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+    ),
+    # Ignore sessions that are too long
+    RecordingPropertyFilter(
+        key="active_seconds",
+        operator=PropertyOperator.LTE,
+        value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
     ),
     # Only include finished sessions
     RecordingPropertyFilter(

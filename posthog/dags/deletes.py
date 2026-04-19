@@ -21,6 +21,7 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     NodeRole,
     Query,
+    Workload,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
@@ -601,6 +602,7 @@ def delete_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
+        if host.shard_num is not None
     }
 
     return (load_and_verify_deletes_dictionary, shard_mutations)
@@ -750,7 +752,7 @@ def cleanup_delete_assets(
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
     if not config.cleanup:
-        config.log.info("Skipping cleanup as cleanup is disabled")
+        dagster.get_dagster_logger().info("Skipping cleanup as cleanup is disabled")
         return True
 
     # Must drop dict first
@@ -758,7 +760,9 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
     cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
-    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
+    cluster.any_host_by_role(
+        resources.adhoc_event_deletes_dictionary.source.optimize, NodeRole.DATA, Workload.ONLINE
+    ).result()
 
     return True
 

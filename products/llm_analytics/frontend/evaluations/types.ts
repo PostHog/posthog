@@ -4,6 +4,8 @@ import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog'
 export type EvaluationOutputType = 'boolean'
+export type EvaluationStatus = 'active' | 'paused' | 'error'
+export type EvaluationStatusReason = 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
 
 export interface ModelConfiguration {
     provider: LLMProvider
@@ -30,6 +32,8 @@ export interface BaseEvaluationConfig {
     name: string
     description?: string
     enabled: boolean
+    status: EvaluationStatus
+    status_reason: EvaluationStatusReason | null
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]

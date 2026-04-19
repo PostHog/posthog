@@ -133,11 +133,42 @@ class ErrorTrackingIssueMergeResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(help_text="Whether the merge completed successfully.")
 
 
+class ErrorTrackingIssueSplitFingerprintSerializer(serializers.Serializer):
+    fingerprint = serializers.CharField(help_text="Fingerprint to split into a new issue.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the new issue created from this fingerprint.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional description for the new issue created from this fingerprint.",
+    )
+
+
+class ErrorTrackingIssueSplitRequestSerializer(serializers.Serializer):
+    fingerprints = serializers.ListField(
+        child=ErrorTrackingIssueSplitFingerprintSerializer(),
+        required=False,
+        default=list,
+        help_text="Fingerprints to split into new issues. Each fingerprint becomes its own new issue.",
+    )
+
+
+class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the split completed successfully.")
+    new_issue_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the new issues created by the split.",
+    )
+
+
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
-    scope_object_read_actions = ["list", "retrieve", "values"]
+    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -160,6 +191,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .prefetch_related("cohorts__cohort")
             .filter(team_id=self.team.id)
         )
+
+    @action(methods=["GET"], detail=False)
+    def exists(self, request, **kwargs):
+        has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
+        return Response({"exists": has_issues})
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
@@ -198,14 +234,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=issue.team_id)
         return Response({"success": True})
 
+    @validated_request(
+        request_serializer=ErrorTrackingIssueSplitRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueSplitResponseSerializer)},
+    )
     @action(methods=["POST"], detail=True)
-    def split(self, request, **kwargs):
+    def split(self, request: ValidatedRequest, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        fingerprints = request.data.get("fingerprints", [])
-        if not isinstance(fingerprints, list) or not all(
-            isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str) for entry in fingerprints
-        ):
-            raise ValidationError("fingerprints must be a list of objects with a 'fingerprint' string field")
+        fingerprints = request.validated_data["fingerprints"]
         new_issues = issue.split(fingerprints=fingerprints)
         sync_issues_to_clickhouse(issue_ids=[issue.id] + [i.id for i in new_issues], team_id=issue.team_id)
         return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})

@@ -34,7 +34,9 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_provisioning_welcome,
     send_saved_query_materialization_failure,
+    should_send_notification,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -130,6 +132,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_send_provisioning_welcome(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        token = password_reset_token_generator.make_token(self.user)
+
+        send_provisioning_welcome(user.id, token, "Wizard")
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+        assert "Set your password" in mocked_email_messages[0].html_body
+        assert "Wizard" in mocked_email_messages[0].html_body
+
+    def test_send_provisioning_welcome_without_partner(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        token = password_reset_token_generator.make_token(self.user)
+
+        send_provisioning_welcome(user.id, token)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+        assert "Set your password" in mocked_email_messages[0].html_body
+        assert "via" not in mocked_email_messages[0].html_body
 
     @patch("posthoganalytics.capture")
     def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
@@ -1354,3 +1382,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # Should be sent to both users
         assert len(mocked_email_messages[1].to) == 2
+
+    def test_should_send_wa_digest_notification_enabled_by_default(self, MockEmailMessage: MagicMock) -> None:
+        assert should_send_notification(self.user, "web_analytics_weekly_digest") is True
+
+    def test_should_send_wa_digest_notification_disabled(self, MockEmailMessage: MagicMock) -> None:
+        self.user.partial_notification_settings = {"web_analytics_weekly_digest": False}
+        self.user.save()
+        assert should_send_notification(self.user, "web_analytics_weekly_digest") is False
+
+    def test_should_send_wa_digest_notification_per_project_enabled(self, MockEmailMessage: MagicMock) -> None:
+        team_id = self.team.pk
+        self.user.partial_notification_settings = {
+            "web_analytics_weekly_digest_project_enabled": {str(team_id): True},
+        }
+        self.user.save()
+        assert should_send_notification(self.user, "web_analytics_weekly_digest", team_id=team_id) is True
+
+    def test_should_send_wa_digest_notification_per_project_disabled(self, MockEmailMessage: MagicMock) -> None:
+        team_id = self.team.pk
+        self.user.partial_notification_settings = {
+            "web_analytics_weekly_digest_project_enabled": {str(team_id): False},
+        }
+        self.user.save()
+        assert should_send_notification(self.user, "web_analytics_weekly_digest", team_id=team_id) is False
+
+    def test_should_send_wa_digest_notification_unknown_team_defaults_false(self, MockEmailMessage: MagicMock) -> None:
+        self.user.partial_notification_settings = {
+            "web_analytics_weekly_digest_project_enabled": {"99999": True},
+        }
+        self.user.save()
+        assert should_send_notification(self.user, "web_analytics_weekly_digest", team_id=self.team.pk) is False

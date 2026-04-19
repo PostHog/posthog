@@ -21,7 +21,9 @@ export type {
     ResolveValueFn,
     Series,
     TooltipContext,
+    YAxisScale,
 } from './core/types'
+export { DEFAULT_Y_AXIS_ID } from './core/types'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'

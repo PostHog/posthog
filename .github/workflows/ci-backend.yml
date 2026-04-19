@@ -63,7 +63,6 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            products: ${{ steps.filter.outputs.products || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -116,8 +115,12 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
-                        - frontend/src/queries/schema.json # Used for generating schema.py
-                        - rust/feature-flags/src/properties/property_models.rs # Operator parity check
+                        # generates posthog/schema.py
+                        - frontend/src/queries/schema.json
+                        # Operator parity check
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -160,6 +163,8 @@ jobs:
                         - pytest.ini
                         - .test_durations
                         - frontend/src/queries/schema.json
+                        - frontend/src/products.json
+                        - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -318,7 +323,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -391,7 +396,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
               run: bin/ci-wait-for-docker wait
 
             - name: Register Temporal search attributes
@@ -456,8 +461,13 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
-        name: Repo checks
-        runs-on: depot-ubuntu-latest
+        name: Repo checks (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         steps:
             - uses: actions/checkout@v6
 
@@ -484,7 +494,10 @@ jobs:
               run: python .github/scripts/check-operator-parity.py
 
             - name: Check module boundaries (tach)
-              run: tach check
+              run: tach check --dependencies --interfaces
+
+            - name: Check product facade enforcement (import-linter)
+              run: lint-imports
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -601,10 +614,10 @@ jobs:
             - name: Get app token for OpenAPI type commits
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               id: openapi-app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -1167,7 +1180,7 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -1490,10 +1503,10 @@ jobs:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
               uses: actions/checkout@v6
@@ -1601,12 +1614,13 @@ jobs:
                   echo "All checks passed."
 
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
+                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -1614,7 +1628,8 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: depot-ubuntu-latest
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
         timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
@@ -1701,7 +1716,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !startsWith(matrix.runner, 'blacksmith')
               with:
                   name: junit-results-async-migrations
                   path: junit.xml
@@ -1720,6 +1735,17 @@ jobs:
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Django Tests Pass'
+                  runner: 'depot'
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true

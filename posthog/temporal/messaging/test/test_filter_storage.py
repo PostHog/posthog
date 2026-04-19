@@ -2,8 +2,13 @@ from unittest.mock import patch
 
 import fakeredis
 
-from posthog.temporal.messaging.filter_storage import get_filters_and_properties, store_filters
-from posthog.temporal.messaging.types import PersonPropertyFilter
+from posthog.temporal.messaging.filter_storage import (
+    get_event_filters,
+    get_filters_and_properties,
+    store_event_filters,
+    store_filters,
+)
+from posthog.temporal.messaging.types import BehavioralEventFilter, PersonPropertyFilter
 
 
 class TestFilterStorage:
@@ -207,3 +212,170 @@ class TestFilterStorage:
         assert len(retrieved_filters) == 2
         assert retrieved_filters[0].property_key is None
         assert retrieved_filters[1].property_key == "age"
+
+
+class TestEventFilterStorage:
+    def setup_method(self):
+        self.test_filters = [
+            BehavioralEventFilter(
+                condition_hash="pageview_hash",
+                bytecode=["_H", 1, 32, "$pageview"],
+                cohort_ids=[100],
+                event_name="$pageview",
+                time_value=30,
+                time_interval="day",
+            ),
+            BehavioralEventFilter(
+                condition_hash="purchase_hash",
+                bytecode=["_H", 1, 32, "purchase"],
+                cohort_ids=[100, 200],
+                event_name="purchase",
+                time_value=7,
+                time_interval="day",
+            ),
+            BehavioralEventFilter(
+                condition_hash="pageview_pricing_hash",
+                bytecode=["_H", 1, 32, "$pageview", 33, "/pricing"],
+                cohort_ids=[200],
+                event_name="$pageview",
+                time_value=14,
+                time_interval="day",
+                event_filters=[{"type": "event", "key": "url", "value": "/pricing", "operator": "exact"}],
+            ),
+        ]
+        self.team_id = 123
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_store_and_get_round_trip(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        storage_key = store_event_filters(self.test_filters, self.team_id)
+
+        assert storage_key.startswith("backfill_event_filters:team_123_")
+        assert len(storage_key) > 50
+
+        result = get_event_filters(storage_key)
+        assert result is not None
+
+        retrieved_filters, event_names, combined_bytecodes = result
+        assert len(retrieved_filters) == 3
+
+        for i, retrieved in enumerate(retrieved_filters):
+            original = self.test_filters[i]
+            assert retrieved.condition_hash == original.condition_hash
+            assert retrieved.bytecode == original.bytecode
+            assert retrieved.cohort_ids == original.cohort_ids
+            assert retrieved.event_name == original.event_name
+            assert retrieved.time_value == original.time_value
+            assert retrieved.time_interval == original.time_interval
+            assert retrieved.event_filters == original.event_filters
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_event_names_extracted_and_sorted(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        storage_key = store_event_filters(self.test_filters, self.team_id)
+        result = get_event_filters(storage_key)
+        assert result is not None
+
+        _, event_names, _ = result
+        assert event_names == ["$pageview", "purchase"]
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_combined_bytecodes_grouped_by_event_name(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        storage_key = store_event_filters(self.test_filters, self.team_id)
+        result = get_event_filters(storage_key)
+        assert result is not None
+
+        _, _, combined_bytecodes = result
+
+        # Two groups: $pageview (2 filters) and purchase (1 filter)
+        assert "$pageview" in combined_bytecodes
+        assert "purchase" in combined_bytecodes
+        assert len(combined_bytecodes) == 2
+
+        # Each combined bytecode should start with the bytecode identifier
+        for bytecode in combined_bytecodes.values():
+            assert bytecode[0] == "_H"
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_missing_key_returns_none(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        result = get_event_filters("backfill_event_filters:team_123_nonexistent")
+        assert result is None
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_different_teams_different_keys(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        key1 = store_event_filters(self.test_filters, team_id=123)
+        key2 = store_event_filters(self.test_filters, team_id=456)
+
+        assert key1 != key2
+        assert "team_123" in key1
+        assert "team_456" in key2
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_identical_filters_same_key(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        key1 = store_event_filters(self.test_filters, self.team_id)
+        key2 = store_event_filters(self.test_filters, self.team_id)
+
+        assert key1 == key2
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_empty_filters(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        storage_key = store_event_filters([], self.team_id)
+        result = get_event_filters(storage_key)
+
+        assert result is not None
+        filters, event_names, combined_bytecodes = result
+        assert len(filters) == 0
+        assert event_names == []
+        assert combined_bytecodes == {}
+
+    @patch("posthog.temporal.messaging.filter_storage.get_client")
+    def test_single_event_name_group(self, mock_get_client):
+        fake_redis = fakeredis.FakeRedis()
+        mock_get_client.return_value = fake_redis
+
+        single_event_filters = [
+            BehavioralEventFilter(
+                condition_hash="hash1",
+                bytecode=["_H", 1, 32, "$pageview"],
+                cohort_ids=[100],
+                event_name="$pageview",
+                time_value=30,
+                time_interval="day",
+            ),
+            BehavioralEventFilter(
+                condition_hash="hash2",
+                bytecode=["_H", 1, 32, "$pageview", 33, "extra"],
+                cohort_ids=[200],
+                event_name="$pageview",
+                time_value=7,
+                time_interval="day",
+            ),
+        ]
+
+        storage_key = store_event_filters(single_event_filters, self.team_id)
+        result = get_event_filters(storage_key)
+        assert result is not None
+
+        _, event_names, combined_bytecodes = result
+        assert event_names == ["$pageview"]
+        assert len(combined_bytecodes) == 1
+        assert "$pageview" in combined_bytecodes

@@ -8,12 +8,12 @@ from django.db import models
 import numpy
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
 from products.data_warehouse.backend.data_load.service import (
@@ -59,7 +59,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -83,7 +83,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return NamingConvention.normalize_identifier(self.name)
 
     @property
     def is_incremental(self):
@@ -208,6 +208,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def partitioning_keys(self) -> list[str] | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partitioning_keys", None)
+
+        return None
+
+    @property
+    def primary_key_columns(self) -> list[str] | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("primary_key_columns", None)
 
         return None
 

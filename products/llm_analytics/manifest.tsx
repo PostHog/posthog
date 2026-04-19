@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -15,7 +15,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'LLM analytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             description: 'Analyze and understand your LLM usage and performance.',
             iconType: 'llm_analytics',
         },
@@ -24,21 +23,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'LLM analytics trace',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/traces',
         },
         LLMAnalyticsSession: {
             import: () => import('./frontend/LLMAnalyticsSessionScene'),
             projectBased: true,
             name: 'LLM analytics session',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/sessions',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
             projectBased: true,
             name: 'LLM analytics users',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsPlayground: {
             import: () => import('./frontend/playground/LLMAnalyticsPlaygroundScene'),
@@ -46,8 +42,8 @@ export const manifest: ProductManifest = {
             name: 'Playground',
             description: 'Test and experiment with LLM prompts in a sandbox environment.',
             layout: 'app-full-scene-height',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_playground',
+            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsDatasets: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
@@ -55,7 +51,6 @@ export const manifest: ProductManifest = {
             name: 'Datasets',
             description: 'Manage datasets for testing and evaluation.',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_datasets',
         },
         LLMAnalyticsDataset: {
@@ -63,7 +58,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'LLM analytics dataset',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_datasets',
         },
         LLMAnalyticsEvaluations: {
@@ -73,8 +67,8 @@ export const manifest: ProductManifest = {
             description: 'Configure and monitor automated LLM output evaluations.',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/evaluations',
             iconType: 'llm_evaluations',
+            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluation: {
             import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
@@ -82,8 +76,8 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics evaluation',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_evaluations',
+            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluationTemplates: {
             import: () => import('./frontend/evaluations/EvaluationTemplates'),
@@ -91,8 +85,8 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics evaluation templates',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_evaluations',
+            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
@@ -100,7 +94,6 @@ export const manifest: ProductManifest = {
             name: 'Prompts',
             description: 'Track and manage your LLM prompts.',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/prompts',
             iconType: 'llm_prompts',
         },
         LLMAnalyticsPrompt: {
@@ -108,7 +101,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'LLM analytics prompt',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_prompts',
         },
         LLMAnalyticsClusters: {
@@ -117,7 +109,6 @@ export const manifest: ProductManifest = {
             name: 'Clusters',
             description: 'Discover patterns and clusters in your LLM usage.',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/clusters',
             iconType: 'llm_clusters',
         },
         LLMAnalyticsCluster: {
@@ -125,7 +116,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'LLM analytics cluster',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/installation',
             iconType: 'llm_clusters',
         },
     },
@@ -246,7 +236,7 @@ export const manifest: ProductManifest = {
                 ProductKey.LLM_PROMPTS,
                 ProductKey.LLM_CLUSTERS,
             ],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             visualOrder: 1,
             type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
@@ -257,7 +247,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Playground',
             intents: [ProductKey.LLM_ANALYTICS],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_playground',
             iconType: 'llm_playground' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
@@ -267,7 +257,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Clusters',
             intents: [ProductKey.LLM_CLUSTERS],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_clusters',
             iconType: 'llm_clusters' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
@@ -277,7 +267,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Datasets',
             intents: [ProductKey.LLM_DATASETS],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_datasets',
             iconType: 'llm_datasets' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
@@ -289,7 +279,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Evaluations',
             intents: [ProductKey.LLM_EVALUATIONS],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_evaluations',
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
@@ -300,7 +290,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Prompts',
             intents: [ProductKey.LLM_PROMPTS],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_prompts',
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,

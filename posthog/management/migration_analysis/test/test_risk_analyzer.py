@@ -566,6 +566,20 @@ class TestRunSQLOperations:
         # Should indicate it's a DROP COLUMN operation
         assert "column" in risk.reason.lower() or "drop" in risk.reason.lower()
 
+    def test_run_sql_alter_table_drop_column_quoted_identifiers(self):
+        """Test ALTER TABLE DROP COLUMN with double-quoted identifiers (standard Postgres quoting)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_preaggregation_enabled";',
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" not in risk.reason.lower()
+        assert "column" in risk.reason.lower()
+
     def test_run_sql_drop_table_not_confused_with_drop_column(self):
         """Test that DROP TABLE IF EXISTS (without COLUMN keyword) is still recognized as table drop."""
         op = create_mock_operation(
@@ -580,6 +594,20 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.BLOCKED
         assert "drop table" in risk.reason.lower()
         # Should NOT mention column
+        assert "column" not in risk.reason.lower()
+
+    def test_run_sql_drop_table_quoted_identifiers(self):
+        """Test DROP TABLE IF EXISTS with double-quoted table name."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql='DROP TABLE IF EXISTS "old_table";',
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" in risk.reason.lower()
         assert "column" not in risk.reason.lower()
 
     def test_run_sql_drop_table_with_column_in_name(self):
@@ -974,6 +1002,46 @@ class TestDropTableValidation:
         )
 
         # Should be NEEDS_REVIEW (score 2) since properly staged
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
+    def test_drop_column_with_prior_state_removal_quoted_identifiers(self):
+        """Same as test_drop_column_with_prior_state_removal but with double-quoted identifiers."""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "experiments"
+        mock_migration.name = "0008_drop_exposure_preaggregation_column"
+        mock_migration.dependencies = [("experiments", "0007_drop_exposure_preaggregation_enabled")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_preaggregation_enabled";',
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "experiments"
+        parent_migration.name = "0007_drop_exposure_preaggregation_enabled"
+
+        remove_field_op = create_mock_operation(
+            migrations.RemoveField, model_name="Experiment", name="exposure_preaggregation_enabled"
+        )
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[remove_field_op],
+            database_operations=[],
+        )
+        parent_migration.operations = [separate_op]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("experiments", "0007_drop_exposure_preaggregation_enabled"): parent_migration,
+            ("experiments", "0008_drop_exposure_preaggregation_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "experiments/migrations/0008_drop_exposure_preaggregation_column.py", mock_loader
+        )
+
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
