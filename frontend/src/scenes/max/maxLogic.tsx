@@ -188,6 +188,7 @@ export const maxLogic = kea<maxLogicType>([
             currentRecursionDepth,
             leadingTimeout,
         }),
+        pollConversationFinished: true,
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
@@ -262,6 +263,17 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
+
+        // True while pollConversation is in-flight (fetching a conversation not yet in history cache).
+        // Used so we can keep showing the loading state instead of flashing NotFound during the fetch.
+        pollingConversation: [
+            false,
+            {
+                pollConversation: () => true,
+                pollConversationFinished: () => false,
+                startNewConversation: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -309,9 +321,19 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
-            (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
-                return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+            (s) => [
+                s.conversationHistory,
+                s.conversationHistoryLoading,
+                s.conversationId,
+                s.conversation,
+                s.pollingConversation,
+            ],
+            (conversationHistory, conversationHistoryLoading, conversationId, conversation, pollingConversation) => {
+                if (!conversationId || conversation) {
+                    return false
+                }
+                // Initial history load or we're polling for a conversation that isn't in the cached history
+                return (!conversationHistory.length && conversationHistoryLoading) || pollingConversation
             },
         ],
 
@@ -473,6 +495,7 @@ export const maxLogic = kea<maxLogicType>([
          */
         pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
             if (currentRecursionDepth > 10) {
+                actions.pollConversationFinished()
                 return
             }
 
@@ -490,6 +513,7 @@ export const maxLogic = kea<maxLogicType>([
                     // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
                     // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
                     // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                    actions.pollConversationFinished()
                     return
                 }
 
@@ -499,6 +523,7 @@ export const maxLogic = kea<maxLogicType>([
             if (conversation && conversation.status === ConversationStatus.Idle) {
                 actions.prependOrReplaceConversation(conversation)
                 actions.scrollThreadToBottom('instant')
+                actions.pollConversationFinished()
             } else {
                 actions.pollConversation(conversationId, currentRecursionDepth + 1)
             }

@@ -119,6 +119,44 @@ describe('maxLogic', () => {
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
+    it('keeps conversationLoading true while polling a conversation not yet in history', async () => {
+        const mockConversationId = 'direct-link-conversation-id'
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => [
+                    404,
+                    { detail: 'Not found' },
+                ],
+            },
+        })
+
+        logic = maxLogic({ tabId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        // Simulate a direct link: conversation isn't in the loaded history, so we start polling.
+        await expectLogic(logic, () => {
+            logic.actions.setConversationId(mockConversationId)
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        })
+            .toDispatchActions(['setConversationId', 'pollConversation'])
+            .toMatchValues({
+                pollingConversation: true,
+                conversationLoading: true,
+            })
+
+        // Poll resolves (404) — loading turns off so NotFound can render.
+        await expectLogic(logic).toDispatchActions(['pollConversationFinished']).toMatchValues({
+            pollingConversation: false,
+            conversationLoading: false,
+        })
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ tabId: 'test' })
         logic.mount()
