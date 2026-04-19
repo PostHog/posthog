@@ -2,9 +2,6 @@ import {
     Banner,
     Box,
     DataTable,
-    Img,
-    Inline,
-    Link,
     Spinner,
     type DataTableColumn,
     type DataTableItem,
@@ -12,10 +9,10 @@ import {
 } from '@stripe/ui-extension-sdk/ui'
 import { useEffect, useState } from 'react'
 
-import { POSTHOG_ICON_SRC } from '../constants'
 import { logger } from '../logger'
 import { PostHogClient } from '../posthog/client'
 import type { PostHogExperiment } from '../posthog/types'
+import ExternalLink from './components/ExternalLink'
 import { experimentStatusOf } from './utils'
 
 interface Props {
@@ -120,12 +117,7 @@ const ExperimentsTab = ({ client, projectId }: Props): JSX.Element => {
         <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
             <DataTable columns={columns} items={items} rowActions={rowActions} />
             <Box css={{ paddingX: 'medium' }}>
-                <Link href={`${posthogBase}/experiments`} target="_blank" type="secondary">
-                    <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'center' }}>
-                        <Img src={POSTHOG_ICON_SRC} alt="PostHog" width="16" height="16" />
-                        <Inline>See more experiments in PostHog</Inline>
-                    </Box>
-                </Link>
+                <ExternalLink href={`${posthogBase}/experiments`}>View in PostHog</ExternalLink>
             </Box>
         </Box>
     )

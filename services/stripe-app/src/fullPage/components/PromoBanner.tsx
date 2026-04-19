@@ -1,4 +1,4 @@
-import { Box, Img, Inline, Link } from '@stripe/ui-extension-sdk/ui'
+import { Box, Icon, Img, Inline, Link } from '@stripe/ui-extension-sdk/ui'
 
 import { POSTHOG_ICON_SRC } from '../../constants'
 
@@ -39,10 +39,10 @@ export const PromoBannerTitle = ({ children }: { children: React.ReactNode }): J
 )
 
 export const PromoBannerLink = ({ href, children }: { href: string; children: React.ReactNode }): JSX.Element => (
-    <Link href={href} target="_blank" type="secondary">
-        <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'center' }}>
-            <Img src={POSTHOG_ICON_SRC} alt="PostHog" width="16" height="16" />
+    <Link href={href} target="_blank" external>
+        <Box css={{ stack: 'x', columnGap: 'xxsmall', alignY: 'center' }}>
             <Inline css={{ font: 'caption' }}>{children}</Inline>
+            <Icon name="external" size="xsmall" />
         </Box>
     </Link>
 )

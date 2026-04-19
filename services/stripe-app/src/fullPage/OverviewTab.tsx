@@ -2,7 +2,6 @@ import {
     Banner,
     Box,
     Divider,
-    Img,
     Inline,
     Link,
     OverviewPage,
@@ -12,10 +11,10 @@ import {
 import { BarChart, LineChart } from '@stripe/ui-extension-sdk/ui/next'
 import { useEffect, useState } from 'react'
 
-import { POSTHOG_ICON_SRC } from '../constants'
 import { logger } from '../logger'
 import { PostHogClient } from '../posthog/client'
 import type { FunnelStepResult, PostHogFeatureFlag, WebOverviewItem } from '../posthog/types'
+import ExternalLink from './components/ExternalLink'
 import MetricRow from './components/MetricRow'
 import PromoBanner, {
     PromoBannerLink,
@@ -207,12 +206,7 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
     const seeInPostHog = (path: string): JSX.Element | null =>
         posthogBase ? (
             <Box css={{ paddingTop: 'small' }}>
-                <Link href={`${posthogBase}${path}`} target="_blank" type="secondary">
-                    <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'center' }}>
-                        <Img src={POSTHOG_ICON_SRC} alt="PostHog" width="16" height="16" />
-                        <Inline>See more in PostHog</Inline>
-                    </Box>
-                </Link>
+                <ExternalLink href={`${posthogBase}${path}`}>View in PostHog</ExternalLink>
             </Box>
         ) : null
 
@@ -286,21 +280,21 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
                 ...journeyFunnels.flatMap(({ funnel, conversionPct, chartData }) => [
                     <OverviewPageModule key={funnel.name} title={funnel.name}>
                         <Inline css={{ font: 'caption', color: 'secondary' }}>
-                            {conversionPct}% overall conversion ·{' '}
-                            {posthogBase && (
-                                <Link
-                                    href={`${posthogBase}/customer_analytics/journeys/${funnel.id}/edit`}
-                                    target="_blank"
-                                    type="secondary"
-                                >
-                                    View in PostHog
-                                </Link>
-                            )}
+                            {conversionPct}% overall conversion
                         </Inline>
                     </OverviewPageModule>,
                     <Box key={`chart-${funnel.name}`} css={{ height: 200 }}>
                         <BarChart data={chartData} />
                     </Box>,
+                    ...(posthogBase
+                        ? [
+                              <Box key={`link-${funnel.name}`} css={{ paddingTop: 'xsmall' }}>
+                                  <ExternalLink href={`${posthogBase}/customer_analytics/journeys/${funnel.id}/edit`}>
+                                      View in PostHog
+                                  </ExternalLink>
+                              </Box>,
+                          ]
+                        : []),
                 ]),
                 ...(posthogBase && journeyFunnels.length <= 2
                     ? [
