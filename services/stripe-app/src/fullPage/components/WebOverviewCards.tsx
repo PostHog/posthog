@@ -1,4 +1,4 @@
-import { Badge, Box, Img, Inline, Link, Spinner } from '@stripe/ui-extension-sdk/ui'
+import { Box, Img, Inline, Link, Spinner } from '@stripe/ui-extension-sdk/ui'
 
 import { POSTHOG_ICON_SRC } from '../../constants'
 import type { WebOverviewItem } from '../../posthog/types'
@@ -79,7 +79,7 @@ const WebOverviewCards = ({ items, loading, posthogUrl }: Props): JSX.Element =>
 export default WebOverviewCards
 
 const Card = ({ item }: { item: WebOverviewItem }): JSX.Element => {
-    const chip = deltaChip(item)
+    const delta = deltaText(item)
     return (
         <Box
             css={{
@@ -97,12 +97,10 @@ const Card = ({ item }: { item: WebOverviewItem }): JSX.Element => {
             <Inline css={{ font: 'caption', color: 'secondary', textTransform: 'capitalize' }}>
                 {titleCase(item.key)}
             </Inline>
-            <Inline css={{ font: 'heading' }}>{formatValue(item)}</Inline>
-            {chip && (
-                <Box css={{ stack: 'x' }}>
-                    <Badge type={chip.type}>{chip.label}</Badge>
-                </Box>
-            )}
+            <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'baseline' }}>
+                <Inline css={{ font: 'heading' }}>{formatValue(item)}</Inline>
+                {delta && <Inline css={{ font: 'caption', color: delta.color }}>{delta.label}</Inline>}
+            </Box>
         </Box>
     )
 }
@@ -139,7 +137,7 @@ function formatValue(item: WebOverviewItem): string {
     return item.value.toLocaleString()
 }
 
-function deltaChip(item: WebOverviewItem): { label: string; type: 'positive' | 'negative' | 'neutral' } | null {
+function deltaText(item: WebOverviewItem): { label: string; color: 'success' | 'critical' | 'secondary' } | null {
     if (item.changeFromPreviousPct === undefined || item.changeFromPreviousPct === null) {
         return null
     }
@@ -147,8 +145,8 @@ function deltaChip(item: WebOverviewItem): { label: string; type: 'positive' | '
     const sign = pct > 0 ? '+' : ''
     const label = `${sign}${pct.toFixed(pct % 1 === 0 ? 0 : 1)}%`
     if (pct === 0) {
-        return { label, type: 'neutral' }
+        return { label, color: 'secondary' }
     }
     const isGood = item.isIncreaseBad ? pct < 0 : pct > 0
-    return { label, type: isGood ? 'positive' : 'negative' }
+    return { label, color: isGood ? 'success' : 'critical' }
 }
