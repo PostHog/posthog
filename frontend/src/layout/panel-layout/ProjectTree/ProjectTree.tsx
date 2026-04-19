@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -383,6 +384,14 @@ export function ProjectTree({
                     return
                 }
 
+                posthog.capture('project tree item clicked', {
+                    root: root ?? null,
+                    item_type: item?.type ?? null,
+                    record_type: item?.record?.type ?? null,
+                    has_href: !!item?.record?.href,
+                    name: item?.name ?? null,
+                })
+
                 if (item?.record?.href) {
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
@@ -406,6 +415,11 @@ export function ProjectTree({
             }}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
+                    posthog.capture('project tree folder toggled', {
+                        root: root ?? null,
+                        is_expanded: isExpanded,
+                        name: folder.name ?? null,
+                    })
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}
