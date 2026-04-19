@@ -8,6 +8,7 @@ import {
     Spinner,
     type DataTableColumn,
     type DataTableItem,
+    type DataTableRowAction,
 } from '@stripe/ui-extension-sdk/ui'
 import { useEffect, useState } from 'react'
 
@@ -108,16 +109,22 @@ const FeatureFlagsTab = ({ client, projectId }: Props): JSX.Element => {
         }
     })
 
-    const onRowClick = (item: DataTableItem): void => {
-        const flagId = idToFlagId.get(item.id)
-        if (flagId) {
-            window.open(`${posthogBase}/feature_flags/${flagId}`, '_blank')
-        }
-    }
+    const rowActions: DataTableRowAction[] = [
+        {
+            id: 'open-in-posthog',
+            label: 'Open in PostHog',
+            onPress: (item: DataTableItem) => {
+                const flagId = idToFlagId.get(item.id)
+                if (flagId) {
+                    window.open(`${posthogBase}/feature_flags/${flagId}`, '_blank')
+                }
+            },
+        },
+    ]
 
     return (
         <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
-            <DataTable columns={columns} items={items} onRowClick={onRowClick} />
+            <DataTable columns={columns} items={items} rowActions={rowActions} />
             <Box css={{ paddingX: 'medium' }}>
                 <Link href={`${posthogBase}/feature_flags`} target="_blank" type="secondary">
                     <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'center' }}>
