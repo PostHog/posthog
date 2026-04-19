@@ -10,7 +10,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { initKeaTests } from '~/test/init'
 import { EntityTypes, EventType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { saveAsActionLogic } from './saveAsActionLogic'
+import { buildActionNameValidator, saveAsActionLogic } from './saveAsActionLogic'
 
 function makeAutocaptureEvent(overrides: Partial<EventType> = {}): EventType {
     return {
@@ -208,6 +208,24 @@ describe('saveAsActionLogic', () => {
             saveAsActionLogic.actions.saveFromEvent(makeAutocaptureEvent({ event: '$pageview' }), [])
 
             expect(screen.queryByTestId('save-as-action-name')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('buildActionNameValidator', () => {
+        it.each([
+            ['empty name', [], '', 'Action name is required'],
+            ['whitespace-only name', [], '   ', 'Action name is required'],
+            ['unique name', ['Other'], 'My action', undefined],
+            ['colliding name', ['Existing action'], 'Existing action', 'An action with this name already exists'],
+            [
+                'collision ignoring surrounding whitespace',
+                ['Existing action'],
+                '  Existing action  ',
+                'An action with this name already exists',
+            ],
+        ])('%s → %s', (_desc, existing, input, expected) => {
+            const validator = buildActionNameValidator(existing)
+            expect(validator(input)).toBe(expected)
         })
     })
 })

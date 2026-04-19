@@ -27,6 +27,22 @@ export interface OpenSaveAsActionDialogPayload {
     createInFolder?: string
 }
 
+export function buildActionNameValidator(existingActionNames: Iterable<string>): (value: string) => string | undefined {
+    const existing = new Set(
+        [...existingActionNames].map((name) => name?.trim()).filter((name): name is string => Boolean(name))
+    )
+    return (value: string) => {
+        const trimmed = value?.trim()
+        if (!trimmed) {
+            return 'Action name is required'
+        }
+        if (existing.has(trimmed)) {
+            return 'An action with this name already exists'
+        }
+        return undefined
+    }
+}
+
 export const saveAsActionLogic = kea<saveAsActionLogicType>([
     path(['products', 'actions', 'frontend', 'logics', 'saveAsActionLogic']),
     actions({
@@ -58,12 +74,13 @@ export const saveAsActionLogic = kea<saveAsActionLogicType>([
             })
         },
         openSaveAsActionDialog: ({ suggestedName, step, createInFolder }) => {
+            const existingActionNames = (actionsModel.findMounted()?.values.actions ?? []).map((a) => a.name ?? '')
             LemonDialog.openForm({
                 title: 'Save as action',
                 initialValues: { actionName: suggestedName },
                 shouldAwaitSubmit: true,
                 errors: {
-                    actionName: (value: string) => (!value?.trim() ? 'Action name is required' : undefined),
+                    actionName: buildActionNameValidator(existingActionNames),
                 },
                 content: (
                     <LemonField name="actionName" label="Action name">
@@ -87,9 +104,9 @@ export const saveAsActionLogic = kea<saveAsActionLogicType>([
                                 Action created. <Link to={urls.action(action.id)}>View action</Link>
                             </>
                         )
-                    } catch (error) {
+                    } catch (error: any) {
                         posthog.captureException(error, { action: 'save-as-action' })
-                        lemonToast.error('Failed to create action. Please try again.')
+                        lemonToast.error(error?.data?.detail ?? 'Failed to create action. Please try again.')
                     }
                 },
             })
