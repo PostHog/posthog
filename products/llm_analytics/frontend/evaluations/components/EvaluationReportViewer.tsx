@@ -7,9 +7,9 @@ import { urls } from 'scenes/urls'
 
 import type { EvaluationReportMetrics, EvaluationReportRun, EvaluationReportSection } from '../types'
 
-// Match any UUID in the content — surrounding punctuation (backticks, angle brackets, etc.)
-// is stripped so we don't depend on how the LLM formats references.
-const UUID_REGEX = /[`<]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]*/g
+// Match any UUID in the content — optional single-char wrapper (backtick or angle bracket)
+// on each side. Using `?` (not `*`) avoids polynomial backtracking on inputs like "<<<<<xxx".
+const UUID_REGEX = /[`<]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]?/g
 
 // Rewrite `<uuid>` backtick tokens into markdown links pointing to the correct
 // trace URL. Uses the citations list to map generation_id → trace_id so the link
@@ -27,16 +27,24 @@ function linkifyUuids(content: string, citationMap: Record<string, string>): str
 // Strip a leading markdown heading line if it matches the section title.
 // The agent sometimes prefixes each section's content with its own heading,
 // which duplicates the heading the renderer emits separately.
+//
+// Inspect only the first line via split so the heading regex doesn't need to
+// scan past a newline — that also sidesteps the overlapping-\s quantifiers
+// that CodeQL flagged as a ReDoS surface on inputs with many tabs/spaces.
 function stripRedundantLeadingHeading(content: string, sectionTitle: string): string {
-    const match = content.match(/^\s*(#{1,6})\s+(.+?)\s*(?:\r?\n|$)/)
+    const newlineIdx = content.search(/\r?\n/)
+    const firstLine = newlineIdx === -1 ? content : content.slice(0, newlineIdx)
+    const match = firstLine.match(/^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*$/)
     if (!match) {
         return content
     }
     const headingText = match[2].trim().toLowerCase()
-    if (headingText.startsWith(sectionTitle.toLowerCase())) {
-        return content.slice(match[0].length).replace(/^\s+/, '')
+    if (!headingText.startsWith(sectionTitle.toLowerCase())) {
+        return content
     }
-    return content
+    // Strip the first line and any leading blank lines that followed it.
+    const afterHeading = newlineIdx === -1 ? '' : content.slice(newlineIdx + (content[newlineIdx] === '\r' ? 2 : 1))
+    return afterHeading.replace(/^[ \t]*\r?\n/, '')
 }
 
 function ReportSectionContent({
