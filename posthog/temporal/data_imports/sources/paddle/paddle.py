@@ -94,7 +94,7 @@ def get_rows(
             break
         seen_urls.add(url)
 
-        response = paddle_request(session, "GET", url, headers=headers)
+        response = paddle_request(session, "GET", url, headers=headers, params=params)
 
         response.raise_for_status()
         data = response.json()

@@ -33,9 +33,10 @@ class MockResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
+            from requests import Response
             from requests.exceptions import HTTPError
 
-            raise HTTPError(f"HTTP Error {self.status_code}")
+            raise HTTPError(f"HTTP Error {self.status_code}", response=Response())
 
 
 def _get_mock_resumable_manager() -> ResumableSourceManager[PaddleResumeConfig]:
@@ -242,7 +243,7 @@ def test_get_rows_stops_on_repeated_cursor(mock_request):
         ("adjustments", False),
     ]
 )
-def test_get_schemas_incremental_flag(self, endpoint, expected_incremental):
+def test_get_schemas_incremental_flag(endpoint, expected_incremental):
     source = PaddleSource()
     schemas = {schema.name: schema for schema in source.get_schemas(config=MagicMock(), team_id=1)}
     assert schemas[endpoint].supports_incremental is expected_incremental
