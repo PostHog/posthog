@@ -125,7 +125,7 @@ function LinkedAccountRow({
                 </div>
                 {account.provider === 'github' ? (
                     <div className="mt-1 text-xs text-secondary italic text-balance">
-                        Besides login, connecting GitHub allows PostHog to suggest ownership of errors or auto-generated
+                        Besides login, connecting GitHub allows PostHog to suggest assignment errors or auto-generated
                         PRs.
                     </div>
                 ) : null}
