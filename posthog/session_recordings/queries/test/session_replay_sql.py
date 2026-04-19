@@ -32,11 +32,16 @@ INSERT INTO sharded_session_replay_events (
     snapshot_source,
     snapshot_library,
     size,
+    event_count,
+    message_count,
     block_urls,
     block_first_timestamps,
     block_last_timestamps,
     retention_period_days,
     is_deleted,
+    ai_tags_fixed,
+    ai_tags_freeform,
+    ai_highlighted,
     _timestamp
 )
 SELECT
@@ -57,11 +62,16 @@ SELECT
     argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     argMinState(cast(%(snapshot_library)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     %(size)s,
+    %(event_count)s,
+    %(message_count)s,
     %(block_urls)s,
     %(block_first_timestamps)s,
     %(block_last_timestamps)s,
     %(retention_period_days)s,
     %(is_deleted)s,
+    %(ai_tags_fixed)s,
+    %(ai_tags_freeform)s,
+    %(ai_highlighted)s,
     %(_timestamp)s
 """
 
@@ -143,6 +153,11 @@ def produce_replay_summary(
     block_last_timestamps: list[datetime] | None = None,
     retention_period_days: int | None = None,
     is_deleted: bool = False,
+    event_count: Optional[int] = None,
+    message_count: Optional[int] = None,
+    ai_tags_fixed: list[str] | None = None,
+    ai_tags_freeform: list[str] | None = None,
+    ai_highlighted: bool = False,
 ):
     """
     Creates a session replay event in ClickHouse for testing purposes.
@@ -173,11 +188,16 @@ def produce_replay_summary(
         "snapshot_source": snapshot_source,
         "snapshot_library": snapshot_library,
         "size": size or 0,
+        "event_count": event_count or 0,
+        "message_count": message_count or 0,
         "block_urls": block_urls or [],
         "block_first_timestamps": block_first_timestamps or [],
         "block_last_timestamps": block_last_timestamps or [],
         "retention_period_days": retention_period_days or 30,
         "is_deleted": 1 if is_deleted else 0,
+        "ai_tags_fixed": ai_tags_fixed or [],
+        "ai_tags_freeform": ai_tags_freeform or [],
+        "ai_highlighted": 1 if ai_highlighted else 0,
     }
 
     if settings.TEST:
