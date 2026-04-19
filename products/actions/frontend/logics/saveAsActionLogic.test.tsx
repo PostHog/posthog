@@ -51,6 +51,10 @@ describe('saveAsActionLogic', () => {
         await act(async () => {
             await new Promise((r) => setTimeout(r, 0))
         })
+        // LemonDialog renders via a ReactModal portal outside #root; RTL's cleanup doesn't
+        // unmount it, so any dialog left open from a test leaks into the next one.
+        // We nuke portal divs here rather than clicking Cancel because async cleanup inside
+        // afterEach is flaky when a test has already errored.
         document.querySelectorAll('body > div:not(#root)').forEach((el) => el.remove())
         saveAsActionLogic.unmount()
     })
