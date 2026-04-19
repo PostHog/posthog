@@ -28,17 +28,18 @@ function linkifyUuids(content: string, citationMap: Record<string, string>): str
 // The agent sometimes prefixes each section's content with its own heading,
 // which duplicates the heading the renderer emits separately.
 //
-// Inspect only the first line via split so the heading regex doesn't need to
-// scan past a newline — that also sidesteps the overlapping-\s quantifiers
-// that CodeQL flagged as a ReDoS surface on inputs with many tabs/spaces.
+// Parsed as three independent linear scans rather than one multi-quantifier
+// regex so there's no backtracking ambiguity for CodeQL to flag: (1) find
+// the newline, (2) match just the `#` prefix on the first line with a
+// bounded regex, (3) plain string slice + trim for the title text.
 function stripRedundantLeadingHeading(content: string, sectionTitle: string): string {
     const newlineIdx = content.search(/\r?\n/)
     const firstLine = newlineIdx === -1 ? content : content.slice(0, newlineIdx)
-    const match = firstLine.match(/^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*$/)
-    if (!match) {
+    const hashMatch = firstLine.match(/^ {0,3}#{1,6}(?=[ \t])/)
+    if (!hashMatch) {
         return content
     }
-    const headingText = match[2].trim().toLowerCase()
+    const headingText = firstLine.slice(hashMatch[0].length).trim().toLowerCase()
     if (!headingText.startsWith(sectionTitle.toLowerCase())) {
         return content
     }
