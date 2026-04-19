@@ -81,17 +81,29 @@ const EventsTab = ({ client, projectId }: Props): JSX.Element => {
         )
     }
 
-    const items: DataTableItem[] = events.map((e) => ({
-        id: `event:${e.event}`,
-        event: e.event,
-        count: e.count.toLocaleString(),
-    }))
+    const eventNameById = new Map<string, string>()
+    const items: DataTableItem[] = events.map((e) => {
+        const id = `event:${e.event}`
+        eventNameById.set(id, e.event)
+        return {
+            id,
+            event: e.event,
+            count: e.count.toLocaleString(),
+        }
+    })
 
     const posthogBase = `${client.baseUrl}/project/${projectId}`
 
+    const onRowClick = (item: DataTableItem): void => {
+        const eventName = eventNameById.get(item.id)
+        if (eventName) {
+            window.open(`${posthogBase}/activity/explore-events?q=${buildEventsQuery(eventName)}`, '_blank')
+        }
+    }
+
     return (
         <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
-            <DataTable columns={columns} items={items} />
+            <DataTable columns={columns} items={items} onRowClick={onRowClick} />
             <Box css={{ paddingX: 'medium' }}>
                 <Link href={`${posthogBase}/activity`} target="_blank" type="secondary">
                     <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'center' }}>
@@ -105,3 +117,28 @@ const EventsTab = ({ client, projectId }: Props): JSX.Element => {
 }
 
 export default EventsTab
+
+function buildEventsQuery(eventName: string): string {
+    const query = {
+        kind: 'DataTableNode',
+        full: true,
+        source: {
+            kind: 'EventsQuery',
+            select: [
+                '*',
+                'event',
+                'person_display_name -- Person',
+                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
+                'properties.$lib',
+                'timestamp',
+            ],
+            orderBy: ['timestamp DESC'],
+            after: '-30d',
+            event: eventName,
+        },
+        propertiesViaUrl: true,
+        showSavedQueries: true,
+        showPersistentColumnConfigurator: true,
+    }
+    return encodeURIComponent(JSON.stringify(query))
+}
