@@ -143,6 +143,74 @@ describe('insightSceneLogic', () => {
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
     })
 
+    it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/': (req) => {
+                    const shortId = req.url.searchParams.get('short_id') || ''
+                    const id = shortId === '12' ? 12 : 42
+                    const sid = (shortId === '12' ? Insight12 : Insight42) as InsightShortId
+                    return [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id,
+                                    short_id: sid,
+                                    result: ['result from api'],
+                                    name: shortId === '12' ? 'copy' : 'original',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/': (req) => [
+                    200,
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
+            },
+        })
+
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        router.actions.push(urls.insightEdit(Insight42))
+        await expectLogic(logic).toFinishAllListeners()
+
+        const refBefore = logic.values.insightLogicRef
+        expect(refBefore?.logic.props.dashboardItemId).toBe(Insight42)
+        expect(refBefore?.logic.values.insight.short_id).toBe(Insight42)
+
+        // Stale state from the old save-as flow: copy loaded in the editor while props still target the tile.
+        refBefore?.logic.actions.setInsight(
+            {
+                id: 12,
+                short_id: Insight12,
+                name: 'copy',
+                query: examples.InsightFunnels,
+                result: [],
+            },
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        expect(refBefore?.logic.values.insight.short_id).toBe(Insight12)
+
+        router.actions.push(urls.insightEdit(Insight12))
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions(['setInsightLogicRef']).toFinishAllListeners()
+
+        const refAfter = logic.values.insightLogicRef
+        expect(refAfter).not.toBe(refBefore)
+        expect(refAfter?.logic.props.dashboardItemId).toBe(Insight12)
+        await expectLogic(refAfter!.logic).toFinishAllListeners()
+        expect(refAfter?.logic.values.insight.short_id).toBe(Insight12)
+    })
+
     it('reloads insight when navigating back to the same insight via PUSH', async () => {
         const insightApiCall = jest
             .fn()

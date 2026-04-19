@@ -1,8 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,6 +13,7 @@ import { BatchExportBackfill } from '~/types'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
 import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
+import { statusToLemonTagType, statusToProgressStrokeColor } from './utils'
 
 export function BatchExportBackfills({ id, context }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id, context })
@@ -64,7 +64,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
 
     return (
         <>
-            <LemonTable
+            <LemonTable<BatchExportBackfill>
                 dataSource={latestBackfills}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -84,23 +84,10 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                         width: 0,
                         render: (_, backfill) => {
                             const status = backfill.status
-                            const color = colorForStatus(status)
-                            const statusStyles = {
-                                success: 'border-success text-success-dark',
-                                'color-accent': 'border-accent text-accent',
-                                warning: 'border-warning text-warning-dark',
-                                danger: 'border-danger text-danger-dark',
-                                default: 'border-default text-default-dark',
-                            } as const
                             return (
-                                <span
-                                    className={clsx(
-                                        'flex justify-center items-center p-2 h-6 text-xs font-semibold rounded-full border-2 select-none',
-                                        statusStyles[color]
-                                    )}
-                                >
-                                    <span className="text-center">{status}</span>
-                                </span>
+                                <LemonTag type={statusToLemonTagType(status)} size="medium">
+                                    {status}
+                                </LemonTag>
                             )
                         },
                     },
@@ -109,7 +96,6 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                         key: 'progress',
                         render: (_, backfill) => {
                             const status = backfill.status
-                            const color = colorForStatus(status)
                             const progress = backfill.progress
                             if (progress && progress.progress != null) {
                                 let label = ''
@@ -126,7 +112,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                                     <span className="flex gap-2 items-center">
                                         <LemonProgress
                                             percent={progress.progress * 100}
-                                            strokeColor={`var(--${color})`}
+                                            strokeColor={statusToProgressStrokeColor(status)}
                                             className="min-w-[80px]"
                                         />
                                         <span className="flex-shrink-0 whitespace-nowrap">{label}</span>
@@ -260,28 +246,6 @@ function BackfillCancelButton({
             />
         </span>
     )
-}
-
-const colorForStatus = (
-    status: BatchExportBackfill['status']
-): 'success' | 'color-accent' | 'warning' | 'danger' | 'default' => {
-    switch (status) {
-        case 'Completed':
-            return 'success'
-        case 'ContinuedAsNew':
-        case 'Running':
-        case 'Starting':
-            return 'color-accent'
-        case 'Cancelled':
-        case 'Terminated':
-        case 'TimedOut':
-            return 'warning'
-        case 'Failed':
-        case 'FailedRetryable':
-            return 'danger'
-        default:
-            return 'default'
-    }
 }
 
 const backfillIsCancelable = (status: BatchExportBackfill['status']): boolean => {

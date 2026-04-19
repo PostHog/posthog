@@ -9,10 +9,14 @@ from unittest.mock import patch
 
 import click
 from hogli.test_runner import (
+    _batch_find_rs_cfg_test,
+    _detect_all,
+    _find_test_files_for_source,
     _is_test_file,
     _parse_porcelain_path,
     _resolve_to_repo_relative,
     _run_changed,
+    _run_grouped,
     detect_test_type,
 )
 from parameterized import parameterized
@@ -67,6 +71,19 @@ class TestDetectTestType:
         assert config.test_type == "jest"
         assert config.command == ["pnpm", f"--filter={expected_filter}", "exec", "jest", file_path]
 
+    def test_jest_node_id_adds_test_name_pattern(self) -> None:
+        config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
+        assert config.test_type == "jest"
+        assert config.command == [
+            "pnpm",
+            "--filter=@posthog/frontend",
+            "exec",
+            "jest",
+            "frontend/src/lib/utils.test.ts",
+            "--testNamePattern",
+            "some test name",
+        ]
+
     def test_nodejs_jest(self) -> None:
         config = detect_test_type("nodejs/tests/cdp/cdp-api.test.ts")
         assert config.test_type == "jest"
@@ -97,16 +114,38 @@ class TestDetectTestType:
         assert "--manifest-path=rust/Cargo.toml" in config.command
         assert "-p" in config.command
         assert "capture" in config.command
+        assert "--test" in config.command
+        assert "events" in config.command
 
     def test_rust_standalone_cli(self) -> None:
         config = detect_test_type("cli/src/main.rs")
         assert config.test_type == "rust"
         assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert "--" not in config.command  # main.rs has no module filter
 
     def test_rust_standalone_funnel_udf(self) -> None:
         config = detect_test_type("funnel-udf/src/lib.rs")
         assert config.test_type == "rust"
         assert "--manifest-path=funnel-udf/Cargo.toml" in config.command
+        assert "--" not in config.command  # lib.rs has no module filter
+
+    def test_rust_single_file_filters_to_module(self) -> None:
+        config = detect_test_type("cli/src/utils/throttler.rs")
+        assert config.test_type == "rust"
+        assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert config.command[-2:] == ["--", "utils::throttler"]
+
+    def test_rust_directory_filters_to_module(self) -> None:
+        config = detect_test_type("cli/src/utils")
+        assert config.test_type == "rust"
+        assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert config.command[-2:] == ["--", "utils"]
+
+    def test_rust_node_id_filters_to_test(self) -> None:
+        config = detect_test_type("cli/src/utils/throttler.rs::test_new_creates_empty_throttler")
+        assert config.test_type == "rust"
+        assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert config.command[-2:] == ["--", "utils::throttler::test_new_creates_empty_throttler"]
 
     def test_rust_no_cargo_toml_raises(self) -> None:
         with pytest.raises(click.UsageError, match="No Cargo.toml found"):
@@ -252,7 +291,6 @@ class TestIsTestFile:
             ("playwright/e2e/dashboards.spec.ts", True),
             ("playwright/e2e/helpers.ts", False),
             ("rust/capture/tests/events.rs", True),
-            ("rust/capture/src/api.rs", False),
             ("rust/capture/src/api_test.rs", True),
             ("livestream/main_test.go", True),
             ("livestream/main.go", False),
@@ -260,6 +298,22 @@ class TestIsTestFile:
     )
     def test_is_test_file(self, path: str, expected: bool) -> None:
         assert _is_test_file(path) == expected
+
+    @parameterized.expand(
+        [
+            ("rust/capture/src/api.rs",),
+            ("rust/capture/src/v1/util.rs",),
+        ]
+    )
+    def test_rs_inline_cfg_test_detected_with_batch(self, path: str) -> None:
+        rs_cfg_test = _batch_find_rs_cfg_test("rust/capture/src")
+        assert _is_test_file(path, rs_cfg_test=rs_cfg_test)
+
+    def test_rs_inline_cfg_test_not_detected_without_batch(self) -> None:
+        assert not _is_test_file("rust/capture/src/api.rs")
+
+    def test_rs_inline_cfg_test_absent_from_batch(self) -> None:
+        assert not _is_test_file("rust/capture/src/api.rs", rs_cfg_test=set())
 
 
 class TestParsePorcelainPath:
@@ -276,6 +330,29 @@ class TestParsePorcelainPath:
     )
     def test_parse_porcelain_path(self, line: str, expected: str) -> None:
         assert _parse_porcelain_path(line) == expected
+
+
+class TestFindTestFilesForSource:
+    @parameterized.expand(
+        [
+            ("posthog/api/comments.py", "posthog/api/test/test_comments.py"),
+            ("common/hogli/test_runner.py", "common/hogli/tests/test_test_runner.py"),
+            (
+                "frontend/src/scenes/dashboard/DashboardHeader.tsx",
+                "frontend/src/scenes/dashboard/DashboardHeader.test.tsx",
+            ),
+            ("livestream/events/filter.go", "livestream/events/filter_test.go"),
+        ]
+    )
+    def test_finds_test_for_source(self, source: str, expected_test: str) -> None:
+        results = _find_test_files_for_source(source)
+        assert expected_test in results
+
+    def test_non_source_file_returns_empty(self) -> None:
+        assert _find_test_files_for_source("README.md") == []
+
+    def test_nonexistent_file_returns_empty(self) -> None:
+        assert _find_test_files_for_source("posthog/api/nonexistent_module.py") == []
 
 
 class TestRunChanged:
@@ -315,6 +392,29 @@ class TestRunChanged:
         assert "frontend/src/lib/utils.test.ts" in frontend_cmd
         assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
 
+    @patch("hogli.test_runner._run")
+    @patch("hogli.test_runner._get_changed_files")
+    def test_discovers_tests_for_changed_source_files(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = ["posthog/api/comments.py"]
+        _run_changed([])
+
+        mock_run.assert_called_once()
+        command = mock_run.call_args[0][0]
+        assert "posthog/api/test/test_comments.py" in command
+
+    @patch("hogli.test_runner._run")
+    @patch("hogli.test_runner._get_changed_files")
+    def test_deduplicates_direct_and_discovered_tests(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = [
+            "posthog/api/comments.py",
+            "posthog/api/test/test_comments.py",
+        ]
+        _run_changed([])
+
+        mock_run.assert_called_once()
+        command = mock_run.call_args[0][0]
+        assert command.count("posthog/api/test/test_comments.py") == 1
+
     @patch("hogli.test_runner._get_changed_files")
     def test_no_changed_files_exits(self, mock_changed) -> None:
         mock_changed.return_value = ["posthog/api/views.py"]
@@ -326,6 +426,50 @@ class TestRunChanged:
         mock_changed.side_effect = click.UsageError("Cannot use --changed on the master branch.")
         with pytest.raises(click.UsageError, match="master"):
             _run_changed([])
+
+
+class TestRunGrouped:
+    @patch("hogli.test_runner._run")
+    def test_mixed_python_and_jest(self, mock_run) -> None:
+        detected = _detect_all(
+            [
+                "posthog/api/test/test_user.py",
+                "frontend/src/scenes/dashboard/Dashboard.test.tsx",
+            ]
+        )
+        _run_grouped(detected, [])
+        assert mock_run.call_count == 2
+        commands = [call[0][0] for call in mock_run.call_args_list]
+        python_cmd = next(c for c in commands if c[0] == "pytest")
+        jest_cmd = next(c for c in commands if c[0] == "pnpm")
+        assert "posthog/api/test/test_user.py" in python_cmd
+        assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in jest_cmd
+
+    @patch("hogli.test_runner._run")
+    def test_passes_extra_args(self, mock_run) -> None:
+        detected = _detect_all(["posthog/api/test/test_user.py"])
+        _run_grouped(detected, ["-v", "--tb=short"])
+        command = mock_run.call_args[0][0]
+        assert "-v" in command
+        assert "--tb=short" in command
+
+    @patch("hogli.test_runner._run")
+    def test_jest_grouped_by_package(self, mock_run) -> None:
+        detected = _detect_all(
+            [
+                "frontend/src/scenes/dashboard/Dashboard.test.tsx",
+                "frontend/src/lib/utils.test.ts",
+                "nodejs/tests/cdp/cdp-api.test.ts",
+            ]
+        )
+        _run_grouped(detected, [])
+        assert mock_run.call_count == 2
+        commands = [call[0][0] for call in mock_run.call_args_list]
+        frontend_cmd = next(c for c in commands if "--filter=@posthog/frontend" in c)
+        nodejs_cmd = next(c for c in commands if "--filter=@posthog/nodejs" in c)
+        assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in frontend_cmd
+        assert "frontend/src/lib/utils.test.ts" in frontend_cmd
+        assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
 
 
 def _get_repo_root():

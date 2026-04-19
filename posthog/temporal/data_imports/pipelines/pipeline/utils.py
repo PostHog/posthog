@@ -20,11 +20,11 @@ from circular_dict import CircularDict
 from dateutil import parser
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
@@ -66,7 +66,7 @@ class TemporaryFileSizeExceedsLimitException(Exception):
 
 
 def normalize_column_name(column_name: str) -> str:
-    return NamingConvention().normalize_identifier(column_name)
+    return NamingConvention.normalize_identifier(column_name)
 
 
 def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:

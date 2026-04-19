@@ -175,6 +175,14 @@ class TestListModelsEndpoint:
         assert "supports_streaming" in model
         assert "supports_vision" in model
 
+    def test_truncation_policy_limit_is_non_zero(self, client: TestClient):
+        # Ensure truncation_policy.limit is always > 0 (prevents tool output breakage).
+        response = client.get("/v1/models")
+        for model in response.json()["data"]:
+            policy = model["truncation_policy"]
+            assert policy["mode"] in {"bytes", "tokens"}
+            assert policy["limit"] > 0, f"{model['id']} would truncate tool output to zero"
+
 
 class TestListModelsForProductEndpoint:
     def test_returns_models_for_llm_gateway(self, client: TestClient):

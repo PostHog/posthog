@@ -7,8 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from prometheus_client import REGISTRY
+from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
@@ -156,6 +157,7 @@ async def create_worker(
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
     enable_combined_metrics_server: bool = True,
+    enable_open_telemetry_plugin: bool = False,
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -204,6 +206,11 @@ async def create_worker(
     else:
         # Expose Temporal SDK metrics directly on the public metrics port.
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
+
+    if enable_open_telemetry_plugin:
+        plugins: collections.abc.Sequence[Plugin] = (OpenTelemetryPlugin(add_temporal_spans=True),)
+    else:
+        plugins = ()
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
@@ -270,9 +277,9 @@ async def create_worker(
         host,
         port,
         namespace,
-        server_root_ca_cert,
-        client_cert,
-        client_key,
+        server_root_ca_cert=server_root_ca_cert,
+        client_cert=client_cert,
+        client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
     )
@@ -315,6 +322,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            plugins=plugins,
         )
 
     return ManagedWorker(worker=worker, metrics_server=metrics_server)

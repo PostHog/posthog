@@ -528,17 +528,36 @@ async def backfill_precalculated_person_properties_activity(
         last_person_id = inputs.start_person_id
         batch_count = 0
 
+        logger.info("Starting ClickHouse client connection and query execution")
+
         with tags_context(
             team_id=inputs.team_id,
             feature=Feature.BEHAVIORAL_COHORTS,
             product=Product.MESSAGING,
             query_type="person_properties_backfill",
         ):
+            logger.info("Acquiring ClickHouse client connection", team_id=inputs.team_id)
             async with get_client(team_id=inputs.team_id) as client:
+                logger.info(
+                    "ClickHouse client connection established, starting query execution",
+                    team_id=inputs.team_id,
+                    query=persons_query,
+                    query_params=query_params,
+                )
                 # Time the ClickHouse query execution
                 query_start_time = time.monotonic()
 
+                first_row = True
                 async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
+                    if first_row:
+                        query_first_row_time = time.monotonic()
+                        logger.info(
+                            "First row received from ClickHouse query",
+                            team_id=inputs.team_id,
+                            time_to_first_row_seconds=round(query_first_row_time - query_start_time, 2),
+                            first_person_id=str(row["person_id"]),
+                        )
+                        first_row = False
                     batch_count += 1
                     person_id = str(row["person_id"])
                     last_person_id = person_id  # Track the last person ID for next cursor

@@ -51,7 +51,6 @@ from posthog.tasks.tasks import (
     clickhouse_part_count,
     clickhouse_row_count,
     clickhouse_send_license_usage,
-    count_items_in_playlists,
     delete_expired_exported_assets,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -62,7 +61,6 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     refresh_activity_log_fields_cache,
-    replay_count_metrics,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -76,8 +74,10 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.conversations.backend.tasks import wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.logs.backend.tasks import logs_alert_checks_cleanup_task
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -427,13 +427,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="*", minute="0"),
-        replay_count_metrics.s(),
-        name="replay_count_metrics",
-    )
-
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -496,6 +489,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="clean up old alert checks",
     )
 
+    sender.add_periodic_task(
+        crontab(hour="8", minute="15"),
+        logs_alert_checks_cleanup_task.s(),
+        name="clean up old logs alert checks",
+    )
+
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
@@ -513,14 +512,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 materialize_columns_crontab,
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
-            )
-
-        if playlist_counter_crontab := get_crontab(settings.PLAYLIST_COUNTER_SCHEDULE_CRON):
-            sender.add_periodic_task(
-                playlist_counter_crontab,
-                count_items_in_playlists.s(),
-                name="ee_count_items_in_playlists",
-                expires=3600,
             )
 
         sender.add_periodic_task(
@@ -601,4 +592,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_expired_test_saved_queries.s(),
         name="cleanup expired test saved queries",
+    )
+
+    # Reopen snoozed conversation tickets whose snooze period has expired
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        wake_snoozed_tickets.s(),
+        name="wake snoozed conversation tickets",
     )

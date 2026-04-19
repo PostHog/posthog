@@ -265,21 +265,21 @@ class TestRunTestCases(SimpleTestCase):
             {"event_name": "pageview", "expected_result": "drop"},
             {"event_name": "click", "expected_result": "ingest"},
         ]
-        run_test_cases(tree, test_cases)
+        self.assertEqual(run_test_cases(tree, test_cases), [])
 
     def test_failing_test_case_expected_drop(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [{"event_name": "click", "expected_result": "drop"}]
-        with self.assertRaises(ValidationError) as ctx:
-            run_test_cases(tree, test_cases)
-        self.assertIn("expected 'drop' but got 'ingest'", str(ctx.exception))
+        failures = run_test_cases(tree, test_cases)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("expected 'drop' but got 'ingest'", failures[0])
 
     def test_failing_test_case_expected_ingest(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [{"event_name": "pageview", "expected_result": "ingest"}]
-        with self.assertRaises(ValidationError) as ctx:
-            run_test_cases(tree, test_cases)
-        self.assertIn("expected 'ingest' but got 'drop'", str(ctx.exception))
+        failures = run_test_cases(tree, test_cases)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("expected 'ingest' but got 'drop'", failures[0])
 
     def test_multiple_failures_reported(self):
         tree = _cond("event_name", "exact", "pageview")
@@ -287,11 +287,10 @@ class TestRunTestCases(SimpleTestCase):
             {"event_name": "click", "expected_result": "drop"},
             {"event_name": "pageview", "expected_result": "ingest"},
         ]
-        with self.assertRaises(ValidationError) as ctx:
-            run_test_cases(tree, test_cases)
-        msg = str(ctx.exception)
-        self.assertIn("Test case 0", msg)
-        self.assertIn("Test case 1", msg)
+        failures = run_test_cases(tree, test_cases)
+        self.assertEqual(len(failures), 2)
+        self.assertIn("Test case 0", failures[0])
+        self.assertIn("Test case 1", failures[1])
 
     def test_test_case_with_distinct_id(self):
         tree = _and(_cond("event_name", "exact", "pageview"), _cond("distinct_id", "contains", "bot"))
@@ -299,7 +298,7 @@ class TestRunTestCases(SimpleTestCase):
             {"event_name": "pageview", "distinct_id": "bot-123", "expected_result": "drop"},
             {"event_name": "pageview", "distinct_id": "user-1", "expected_result": "ingest"},
         ]
-        run_test_cases(tree, test_cases)
+        self.assertEqual(run_test_cases(tree, test_cases), [])
 
     def test_complex_tree_with_many_test_cases(self):
         # Drop if: (event is "$autocapture" OR event contains "bot_")
@@ -331,7 +330,7 @@ class TestRunTestCases(SimpleTestCase):
             # distinct_id missing -> NOT(false)=true, OR still needs to match
             {"event_name": "$autocapture", "expected_result": "drop"},
         ]
-        run_test_cases(tree, test_cases)
+        self.assertEqual(run_test_cases(tree, test_cases), [])
 
 
 class TestEventFilterConfigModel(BaseTest):

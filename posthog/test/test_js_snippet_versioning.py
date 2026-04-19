@@ -146,19 +146,19 @@ class TestGetJsContent(SimpleTestCase):
             cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_fetches_from_s3_and_caches_in_redis(self, mock_read):
         mock_read.return_value = "s3-js-content"
         try:
             content = get_js_content("1.358.0")
             assert content == "s3-js-content"
-            mock_read.assert_called_once_with("static/1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+            mock_read.assert_called_once_with("static/1.358.0/array.js", missing_ok=True)
             assert cache.get(f"{REDIS_JS_KEY_PREFIX}:1.358.0") == "s3-js-content"
         finally:
             cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_falls_back_to_disk_when_s3_misses(self, mock_read):
         mock_read.return_value = None
         content = get_js_content("1.358.0")
@@ -172,7 +172,7 @@ class TestGetJsContent(SimpleTestCase):
         assert len(content) > 0
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_falls_back_to_disk_on_s3_exception(self, mock_read):
         from posthog.storage.object_storage import ObjectStorageError
 
@@ -190,16 +190,16 @@ class TestGetJsContent(SimpleTestCase):
 
 class TestValidateArtifacts(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.head_object")
+    @patch("posthog.models.js_snippet_versioning.s3_head")
     def test_returns_true_when_array_js_exists(self, mock_head):
-        mock_head.return_value = {"ContentLength": 12345}
+        mock_head.return_value = True
         assert validate_version_artifacts("1.358.0") is True
-        mock_head.assert_called_once_with("static/1.358.0/array.js", bucket="test-bucket")
+        mock_head.assert_called_once_with("static/1.358.0/array.js")
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.head_object")
+    @patch("posthog.models.js_snippet_versioning.s3_head")
     def test_returns_false_when_array_js_missing(self, mock_head):
-        mock_head.return_value = None
+        mock_head.return_value = False
         assert validate_version_artifacts("99.99.99") is False
 
     @override_settings(POSTHOG_JS_S3_BUCKET="")
@@ -270,7 +270,7 @@ class TestGetManifestResilience(SimpleTestCase):
         _reset_caches()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read", return_value=None)
+    @patch("posthog.models.js_snippet_versioning.s3_read", return_value=None)
     def test_negative_caches_missing_manifest(self, _mock_s3):
         # No manifest in Redis or S3 — first call should try both, second should not
         with patch("posthog.models.js_snippet_versioning.cache") as mock_cache:
@@ -282,7 +282,7 @@ class TestGetManifestResilience(SimpleTestCase):
             assert mock_cache.get.call_count == 1
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read", return_value=None)
+    @patch("posthog.models.js_snippet_versioning.s3_read", return_value=None)
     def test_negative_cache_expires(self, _mock_s3):
         with patch("posthog.models.js_snippet_versioning.cache") as mock_cache:
             mock_cache.get.return_value = None
@@ -296,7 +296,7 @@ class TestGetManifestResilience(SimpleTestCase):
             assert mock_cache.get.call_count == 2
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read", return_value=None)
+    @patch("posthog.models.js_snippet_versioning.s3_read", return_value=None)
     def test_redis_connection_error_returns_none(self, _mock_s3):
         with patch("posthog.models.js_snippet_versioning.cache") as mock_cache:
             mock_cache.get.side_effect = ConnectionError("Redis unavailable")
@@ -304,7 +304,7 @@ class TestGetManifestResilience(SimpleTestCase):
             assert resolve_version("1") is None
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read", return_value=None)
+    @patch("posthog.models.js_snippet_versioning.s3_read", return_value=None)
     def test_redis_connection_error_is_negative_cached(self, _mock_s3):
         with patch("posthog.models.js_snippet_versioning.cache") as mock_cache:
             mock_cache.get.side_effect = ConnectionError("Redis unavailable")
@@ -333,7 +333,7 @@ class TestGetManifestResilience(SimpleTestCase):
         assert resolve_version("1") == "1.358.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_recovers_manifest_from_s3_on_redis_miss(self, mock_s3_read):
         manifest = _make_manifest(
             versions=["1.358.0"],
@@ -343,10 +343,10 @@ class TestGetManifestResilience(SimpleTestCase):
 
         # Redis is empty, but S3 has the manifest
         assert resolve_version("1") == "1.358.0"
-        mock_s3_read.assert_called_once_with(sv.S3_MANIFEST_KEY, bucket="test-bucket", missing_ok=True)
+        mock_s3_read.assert_called_once_with(sv.S3_MANIFEST_KEY, missing_ok=True)
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_s3_recovery_backfills_redis(self, mock_s3_read):
         manifest = _make_manifest(
             versions=["1.358.0"],
@@ -362,7 +362,7 @@ class TestGetManifestResilience(SimpleTestCase):
         assert json.loads(raw)["pointers"]["1"] == "1.358.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_s3_recovery_works_when_redis_completely_down(self, mock_s3_read):
         manifest = _make_manifest(
             versions=["1.358.0"],
@@ -382,7 +382,7 @@ class TestGetManifestResilience(SimpleTestCase):
             assert mock_s3_read.call_count == 1
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_s3_recovery_is_throttled(self, mock_s3_read):
         mock_s3_read.return_value = None  # S3 also empty
 
@@ -401,9 +401,10 @@ class TestSyncTask(SimpleTestCase):
         _reset_caches()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_write")
     @patch("posthog.models.js_snippet_versioning.validate_version_artifacts")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
-    def test_syncs_versions_json_to_redis(self, mock_read, mock_validate):
+    @patch("posthog.models.js_snippet_versioning.s3_read")
+    def test_syncs_versions_json_to_redis(self, mock_read, mock_validate, _mock_write):
         entries = json.dumps(
             [
                 {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
@@ -424,7 +425,7 @@ class TestSyncTask(SimpleTestCase):
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.js_snippet_versioning.validate_version_artifacts")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_rejects_update_when_no_viable_version(self, mock_read, mock_validate):
         entries = [{"version": "99.99.99", "timestamp": "2025-01-20T00:00:00Z"}]
         mock_read.return_value = json.dumps(entries)
@@ -435,9 +436,10 @@ class TestSyncTask(SimpleTestCase):
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_write")
     @patch("posthog.models.js_snippet_versioning.validate_version_artifacts")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
-    def test_falls_back_to_next_version_when_latest_missing(self, mock_read, mock_validate):
+    @patch("posthog.models.js_snippet_versioning.s3_read")
+    def test_falls_back_to_next_version_when_latest_missing(self, mock_read, mock_validate, _mock_write):
         # 1.9.0 vs 1.10.0: string sort would rank "1.9.0" > "1.10.0",
         # but semver correctly ranks 1.10.0 > 1.9.0
         entries = json.dumps(
@@ -457,7 +459,7 @@ class TestSyncTask(SimpleTestCase):
         assert manifest["pointers"]["1"] == "1.9.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_raises_when_versions_json_is_empty(self, mock_read):
         from posthog.models.js_snippet_versioning import ManifestSyncError
 
@@ -466,7 +468,7 @@ class TestSyncTask(SimpleTestCase):
             sync_manifest_from_s3()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
     def test_raises_when_all_versions_yanked(self, mock_read):
         from posthog.models.js_snippet_versioning import ManifestSyncError
 
@@ -504,10 +506,11 @@ class TestSyncManifestPurge(SimpleTestCase):
         _reset_caches()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_write")
     @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
     @patch("posthog.models.js_snippet_versioning.validate_version_artifacts")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
-    def test_purges_changed_pointers(self, mock_read, mock_validate, mock_purge):
+    @patch("posthog.models.js_snippet_versioning.s3_read")
+    def test_purges_changed_pointers(self, mock_read, mock_validate, mock_purge, _mock_write):
         # Seed old manifest
         old_manifest = _make_manifest(
             versions=["1.358.0"],
@@ -532,10 +535,11 @@ class TestSyncManifestPurge(SimpleTestCase):
         assert "posthog-js-1.358" not in purged_tags
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_write")
     @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
     @patch("posthog.models.js_snippet_versioning.validate_version_artifacts")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
-    def test_no_purge_when_pointers_unchanged(self, mock_read, mock_validate, mock_purge):
+    @patch("posthog.models.js_snippet_versioning.s3_read")
+    def test_no_purge_when_pointers_unchanged(self, mock_read, mock_validate, mock_purge, _mock_write):
         # Seed old manifest with same data as new
         old_manifest = _make_manifest(
             versions=["1.358.0"],
@@ -555,10 +559,11 @@ class TestSyncManifestPurge(SimpleTestCase):
         mock_purge.assert_not_called()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_write")
     @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
     @patch("posthog.models.js_snippet_versioning.validate_version_artifacts")
-    @patch("posthog.models.js_snippet_versioning.object_storage.read")
-    def test_purges_all_pointers_on_first_sync(self, mock_read, mock_validate, mock_purge):
+    @patch("posthog.models.js_snippet_versioning.s3_read")
+    def test_purges_all_pointers_on_first_sync(self, mock_read, mock_validate, mock_purge, _mock_write):
         # No existing manifest in Redis
         mock_read.return_value = json.dumps(
             [

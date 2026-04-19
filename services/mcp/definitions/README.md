@@ -106,6 +106,7 @@ tools:
     title: Short title
     description: Detailed description for the LLM
     input_schema: ActionCreateSchema # named export from src/schema/tool-inputs.ts
+    response_type: Schemas.Action[] # optional TypeScript return type override for generated handlers
     list: true # marks as a list endpoint
     enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
@@ -153,6 +154,7 @@ When `input_schema` is set:
 - Path parameters are extracted from the URL pattern and interpolated from the input
 - Remaining parameters are forwarded as body (POST/PATCH/PUT) or query (GET/DELETE)
 - `enrich_url` and `list` enrichment still apply as normal
+- You can optionally set `response_type` to override the generated TypeScript return type when MCP intentionally differs from the raw OpenAPI response shape
 
 ### Per-param schema overrides
 

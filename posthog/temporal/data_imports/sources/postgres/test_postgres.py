@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
@@ -9,17 +10,23 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
+from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE, MAX_NUMERIC_SCALE
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    _build_count_query,
     _build_query,
+    _get_estimated_row_count_for_partitioned_table,
+    _get_partition_settings,
+    _get_partition_settings_for_partitioned_table,
     _get_primary_keys,
     _get_sslmode,
     _get_table,
     _has_duplicate_primary_keys,
+    _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
     filter_postgres_incremental_fields,
@@ -272,6 +279,302 @@ class TestBuildQuery:
         assert "LIMIT 1000" in rendered
 
 
+class TestBuildCountQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def test_full_refresh_count_query(self):
+        query = _build_count_query("public", "users", False, None, None, None)
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert '"public"."users"' in rendered
+        assert "WHERE" not in rendered
+        assert "ORDER BY" not in rendered
+        assert "FROM (" not in rendered
+
+    def test_incremental_count_query(self):
+        query = _build_count_query("public", "events", True, "created_at", IncrementalFieldType.Timestamp, "2024-01-01")
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert '"public"."events"' in rendered
+        assert '"created_at"' in rendered
+        assert "'2024-01-01'" in rendered
+        assert "ORDER BY" not in rendered
+        assert "FROM (" not in rendered
+
+
+class TestIsPartitionedTable:
+    @pytest.mark.parametrize(
+        "setup_ddl, table_name, expected",
+        [
+            (
+                [
+                    "CREATE TABLE test_is_part (id INTEGER, created_at DATE NOT NULL, PRIMARY KEY (id, created_at)) PARTITION BY RANGE (created_at)",
+                    "CREATE TABLE test_is_part_2026 PARTITION OF test_is_part FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+                ],
+                "test_is_part",
+                True,
+            ),
+            (
+                ["CREATE TABLE test_is_regular (id SERIAL PRIMARY KEY, data TEXT)"],
+                "test_is_regular",
+                False,
+            ),
+            ([], "does_not_exist_xyz", False),
+        ],
+    )
+    @pytest.mark.django_db
+    def test_is_partitioned_table(self, setup_ddl, table_name, expected):
+        with django_connection.cursor() as dj_cursor:
+            for stmt in setup_ddl:
+                dj_cursor.execute(stmt)
+            assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
+
+
+class TestGetEstimatedRowCountForPartitionedTable:
+    @pytest.mark.django_db
+    def test_returns_estimate_for_partitioned_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partitioned (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partitioned_q1
+                PARTITION OF test_est_count_partitioned
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partitioned_q2
+                PARTITION OF test_est_count_partitioned
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_est_count_partitioned (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            dj_cursor.execute("ANALYZE test_est_count_partitioned")
+
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_partitioned", logger
+            )
+            assert result is not None
+            # reltuples is approximate; 200 rows should be close
+            assert 150 <= result <= 250
+
+    @pytest.mark.django_db
+    def test_returns_none_for_non_partitioned_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_est_count_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            dj_cursor.execute("INSERT INTO test_est_count_regular (data) SELECT 'x' FROM generate_series(1, 50)")
+            dj_cursor.execute("ANALYZE test_est_count_regular")
+
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_regular", logger
+            )
+            # No child partitions → partition_count == 0 → function returns None
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_returns_none_when_partitions_partially_analyzed(self):
+        """Mixed analyzed + unanalyzed partitions must not sum reltuples naively.
+
+        reltuples = -1 on never-analyzed partitions would under-count if summed.
+        We require all partitions analyzed before trusting reltuples.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partial (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partial_q1
+                PARTITION OF test_est_count_partial
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partial_q2
+                PARTITION OF test_est_count_partial
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_est_count_partial (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            # Analyze only the first partition — second remains reltuples=-1.
+            dj_cursor.execute("ANALYZE test_est_count_partial_q1")
+
+            # reltuples unreliable; n_live_tup is 0 inside test transaction →
+            # function returns None, forcing exact COUNT(*) fallback.
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_partial", logger
+            )
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_returns_none_without_analyze(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_no_analyze (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_no_analyze_p1
+                PARTITION OF test_est_count_no_analyze
+                FOR VALUES FROM ('2026-01-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_est_count_no_analyze (created_at)
+                SELECT '2026-03-01'::date FROM generate_series(1, 300)
+            """)
+            # Without ANALYZE, reltuples is -1 (PG14+). The stats collector
+            # n_live_tup fallback also can't see rows inside a test transaction.
+            # In production, committed inserts would be visible via n_live_tup.
+            # Here the function returns None, causing a fallback to exact COUNT(*).
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_no_analyze", logger
+            )
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_returns_none_for_empty_partitioned_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_empty (
+                    id INTEGER,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_empty_p1
+                PARTITION OF test_est_count_empty
+                FOR VALUES FROM ('2026-01-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("ANALYZE test_est_count_empty")
+
+            # Both reltuples and n_live_tup are 0 — falls back to exact COUNT(*)
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_empty", logger
+            )
+            assert result is None
+
+
+class TestGetPartitionSettings:
+    @pytest.mark.django_db
+    def test_partitioned_table_uses_catalog_fast_path(self):
+        """On a partitioned parent, settings come from pg_inherits/reltuples,
+        not a COUNT(*) + pg_table_size on the parent.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    payload TEXT,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned_q1
+                PARTITION OF test_ps_partitioned
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned_q2
+                PARTITION OF test_ps_partitioned
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_ps_partitioned (created_at, payload)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months',
+                       repeat('x', 256)
+                FROM generate_series(1, 500) g
+            """)
+            dj_cursor.execute("ANALYZE test_ps_partitioned")
+
+            result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_partitioned", logger)
+            assert result is not None
+            assert result.partition_count >= 1
+            assert result.partition_size > 0
+
+    @pytest.mark.django_db
+    def test_partitioned_table_returns_none_when_any_partition_unanalyzed(self):
+        """Mixed analyzed + unanalyzed partitions must not produce a setting —
+        the catalog numbers are stale, so fall through to exact scan.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial_q1
+                PARTITION OF test_ps_partial
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial_q2
+                PARTITION OF test_ps_partial
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_ps_partial (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            dj_cursor.execute("ANALYZE test_ps_partial_q1")
+
+            result = _get_partition_settings_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_ps_partial", logger
+            )
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_non_partitioned_table_still_uses_legacy_query(self):
+        """Regular tables must skip the catalog fast path and go through the
+        original COUNT(*) + pg_table_size query.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_ps_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            dj_cursor.execute("INSERT INTO test_ps_regular (data) SELECT repeat('x', 128) FROM generate_series(1, 200)")
+            dj_cursor.execute("ANALYZE test_ps_regular")
+
+            result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_regular", logger)
+            assert result is not None
+            assert result.partition_size > 0
+
+
 class TestPostgreSQLColumnToArrowField:
     @pytest.mark.parametrize(
         "data_type,expected_arrow_type",
@@ -408,7 +711,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_pk_table", logger)
             assert result is not None
             assert "id" in result
 
@@ -423,7 +726,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_no_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_no_pk_table", logger)
             assert result is None
 
     @pytest.mark.django_db
@@ -439,11 +742,104 @@ class TestGetPrimaryKeys:
                     PRIMARY KEY (org_id, user_id)
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_composite_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_composite_pk_table", logger)
             assert result is not None
             assert len(result) == 2
             assert "org_id" in result
             assert "user_id" in result
+
+    @pytest.mark.django_db
+    def test_returns_primary_keys_for_partitioned_parent_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_pk (
+                    id INTEGER,
+                    created_at DATE,
+                    name TEXT,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_pk_2026
+                PARTITION OF test_partitioned_parent_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')
+            """)
+
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_parent_pk", logger)
+            assert result is not None
+            assert result == ["id", "created_at"]
+
+    @pytest.mark.django_db
+    def test_returns_primary_keys_for_partitioned_parent_when_only_children_have_pk(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk (
+                    order_id INTEGER NOT NULL,
+                    created_at DATE NOT NULL,
+                    updated_at DATE NOT NULL
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk_2026_q1
+                PARTITION OF test_partitioned_parent_no_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk_2026_q2
+                PARTITION OF test_partitioned_parent_no_pk
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_parent_no_pk_2026_q1
+                ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q1_pkey PRIMARY KEY (order_id)
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_parent_no_pk_2026_q2
+                ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q2_pkey PRIMARY KEY (order_id)
+            """)
+
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_parent_no_pk", logger)
+            assert result is not None
+            assert result == ["order_id"]
+
+    @pytest.mark.django_db
+    def test_returns_none_for_partitioned_parent_with_inconsistent_child_pks(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk (
+                    col_a INTEGER NOT NULL,
+                    col_b INTEGER NOT NULL,
+                    created_at DATE NOT NULL
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk_q1
+                PARTITION OF test_partitioned_inconsistent_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk_q2
+                PARTITION OF test_partitioned_inconsistent_pk
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_inconsistent_pk_q1
+                ADD CONSTRAINT test_partitioned_inconsistent_pk_q1_pkey PRIMARY KEY (col_a)
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_inconsistent_pk_q2
+                ADD CONSTRAINT test_partitioned_inconsistent_pk_q2_pkey PRIMARY KEY (col_b)
+            """)
+
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
+            assert result is None
 
 
 class TestHasDuplicatePrimaryKeys:
@@ -452,8 +848,8 @@ class TestHasDuplicatePrimaryKeys:
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", None, logger) is False
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", [], logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", None, logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", [], logger) is False
 
     @pytest.mark.django_db
     def test_returns_false_when_no_duplicates(self):
@@ -467,7 +863,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_no_dup_table VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_no_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_no_dup_table", ["id"], logger)
             assert result is False
 
     @pytest.mark.django_db
@@ -482,7 +878,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_dup_table VALUES (1, 'a'), (1, 'b'), (2, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
 
@@ -490,7 +886,7 @@ class TestIsReadReplica:
     @pytest.mark.django_db
     def test_primary_is_not_read_replica(self):
         with django_connection.cursor() as dj_cursor:
-            result = _is_read_replica(dj_cursor)
+            result = _is_read_replica(cast(Any, dj_cursor))
             assert result is False
 
 
@@ -507,7 +903,7 @@ class TestGetTable:
                     score DOUBLE PRECISION
                 )
             """)
-            table = _get_table(dj_cursor, "public", "test_get_table_regular", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_regular", logger)
             assert table.type == "table"
             col_names = [c.name for c in table.columns]
             assert "id" in col_names
@@ -521,7 +917,7 @@ class TestGetTable:
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_view_base (id INTEGER, name TEXT)")
             dj_cursor.execute("CREATE VIEW test_get_table_view AS SELECT * FROM test_get_table_view_base")
-            table = _get_table(dj_cursor, "public", "test_get_table_view", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_view", logger)
             assert table.type == "view"
 
     @pytest.mark.django_db
@@ -533,5 +929,231 @@ class TestGetTable:
             dj_cursor.execute(
                 "CREATE MATERIALIZED VIEW test_get_table_matview AS SELECT * FROM test_get_table_matview_base"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_matview", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_matview", logger)
             assert table.type == "materialized_view"
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_probe_gated_off_uses_default_scale(self):
+        """When the caller doesn't request probing (the default), an unconstrained `numeric`
+        column falls back to `DEFAULT_NUMERIC_SCALE` regardless of the actual data. This is the
+        path used by incremental syncs where the delta column type is already set and probing
+        would be a wasted full-table aggregation."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_probe_gated_off (id INTEGER PRIMARY KEY, val NUMERIC)")
+            dj_cursor.execute("INSERT INTO test_get_table_probe_gated_off VALUES (1, 0.84497449830783164117::numeric)")
+            # Explicitly omit `probe_unconstrained_numeric_scale` to exercise the default.
+            table = _get_table(dj_cursor, "public", "test_get_table_probe_gated_off", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "inserts,expected_precision,expected_scale,expected_arrow_type",
+        [
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 0.84497449830783164117::numeric)",
+                    "INSERT INTO test_probe_scale VALUES (2, 0::numeric)",
+                ],
+                38,
+                20,
+                pa.decimal128(38, 20),
+                id="fractional_fits_in_decimal128",
+            ),
+            pytest.param(
+                [],
+                38,
+                DEFAULT_NUMERIC_SCALE,
+                pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+                id="empty_table_falls_back_to_default",
+            ),
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)",
+                ],
+                38,
+                MAX_NUMERIC_SCALE,
+                pa.decimal128(38, MAX_NUMERIC_SCALE),
+                id="scale_past_max_clamped_with_small_int_still_fits",
+            ),
+            # Pins the intentional conservative behavior: all-integer data means MAX(scale(val))
+            # returns 0, but we fall back to DEFAULT_NUMERIC_SCALE rather than freezing the delta
+            # column at scale=0 — because the source column is unconstrained and a future sync
+            # could legitimately carry fractional digits the delta column wouldn't be able to
+            # hold. See the matching comment in postgres.py:_get_table.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 42::numeric)",
+                    "INSERT INTO test_probe_scale VALUES (2, 1000::numeric)",
+                ],
+                38,
+                DEFAULT_NUMERIC_SCALE,
+                pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+                id="integer_only_data_falls_back_to_default",
+            ),
+            # 8 integer digits + 30 fractional digits = 38 total, which is the `decimal128`
+            # precision budget. Must fit without escalating.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 12345678.012345678901234567890123456789::numeric)",
+                ],
+                38,
+                30,
+                pa.decimal128(38, 30),
+                id="total_exactly_at_decimal128_budget_fits",
+            ),
+            # 9 integer digits + 30 fractional digits = 39 total, one digit past the `decimal128`
+            # budget. The column must escalate precision past 38 so `build_pyarrow_decimal_type`
+            # promotes to `decimal256`; staying at (38, 30) would silently lose the leading integer
+            # digit when the data is later cast to arrow.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 123456789.012345678901234567890123456789::numeric)",
+                ],
+                39,
+                30,
+                pa.decimal256(39, 30),
+                id="integer_overflow_escalates_precision_past_38",
+            ),
+            # 10 integer digits + 32 fractional digits = 42 total. Scale is at MAX_NUMERIC_SCALE,
+            # integer side is over budget. Must escalate precision to cover both dimensions.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 1234567890.12345678901234567890123456789012::numeric)",
+                ],
+                42,
+                MAX_NUMERIC_SCALE,
+                pa.decimal256(42, MAX_NUMERIC_SCALE),
+                id="both_dimensions_exceed_budget_escalates_precision",
+            ),
+        ],
+    )
+    def test_unconstrained_numeric_probe_dimensions(
+        self,
+        inserts: list[str],
+        expected_precision: int,
+        expected_scale: int,
+        expected_arrow_type: pa.DataType,
+    ):
+        """Unconstrained `numeric` columns probe both fractional scale and integer digits so the
+        resulting decimal type has enough precision to hold the observed data. When total digits
+        exceed `decimal128`'s 38-digit budget, precision must escalate past 38 so
+        `build_pyarrow_decimal_type` promotes the column to `decimal256` (which delta-rs will then
+        collapse to `string` at write). Freezing at `decimal128(38, scale)` silently truncates
+        either fractional digits (original bug pre-PR) or integer digits (regression introduced by
+        the single-dimension probe)."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_probe_scale (id INTEGER PRIMARY KEY, val NUMERIC)")
+            for insert_sql in inserts:
+                dj_cursor.execute(insert_sql)
+
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
+                "public",
+                "test_probe_scale",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == expected_precision
+            assert val_col.numeric_scale == expected_scale
+            # Guard the full schema conversion too — catches regressions where precision/scale
+            # look right on the PostgreSQLColumn but the arrow type flips (e.g. decimal128 vs
+            # decimal256). The expected type is explicit per case rather than derived from
+            # `build_pyarrow_decimal_type(precision, scale)` so each case locks in its intended
+            # arrow width at the parameter level.
+            assert val_col.to_arrow_field().type == expected_arrow_type
+
+    @pytest.mark.django_db
+    def test_constrained_numeric_skips_probe(self):
+        """Columns declared with explicit precision/scale use those values directly, no data probe."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_constrained_numeric (id INTEGER PRIMARY KEY, val NUMERIC(10, 2))"
+            )
+            # Even though there's no data, the declared scale is used — no probe attempted.
+            table = _get_table(dj_cursor, "public", "test_get_table_constrained_numeric", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == 10
+            assert val_col.numeric_scale == 2
+
+    @pytest.mark.django_db
+    def test_constrained_numeric_zero_scale_survives_schema_conversion(self):
+        """Declared `NUMERIC(X, 0)` columns must be convertible to an arrow schema without tripping
+        the legacy truthy-check guard in `PostgreSQLColumn.to_arrow_field`."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_zero_scale (id INTEGER PRIMARY KEY, val NUMERIC(10, 0))")
+            table = _get_table(dj_cursor, "public", "test_get_table_zero_scale", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == 10
+            assert val_col.numeric_scale == 0
+            # Must not raise — the full schema conversion is the actual regression surface.
+            arrow_schema = table.to_arrow_schema()
+            assert pa.types.is_decimal(arrow_schema.field("val").type)
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_on_view_skips_probe(self):
+        """`MAX(scale(col))` on a regular view forces the view definition to execute, which
+        can be arbitrarily expensive for join/aggregate views. The probe is skipped for views
+        regardless of the caller's probe flag, and falls back to DEFAULT_NUMERIC_SCALE.
+        The downstream `_process_batch` fallback chain handles scale inference at row time."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_view_unconstrained_base (id INTEGER PRIMARY KEY, val NUMERIC)"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_view_unconstrained_base VALUES (1, 0.84497449830783164117::numeric)"
+            )
+            dj_cursor.execute(
+                "CREATE VIEW test_get_table_view_unconstrained AS SELECT * FROM test_get_table_view_unconstrained_base"
+            )
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
+                "public",
+                "test_get_table_view_unconstrained",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            assert table.type == "view"
+            val_col = next(c for c in table.columns if c.name == "val")
+            # Probe was skipped for the view → default scale, even though the base table has
+            # scale-20 data that a probe would have found.
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_multiple_columns_probed_together(self):
+        """Multiple unconstrained numeric columns are probed in a single aggregation query."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_multi_numeric "
+                "(id INTEGER PRIMARY KEY, a NUMERIC, b NUMERIC, c NUMERIC(5, 2))"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_multi_numeric VALUES "
+                "(1, 0.12345::numeric, 0.1234567890::numeric, 1.23::numeric(5,2))"
+            )
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
+                "public",
+                "test_get_table_multi_numeric",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            cols_by_name = {c.name: c for c in table.columns}
+            assert cols_by_name["a"].numeric_scale == 5
+            assert cols_by_name["b"].numeric_scale == 10
+            # Constrained column is untouched.
+            assert cols_by_name["c"].numeric_precision == 5
+            assert cols_by_name["c"].numeric_scale == 2

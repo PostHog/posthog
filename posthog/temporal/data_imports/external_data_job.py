@@ -335,6 +335,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )  # type: ignore
 
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
+            skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 
             if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
@@ -352,6 +353,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         non_retryable_error_types=["NondeterminismError"],
                     ),
                 )
+
+            if skip_post_import_activities:
+                workflow.logger.info(
+                    "Skipping post-import activities for externally managed schema",
+                    schema_id=str(inputs.external_data_schema_id),
+                    source_id=str(inputs.external_data_source_id),
+                )
+                return
 
             # Emit signals for new records (if registered for this source type + schema), if FF enabled.
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.

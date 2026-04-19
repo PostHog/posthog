@@ -107,6 +107,7 @@ playwright/.auth/
 playwright/playwright-report/
 playwright/test-results/
 test-results/
+.playwright-mcp/
 
 # Dagster
 .dagster_home/*
@@ -193,6 +194,7 @@ services/mcp/public/ui-apps
 
 # Test output
 junit.xml
+.test_dependency_map
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/

@@ -67,8 +67,28 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
+### Public open source repo guidance
+
+This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
+
+- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
+- If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
+- Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
+
+Examples:
+
+- ✅ Good: `fix(insights): handle missing series color in trend export`
+- ✅ Good: `chore(ci): reduce flaky backend test retries`
+- ❌ Avoid: `fix: patch issue found in acme-co prod workspace after sales escalation`
+- ❌ Avoid: `chore: workaround for internal k8s outage in us-east-2`
+- ❌ Avoid: `feat: add migration for private enterprise customer contract requirement`
+- ❌ Avoid: `fix: will run fine on our 12 million rows there now`
+- ❌ Avoid: `fix: we were failing there for 300 teams`
+
 ## CI / GitHub Actions
 
+- `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
 - Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
 
 ## Security
@@ -85,6 +105,20 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation)
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
+- **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` directly in Celery tasks — events will be silently lost because the global client's background flush may never run before the worker exits. Instead, use `ph_scoped_capture` from `posthog.ph_client`, which creates a dedicated client and flushes on context-manager exit:
+
+  ```python
+  from posthog.ph_client import ph_scoped_capture
+
+  @shared_task
+  def my_celery_task():
+      with ph_scoped_capture() as capture_ph_event:
+          capture_ph_event(
+              distinct_id="...",
+              event="my_event",
+              properties={...},
+          )
+  ```
 
 ## Code Style
 

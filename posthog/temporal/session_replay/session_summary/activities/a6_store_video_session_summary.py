@@ -357,12 +357,17 @@ def _convert_video_segments_to_session_summary(
         "success": analysis.session_outcome.success,
     }
 
-    return {
+    result: dict = {
         "segments": summary_segments,
         "key_actions": key_actions,
         "segment_outcomes": segment_outcomes,
         "session_outcome": session_outcome,
     }
+
+    if analysis.sentiment is not None:
+        result["sentiment"] = analysis.sentiment.model_dump()
+
+    return result
 
 
 def _find_closest_event(

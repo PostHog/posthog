@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-02 10:19:12 UTC
+// Generated at: 2026-04-13 10:32:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -12,8 +12,8 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'ambient-fp8'
     | 'anthropic'
+    | 'anthropic-2'
     | 'arcee-ai'
-    | 'arcee-ai-bf16'
     | 'arcee-ai-prime'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp8'
@@ -61,10 +61,12 @@ export type CanonicalProvider =
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'io-net-int4'
+    | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
     | 'mancer-int4'
+    | 'mara'
     | 'minimax'
     | 'minimax-fp8'
     | 'minimax-highspeed'
@@ -79,7 +81,6 @@ export type CanonicalProvider =
     | 'nebius-fp8'
     | 'nebius-int4'
     | 'nextbit-bf16'
-    | 'nextbit-fp4'
     | 'nextbit-fp8'
     | 'nextbit-int4'
     | 'novita'
@@ -115,6 +116,7 @@ export type CanonicalProvider =
     | 'streamlake'
     | 'switchpoint'
     | 'together'
+    | 'together-fp4'
     | 'together-fp8'
     | 'together-int4'
     | 'upstage'

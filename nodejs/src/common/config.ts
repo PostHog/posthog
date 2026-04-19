@@ -44,6 +44,7 @@ export enum PluginServerMode {
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
+    ingestion_api = 'ingestion-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -87,7 +88,9 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_ENABLED: boolean
     PERSONHOG_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -115,6 +118,7 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOG_STATS_LEVEL: LogLevel
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
+    CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
 
@@ -240,9 +244,11 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
-        PERSONHOG_TIMEOUT_MS: 5000,
+        PERSONHOG_TIMEOUT_MS: 1000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -270,6 +276,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOG_STATS_LEVEL: 'debug',
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
+        CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
 

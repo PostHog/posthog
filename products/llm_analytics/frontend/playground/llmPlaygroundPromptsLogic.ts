@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -70,6 +70,28 @@ export interface PlaygroundSetupPayload {
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
+
+/**
+ * Module-level store for a pending playground setup payload. External callers (trace scene,
+ * conversation display) write here before navigating to the playground, so the tab-keyed
+ * instance can pick it up in urlToAction and run setupPlaygroundFromEvent on itself.
+ *
+ * This avoids the fragile "transfer from default instance" pattern, which breaks when the
+ * source component unmounts before the playground's urlToAction fires.
+ */
+let pendingPlaygroundSetup: PlaygroundSetupPayload | null = null
+
+/** Queue a setup payload and navigate to the playground. */
+export function openInPlayground(payload: PlaygroundSetupPayload): void {
+    pendingPlaygroundSetup = payload
+    router.actions.push(urls.llmAnalyticsPlayground())
+}
+
+function consumePendingPlaygroundSetup(): PlaygroundSetupPayload | null {
+    const payload = pendingPlaygroundSetup
+    pendingPlaygroundSetup = null
+    return payload
+}
 
 /**
  * Returns a human-readable label for the linked source, e.g. `prompt "my-prompt"` or `evaluation "my-eval"`.
@@ -147,6 +169,7 @@ export function updatePromptConfigs(
 interface RawMessage {
     role: string
     content: unknown
+    tool_calls?: unknown
 }
 
 type ConversationRole = 'user' | 'assistant'
@@ -158,11 +181,79 @@ enum InputMessageRole {
     Model = 'model',
 }
 
+// Formats a typed content block (one with a `type` field) into readable text.
+// Returns null for unrecognized types so callers can fall through.
+function formatContentBlock(part: Record<string, unknown>): string | null {
+    const type = part.type
+
+    if (type === 'text' || type === 'output_text' || type === 'input_text') {
+        const text = part.text
+        return typeof text === 'string' && text.trim().length > 0 ? text : null
+    }
+
+    // Anthropic: { type: 'tool_use', id, name, input }
+    if (type === 'tool_use') {
+        const name = part.name ?? 'unknown'
+        const input = part.input !== undefined ? JSON.stringify(part.input, null, 2) : '{}'
+        return `[Tool call: ${name}]\n${input}`
+    }
+
+    // Anthropic: { type: 'tool_result', tool_use_id, content }
+    if (type === 'tool_result') {
+        const toolId = part.tool_use_id ?? 'unknown'
+        const content = typeof part.content === 'string' ? part.content : JSON.stringify(part.content, null, 2)
+        return `[Tool result for ${toolId}]\n${content}`
+    }
+
+    // OpenAI Responses API: { type: 'function_call', name, call_id, arguments }
+    if (type === 'function_call') {
+        const name = part.name ?? 'unknown'
+        const args = typeof part.arguments === 'string' ? part.arguments : JSON.stringify(part.arguments, null, 2)
+        return `[Function call: ${name}]\n${args}`
+    }
+
+    // OpenAI Responses API: { type: 'function_call_output', call_id, output }
+    if (type === 'function_call_output') {
+        const callId = part.call_id ?? 'unknown'
+        const output = typeof part.output === 'string' ? part.output : JSON.stringify(part.output, null, 2)
+        return `[Function output for ${callId}]\n${output}`
+    }
+
+    return null
+}
+
+// Formats OpenAI-style top-level tool_calls arrays into readable text
+function formatToolCallsForPlayground(toolCalls: unknown): string {
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+        return ''
+    }
+    return toolCalls
+        .map((tc) => {
+            if (!isObject(tc)) {
+                return JSON.stringify(tc, null, 2)
+            }
+            const fn = isObject(tc.function) ? tc.function : tc
+            const name = fn.name ?? 'unknown'
+            const args = fn.arguments ?? '{}'
+            const argsStr = typeof args === 'string' ? args : JSON.stringify(args, null, 2)
+            return `[Tool call: ${name}]\n${argsStr}`
+        })
+        .join('\n\n')
+}
+
 function extractTextFromMessagePart(part: unknown): string | null {
     if (!isObject(part)) {
         return null
     }
 
+    // Typed content blocks are handled by formatContentBlock, which checks
+    // `type` before any generic field extraction — preventing e.g. a
+    // tool_result's `.content` from being misidentified as plain text.
+    if (typeof part.type === 'string') {
+        return formatContentBlock(part)
+    }
+
+    // Untyped objects: try common text field names
     if (typeof part.text === 'string' && part.text.trim().length > 0) {
         return part.text
     }
@@ -183,6 +274,10 @@ function extractTextFromMessagePart(part: unknown): string | null {
 }
 
 function normalizeMessageContent(content: unknown): string {
+    if (content === null || content === undefined) {
+        return ''
+    }
+
     if (typeof content === 'string') {
         return content
     }
@@ -197,7 +292,7 @@ function normalizeMessageContent(content: unknown): string {
         }
     }
 
-    return JSON.stringify(content)
+    return JSON.stringify(content, null, 2)
 }
 
 function extractConversationMessage(rawMessage: RawMessage): { role: ConversationRole; content: string } {
@@ -208,9 +303,17 @@ function extractConversationMessage(rawMessage: RawMessage): { role: Conversatio
     }
     const enumRole: ConversationRole | undefined = enumMap[normalizedMessageRole]
 
+    let content = normalizeMessageContent(rawMessage.content)
+
+    // Append top-level tool_calls (OpenAI format) when present
+    const toolCallsText = formatToolCallsForPlayground(rawMessage.tool_calls)
+    if (toolCallsText) {
+        content = content ? `${content}\n\n${toolCallsText}` : toolCallsText
+    }
+
     return {
         role: enumRole ?? InputMessageRole.User,
-        content: normalizeMessageContent(rawMessage.content),
+        content,
     }
 }
 
@@ -733,7 +836,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 if (input) {
                     try {
-                        if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
+                        if (
+                            Array.isArray(input) &&
+                            input.every((msg) => msg.role && (msg.content != null || msg.tool_calls))
+                        ) {
                             const systemContents = input
                                 .filter((msg) => msg.role === 'system')
                                 .map((msg) => msg.content)
@@ -775,7 +881,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 actions.setMessages(conversationMessages, promptId)
                 actions.setActivePromptId(promptId)
-                router.actions.push(urls.llmAnalyticsPlayground())
             } finally {
                 actions.setSourceSetupLoading(false)
             }
@@ -973,32 +1078,21 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
     urlToAction(({ actions, values, props }) => ({
         [urls.llmAnalyticsPlayground()]: (_, searchParams) => {
-            // urlToAction fires on ALL mounted instances for the matching URL.
-            // Only process for the active tab to avoid cross-tab state interference.
-            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
-                return
+            // Consume a pending setup payload before the active-tab guard. The payload
+            // is one-shot (set by openInPlayground) and at this point sceneLogic hasn't
+            // updated activeTabId yet, so the guard below would incorrectly reject it.
+            if (props.tabId) {
+                const pending = consumePendingPlaygroundSetup()
+                if (pending) {
+                    actions.setupPlaygroundFromEvent(pending)
+                    return
+                }
             }
 
-            // External callers (trace scene, conversation display) dispatch
-            // setupPlaygroundFromEvent on the default-keyed instance (no tabId).
-            // Transfer that state to this tab-keyed instance.
-            if (props.tabId) {
-                const defaultLogic = llmPlaygroundPromptsLogic.findMounted({})
-                if (defaultLogic) {
-                    const defaultConfigs = defaultLogic.values.promptConfigs
-                    const hasContent =
-                        defaultConfigs.length > 1 ||
-                        defaultConfigs[0]?.messages.length > 0 ||
-                        defaultConfigs[0]?.systemPrompt !== DEFAULT_SYSTEM_PROMPT
-                    if (hasContent) {
-                        actions.setPromptConfigs(defaultConfigs)
-                        actions.setActivePromptId(defaultLogic.values.activePromptId)
-                        // Reset the default instance without triggering its resetPlayground
-                        // listener, which would modify the current tab's URL params.
-                        defaultLogic.actions.setPromptConfigs([createPromptConfig()])
-                        return
-                    }
-                }
+            // urlToAction fires on ALL mounted instances for the matching URL.
+            // Only process URL params for the active tab to avoid cross-tab interference.
+            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
+                return
             }
 
             const sourcePromptName =
@@ -1037,4 +1131,17 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
     })),
+
+    // afterMount runs synchronously during logic.mount(), before sceneLogic updates
+    // activeTabId. This ensures the pending payload is consumed even when urlToAction
+    // fires too early (before the active-tab check would pass).
+    afterMount(({ actions, props }) => {
+        if (!props.tabId) {
+            return
+        }
+        const pending = consumePendingPlaygroundSetup()
+        if (pending) {
+            actions.setupPlaygroundFromEvent(pending)
+        }
+    }),
 ])

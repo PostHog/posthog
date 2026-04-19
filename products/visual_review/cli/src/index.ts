@@ -365,8 +365,6 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
 
     log(`Completing run ${options.runId}`)
 
-    // No body — shards already sent everything. Removal detection is a follow-up
-    // (requires backend to track covered identifiers per shard).
     let run = await client.completeRun(options.runId)
 
     log(`Run status after complete: ${run.status}`)
@@ -544,6 +542,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         commitSha: commit,
         branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+        purpose: options.autoApprove ? 'review' : 'observe',
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
             content_hash: s.hash,

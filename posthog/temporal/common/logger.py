@@ -715,7 +715,7 @@ def configure_default_ssl_context():
     return context
 
 
-def get_temporal_activity_context() -> dict[str, str | int]:
+def get_temporal_activity_context() -> dict[str, str | int | None]:
     """Return activity context variables from Temporal.
 
     More specifically, the context variables coming from Temporal are:
@@ -737,7 +737,7 @@ def get_temporal_activity_context() -> dict[str, str | int]:
     if activity_info is None:
         return {}
 
-    ctx: dict[str, str | int] = {
+    ctx: dict[str, str | int | None] = {
         "activity_id": activity_info.activity_id,
         "activity_type": activity_info.activity_type,
         "attempt": activity_info.attempt,
@@ -751,7 +751,7 @@ def get_temporal_activity_context() -> dict[str, str | int]:
     return ctx
 
 
-def get_temporal_workflow_context() -> dict[str, str | int]:
+def get_temporal_workflow_context() -> dict[str, str | int | None]:
     """Return workflow context variables from Temporal.
 
     More specifically, the context variables coming from Temporal are:
@@ -770,7 +770,7 @@ def get_temporal_workflow_context() -> dict[str, str | int]:
     if workflow_info is None:
         return {}
 
-    ctx: dict[str, str | int] = {
+    ctx: dict[str, str | int | None] = {
         "attempt": workflow_info.attempt,
         "task_queue": workflow_info.task_queue,
         "workflow_id": workflow_info.workflow_id,

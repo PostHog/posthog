@@ -90,9 +90,6 @@ export interface FormattedDateOptions {
     weekStartDay?: number // 0 for Sunday, 1 for Monday, etc.
 }
 
-export const COL_CUTOFF = 4
-export const ROW_CUTOFF = 8
-
 export function getTooltipTitle(
     seriesData: SeriesDatum[],
     altTitleOrFn: string | ((tooltipData: SeriesDatum[], date: string) => React.ReactNode),

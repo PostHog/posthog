@@ -102,7 +102,7 @@ function QueuedMessageItem({
 
     return (
         <div className="group flex items-center gap-2 py-1 px-2 rounded-md hover:bg-bg-light">
-            <p className="flex-1 text-sm text-secondary truncate">{message.content}</p>
+            <p className="flex-1 text-sm text-secondary truncate mb-0">{message.content}</p>
             <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton
                     size="xsmall"
@@ -213,7 +213,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             <div
                 className={clsx(
                     'flex flex-col items-center',
-                    isSticky && 'mb-2 border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
+                    isSticky && 'border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
                 )}
             >
                 {/* Have to increase z-index to overlay ToolsDisplay */}
@@ -447,9 +447,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 )}
             </div>
-            <p className="w-full flex text-xs text-muted mt-1">
-                <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
-            </p>
         </div>
     )
 })

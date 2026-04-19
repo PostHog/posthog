@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -9,8 +10,9 @@ from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
 
+from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -71,6 +73,44 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["id"] == created["id"]
+
+    def test_last_error_message_null_when_no_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertCheck.objects.create(
+            alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] is None
+
+    def test_last_error_message_returns_most_recent_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Earlier timeout",
+        )
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Latest ClickHouse timeout",
+        )
+        LogsAlertCheck.objects.create(
+            alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Latest ClickHouse timeout"
 
     def test_update(self):
         created = self._create_via_api()
@@ -481,3 +521,434 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["state"] == "snoozed"
         assert data["snooze_until"] is not None
         assert data["threshold_count"] == 200
+
+    # --- Destinations ---
+
+    def _destinations_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/"
+
+    def _destinations_delete_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/delete/"
+
+    def _sync_destination_templates(self) -> None:
+        # Destination creation goes through the full HogFunctionSerializer pipeline,
+        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
+        from posthog.cdp.templates.hog_function_template import sync_template_to_db
+        from posthog.cdp.templates.slack.template_slack import template as template_slack
+        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        sync_template_to_db(template_slack)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "description": "Generic webhook template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
+        self._sync_destination_templates()
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "alerts",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 3  # firing + resolved + broken
+
+        hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
+        event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
+        assert event_ids == ["$logs_alert_auto_disabled", "$logs_alert_firing", "$logs_alert_resolved"]
+        for hf in hog_functions:
+            assert hf.template_id == "template-slack"
+            inputs = hf.inputs or {}
+            assert inputs["channel"]["value"] == "C123"
+            assert inputs["slack_workspace"]["value"] == 42
+            text_value = inputs["text"]["value"]
+            assert "{if(" not in text_value
+            alert_id_filter = (hf.filters or {})["properties"][0]
+            assert alert_id_filter == {
+                "key": "alert_id",
+                "value": created["id"],
+                "operator": "exact",
+                "type": "event",
+            }
+
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
+        assert len(reset_calls) == 1
+
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 3
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-webhook"
+            inputs = hf.inputs or {}
+            assert inputs["url"]["value"] == "https://example.com/hook"
+            body = inputs["body"]["value"]
+            assert body["event"] in ("firing", "resolved", "broken")
+
+    @parameterized.expand(
+        [
+            ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
+            ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
+            ("webhook_missing_url", {"type": "webhook"}),
+            ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+        ]
+    )
+    def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
+        created = self._create_via_api()
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_destination_on_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team, name="Other", threshold_count=10, filters={"severityLevels": ["error"]}
+        )
+        response = self.client.post(
+            self._destinations_url(str(other_alert.id)),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_destination_removes_hog_functions(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        ids = create_response.json()["hog_function_ids"]
+
+        delete_response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": ids},
+            format="json",
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+
+    def test_delete_destination_rejects_foreign_hog_function_ids(self):
+        self._sync_destination_templates()
+        created_a = self._create_via_api()
+        created_b = self._create_via_api(name="Another alert")
+
+        a_ids = self.client.post(
+            self._destinations_url(created_a["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/a"},
+            format="json",
+        ).json()["hog_function_ids"]
+        b_ids = self.client.post(
+            self._destinations_url(created_b["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/b"},
+            format="json",
+        ).json()["hog_function_ids"]
+
+        # Trying to delete alert A's HogFunctions via alert B's endpoint should fail.
+        response = self.client.post(
+            self._destinations_delete_url(created_b["id"]),
+            {"hog_function_ids": a_ids + b_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- Reset ---
+
+    def _reset_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/reset/"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_reset_broken_alert(self, mock_report):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+            next_check_at=datetime.now(UTC) + timedelta(minutes=10),
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["state"] == "not_firing"
+        assert data["consecutive_failures"] == 0
+        assert data["next_check_at"] is None
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert reset"]
+        assert len(reset_calls) == 1
+
+    @parameterized.expand(
+        [
+            ("not_firing", LogsAlertConfiguration.State.NOT_FIRING),
+            ("firing", LogsAlertConfiguration.State.FIRING),
+            ("errored", LogsAlertConfiguration.State.ERRORED),
+            ("snoozed", LogsAlertConfiguration.State.SNOOZED),
+            ("pending_resolve", LogsAlertConfiguration.State.PENDING_RESOLVE),
+        ]
+    )
+    def test_reset_rejects_non_broken_alert(self, _name: str, state: str) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state=state)
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only broken alerts can be reset." in str(response.json())
+
+    def test_reset_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reset_writes_activity_log(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+        ActivityLog.objects.filter(item_id=str(created["id"])).delete()
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        entries = list(ActivityLog.objects.filter(item_id=str(created["id"])))
+        assert len(entries) >= 1, [e.activity for e in ActivityLog.objects.all()]
+        changed_fields = {c["field"] for entry in entries for c in (entry.detail or {}).get("changes", [])}
+        assert "state" in changed_fields
+        assert "consecutive_failures" in changed_fields
+
+    # --- Simulate ---
+
+    def _simulate_url(self) -> str:
+        return f"{self.base_url}simulate/"
+
+    def _simulate_payload(self, **overrides) -> dict:
+        defaults = {
+            "filters": {"severityLevels": ["error"]},
+            "threshold_count": 100,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "date_from": "-24h",
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def _mock_minute_buckets(self, minute_counts: list[tuple[int, int]]) -> list[BucketedCount]:
+        """Create 1-minute buckets. minute_counts is [(offset_minutes, count), ...]."""
+        base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
+        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in minute_counts]
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_returns_response_shape(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (1, 20)])
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "buckets" in data
+        assert "fire_count" in data
+        assert "resolve_count" in data
+        assert "total_buckets" in data
+        assert data["total_buckets"] > 0
+        bucket = data["buckets"][0]
+        assert "threshold_breached" in bucket
+        assert "state" in bucket
+        assert "notification" in bucket
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_fills_empty_minutes(self, mock_query_cls):
+        # Two data points 10 minutes apart — should fill 1-min gaps between them
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (10, 200)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=5),
+            format="json",
+        )
+        data = response.json()
+        # Should have many more buckets than 2 (filled 1-min gaps for the full range)
+        assert data["total_buckets"] > 10
+
+    @parameterized.expand(
+        [
+            (
+                "fires",
+                [(0, 40), (1, 40), (2, 40)],
+                {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
+                {"min_fire_count": 1},
+            ),
+            (
+                "fires_and_resolves",
+                [(0, 40), (1, 40), (2, 40)],
+                {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
+                {"min_fire_count": 1, "min_resolve_count": 1},
+            ),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(buckets)
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(**payload_overrides),
+            format="json",
+        )
+        data = response.json()
+        if "min_fire_count" in expected:
+            assert data["fire_count"] >= expected["min_fire_count"]
+        if "min_resolve_count" in expected:
+            assert data["resolve_count"] >= expected["min_resolve_count"]
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
+        # window=1 (so rolling sum = per-minute count), 2-of-3 N-of-M
+        # Minutes: 150, 50, 150 — at minute 2, breach_count in window of 3 = 2 >= 2 -> fires
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
+            [(0, 150), (1, 50), (2, 150)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(
+                threshold_count=100,
+                threshold_operator="above",
+                evaluation_periods=3,
+                datapoints_to_alarm=2,
+                window_minutes=1,
+            ),
+            format="json",
+        )
+        data = response.json()
+        data_buckets = [b for b in data["buckets"] if b["count"] > 0]
+        # Minute 0: 150 breached, but only 1-of-1 so far -> not_firing
+        assert data_buckets[0]["state"] == "not_firing"
+        # Minute 2: 150 breached, now 2-of-3 -> firing
+        assert data_buckets[2]["state"] == "firing"
+        assert data_buckets[2]["notification"] == "fire"
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
+        # window=1, cooldown=5 min. Fires at minute 1, should suppress re-fire at minute 3.
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
+            [(0, 50), (1, 150), (2, 50), (3, 150), (4, 50)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(
+                threshold_count=100,
+                threshold_operator="above",
+                cooldown_minutes=5,
+                window_minutes=1,
+            ),
+            format="json",
+        )
+        data = response.json()
+        data_buckets = [b for b in data["buckets"] if b["count"] > 0]
+        # Minute 1: fires
+        assert data_buckets[1]["notification"] == "fire"
+        # Minute 3: would fire again, cooldown suppresses
+        assert data_buckets[3]["state"] == "firing"
+        assert data_buckets[3]["notification"] == "none"
+        assert data["fire_count"] == 1
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_empty_results(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = []
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+        data = response.json()
+        assert data["fire_count"] == 0
+        assert data["resolve_count"] == 0
+        for b in data["buckets"]:
+            assert b["count"] == 0
+
+    def test_simulate_rejects_empty_filters(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(filters={}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_invalid_window(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=7),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_n_greater_than_m(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(evaluation_periods=2, datapoints_to_alarm=3),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_echoes_threshold_config(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 10)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(threshold_count=42, threshold_operator="below"),
+            format="json",
+        )
+        data = response.json()
+        assert data["threshold_count"] == 42
+        assert data["threshold_operator"] == "below"

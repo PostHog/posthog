@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -272,6 +272,8 @@ interface InfiniteListRowProps {
     showSuggestedFiltersEmptyState: boolean
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     setIndex: (index: number) => void
+    pinnedRowIndex: number | null
+    onToggleRowPin: (rowIndex: number) => void
     expand: () => void
     selectItem: (
         group: TaxonomicFilterGroup,
@@ -308,7 +310,7 @@ function InfiniteListSkeletonItem({
     )
 }
 
-const InfiniteListRow = ({
+export const InfiniteListRow = ({
     index: rowIndex,
     style,
     results,
@@ -335,6 +337,8 @@ const InfiniteListRow = ({
     showSuggestedFiltersEmptyState,
     taxonomicGroupTypes,
     setIndex,
+    pinnedRowIndex,
+    onToggleRowPin,
     expand,
     selectItem,
     setHighlightedItemElement,
@@ -412,15 +416,29 @@ const InfiniteListRow = ({
         )
     }
 
+    const isPinnedToAnotherRow = pinnedRowIndex !== null && pinnedRowIndex !== rowIndex
+    const isCurrentRowPinned = pinnedRowIndex === rowIndex
+
     const commonDivProps: React.HTMLProps<HTMLDivElement> = {
         className: clsx(
             'taxonomic-list-row',
             rowIndex === highlightedIndex && mouseInteractionsEnabled && 'hover',
+            isCurrentRowPinned && 'active',
             isActive && 'active',
             isSelected && 'selected'
         ),
-        onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
-        onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
+        onMouseOver: () => {
+            if (!mouseInteractionsEnabled) {
+                setIndex(NO_ITEM_SELECTED)
+                return
+            }
+            if (isPinnedToAnotherRow) {
+                return
+            }
+            setIndex(rowIndex)
+        },
+        onMouseLeave: () =>
+            mouseInteractionsEnabled && !showPopover && !isPinnedToAnotherRow ? setIndex(NO_ITEM_SELECTED) : null,
         style: style,
         ref: isHighlighted
             ? (element) => {
@@ -431,11 +449,18 @@ const InfiniteListRow = ({
 
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
+        const isPinnable = !canSelectItem(listGroupType, dataWarehousePopoverFields) && !isDisabledItem
         const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
         const localListLabel = getLocalListLabel(item)
         const localListGroup = hasLocalListContext(item)
             ? taxonomicGroups.find((g) => g.type === listGroupType)
             : undefined
+        const shouldShowPinIcon = isPinnable && (isHighlighted || isCurrentRowPinned)
+        const pinIcon = isCurrentRowPinned ? (
+            <IconPinFilled className="size-4 text-warning" />
+        ) : (
+            <IconPin className="size-4 text-secondary" />
+        )
 
         const { listGroupType: resolvedListGroupType, itemGroup: resolvedItemGroup } = resolveItemRendering({
             item,
@@ -462,10 +487,10 @@ const InfiniteListRow = ({
                         event.stopPropagation()
                         return
                     }
-                    return (
-                        canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item)
-                    )
+                    if (canSelectItem(listGroupType, dataWarehousePopoverFields)) {
+                        return selectItem(itemGroup, itemValue ?? null, item)
+                    }
+                    onToggleRowPin(rowIndex)
                 }}
             >
                 {renderItemContents({
@@ -479,6 +504,15 @@ const InfiniteListRow = ({
                     <LemonTag size="small" type="highlight">
                         {localListLabel ? `${itemGroup.name} - ${localListLabel}` : itemGroup.name}
                     </LemonTag>
+                )}
+                {isPinnable && (
+                    <div
+                        className="taxonomic-list-row-pin"
+                        data-attr={`pin-row-${listGroupType}-${rowIndex}`}
+                        aria-hidden="true"
+                    >
+                        {shouldShowPinIcon ? pinIcon : null}
+                    </div>
                 )}
             </div>
         )
@@ -569,8 +603,6 @@ function InfiniteListEmptyState(): JSX.Element {
 export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
-        activeTab,
-        searchQuery,
         eventNames,
         groupType,
         value,
@@ -598,12 +630,15 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showEmptyState,
         showLoadingState,
         isSuggestedFilters,
+        isActiveTab,
+        rowCount,
+        pinnedRowIndex,
+        trimmedSearchQuery,
+        showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
-    const isActiveTab = listGroupType === activeTab
     const listRef = useListRef(null)
-    const trimmedSearchQuery = searchQuery.trim()
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -613,7 +648,6 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
-    const showSuggestedFiltersEmptyState = isSuggestedFilters && !trimmedSearchQuery && results.length > 0
 
     return (
         <div
@@ -637,12 +671,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                             <List<InfiniteListRowProps>
                                 listRef={listRef}
                                 style={{ width, height }}
-                                rowCount={
-                                    showNonCapturedEventOption
-                                        ? 1
-                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
-                                          (showSuggestedFiltersEmptyState ? 1 : 0)
-                                }
+                                rowCount={rowCount}
                                 overscanCount={100}
                                 rowHeight={(i) => (showSuggestedFiltersEmptyState && i === results.length ? 80 : 36)}
                                 rowComponent={InfiniteListRow}
@@ -671,6 +700,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     showSuggestedFiltersEmptyState,
                                     taxonomicGroupTypes,
                                     setIndex,
+                                    pinnedRowIndex,
+                                    onToggleRowPin: togglePinnedRow,
                                     expand,
                                     selectItem,
                                     setHighlightedItemElement,

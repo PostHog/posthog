@@ -113,10 +113,11 @@ async def test_from_service_account_integration(
     integration,
 ):
     """Can initialize client from integration configured."""
-    if not await has_valid_aws_credentials() and not integration.has_key():
+    google_integration = GoogleCloudServiceAccountIntegration(integration)
+    if not await has_valid_aws_credentials() and not google_integration.has_key():
         pytest.skip("AWS credentials not available and required for impersonated integration")
 
-    client = BigQueryClient.from_service_account_integration(GoogleCloudServiceAccountIntegration(integration))
+    client = BigQueryClient.from_service_account_integration(google_integration)
     # This triggers a credential refresh, just to make sure it is correctly set up.
     results = list(client.sync_client.query("SELECT 1").result())
 

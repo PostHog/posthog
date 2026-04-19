@@ -94,6 +94,7 @@ alerts: PostgresTable = PostgresTable(
         "next_check_at": DateTimeDatabaseField(name="next_check_at"),
         "snoozed_until": DateTimeDatabaseField(name="snoozed_until"),
         "skip_weekend": BooleanDatabaseField(name="skip_weekend"),
+        "schedule_restriction": StringJSONDatabaseField(name="schedule_restriction"),
     },
 )
 
@@ -413,6 +414,59 @@ insight_variables: PostgresTable = PostgresTable(
     },
 )
 
+session_recording_playlists: PostgresTable = PostgresTable(
+    name="session_recording_playlists",
+    postgres_table_name="posthog_sessionrecordingplaylist",
+    access_scope="session_recording_playlist",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "name": StringDatabaseField(name="name"),
+        "derived_name": StringDatabaseField(name="derived_name"),
+        "description": StringDatabaseField(name="description"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "_pinned": BooleanDatabaseField(name="pinned", hidden=True),
+        "pinned": ExpressionField(name="pinned", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_pinned"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "type": StringDatabaseField(name="type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id"),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id"),
+    },
+)
+
+session_recordings: PostgresTable = PostgresTable(
+    name="session_recordings",
+    postgres_table_name="posthog_sessionrecording",
+    access_scope="session_recording",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "session_id": StringDatabaseField(name="session_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "duration": IntegerDatabaseField(name="duration"),
+        "active_seconds": IntegerDatabaseField(name="active_seconds"),
+        "inactive_seconds": IntegerDatabaseField(name="inactive_seconds"),
+        "start_time": DateTimeDatabaseField(name="start_time"),
+        "end_time": DateTimeDatabaseField(name="end_time"),
+        "click_count": IntegerDatabaseField(name="click_count"),
+        "keypress_count": IntegerDatabaseField(name="keypress_count"),
+        "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count"),
+        "console_log_count": IntegerDatabaseField(name="console_log_count"),
+        "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
+        "console_error_count": IntegerDatabaseField(name="console_error_count"),
+        "start_url": StringDatabaseField(name="start_url"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "retention_period_days": IntegerDatabaseField(name="retention_period_days"),
+        "storage_version": StringDatabaseField(name="storage_version"),
+    },
+)
+
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
@@ -631,6 +685,87 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     },
 )
 
+logs_views: PostgresTable = PostgresTable(
+    name="logs_views",
+    postgres_table_name="logs_logsview",
+    access_scope="logs",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "name": StringDatabaseField(name="name"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "_pinned": BooleanDatabaseField(name="pinned", hidden=True),
+        "pinned": ExpressionField(name="pinned", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_pinned"])])),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+logs_alerts: PostgresTable = PostgresTable(
+    name="logs_alerts",
+    postgres_table_name="logs_logsalertconfiguration",
+    access_scope="logs",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(name="enabled", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])])),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "threshold_count": IntegerDatabaseField(name="threshold_count"),
+        "threshold_operator": StringDatabaseField(name="threshold_operator"),
+        "window_minutes": IntegerDatabaseField(name="window_minutes"),
+        "check_interval_minutes": IntegerDatabaseField(name="check_interval_minutes"),
+        "state": StringDatabaseField(name="state"),
+        "evaluation_periods": IntegerDatabaseField(name="evaluation_periods"),
+        "datapoints_to_alarm": IntegerDatabaseField(name="datapoints_to_alarm"),
+        "cooldown_minutes": IntegerDatabaseField(name="cooldown_minutes"),
+        "snooze_until": DateTimeDatabaseField(name="snooze_until", nullable=True),
+        "next_check_at": DateTimeDatabaseField(name="next_check_at", nullable=True),
+        "last_notified_at": DateTimeDatabaseField(name="last_notified_at", nullable=True),
+        "last_checked_at": DateTimeDatabaseField(name="last_checked_at", nullable=True),
+        "consecutive_failures": IntegerDatabaseField(name="consecutive_failures"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+support_tickets: PostgresTable = PostgresTable(
+    name="support_tickets",
+    postgres_table_name="posthog_conversations_ticket",
+    access_scope="ticket",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ticket_number": IntegerDatabaseField(name="ticket_number"),
+        "channel_source": StringDatabaseField(name="channel_source"),
+        "channel_detail": StringDatabaseField(name="channel_detail", nullable=True),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "status": StringDatabaseField(name="status"),
+        "priority": StringDatabaseField(name="priority", nullable=True),
+        "anonymous_traits": StringJSONDatabaseField(name="anonymous_traits"),
+        "_ai_resolved": BooleanDatabaseField(name="ai_resolved", hidden=True),
+        "ai_resolved": ExpressionField(
+            name="ai_resolved",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_ai_resolved"])]),
+        ),
+        "escalation_reason": StringDatabaseField(name="escalation_reason", nullable=True),
+        "message_count": IntegerDatabaseField(name="message_count"),
+        "unread_customer_count": IntegerDatabaseField(name="unread_customer_count"),
+        "unread_team_count": IntegerDatabaseField(name="unread_team_count"),
+        "last_message_at": DateTimeDatabaseField(name="last_message_at", nullable=True),
+        "last_message_text": StringDatabaseField(name="last_message_text", nullable=True),
+        "email_subject": StringDatabaseField(name="email_subject", nullable=True),
+        "email_from": StringDatabaseField(name="email_from", nullable=True),
+        "session_id": StringDatabaseField(name="session_id", nullable=True),
+        "session_context": StringJSONDatabaseField(name="session_context"),
+        "sla_due_at": DateTimeDatabaseField(name="sla_due_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
@@ -684,10 +819,15 @@ class SystemTables(TableNode):
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "integrations": TableNode(name="integrations", table=integrations),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
+        "logs_alerts": TableNode(name="logs_alerts", table=logs_alerts),
+        "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+        "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }

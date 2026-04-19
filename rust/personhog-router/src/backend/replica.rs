@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -180,6 +181,13 @@ impl PersonHogBackend for ReplicaBackend {
         request: DeletePersonsRequest,
     ) -> Result<DeletePersonsResponse, Status> {
         retry_call!(self, delete_persons, request)
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        retry_call!(self, delete_persons_batch_for_team, request)
     }
 
     // Cohort membership

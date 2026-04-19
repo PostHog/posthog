@@ -5,6 +5,7 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
+from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
 
 logger = get_logger(__name__)
@@ -48,7 +49,6 @@ def deactivate_stale_materializations() -> None:
     for version in stale_versions:
         try:
             _deactivate_version_materialization(version)
-            deactivated_count += 1
         except Exception as e:
             logger.exception(
                 "deactivate_stale_materialization_failed",
@@ -58,6 +58,10 @@ def deactivate_stale_materializations() -> None:
                 team_id=version.endpoint.team_id,
                 error=str(e),
             )
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="error").inc()
+            continue
+        deactivated_count += 1
+        ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="success").inc()
 
     logger.info(
         "deactivate_stale_materializations_completed",

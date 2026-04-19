@@ -25,6 +25,7 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -42,6 +43,7 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { CopyExperimentToProjectModal } from './CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
 import {
@@ -53,7 +55,6 @@ import {
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
-import { ExperimentsSettings } from './ExperimentsSettings'
 import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
@@ -189,13 +190,17 @@ const ExperimentsTableFilters = ({
 const ExperimentsTable = ({
     openDuplicateModal,
     openSurveyModal,
+    openCopyToProjectModal,
 }: {
     openDuplicateModal: (experiment: Experiment) => void
     openSurveyModal: (experiment: Experiment) => void
+    openCopyToProjectModal: (experiment: Experiment) => void
 }): JSX.Element => {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, setExperimentsFilters } = useActions(experimentsLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
@@ -349,6 +354,20 @@ const ExperimentsTable = ({
                                 >
                                     Duplicate
                                 </LemonButton>
+                                {hasMultipleProjects && (
+                                    <LemonButton
+                                        onClick={() => openCopyToProjectModal(experiment)}
+                                        size="small"
+                                        fullWidth
+                                        disabledReason={
+                                            isLegacyExperiment(experiment)
+                                                ? 'Copying is not supported for experiments using legacy metrics.'
+                                                : undefined
+                                        }
+                                    >
+                                        Copy to project
+                                    </LemonButton>
+                                )}
                                 <ExperimentSurveyButton
                                     experiment={experiment}
                                     onOpenModal={() => {
@@ -472,6 +491,7 @@ export function Experiments(): JSX.Element {
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
+    const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
 
     // Register feature flag creation tool so that it's always available on experiments page
@@ -560,6 +580,7 @@ export function Experiments(): JSX.Element {
                             <ExperimentsTable
                                 openDuplicateModal={setDuplicateModalExperiment}
                                 openSurveyModal={setSurveyModalExperiment}
+                                openCopyToProjectModal={setCopyToProjectModalExperiment}
                             />
                         ),
                     },
@@ -574,11 +595,6 @@ export function Experiments(): JSX.Element {
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.EXPERIMENT} />,
                     },
-                    {
-                        key: ExperimentsTabs.Settings,
-                        label: 'Settings',
-                        content: <ExperimentsSettings />,
-                    },
                 ]}
             />
             {duplicateModalExperiment && (
@@ -586,6 +602,13 @@ export function Experiments(): JSX.Element {
                     isOpen={true}
                     onClose={() => setDuplicateModalExperiment(null)}
                     experiment={duplicateModalExperiment}
+                />
+            )}
+            {copyToProjectModalExperiment && (
+                <CopyExperimentToProjectModal
+                    isOpen={true}
+                    onClose={() => setCopyToProjectModalExperiment(null)}
+                    experiment={copyToProjectModalExperiment}
                 />
             )}
             {surveyModalExperiment && (

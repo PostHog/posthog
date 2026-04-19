@@ -405,8 +405,9 @@ def get_context_for_template(
             source_path = "src/render-query/index.tsx"
         # Add vite dev scripts for development
         js_url = get_js_url(request)
+        csp_nonce = getattr(request, "csp_nonce", "")
         context["vite_dev_scripts"] = f"""
-        <script nonce="{request.csp_nonce}" type="module">
+        <script nonce="{csp_nonce}" type="module">
             import RefreshRuntime from '{js_url}/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
@@ -571,6 +572,19 @@ def get_context_for_template(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    if posthog_distinct_id:
+        from posthog.models.instance_setting import get_instance_setting
+
+        support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
+        if support_secret:
+            from products.conversations.backend.services.identity import compute_identity_hash
+
+            context["js_posthog_identity_distinct_id"] = posthog_distinct_id
+            context["js_posthog_identity_hash"] = compute_identity_hash(
+                posthog_distinct_id,
+                support_secret,
+            )
 
     return context
 
@@ -1481,7 +1495,7 @@ def encode_get_request_params(data: dict[str, Any]) -> dict[str, str]:
 
 class DataclassJSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if dataclasses.is_dataclass(o):
+        if dataclasses.is_dataclass(o) and not isinstance(o, type):
             return dataclasses.asdict(o)
         return super().default(o)
 

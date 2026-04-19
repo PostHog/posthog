@@ -25,6 +25,7 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 }
 
 pub enum GlobalRateLimitKey<'a> {
+    /// Token-only key. Not currently used in production call sites.
     Token(&'a str),
     TokenDistinctId(&'a str, &'a str),
 }
@@ -45,21 +46,17 @@ pub struct GlobalRateLimiter {
 }
 
 impl GlobalRateLimiter {
-    /// Build both rate limiter instances from the capture config, sharing a single
-    /// Redis client. If a dedicated Redis URL is configured, creates a separate client
-    /// (optionally with read/write split). Falls back to `shared_redis` when no
+    /// Build the token+distinct_id rate limiter from the capture config, sharing a
+    /// single Redis client. If a dedicated Redis URL is configured, creates a separate
+    /// client (optionally with read/write split). Falls back to `shared_redis` when no
     /// dedicated URL is set.
-    ///
-    /// Returns `(token_distinct_id_limiter, token_limiter)`.
     pub async fn try_from_config(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
-    ) -> anyhow::Result<(Self, Self)> {
+    ) -> anyhow::Result<Self> {
         let redis_client = Self::build_redis_client(config, shared_redis).await?;
         let redis_instances = vec![redis_client];
-        let td_limiter = Self::new_token_distinct_id(config, redis_instances.clone())?;
-        let token_limiter = Self::new_token(config, redis_instances)?;
-        Ok((td_limiter, token_limiter))
+        Self::new_token_distinct_id(config, redis_instances)
     }
 
     /// Create a per-(token, distinct_id) rate limiter sharing the given Redis instances.
@@ -86,6 +83,7 @@ impl GlobalRateLimiter {
     }
 
     /// Create a per-token rate limiter sharing the given Redis instances.
+    /// Not currently wired into production call sites -- retained for future use.
     pub fn new_token(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,

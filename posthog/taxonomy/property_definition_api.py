@@ -547,56 +547,28 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
     queryset = PropertyDefinition.objects.all()
 
-    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "description": val.get("description", ""),
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": None,
-            "verified": False,
-            "hidden": False,
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"].items()
-        if val.get("virtual", False)
-    ]
+    @staticmethod
+    def _build_virtual_properties(group: str) -> list[dict]:
+        return [
+            {
+                "id": "$builtin_" + key,
+                "name": key,
+                "description": val.get("description", ""),
+                "is_numerical": val["type"] == "Numeric",
+                "property_type": val["type"],
+                "tags": val.get("tags", []),
+                "is_seen_on_filtered_events": True,
+                "verified": False,
+                "hidden": False,
+                "virtual": True,
+            }
+            for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items()
+            if val.get("virtual", False)
+        ]
 
-    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "description": val.get("description", ""),
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": None,
-            "verified": False,
-            "hidden": False,
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
-        if val.get("virtual", False)
-    ]
-
-    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "description": val.get("description", ""),
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "is_seen_on_filtered_events": None,
-            "verified": False,
-            "hidden": False,
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["groups"].items()
-        if val.get("virtual", False)
-    ]
+    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = _build_virtual_properties("person_properties")
+    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = _build_virtual_properties("event_properties")
+    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = _build_virtual_properties("groups")
 
     def dangerously_get_queryset(self):
         with tracer.start_as_current_span("property_definitions_get_queryset") as span:
@@ -793,11 +765,6 @@ class PropertyDefinitionViewSet(
         if v.get("type") not in ["event", "person", "group"]:
             return False
 
-        # Virtual properties don't have real event associations, so exclude them
-        # when filtering by event names
-        if v.get("filter_by_event_names"):
-            return False
-
         # explicit name filter  (?properties=a,b,c)
         names = set(v.get("properties", "").split(",")) if v.get("properties") else None
         if names and prop["name"] not in names:
@@ -830,6 +797,12 @@ class PropertyDefinitionViewSet(
 
         # hidden filter
         if v.get("exclude_hidden", False) and prop.get("hidden", False):
+            return False
+
+        # verified filter — virtual properties don't participate in the
+        # enterprise verification system, so exclude them whenever the
+        # caller explicitly filters by verified status.
+        if v.get("verified") is not None:
             return False
 
         # virtual feature flag filter (not supported anywhere yet but add the logic and tests anyway for completeness)

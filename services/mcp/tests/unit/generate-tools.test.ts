@@ -38,6 +38,9 @@ const defaultCategory = {
     tools: {},
 }
 
+// Tests don't exercise schema_ref param_overrides, so return an empty JsonSchemaRoot stub.
+const stubGetQuerySchema = (): { definitions: Record<string, never> } => ({ definitions: {} })
+
 describe('extractPathParams', () => {
     const cases = [
         {
@@ -74,7 +77,7 @@ describe('composeToolSchema', () => {
             enabled: true,
         }
         const resolved = makeResolved()
-        const result = composeToolSchema(config, resolved, makeSpec())
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
         expect(result.toolInputsImports).toEqual([])
     })
@@ -88,7 +91,7 @@ describe('composeToolSchema', () => {
             },
         }
         const resolved = makeResolved()
-        const result = composeToolSchema(config, resolved, makeSpec())
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
         expect(result.toolInputsImports).toEqual([])
     })
@@ -124,7 +127,7 @@ describe('composeToolSchema', () => {
             },
         })
 
-        const result = composeToolSchema(config, resolved, makeSpec())
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
         expect(result.toolInputsImports).toContain('StepsSchema')
         expect(result.toolInputsImports).toContain('FiltersSchema')
@@ -159,7 +162,7 @@ describe('composeToolSchema', () => {
             },
         })
 
-        const result = composeToolSchema(config, resolved, makeSpec())
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
         expect(result.schemaExpr).toContain('.extend({ steps: StepsSchema })')
     })
@@ -182,7 +185,8 @@ describe('generateToolCode with input_schema', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
         expect(result.toolInputsImports).toEqual(['ThingCreateSchema'])
@@ -204,10 +208,12 @@ describe('generateToolCode with input_schema', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
-        expect(result.code).toContain('body: params')
+        expect(result.code).toContain('const parsedParams = ThingsCreateSchema.parse(params)')
+        expect(result.code).toContain('body: parsedParams')
     })
 
     it('generates query forwarding for GET with input_schema', () => {
@@ -218,9 +224,45 @@ describe('generateToolCode with input_schema', () => {
         }
         const resolved = makeResolved({ method: 'GET' })
 
-        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
 
-        expect(result.code).toContain('query: params')
+        expect(result.code).toContain('const parsedParams = ThingsListSchema.parse(params)')
+        expect(result.code).toContain('query: parsedParams')
+    })
+
+    it('uses response_type override for custom input schema tools', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            response_type: "Omit<Schemas.ThingList, 'results'> & { results: unknown[] }",
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(
+            "const thingsList = (): ToolBase<typeof ThingsListSchema, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
+        )
+        expect(result.code).toContain(
+            "const result = await context.api.request<Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>({"
+        )
     })
 
     it('destructures path params for input_schema with path params', () => {
@@ -240,11 +282,12 @@ describe('generateToolCode with input_schema', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
         expect(result.code).toContain('id, ...body')
-        expect(result.code).toContain('${id}')
+        expect(result.code).toContain('${encodeURIComponent(String(id))}')
     })
 
     it('destructures path params into query for GET with path params', () => {
@@ -264,7 +307,8 @@ describe('generateToolCode with input_schema', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
         expect(result.code).toContain('id, ...query')
@@ -285,7 +329,8 @@ describe('generateToolCode with input_schema', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
         expect(result.code).toMatchSnapshot()
@@ -301,7 +346,15 @@ describe('generateToolCode with input_schema', () => {
         }
         const resolved = makeResolved({ method: 'GET' })
 
-        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
         expect(result.code).toMatchSnapshot()
     })
 })
@@ -326,7 +379,15 @@ describe('generateToolCode without input_schema', () => {
             },
         })
 
-        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
 
         expect(result.toolInputsImports).toEqual([])
     })
@@ -365,7 +426,8 @@ describe('generateToolCode without input_schema', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
         expect(result.toolInputsImports).toContain('StepsSchema')
@@ -399,7 +461,7 @@ describe('rename_params', () => {
             },
         })
 
-        const result = composeToolSchema(config, resolved, makeSpec())
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
         expect(result.schemaExpr).toContain(".omit({ '$unset': true })")
         expect(result.schemaExpr).toContain(".extend({ property_key: ThingsCreateBody.shape['$unset'] })")
@@ -439,7 +501,8 @@ describe('rename_params', () => {
             resolved,
             defaultCategory,
             makeSpec(),
-            new Set<string>()
+            new Set<string>(),
+            stubGetQuerySchema
         )
 
         expect(result.code).toContain('params.property_key !== undefined')
@@ -559,6 +622,15 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
+    it('accepts response_type override', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            response_type: "Omit<Schemas.ThingList, 'results'>",
+        })
+        expect(result.success).toBe(true)
+    })
+
     it('rejects response.include with response.exclude', () => {
         const result = ToolConfigSchema.safeParse({
             operation: 'things_list',
@@ -631,7 +703,7 @@ describe('buildResponseFilter', () => {
             response: { include: ['id', 'key'] },
         }
         const result = buildResponseFilter(config)
-        expect(result.code).toContain('result.results.map')
+        expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('pickResponseFields(item, ')
         expect(result.helperImport).toBe('pickResponseFields')
     })
@@ -644,7 +716,7 @@ describe('buildResponseFilter', () => {
             response: { exclude: ['large_blob'] },
         }
         const result = buildResponseFilter(config)
-        expect(result.code).toContain('result.results.map')
+        expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('omitResponseFields(item, ')
         expect(result.helperImport).toBe('omitResponseFields')
     })
@@ -678,7 +750,15 @@ describe('generateToolCode with response filtering', () => {
             path: '/api/projects/{project_id}/things/{id}/',
         })
 
-        const result = generateToolCode('things-get', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
 
         expect(result.code).toContain('pickResponseFields(result, ')
         expect(result.code).toContain('const filtered = ')
@@ -697,7 +777,15 @@ describe('generateToolCode with response filtering', () => {
             path: '/api/projects/{project_id}/things/{id}/',
         })
 
-        const result = generateToolCode('things-get', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
 
         expect(result.code).toContain('omitResponseFields(result, ')
         expect(result.code).toContain('return filtered')
@@ -711,7 +799,15 @@ describe('generateToolCode with response filtering', () => {
         }
         const resolved = makeResolved()
 
-        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
 
         expect(result.responseFilterImport).toBeNull()
     })
@@ -726,11 +822,135 @@ describe('generateToolCode with response filtering', () => {
         }
         const resolved = makeResolved()
 
-        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
 
-        expect(result.code).toContain('result.results.map((item: any) => omitResponseFields(item, ')
+        expect(result.code).toContain('(result.results ?? []).map((item: any) => omitResponseFields(item, ')
         expect(result.code).toContain('...filtered,')
-        expect(result.code).toContain('filtered.results.map')
+        expect(result.code).toContain('(filtered.results ?? []).map')
         expect(result.responseFilterImport).toBe('omitResponseFields')
+    })
+})
+
+describe('path parameter encoding', () => {
+    it('wraps project_id with encodeURIComponent in generated paths', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved()
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(projectId))}')
+        expect(result.code).not.toMatch(/\$\{projectId\}/)
+    })
+
+    it('wraps organization_id with encodeURIComponent in generated paths', () => {
+        const config: ToolConfig = {
+            operation: 'members_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            path: '/api/organizations/{organization_id}/members/',
+            operation: {
+                operationId: 'members_list',
+                parameters: [{ name: 'organization_id', in: 'path', required: true, schema: { type: 'string' } }],
+            },
+        })
+
+        const result = generateToolCode(
+            'org-members-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(orgId))}')
+        expect(result.code).not.toMatch(/\$\{orgId\}/)
+    })
+
+    it('wraps user-provided path params with encodeURIComponent', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(params.id))}')
+        expect(result.code).not.toMatch(/\$\{params\.id\}/)
+    })
+
+    it('wraps fallback-resolved params with encodeURIComponent', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: {
+                id: { optional: true, fallback: 'orgId', description: 'Optional ID' },
+            },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // Fallback params use local variable (no params. prefix) but still get encoded
+        expect(result.code).toContain('${encodeURIComponent(String(id))}')
+        expect(result.code).not.toMatch(/\$\{id\}[^)]/)
     })
 })

@@ -436,14 +436,16 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(query, response)
-        self.assertIn("Date|new|returning|resurrecting|dormant", result)
+        self.assertIn("Date|New|Returning|Resurrecting|Dormant", result)
         self.assertIn("2025-01-20|46|120|15|-30", result)
 
     async def test_compress_results_boxplot_data(self):
-        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT),
+        )
         response: dict[str, Any] = {
-            "results": [],
-            "boxplot_data": [
+            "results": [
                 {
                     "day": "2025-01-20",
                     "label": "Day 1",

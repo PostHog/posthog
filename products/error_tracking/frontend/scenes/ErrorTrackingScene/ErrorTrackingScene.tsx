@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
@@ -11,8 +10,6 @@ import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { Settings } from 'scenes/settings/Settings'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -24,7 +21,6 @@ import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issue
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
-import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
@@ -33,6 +29,7 @@ import {
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
+import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -47,10 +44,10 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { activeTab, selectedSettingId } = useValues(errorTrackingSceneLogic)
+    const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
-    const hasSettingsSplit = useFeatureFlag('ERROR_TRACKING_SETTINGS_SPLIT')
+    const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -67,17 +64,6 @@ export function ErrorTrackingScene(): JSX.Element {
                 })
             })
     })
-
-    // Redirect to global project settings if someone tries to access exception autocapture
-    // via old link while the settings split flag is on
-    if (
-        hasSettingsSplit &&
-        activeTab === 'configuration' &&
-        selectedSettingId === 'error-tracking-exception-autocapture'
-    ) {
-        router.actions.replace(urls.settings('environment-error-tracking', 'error-tracking-exception-autocapture'))
-        return <></>
-    }
 
     const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
         {
@@ -103,18 +89,15 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
-        {
-            key: 'configuration',
-            label: 'Configuration',
-            content: (
-                <Settings
-                    logicKey={ERROR_TRACKING_LOGIC_KEY}
-                    sectionId="environment-error-tracking-configuration"
-                    settingId="error-tracking-alerting"
-                    handleLocally
-                />
-            ),
-        },
+        ...(hasRecommendations
+            ? [
+                  {
+                      key: 'recommendations' as const,
+                      label: 'Recommendations',
+                      content: <RecommendationsTab />,
+                  },
+              ]
+            : []),
     ]
 
     return (
@@ -141,6 +124,35 @@ export function ErrorTrackingScene(): JSX.Element {
 const Header = (): JSX.Element => {
     const { isDev } = useValues(preflightLogic)
 
+    const buildExceptionSteps = (): {
+        $type: string
+        $message: string
+        $level: string
+        $timestamp: string
+    }[] => {
+        const now = new Date()
+        return [
+            {
+                $type: 'ui.interaction',
+                $message: 'Send an exception button clicked',
+                $level: 'info',
+                $timestamp: new Date(now.getTime() - 2500).toISOString(),
+            },
+            {
+                $type: 'http',
+                $message: 'GET /api/environments/:team_id/error_tracking/issues/',
+                $level: 'info',
+                $timestamp: new Date(now.getTime() - 1200).toISOString(),
+            },
+            {
+                $type: 'error',
+                $message: 'Kaboom thrown from issues list',
+                $level: 'error',
+                $timestamp: now.toISOString(),
+            },
+        ]
+    }
+
     const onClick = (): void => {
         setInterval(() => {
             throw new Error('Kaboom !')
@@ -162,7 +174,9 @@ const Header = (): JSX.Element => {
                                 <LemonButton
                                     size="small"
                                     onClick={() => {
-                                        posthog.captureException(new Error('Kaboom !'))
+                                        posthog.captureException(new Error('Kaboom !'), {
+                                            $exception_steps: buildExceptionSteps(),
+                                        })
                                     }}
                                 >
                                     Send an exception

@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -124,6 +125,7 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
+    const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     const openTab = activeTab || taxonomicGroups[0].type
     const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
@@ -132,7 +134,7 @@ export function InfiniteSelectResults({
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const { totalListCount } = useValues(logic)
+    const { totalListCount, isLocalDataLoading } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -153,16 +155,24 @@ export function InfiniteSelectResults({
                 </div>
             )}
             <InfiniteList
-                popupAnchorElement={popupAnchorElement}
+                popupAnchorElement={popupAnchorElement ?? wrapperRef.current}
                 definitionPopoverRenderer={definitionPopoverRenderer}
             />
         </>
     )
 
-    const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
+    const showDataWarehouseLoadingState =
+        (openTab === TaxonomicFilterGroupType.DataWarehouse ||
+            openTab === TaxonomicFilterGroupType.DataWarehouseProperties) &&
+        totalListCount === 0 &&
+        isLocalDataLoading
+    const showEmptyState =
+        !showDataWarehouseLoadingState &&
+        totalListCount === 0 &&
+        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
-        <div className="flex flex-row h-full">
+        <div ref={wrapperRef} className="flex flex-row h-full">
             {hasMultipleGroups && (
                 <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
                     <div className="taxonomic-group-title">Categories</div>
@@ -197,9 +207,15 @@ export function InfiniteSelectResults({
                                 logic={infiniteListLogic}
                                 props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                             >
-                                {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
-                                {!showEmptyState && listComponent}
-                                {!showEmptyState &&
+                                {(showDataWarehouseLoadingState || showEmptyState) && (
+                                    <TaxonomicFilterEmptyState
+                                        groupType={groupType}
+                                        isLoading={showDataWarehouseLoadingState}
+                                    />
+                                )}
+                                {!showDataWarehouseLoadingState && !showEmptyState && listComponent}
+                                {!showDataWarehouseLoadingState &&
+                                    !showEmptyState &&
                                     (() => {
                                         const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
                                         return (

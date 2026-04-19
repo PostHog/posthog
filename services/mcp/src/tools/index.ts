@@ -4,22 +4,12 @@ import { hasScopes } from '@/lib/api'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
-// Experiments
-import createExperiment from './experiments/create'
-import deleteExperiment from './experiments/delete'
-import getExperiment from './experiments/get'
-import getAllExperiments from './experiments/getAll'
+// Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
-import updateExperiment from './experiments/update'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
-import createInsight from './insights/create'
-import deleteInsight from './insights/delete'
-import getInsight from './insights/get'
-import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
-import updateInsight from './insights/update'
 // LLM Analytics
 import evaluationCreate from './llmAnalytics/evaluations/create'
 import evaluationDelete from './llmAnalytics/evaluations/delete'
@@ -29,13 +19,7 @@ import evaluationRun from './llmAnalytics/evaluations/run'
 import evaluationTestHog from './llmAnalytics/evaluations/testHog'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributes from './logs/listAttributes'
-import logsListAttributeValues from './logs/listAttributeValues'
-// Logs
-import logsQuery from './logs/query'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
@@ -61,9 +45,7 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,
@@ -75,25 +57,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
 
-    // Logs
-    'logs-query': logsQuery,
-    'logs-list-attributes': logsListAttributes,
-    'logs-list-attribute-values': logsListAttributeValues,
-
-    // Experiments
-    'experiment-get-all': getAllExperiments,
-    'experiment-get': getExperiment,
+    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    'experiment-create': createExperiment,
-    'experiment-delete': deleteExperiment,
-    'experiment-update': updateExperiment,
 
     // Insights
-    'insights-get-all': getAllInsights,
-    'insight-get': getInsight,
-    'insight-create-from-query': createInsight,
-    'insight-update': updateInsight,
-    'insight-delete': deleteInsight,
     'insight-query': queryInsight,
 
     // Queries
@@ -146,7 +113,11 @@ export const getToolsFromContext = async (
         }
     }
 
-    const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
+    // Filter tools by mcpVersion — when set, the tool is exclusive to that version
+    const effectiveVersion = options?.version ?? 1
+    const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
+
+    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
         const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,

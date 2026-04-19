@@ -11,7 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertCreateDestinationApi,
+    LogsAlertDeleteDestinationApi,
+    LogsAlertDestinationResponseApi,
+    LogsAlertSimulateRequestApi,
+    LogsAlertSimulateResponseApi,
     LogsAlertsListParams,
+    LogsAttributesRetrieveParams,
+    LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
@@ -20,6 +27,8 @@ import type {
     PatchedLogsAlertConfigurationApi,
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
+    _LogsQueryRequestApi,
+    _LogsSparklineRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -288,12 +297,108 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
     })
 }
 
-export const getLogsAttributesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/attributes/`
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ */
+export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/`
 }
 
-export const logsAttributesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId), {
+export const logsAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertCreateDestinationApi: LogsAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertDestinationResponseApi> => {
+    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertCreateDestinationApi),
+    })
+}
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/delete/`
+}
+
+export const logsAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+/**
+ * Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.
+ */
+export const getLogsAlertsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/reset/`
+}
+
+export const logsAlertsResetCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
+ */
+export const getLogsAlertsSimulateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/simulate/`
+}
+
+export const logsAlertsSimulateCreate = async (
+    projectId: string,
+    logsAlertSimulateRequestApi: LogsAlertSimulateRequestApi,
+    options?: RequestInit
+): Promise<LogsAlertSimulateResponseApi> => {
+    return apiMutator<LogsAlertSimulateResponseApi>(getLogsAlertsSimulateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
+export const getLogsAttributesRetrieveUrl = (projectId: string, params?: LogsAttributesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/attributes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/attributes/`
+}
+
+export const logsAttributesRetrieve = async (
+    projectId: string,
+    params?: LogsAttributesRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -325,10 +430,16 @@ export const getLogsQueryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/query/`
 }
 
-export const logsQueryCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const logsQueryCreate = async (
+    projectId: string,
+    _logsQueryRequestApi: _LogsQueryRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getLogsQueryCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsQueryRequestApi),
     })
 }
 
@@ -347,19 +458,41 @@ export const getLogsSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/sparkline/`
 }
 
-export const logsSparklineCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const logsSparklineCreate = async (
+    projectId: string,
+    _logsSparklineRequestApi: _LogsSparklineRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsSparklineRequestApi),
     })
 }
 
-export const getLogsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/values/`
+export const getLogsValuesRetrieveUrl = (projectId: string, params: LogsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/values/`
 }
 
-export const logsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsValuesRetrieveUrl(projectId), {
+export const logsValuesRetrieve = async (
+    projectId: string,
+    params: LogsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

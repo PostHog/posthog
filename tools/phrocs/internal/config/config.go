@@ -21,6 +21,7 @@ type ProcConfig struct {
 	AskSkip      bool              `yaml:"ask_skip"`
 	Env          map[string]string `yaml:"env"`
 	ReadyPattern string            `yaml:"ready_pattern"`
+	Groups       map[string]string `yaml:"groups"` // user-defined grouping dimensions, using map here so new dimensions need no code changes
 }
 
 // Reports whether the process should start automatically
@@ -33,6 +34,7 @@ func (p ProcConfig) ShouldAutostart() bool {
 type Config struct {
 	Shell            string                `yaml:"shell"`
 	Procs            map[string]ProcConfig `yaml:"procs"`
+	GroupOrder       map[string][]string   `yaml:"group_order"` // display order per dimension
 	HideKeymapWindow bool                  `yaml:"hide_keymap_window"`
 	MouseScrollSpeed int                   `yaml:"mouse_scroll_speed"`
 	ProcListWidth    int                   `yaml:"proc_list_width"`

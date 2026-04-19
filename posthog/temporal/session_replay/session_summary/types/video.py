@@ -135,6 +135,43 @@ class VideoFixSuggestion(BaseModel):
     suggestion: str = Field(description="Actionable fix or improvement")
 
 
+class SentimentSignal(BaseModel):
+    """A specific observation that contributed to the session frustration score."""
+
+    model_config = ConfigDict(frozen=True)
+
+    signal_type: Literal[
+        "rage_click",
+        "repeated_error",
+        "backtracking",
+        "long_pause",
+        "abandonment",
+        "dead_click",
+        "confusion_loop",
+        "error_cascade",
+        "other",
+    ] = Field(description="Category of the observed frustration signal")
+    segment_index: int = Field(description="Index of the segment where the signal was observed")
+    description: str = Field(description="Brief description of the observed signal")
+    intensity: float = Field(ge=0.0, le=1.0, description="How severe this signal is (0=mild, 1=extreme)")
+
+
+class SessionSentiment(BaseModel):
+    """Session-level sentiment scoring derived from video analysis."""
+
+    model_config = ConfigDict(frozen=True)
+
+    frustration_score: float = Field(
+        ge=0.0, le=1.0, description="Overall frustration score (0.0=smooth session, 1.0=extremely frustrated)"
+    )
+    outcome: Literal["successful", "friction", "frustrated", "blocked"] = Field(
+        description="How the session went: successful (no friction), friction (issues but recovered), frustrated (repeated issues, visible confusion), blocked (couldn't proceed)"
+    )
+    sentiment_signals: list[SentimentSignal] = Field(
+        default_factory=list, description="Evidence signals backing the frustration score"
+    )
+
+
 class ConsolidatedVideoAnalysis(BaseModel):
     """Complete output from video segment consolidation including segments, outcomes, and session-level analysis."""
 
@@ -146,4 +183,7 @@ class ConsolidatedVideoAnalysis(BaseModel):
     fix_suggestions: list[VideoFixSuggestion] = Field(
         default_factory=list,
         description="Actionable fix suggestions grounded in observed issues — only include if there is clear evidence",
+    )
+    sentiment: SessionSentiment | None = Field(
+        default=None, description="Session-level sentiment scoring with evidence signals"
     )

@@ -29,6 +29,7 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -40,6 +41,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
+from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
 
@@ -288,6 +290,18 @@ def _create_integration(team: Team, label: str):
     return Integration.objects.create(team=team, kind="slack", errors="")
 
 
+def _create_logs_view(team: Team, label: str) -> LogsView:
+    return LogsView.objects.create(team=team, name=f"logs_view_{label}")
+
+
+def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
+    return LogsAlertConfiguration.objects.create(
+        team=team,
+        name=f"logs_alert_{label}",
+        threshold_count=10,
+    )
+
+
 def _create_insight(team: Team, label: str) -> Insight:
     return Insight.objects.create(team=team, name=f"insight_{label}")
 
@@ -298,6 +312,28 @@ def _create_insight_variable(team: Team, label: str) -> InsightVariable:
 
 def _create_notebook(team: Team, label: str) -> Notebook:
     return Notebook.objects.create(team=team, title=f"notebook_{label}")
+
+
+def _create_session_recording(team: Team, label: str):
+    from posthog.models import SessionRecording
+
+    return SessionRecording.objects.create(team=team, session_id=f"session_{label}")
+
+
+def _create_session_recording_playlist(team: Team, label: str):
+    from posthog.models import SessionRecordingPlaylist
+
+    return SessionRecordingPlaylist.objects.create(team=team, name=f"playlist_{label}", type="collection")
+
+
+def _create_support_ticket(team: Team, label: str) -> Ticket:
+    return Ticket.objects.create_with_number(
+        team=team,
+        channel_source="widget",
+        widget_session_id=f"session_{label}",
+        distinct_id=f"user_{label}",
+        status="new",
+    )
 
 
 def _create_survey(team: Team, label: str) -> Survey:
@@ -339,8 +375,13 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("logs_alerts", _create_logs_alert),
+    ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
+    ("session_recording_playlists", _create_session_recording_playlist),
+    ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
+    ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
     ("teams", _create_team),
 ]

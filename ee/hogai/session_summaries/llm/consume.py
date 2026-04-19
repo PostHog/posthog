@@ -148,6 +148,7 @@ async def get_llm_session_group_patterns_extraction(
     model_to_use: str,
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to extract patterns from multiple sessions."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
@@ -159,6 +160,7 @@ async def get_llm_session_group_patterns_extraction(
         trace_id=trace_id,
         user_id=user_id,
         user_distinct_id=user_distinct_id,
+        trigger_session_id=trigger_session_id,
     )
     raw_content = get_raw_content(result)
     if not raw_content:
@@ -176,6 +178,7 @@ async def get_llm_session_group_patterns_assignment(
     model_to_use: str,
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList:
     """Call LLM to assign events to extracted patterns."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
@@ -187,6 +190,7 @@ async def get_llm_session_group_patterns_assignment(
         trace_id=trace_id,
         user_id=user_id,
         user_distinct_id=user_distinct_id,
+        trigger_session_id=trigger_session_id,
     )
     raw_content = get_raw_content(result)
     if not raw_content:
@@ -203,6 +207,7 @@ async def get_llm_session_group_patterns_combination(
     session_ids: list[str],
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to combine patterns from multiple chunks."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
@@ -214,6 +219,7 @@ async def get_llm_session_group_patterns_combination(
         trace_id=trace_id,
         user_id=user_id,
         user_distinct_id=user_distinct_id,
+        trigger_session_id=trigger_session_id,
     )
     raw_content = get_raw_content(result)
     if not raw_content:
@@ -240,6 +246,7 @@ async def get_llm_single_session_summary(
     system_prompt: str | None = None,
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> SessionSummarySerializer:
     """Generate a single session summary in one LLM call."""
     try:
@@ -252,6 +259,7 @@ async def get_llm_single_session_summary(
             trace_id=trace_id,
             user_id=user_id,
             user_distinct_id=user_distinct_id,
+            trigger_session_id=trigger_session_id,
         )
         raw_content = get_raw_content(result)
         if not raw_content:
@@ -315,6 +323,7 @@ async def stream_llm_single_session_summary(
     system_prompt: str | None = None,
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream LLM summary for a session, yielding JSON chunks."""
     try:
@@ -328,6 +337,7 @@ async def stream_llm_single_session_summary(
             model=model_to_use,
             user_id=user_id,
             user_distinct_id=user_distinct_id,
+            trigger_session_id=trigger_session_id,
         )
         async for chunk in stream:
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0

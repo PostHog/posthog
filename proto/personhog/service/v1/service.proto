@@ -52,4 +52,6 @@ service PersonHogService {
   // (which uses the primary Postgres pool) as a temporary measure.
   // TODO: Migrate routing to leader before personhog-leader goes live.
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
+  // WARNING: Same routing caveat as DeletePersons above.
+  rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
 }

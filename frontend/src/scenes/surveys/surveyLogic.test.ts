@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import {
     mergeResponsesByQuestion,
@@ -1495,6 +1496,52 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
     })
 
+    it('clears filters with a single results reload', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setAnswerFilters(
+                [
+                    {
+                        key: SurveyEventProperties.SURVEY_RESPONSE,
+                        value: 'test response',
+                        operator: PropertyOperator.IContains,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+                false
+            )
+            logic.actions.setPropertyFilters(
+                [
+                    {
+                        key: 'email',
+                        value: 'test@posthog.com',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Person,
+                    },
+                ],
+                false
+            )
+            logic.actions.setDateRange(
+                {
+                    date_from: dayjs().subtract(7, 'day').format('YYYY-MM-DD'),
+                    date_to: dayjs().format('YYYY-MM-DD'),
+                },
+                false
+            )
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.clearFilters()
+        }).toDispatchActions([
+            'clearFilters',
+            'setAnswerFilters',
+            'setPropertyFilters',
+            'setDateRange',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+        ])
+    })
+
     describe('interval selection', () => {
         it('starts with null interval', async () => {
             await expectLogic(logic).toMatchValues({
@@ -1808,6 +1855,45 @@ describe('survey stats calculation', () => {
             processedSurveyStats: expectedStats,
             surveyRates: expectedRates,
         })
+    })
+})
+
+describe('surveyLogic archived response refresh', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(async () => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+
+        jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.surveys, 'archiveResponse').mockResolvedValue({ success: true })
+
+        logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.clearAllMocks()
+    })
+
+    it('reloads survey results explicitly after archiving a response', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.archiveResponse('response-1')
+        }).toDispatchActions([
+            'archiveResponse',
+            'startResultsRequery',
+            'loadArchivedResponseUuidsSuccess',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+        ])
+
+        expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
     })
 })
 

@@ -29,13 +29,13 @@ describe('replayTriggersV2Logic', () => {
                 [
                     {
                         id: expect.any(String),
-                        name: 'Legacy trigger conditions',
+                        name: 'Migrated trigger conditions',
                         sampleRate: 0.5,
                         minDurationMs: 5000,
                         conditions: {
                             matchType: 'all',
                             urls: [{ url: '^/checkout$', matching: 'regex' }],
-                            events: ['$pageview'],
+                            events: [{ name: '$pageview' }],
                             flag: undefined,
                         },
                     },
@@ -51,7 +51,7 @@ describe('replayTriggersV2Logic', () => {
                 [
                     {
                         id: expect.any(String),
-                        name: 'Legacy trigger conditions',
+                        name: 'Migrated trigger conditions',
                         sampleRate: 0.3,
                         minDurationMs: 10000,
                         conditions: {
@@ -73,7 +73,7 @@ describe('replayTriggersV2Logic', () => {
                 [
                     {
                         id: expect.any(String),
-                        name: 'Legacy trigger conditions',
+                        name: 'Migrated trigger conditions',
                         sampleRate: 1,
                         minDurationMs: undefined,
                         conditions: {
@@ -100,7 +100,7 @@ describe('replayTriggersV2Logic', () => {
                 [
                     {
                         id: expect.any(String),
-                        name: 'Trigger conditions (from legacy)',
+                        name: 'Migrated trigger conditions',
                         sampleRate: 1,
                         minDurationMs: 2000,
                         conditions: {
@@ -109,13 +109,13 @@ describe('replayTriggersV2Logic', () => {
                                 { url: '^/checkout$', matching: 'regex' },
                                 { url: '^/payment$', matching: 'regex' },
                             ],
-                            events: ['invited_team_member', 'signed_up'],
+                            events: [{ name: 'invited_team_member' }, { name: 'signed_up' }],
                             flag: undefined,
                         },
                     },
                     {
                         id: expect.any(String),
-                        name: 'Baseline sampling (from legacy)',
+                        name: 'Migrated baseline sampling',
                         sampleRate: 0.1,
                         minDurationMs: 2000,
                         conditions: {

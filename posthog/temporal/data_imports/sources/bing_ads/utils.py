@@ -51,7 +51,7 @@ def fetch_data_in_yearly_chunks(
     current_start = start_date
     errors: list[dict[str, typing.Any]] = []
 
-    while current_start < end_date:
+    while current_start <= end_date:
         chunk_end = min(
             current_start + relativedelta(years=1),
             end_date,
