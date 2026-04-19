@@ -228,7 +228,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     const response = await api.get(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/runs/`
                     )
-                    return response || []
+                    // The runs endpoint is paginated (DRF envelope); unwrap results so the
+                    // reducer gets an array rather than the {count, next, previous, results} object.
+                    return response?.results || []
                 },
             },
         ],
