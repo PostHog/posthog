@@ -7,9 +7,17 @@ import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLo
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { initKeaTests } from '~/test/init'
-import { EntityTypes, EventType, PropertyFilterType, PropertyOperator } from '~/types'
+import { EntityTypes, EventType, PropertyFilterType, PropertyOperator, RecordingEventType } from '~/types'
 
-import { buildActionNameValidator, openSaveAsActionDialog, saveAsActionLogic } from './saveAsActionLogic'
+import {
+    buildActionNameValidator,
+    eventToActionStep,
+    eventToSuggestedActionName,
+    isAutocaptureWithElements,
+    openSaveAsActionDialog,
+    saveActionFromEvent,
+    saveActionFromFilter,
+} from './saveAsActionDialog'
 
 function makeAutocaptureEvent(overrides: Partial<EventType> = {}): EventType {
     return {
@@ -37,7 +45,7 @@ function makeFilter(overrides: Partial<LocalFilter> = {}): LocalFilter {
 
 type OpenFormConfig = Parameters<typeof LemonDialog.openForm>[0]
 
-describe('saveAsActionLogic', () => {
+describe('saveAsActionDialog', () => {
     let openFormSpy: jest.SpyInstance<void, [OpenFormConfig]>
     let lastDialogConfig: OpenFormConfig | undefined
     let capturedBody: any
@@ -63,7 +71,6 @@ describe('saveAsActionLogic', () => {
         })
         initKeaTests()
         actionsModel.mount()
-        saveAsActionLogic.mount()
         openFormSpy = jest.spyOn(LemonDialog, 'openForm').mockImplementation((config) => {
             lastDialogConfig = config
         })
@@ -71,7 +78,6 @@ describe('saveAsActionLogic', () => {
 
     afterEach(() => {
         openFormSpy.mockRestore()
-        saveAsActionLogic.unmount()
     })
 
     async function submitCapturedDialog(actionName = lastDialogConfig?.initialValues?.actionName ?? ''): Promise<void> {
@@ -80,6 +86,122 @@ describe('saveAsActionLogic', () => {
         }
         await lastDialogConfig.onSubmit({ actionName })
     }
+
+    describe('isAutocaptureWithElements', () => {
+        it.each([
+            ['autocapture with elements', makeAutocaptureEvent(), true],
+            ['autocapture without elements', makeAutocaptureEvent({ elements: [] }), false],
+            ['non-autocapture event', makeAutocaptureEvent({ event: '$pageview' }), false],
+            [
+                'recording event type with elements',
+                { ...makeAutocaptureEvent(), fullyLoaded: true, playerTime: 0 } as RecordingEventType,
+                true,
+            ],
+        ])('%s → %s', (_desc, event, expected) => {
+            expect(isAutocaptureWithElements(event)).toBe(expected)
+        })
+    })
+
+    describe('eventToActionStep', () => {
+        it('includes url, url_matching and element-derived fields for a button event', () => {
+            const step = eventToActionStep(makeAutocaptureEvent() as any, [])
+            expect(step).toMatchObject({
+                event: '$autocapture',
+                url: 'https://example.com/page',
+                url_matching: 'exact',
+                text: 'Submit',
+            })
+        })
+
+        it('applies the $event_type=submit property when present', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({
+                    properties: { $current_url: 'https://example.com/page', $event_type: 'submit' },
+                }) as any,
+                []
+            )
+            expect(step.properties).toEqual([expect.objectContaining({ key: '$event_type', value: 'submit' })])
+        })
+
+        it('includes url/url_matching for $pageview', () => {
+            const step = eventToActionStep(makeAutocaptureEvent({ event: '$pageview', elements: [] }) as any, [])
+            expect(step).toMatchObject({ event: '$pageview', url: 'https://example.com/page', url_matching: 'exact' })
+            expect(step.text).toBeUndefined()
+            expect(step.selector).toBeUndefined()
+        })
+
+        it('omits url for custom events', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({ event: 'signed_up', elements: [], properties: {} }) as any,
+                []
+            )
+            expect(step).toEqual({ event: 'signed_up' })
+        })
+
+        it('omits url/url_matching for $pageview when $current_url is missing', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({ event: '$pageview', elements: [], properties: {} }) as any,
+                []
+            )
+            expect(step).toEqual({ event: '$pageview' })
+        })
+    })
+
+    describe('eventToSuggestedActionName', () => {
+        it.each([
+            ['autocapture with text', makeAutocaptureEvent(), 'interacted with button with text "Submit"'],
+            [
+                '$pageview with url',
+                makeAutocaptureEvent({
+                    event: '$pageview',
+                    properties: { $current_url: 'https://example.com/pricing' },
+                }),
+                'Pageview on /pricing',
+            ],
+            ['$pageview without url', makeAutocaptureEvent({ event: '$pageview', properties: {} }), 'Pageview action'],
+            ['custom event', makeAutocaptureEvent({ event: 'signed_up', properties: {} }), 'signed_up event'],
+        ])('%s → %s', (_desc, event, expected) => {
+            expect(eventToSuggestedActionName(event as any)).toBe(expected)
+        })
+    })
+
+    describe('buildActionNameValidator', () => {
+        it.each([
+            ['empty name', [], '', 'Action name is required'],
+            ['whitespace-only name', [], '   ', 'Action name is required'],
+            ['unique name', ['Other'], 'My action', undefined],
+            ['colliding name', ['Existing action'], 'Existing action', 'An action with this name already exists'],
+            [
+                'collision ignoring surrounding whitespace in input',
+                ['Existing action'],
+                '  Existing action  ',
+                'An action with this name already exists',
+            ],
+            [
+                'collision ignoring surrounding whitespace in existing names',
+                ['  Existing action  '],
+                'Existing action',
+                'An action with this name already exists',
+            ],
+            [
+                'ignores empty/whitespace-only existing names',
+                ['', '   ', 'Real action'],
+                'Real action',
+                'An action with this name already exists',
+            ],
+        ])('%s → %s', (_desc, existing, input, expected) => {
+            const validator = buildActionNameValidator(() => existing)
+            expect(validator(input)).toBe(expected)
+        })
+
+        it('reads existing names fresh on each call', () => {
+            let names: string[] = []
+            const validator = buildActionNameValidator(() => names)
+            expect(validator('Foo')).toBeUndefined()
+            names = ['Foo']
+            expect(validator('Foo')).toBe('An action with this name already exists')
+        })
+    })
 
     describe('openSaveAsActionDialog', () => {
         it('opens the shared dialog with the suggested name', () => {
@@ -120,9 +242,9 @@ describe('saveAsActionLogic', () => {
         })
     })
 
-    describe('saveFromFilter', () => {
+    describe('saveActionFromFilter', () => {
         it('pre-fills name and step from a filter with $el_text', async () => {
-            saveAsActionLogic.actions.saveFromFilter(
+            saveActionFromFilter(
                 makeFilter({
                     properties: [
                         {
@@ -147,7 +269,7 @@ describe('saveAsActionLogic', () => {
         })
 
         it('posts the full filter → action step mapping for text + selector', async () => {
-            saveAsActionLogic.actions.saveFromFilter(
+            saveActionFromFilter(
                 makeFilter({
                     properties: [
                         {
@@ -178,9 +300,9 @@ describe('saveAsActionLogic', () => {
         })
     })
 
-    describe('saveFromEvent', () => {
+    describe('saveActionFromEvent', () => {
         it('pre-fills name and step from an autocapture event and sets Unfiled/Actions folder', async () => {
-            saveAsActionLogic.actions.saveFromEvent(makeAutocaptureEvent(), [])
+            saveActionFromEvent(makeAutocaptureEvent(), [])
 
             expect(lastDialogConfig).not.toBeUndefined()
             await submitCapturedDialog('Clicked button "Submit"')
@@ -195,7 +317,7 @@ describe('saveAsActionLogic', () => {
         })
 
         it('opens the dialog for $pageview events with a pathname-based suggested name', () => {
-            saveAsActionLogic.actions.saveFromEvent(
+            saveActionFromEvent(
                 makeAutocaptureEvent({
                     event: '$pageview',
                     elements: [],
@@ -207,49 +329,8 @@ describe('saveAsActionLogic', () => {
         })
 
         it('opens the dialog for custom events with an event-name-based suggested name', () => {
-            saveAsActionLogic.actions.saveFromEvent(
-                makeAutocaptureEvent({ event: 'signed_up', elements: [], properties: {} }),
-                []
-            )
+            saveActionFromEvent(makeAutocaptureEvent({ event: 'signed_up', elements: [], properties: {} }), [])
             expect(lastDialogConfig?.initialValues?.actionName).toBe('signed_up event')
-        })
-    })
-
-    describe('buildActionNameValidator', () => {
-        it.each([
-            ['empty name', [], '', 'Action name is required'],
-            ['whitespace-only name', [], '   ', 'Action name is required'],
-            ['unique name', ['Other'], 'My action', undefined],
-            ['colliding name', ['Existing action'], 'Existing action', 'An action with this name already exists'],
-            [
-                'collision ignoring surrounding whitespace in input',
-                ['Existing action'],
-                '  Existing action  ',
-                'An action with this name already exists',
-            ],
-            [
-                'collision ignoring surrounding whitespace in existing names',
-                ['  Existing action  '],
-                'Existing action',
-                'An action with this name already exists',
-            ],
-            [
-                'ignores empty/whitespace-only existing names',
-                ['', '   ', 'Real action'],
-                'Real action',
-                'An action with this name already exists',
-            ],
-        ])('%s → %s', (_desc, existing, input, expected) => {
-            const validator = buildActionNameValidator(() => existing)
-            expect(validator(input)).toBe(expected)
-        })
-
-        it('reads existing names fresh on each call', () => {
-            let names: string[] = []
-            const validator = buildActionNameValidator(() => names)
-            expect(validator('Foo')).toBeUndefined()
-            names = ['Foo']
-            expect(validator('Foo')).toBe('An action with this name already exists')
         })
     })
 

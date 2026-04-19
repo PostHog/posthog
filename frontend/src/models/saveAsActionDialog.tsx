@@ -1,4 +1,3 @@
-import { actions, afterMount, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -7,7 +6,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { eventToActionStep, eventToSuggestedActionName } from 'scenes/activity/explore/saveActionFromEvent'
+import { autoCaptureEventToDescription } from 'lib/utils'
+import {
+    applyDataAttributeSelector,
+    applySubmitProperty,
+    elementsToAction,
+} from 'scenes/activity/explore/createActionFromEvent'
 import {
     filterToActionStep,
     generateActionNameFromFilter,
@@ -18,12 +22,47 @@ import { urls } from 'scenes/urls'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionStepType, EventType, RecordingEventType } from '~/types'
 
-import type { saveAsActionLogicType } from './saveAsActionLogicType'
+type AutocaptureEvent = (EventType | RecordingEventType) & { event: '$autocapture' }
 
-interface OpenSaveAsActionDialogPayload {
-    suggestedName: string
-    step: ActionStepType
-    createInFolder?: string
+export function isAutocaptureWithElements(event: EventType | RecordingEventType): event is AutocaptureEvent {
+    return event.event === '$autocapture' && event.elements?.length > 0
+}
+
+export function eventToActionStep(event: EventType | RecordingEventType, dataAttributes: string[]): ActionStepType {
+    const hasElements = (event.elements?.length ?? 0) > 0
+    const hasUrl = Boolean(event.properties.$current_url)
+    const supportsUrl = event.event === '$pageview' || event.event === '$autocapture'
+
+    const step: ActionStepType = {
+        event: event.event,
+        ...(hasUrl && supportsUrl ? { url: event.properties.$current_url, url_matching: 'exact' } : {}),
+        ...(hasElements ? elementsToAction(event.elements) : {}),
+    }
+
+    if (hasElements) {
+        applyDataAttributeSelector(step, event.elements, dataAttributes)
+    }
+    applySubmitProperty(step, event.properties)
+
+    return step
+}
+
+export function eventToSuggestedActionName(event: EventType | RecordingEventType): string {
+    if (event.event === '$autocapture') {
+        return autoCaptureEventToDescription(event)
+    }
+    if (event.event === '$pageview') {
+        const url = event.properties.$current_url
+        if (url) {
+            try {
+                return `Pageview on ${new URL(url).pathname}`
+            } catch {
+                // fall through to generic Pageview label
+            }
+        }
+        return 'Pageview action'
+    }
+    return `${event.event} event`
 }
 
 export function buildActionNameValidator(
@@ -55,7 +94,14 @@ function getServerErrorMessage(error: unknown): string | undefined {
     return firstFieldMessage(data.name) ?? firstFieldMessage(data.non_field_errors)
 }
 
+interface OpenSaveAsActionDialogPayload {
+    suggestedName: string
+    step: ActionStepType
+    createInFolder?: string
+}
+
 export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: OpenSaveAsActionDialogPayload): void {
+    actionsModel.mount()
     LemonDialog.openForm({
         title: 'Save as action',
         initialValues: { actionName: suggestedName },
@@ -91,31 +137,17 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
     })
 }
 
-export const saveAsActionLogic = kea<saveAsActionLogicType>([
-    path(['scenes', 'actions', 'saveAsActionLogic']),
-    actions({
-        saveFromFilter: (filter: LocalFilter) => ({ filter }),
-        saveFromEvent: (event: EventType | RecordingEventType, dataAttributes: string[]) => ({
-            event,
-            dataAttributes,
-        }),
-    }),
-    afterMount(() => {
-        actionsModel.mount()
-    }),
-    listeners({
-        saveFromFilter: ({ filter }) => {
-            openSaveAsActionDialog({
-                suggestedName: generateActionNameFromFilter(filter),
-                step: filterToActionStep(filter),
-            })
-        },
-        saveFromEvent: ({ event, dataAttributes }) => {
-            openSaveAsActionDialog({
-                suggestedName: eventToSuggestedActionName(event),
-                step: eventToActionStep(event, dataAttributes),
-                createInFolder: 'Unfiled/Actions',
-            })
-        },
-    }),
-])
+export function saveActionFromFilter(filter: LocalFilter): void {
+    openSaveAsActionDialog({
+        suggestedName: generateActionNameFromFilter(filter),
+        step: filterToActionStep(filter),
+    })
+}
+
+export function saveActionFromEvent(event: EventType | RecordingEventType, dataAttributes: string[]): void {
+    openSaveAsActionDialog({
+        suggestedName: eventToSuggestedActionName(event),
+        step: eventToActionStep(event, dataAttributes),
+        createInFolder: 'Unfiled/Actions',
+    })
+}

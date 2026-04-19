@@ -1,4 +1,3 @@
-import { useActions, useMountedLogic } from 'kea'
 import React from 'react'
 
 import { IconLlmAnalytics, IconWarning } from '@posthog/icons'
@@ -9,12 +8,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { saveAsActionLogic } from 'scenes/actions/saveAsActionLogic'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { saveActionFromEvent } from '~/models/saveAsActionDialog'
 import { EventType, SurveyEventName } from '~/types'
 
 export function EventRowActions({ event }: { event: EventType }): JSX.Element {
@@ -38,15 +37,13 @@ export function EventRowActions({ event }: { event: EventType }): JSX.Element {
 
 function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
     const insightUrl = insightUrlForEvent(event)
-    useMountedLogic(saveAsActionLogic)
-    const { saveFromEvent } = useActions(saveAsActionLogic)
 
     return (
         <>
             {getCurrentTeamId() && (
                 <LemonButton
                     onClick={() =>
-                        saveFromEvent(event, teamLogic.findMounted()?.values.currentTeam?.data_attributes || [])
+                        saveActionFromEvent(event, teamLogic.findMounted()?.values.currentTeam?.data_attributes || [])
                     }
                     fullWidth
                     data-attr="events-table-create-action"
