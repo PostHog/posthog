@@ -122,7 +122,8 @@ RUN apt-get update && \
 
 # Install chrome-headless-shell via @puppeteer/browsers CLI.
 # This provides the minimal Chrome binary that supports HeadlessExperimental.
-RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+# Pinned to a specific version for reproducible builds — update deliberately via PR.
+RUN npx --yes @puppeteer/browsers install chrome-headless-shell@147.0.7727.57 \
     --path /opt/chrome-headless-shell && \
     ln -s "$(find /opt/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" /usr/local/bin/chrome-headless-shell
 
