@@ -257,9 +257,21 @@ describe('saveAsActionLogic', () => {
             ['unique name', ['Other'], 'My action', undefined],
             ['colliding name', ['Existing action'], 'Existing action', 'An action with this name already exists'],
             [
-                'collision ignoring surrounding whitespace',
+                'collision ignoring surrounding whitespace in input',
                 ['Existing action'],
                 '  Existing action  ',
+                'An action with this name already exists',
+            ],
+            [
+                'collision ignoring surrounding whitespace in existing names',
+                ['  Existing action  '],
+                'Existing action',
+                'An action with this name already exists',
+            ],
+            [
+                'ignores empty/whitespace-only existing names',
+                ['', '   ', 'Real action'],
+                'Real action',
                 'An action with this name already exists',
             ],
         ])('%s → %s', (_desc, existing, input, expected) => {
