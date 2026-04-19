@@ -417,6 +417,16 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
         assert row_as_other_team["click_count"] == PARTS * OTHER_TEAM_PER_PART_CLICKS
         assert row_as_other_team["distinct_id"] == "d_cross_other"
 
+    def test_count_works_when_no_table_fields_are_projected(self):
+        # HogQL injects `SELECT 1` into the inner subquery when requested_fields is
+        # empty, so `SELECT count()` does not hit the "no aggregation defined" branch
+        # of the lazy_select resolver.
+        response = execute_hogql_query(
+            parse_select("select count() from grouped_session_replay_events"),
+            self.team,
+        )
+        assert response.results and response.results[0][0] > 0
+
     def test_other_teams_session_is_invisible_to_current_team(self):
         other_only_session = str(uuid7())
         produce_replay_summary(
