@@ -1307,9 +1307,9 @@ snapshots:
     filters--event-select--light:
         hash: v1.k794b7964.cf4e0362a02e37dd319ed83c8be6576b5a2beecbc1a82f3aee88859190a8dc2a.GTzJ53GipCdBN1z3QeQrPGVB5xcOidVeeTAx_QB4BYI
     filters-action-filter--autocapture-with-save-as-action--dark:
-        hash: v1.k794b7964.7d2f3c37f9f0a63de7bb096a4c5433b8f8cd5db26cc4c2010b5e95879bf3cc88.OEMdTS2NcdhEtLsqkYt-IP-PffxG-2_HRpbdE1ZkTcc
+        hash: v1.k794b7964.c84cf5749f152d632fb17a4df8f333714a0dd15fd16454ee2cd2259c5e26b285.PvuBlhH3DnOzNi3twtxezmaYHQaoqs2MMV7DQL-jJHE
     filters-action-filter--autocapture-with-save-as-action--light:
-        hash: v1.k794b7964.b613842503a15f33b4414273cdf56de6244a2c4799f8a15c6f07a6ff90940a58.QT6fUrHy05XEdjoLdy7xLYwwcq3Ntv4H8C_qJeCuBAI
+        hash: v1.k794b7964.59bb3394f48082ee80a7e682b906e3ec2a5a6089e6f73d312c62703d1b48b597.PmEI5cE9dqxZqWSmrZHkjDH-gAJ8JrA0iPCZD-bFLBY
     filters-action-filter--bordered--dark:
         hash: v1.k794b7964.3bd4de168e2581aa811049a1ab83536afe9558c127e80fefe70e2f16acabdc5c.2EagzyjmsMFtLemZXZkojlf8DO5WAP78jb0UA_ItvyM
     filters-action-filter--bordered--light:
