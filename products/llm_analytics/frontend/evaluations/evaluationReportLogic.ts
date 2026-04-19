@@ -52,13 +52,16 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
 function draftFromReport(report: EvaluationReport): ReportConfigDraft {
     const emailTarget = report.delivery_targets.find((t) => t.type === 'email')
     const slackTarget = report.delivery_targets.find((t) => t.type === 'slack')
+    // Normalise here so the dirty check (which compares against draft.emailValue
+    // that buildDeliveryTargets later trims) doesn't fire a false positive when
+    // the stored value is surrounded by whitespace.
     return {
         enabled: true,
         frequency: report.frequency,
         rrule: report.rrule ?? '',
         startsAt: report.starts_at ?? null,
         timezoneName: report.timezone_name ?? DEFAULT_TIMEZONE,
-        emailValue: emailTarget?.value ?? '',
+        emailValue: (emailTarget?.value ?? '').trim(),
         slackIntegrationId: slackTarget?.integration_id ?? null,
         slackChannelValue: slackTarget?.channel ?? '',
         reportPromptGuidance: report.report_prompt_guidance ?? '',
