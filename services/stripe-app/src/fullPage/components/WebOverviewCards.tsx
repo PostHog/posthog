@@ -1,6 +1,5 @@
-import { Box, Img, Inline, Link, Spinner } from '@stripe/ui-extension-sdk/ui'
+import { Box, Inline, Spinner } from '@stripe/ui-extension-sdk/ui'
 
-import { POSTHOG_ICON_SRC } from '../../constants'
 import type { WebOverviewItem } from '../../posthog/types'
 import PromoBanner, { PromoBannerText } from './PromoBanner'
 
@@ -15,34 +14,13 @@ const DEFAULT_ITEMS: WebOverviewItem[] = [
 interface Props {
     items: WebOverviewItem[] | null
     loading: boolean
-    posthogUrl?: string
 }
 
-const WebOverviewCards = ({ items, loading, posthogUrl }: Props): JSX.Element => {
-    const header = (
-        <Box css={{ stack: 'x', distribute: 'space-between', alignY: 'center', paddingBottom: 'small' }}>
-            <Box css={{ stack: 'y', rowGap: 'xxsmall' }}>
-                <Inline css={{ font: 'heading' }}>Web analytics</Inline>
-                <Inline css={{ font: 'caption', color: 'secondary' }}>Last 30 days</Inline>
-            </Box>
-            {posthogUrl && (
-                <Link href={posthogUrl} target="_blank" type="secondary">
-                    <Box css={{ stack: 'x', columnGap: 'xsmall', alignY: 'center' }}>
-                        <Img src={POSTHOG_ICON_SRC} alt="PostHog" width="16" height="16" />
-                        <Inline>See more in PostHog</Inline>
-                    </Box>
-                </Link>
-            )}
-        </Box>
-    )
-
+const WebOverviewCards = ({ items, loading }: Props): JSX.Element => {
     if (loading) {
         return (
-            <Box css={{ stack: 'y' }}>
-                {header}
-                <Box css={{ stack: 'x', alignX: 'center', padding: 'large' }}>
-                    <Spinner />
-                </Box>
+            <Box css={{ stack: 'x', alignX: 'center', padding: 'large' }}>
+                <Spinner />
             </Box>
         )
     }
@@ -52,7 +30,6 @@ const WebOverviewCards = ({ items, loading, posthogUrl }: Props): JSX.Element =>
 
     return (
         <Box css={{ stack: 'y' }}>
-            {header}
             <Box css={{ stack: 'x', gap: 'medium', wrap: 'wrap' }}>
                 {displayItems.map((item: WebOverviewItem) => (
                     <Box key={item.key} css={{ width: '1/5', minWidth: 36 }}>

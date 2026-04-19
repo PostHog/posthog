@@ -363,34 +363,32 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
         </OverviewPageModule>
     )
 
+    const webOverviewModule =
+        client && projectId ? (
+            <OverviewPageModule title="Web analytics" subtitle="Last 30 days">
+                <WebOverviewCards items={webOverview} loading={webOverviewLoading} />
+                {seeInPostHog('/web')}
+            </OverviewPageModule>
+        ) : null
+
     return (
-        <>
-            {client && projectId && (
-                <Box css={{ paddingBottom: 'large' }}>
-                    <WebOverviewCards
-                        items={webOverview}
-                        loading={webOverviewLoading}
-                        posthogUrl={posthogBase ? `${posthogBase}/web` : undefined}
-                    />
-                </Box>
-            )}
-            <OverviewPage
-                primaryColumn={
-                    <>
-                        {eventTrendsHeader}
-                        {eventTrendsChart}
-                        {eventTrendsFooter}
-                        {journeyElements}
-                    </>
-                }
-                secondaryColumn={
-                    <>
-                        {topEventsModule}
-                        {featureFlagsModule}
-                    </>
-                }
-            />
-        </>
+        <OverviewPage
+            primaryColumn={
+                <>
+                    {webOverviewModule}
+                    {eventTrendsHeader}
+                    {eventTrendsChart}
+                    {eventTrendsFooter}
+                    {journeyElements}
+                </>
+            }
+            secondaryColumn={
+                <>
+                    {topEventsModule}
+                    {featureFlagsModule}
+                </>
+            }
+        />
     )
 }
 
