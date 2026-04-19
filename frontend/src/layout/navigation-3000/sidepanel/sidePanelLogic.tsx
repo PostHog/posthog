@@ -2,6 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -35,14 +36,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['scenePanelIsPresent'],
             preflightLogic,
             ['isCloudOrDev'],
+            settingsLogic({}),
+            ['sections as settingsSections'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
 
     selectors({
         enabledTabs: [
-            (s) => [s.sceneSidePanelContext, s.currentTeam, s.scenePanelIsPresent, s.isCloudOrDev],
-            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev) => {
+            (s) => [s.sceneSidePanelContext, s.currentTeam, s.scenePanelIsPresent, s.isCloudOrDev, s.settingsSections],
+            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev, settingsSections) => {
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -61,15 +64,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                if (sceneSidePanelContext.settings_section) {
-                    tabs.push(SidePanelTab.Settings)
-                }
-
                 // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
+                }
+
+                if (
+                    sceneSidePanelContext.settings_section &&
+                    settingsSections.some((section) => section.id === sceneSidePanelContext.settings_section)
+                ) {
+                    tabs.push(SidePanelTab.Settings)
                 }
 
                 if (!currentTeam) {

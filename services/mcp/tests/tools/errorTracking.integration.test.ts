@@ -220,6 +220,19 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('grouping-rules list tool', () => {
+        const groupingRulesListTool = GENERATED_TOOLS['error-tracking-grouping-rules-list']!()
+
+        it('should list grouping rules', async () => {
+            const result = (await groupingRulesListTool.handler(context, {})) as {
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
     describe('update-issue-status tool', () => {
         const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 

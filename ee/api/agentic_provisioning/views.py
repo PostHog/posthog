@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -1078,6 +1078,7 @@ def _set_provisioning_service_id(team: Team, service_id: str) -> None:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1189,6 +1190,7 @@ def provisioning_resources_create(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
     return _resolve_resource_response(request, resource_id)
 
@@ -1201,6 +1203,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1270,6 +1273,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_update_service(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1360,6 +1364,96 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     )
 
 
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/remove
+# Detaches the resource from the orchestrator: removes it from the token's
+# scope and clears provisioning metadata. Preserves the underlying team and
+# user data so the customer can still access PostHog directly.
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
+def provisioning_resource_remove(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    scoped_teams = access_token.scoped_teams or []
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    try:
+        TeamProvisioningConfig.objects.filter(team_id=team_id).delete()
+    except Exception:
+        capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
+        _capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "remove_failed", "message": "Failed to remove resource"},
+            },
+            status=500,
+        )
+
+    _remove_team_from_token_scopes(access_token, team_id)
+
+    _capture_provisioning_event("resource_removed", "success", team_id=team_id)
+
+    return Response({"status": "removed", "id": resource_id})
+
+
+def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
+    remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
+
+    # Atomic so a refresh token can never be left with the removed team still in
+    # scope while the access token has it stripped — otherwise the orchestrator
+    # could refresh and replay the removed team right back into scope.
+    with transaction.atomic():
+        refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+
+        if not remaining:
+            refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+            access_token.delete()
+            return
+
+        access_token.scoped_teams = remaining
+        access_token.save(update_fields=["scoped_teams"])
+
+        for rt in refresh_tokens:
+            rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+            rt.save(update_fields=["scoped_teams"])
+
+
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1429,6 +1523,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
