@@ -5,18 +5,11 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "kea-subscriptions": "catalog:",
-        "posthog-js": "catalog:"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
+        "kea-subscriptions": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
-        "@testing-library/jest-dom": "*",
-        "@testing-library/react": "*",
-        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

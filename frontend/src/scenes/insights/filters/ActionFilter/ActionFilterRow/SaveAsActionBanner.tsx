@@ -5,8 +5,7 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-
-import { saveAsActionLogic } from 'products/actions/frontend/logics/saveAsActionLogic'
+import { saveAsActionLogic } from 'scenes/actions/saveAsActionLogic'
 
 import { LocalFilter } from '../entityFilterLogic'
 import { isAutocaptureFilterWithElements } from './saveAsActionUtils'

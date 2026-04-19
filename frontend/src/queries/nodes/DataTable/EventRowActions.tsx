@@ -9,14 +9,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { saveAsActionLogic } from 'scenes/actions/saveAsActionLogic'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EventType, SurveyEventName } from '~/types'
-
-import { saveAsActionLogic } from 'products/actions/frontend/logics/saveAsActionLogic'
 
 export function EventRowActions({ event }: { event: EventType }): JSX.Element {
     return (

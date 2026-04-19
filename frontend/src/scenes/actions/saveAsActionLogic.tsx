@@ -92,7 +92,7 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
 }
 
 export const saveAsActionLogic = kea<saveAsActionLogicType>([
-    path(['products', 'actions', 'frontend', 'logics', 'saveAsActionLogic']),
+    path(['scenes', 'actions', 'saveAsActionLogic']),
     actions({
         saveFromFilter: (filter: LocalFilter) => ({ filter }),
         saveFromEvent: (event: EventType | RecordingEventType, dataAttributes: string[]) => ({
