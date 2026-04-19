@@ -4235,9 +4235,9 @@ snapshots:
     scenes-app-errortracking--list-page--light:
         hash: v1.k794b7964.272fef1151516903d0233d329a7627e9ff69f22f3397810837ff8c67cdde6baa.82WKTM39lPSF6yF4srkaYEGDReeV-C50IL7PkUkFhNs
     scenes-app-events--event-explorer--dark:
-        hash: v1.k794b7964.69b06b632d73e29b47520bf99ce9c6deb5c9926997eb0150b08c2cdf669a1809.HDHIkNfOB4LNw4IPHtbQw-5oPK8a72DeUQ_1RIYnafo
+        hash: v1.k794b7964.72b9b0419771209856e8bfe52953a68972712eb18cb6bafa9efa2443a470e200.ZebaHIMvItUNI7qrT2lhsXlpUThkeT2B94GgXKMhfas
     scenes-app-events--event-explorer--light:
-        hash: v1.k794b7964.191e35800e46fe664acab5a610b8dfcc7de9e7245c0c6a84a79daab050050ddb.Djd0k84_dXDGHbUyEABOQsRz7LhZxnRH-IIrhyBkacg
+        hash: v1.k794b7964.bbc4fd6f9bd21100fabea0c84fa6024f9ccc5c738c3cfcc2e212af06171e5008.s1IMLidy8W6LvH40DHpybVS26ijQJS8et4Lw9I1QnQY
     scenes-app-events--event-explorer-with-inline-recording-button--dark:
         hash: v1.k794b7964.077d11e9b1e684f7d75ded8961e524bcf167aafb432ad2b18177ed37059e5066.lqda64UA0FYW1dWrtSeKQnPJIMtdPg7cs-eheIxqgWY
     scenes-app-events--event-explorer-with-inline-recording-button--light:
