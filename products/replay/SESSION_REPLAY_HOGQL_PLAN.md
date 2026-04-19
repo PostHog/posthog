@@ -1,6 +1,6 @@
 # `session_replay_events` HogQL rework plan
 
-Working doc. Delete once PRs land.
+Working doc. To delete in PR 6 (docs / skills / examples); tracked against PR [#55195](https://github.com/PostHog/posthog/pull/55195).
 
 ## Problem
 

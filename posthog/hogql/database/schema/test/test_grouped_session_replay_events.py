@@ -54,12 +54,24 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        self.other_team = Team.objects.create(organization=self.organization, name="grouped-replay-test-other-team")
+        self.single_part_session = self._given_single_part_session()
+        self.many_parts_session = self._given_many_parts_session()
+        self.varied_snapshot_session = self._given_session_with_varied_snapshot_sources()
+        self.varied_retention_session = self._given_session_with_varied_retention_periods()
+        self.mixed_deleted_session = self._given_session_with_mixed_deleted_parts()
+        self.identified_mid_session = self._given_session_that_identifies_mid_way()
+        self.repeated_url_session = self._given_session_with_repeated_urls()
+        self.ai_tags_session = self._given_session_with_varied_ai_tags()
+        self.joined_session = self._given_session_with_analytics_event()
+        self.cross_team_session = self._given_same_session_id_across_two_teams()
 
-        self.single_part_session = str(uuid7())
+    def _given_single_part_session(self) -> str:
+        session_id = str(uuid7())
         produce_replay_summary(
             team_id=self.team.pk,
             distinct_id="d_single",
-            session_id=self.single_part_session,
+            session_id=session_id,
             first_timestamp=BASE_TIME,
             last_timestamp=BASE_TIME + timedelta(minutes=5),
             click_count=3,
@@ -70,13 +82,15 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
             retention_period_days=30,
             ensure_analytics_event_in_session=False,
         )
+        return session_id
 
-        self.many_parts_session = str(uuid7())
+    def _given_many_parts_session(self) -> str:
+        session_id = str(uuid7())
         for i in range(PARTS):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_many",
-                session_id=self.many_parts_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i * 10),
                 last_timestamp=BASE_TIME + timedelta(minutes=i * 10 + 5),
                 click_count=PER_PART_CLICKS,
@@ -96,15 +110,17 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
                 retention_period_days=30,
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.varied_snapshot_session = str(uuid7())
+    def _given_session_with_varied_snapshot_sources(self) -> str:
+        session_id = str(uuid7())
         for i, (source, library) in enumerate(
             [("web", "posthog-js"), ("mobile", "posthog-ios"), ("mobile", "posthog-android")]
         ):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_varied_snap",
-                session_id=self.varied_snapshot_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i),
                 last_timestamp=BASE_TIME + timedelta(minutes=i + 1),
                 snapshot_source=source,
@@ -112,56 +128,66 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
                 retention_period_days=30,
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.varied_retention_session = str(uuid7())
+    def _given_session_with_varied_retention_periods(self) -> str:
+        session_id = str(uuid7())
         for i, retention in enumerate([7, 30, 90]):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_varied_ret",
-                session_id=self.varied_retention_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i),
                 last_timestamp=BASE_TIME + timedelta(minutes=i + 1),
                 retention_period_days=retention,
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.mixed_deleted_session = str(uuid7())
+    def _given_session_with_mixed_deleted_parts(self) -> str:
+        session_id = str(uuid7())
         for is_deleted in (False, False, True):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_del",
-                session_id=self.mixed_deleted_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME,
                 last_timestamp=BASE_TIME + timedelta(minutes=1),
                 is_deleted=is_deleted,
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.identified_mid_session = str(uuid7())
+    def _given_session_that_identifies_mid_way(self) -> str:
+        session_id = str(uuid7())
         for i, distinct_id in enumerate(["anon_visitor", "anon_visitor", "identified_user"]):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id=distinct_id,
-                session_id=self.identified_mid_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i * 5),
                 last_timestamp=BASE_TIME + timedelta(minutes=i * 5 + 3),
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.repeated_url_session = str(uuid7())
+    def _given_session_with_repeated_urls(self) -> str:
+        session_id = str(uuid7())
         for i in range(PARTS):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_dup",
-                session_id=self.repeated_url_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i),
                 last_timestamp=BASE_TIME + timedelta(minutes=i + 1),
                 first_url="https://dup.example",
                 all_urls=["https://dup.example"],
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.ai_tags_session = str(uuid7())
+    def _given_session_with_varied_ai_tags(self) -> str:
+        session_id = str(uuid7())
         for i, (fixed, freeform, highlighted) in enumerate(
             [
                 (["rage_click"], ["confused"], False),
@@ -172,7 +198,7 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_ai",
-                session_id=self.ai_tags_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i),
                 last_timestamp=BASE_TIME + timedelta(minutes=i + 1),
                 ai_tags_fixed=fixed,
@@ -180,12 +206,14 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
                 ai_highlighted=highlighted,
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
-        self.joined_session = str(uuid7())
+    def _given_session_with_analytics_event(self) -> str:
+        session_id = str(uuid7())
         produce_replay_summary(
             team_id=self.team.pk,
             distinct_id="d_joined",
-            session_id=self.joined_session,
+            session_id=session_id,
             first_timestamp=BASE_TIME,
             last_timestamp=BASE_TIME + timedelta(minutes=1),
             ensure_analytics_event_in_session=False,
@@ -194,17 +222,18 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id="d_joined",
-            properties={"$session_id": self.joined_session, "$current_url": "https://joined.example"},
+            properties={"$session_id": session_id, "$current_url": "https://joined.example"},
         )
         flush_persons_and_events()
+        return session_id
 
-        self.other_team = Team.objects.create(organization=self.organization, name="grouped-replay-test-other-team")
-        self.cross_team_session = str(uuid7())
+    def _given_same_session_id_across_two_teams(self) -> str:
+        session_id = str(uuid7())
         for i in range(PARTS):
             produce_replay_summary(
                 team_id=self.team.pk,
                 distinct_id="d_cross_mine",
-                session_id=self.cross_team_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i),
                 last_timestamp=BASE_TIME + timedelta(minutes=i + 1),
                 click_count=PER_PART_CLICKS,
@@ -213,12 +242,13 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
             produce_replay_summary(
                 team_id=self.other_team.pk,
                 distinct_id="d_cross_other",
-                session_id=self.cross_team_session,
+                session_id=session_id,
                 first_timestamp=BASE_TIME + timedelta(minutes=i),
                 last_timestamp=BASE_TIME + timedelta(minutes=i + 1),
                 click_count=OTHER_TEAM_PER_PART_CLICKS,
                 ensure_analytics_event_in_session=False,
             )
+        return session_id
 
     def _session_row(self, session_id: str, team: Team | None = None) -> dict:
         response = execute_hogql_query(
@@ -304,14 +334,8 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
     def test_is_deleted_is_truthy_if_any_state_part_is_deleted(self):
         assert self._session_row(self.mixed_deleted_session)["is_deleted"] in (1, True)
 
-    def test_distinct_id_is_one_of_the_session_distinct_ids_as_string(self):
-        # Weaker contract than we'd like. The grouped view uses argMax(distinct_id,
-        # max_last_timestamp) so the latest distinct_id wins while state parts remain
-        # unmerged. Once ClickHouse merges parts in the background, distinct_id (a plain
-        # VARCHAR, not an AggregateFunction) collapses via any() at the storage layer —
-        # at that point argMax has one row to choose from and the winner is whatever CH
-        # picked. Both "anon_visitor" and "identified_user" are therefore valid answers.
-        # See products/replay/SESSION_REPLAY_HOGQL_PLAN.md, grouped-view bug #3.
+    def test_distinct_id_is_best_effort_latest_while_parts_unmerged(self):
+        # Best-effort: see GroupedSessionReplayEventsTable docstring.
         assert self._session_row(self.identified_mid_session)["distinct_id"] in {"anon_visitor", "identified_user"}
 
     def test_distinct_id_is_stable_when_every_state_part_agrees(self):
@@ -330,7 +354,7 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
     def test_ai_highlighted_is_truthy_if_any_state_part_is_highlighted(self):
         assert self._session_row(self.ai_tags_session)["ai_highlighted"] in (1, True)
 
-    def test_select_star_returns_one_row_with_expected_columns(self):
+    def test_select_star_returns_one_row_with_expected_columns_and_readable_values(self):
         response = execute_hogql_query(
             parse_select(
                 "select * from grouped_session_replay_events where session_id = {session_id}",
@@ -353,6 +377,11 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
             assert expected_column in response.columns, f"{expected_column!r} missing from select *"
         assert "team_id" not in response.columns, "team_id is auto-excluded from SELECT * by HogQL convention"
 
+        row = dict(zip(response.columns, response.results[0]))
+        assert row["first_url"] == "https://a.example"
+        assert row["snapshot_source"] == "web"
+        assert row["snapshot_library"] == "posthog-js"
+
     def test_events_lazy_join_resolves_through_grouped_view(self):
         response = execute_hogql_query(
             parse_select(
@@ -362,6 +391,22 @@ class TestGroupedSessionReplayEventsContract(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         assert response.results == [("$pageview",)]
+
+    def test_session_lazy_join_resolves_through_grouped_view(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select session.session_id from grouped_session_replay_events where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=self.joined_session)},
+            ),
+            self.team,
+        )
+        assert len(response.results) == 1
+
+    def test_is_deleted_is_zero_when_no_state_part_is_deleted(self):
+        assert self._session_row(self.single_part_session)["is_deleted"] in (0, False)
+
+    def test_ai_highlighted_is_zero_when_no_state_part_is_highlighted(self):
+        assert self._session_row(self.single_part_session)["ai_highlighted"] in (0, False)
 
     def test_cross_team_writes_with_same_session_id_do_not_pollute_current_team_row(self):
         row_as_my_team = self._session_row(self.cross_team_session)

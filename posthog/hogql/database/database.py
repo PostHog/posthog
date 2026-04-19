@@ -926,21 +926,18 @@ class Database(BaseModel):
                     join_function=join_events_table_to_sessions_table_v2,
                 )
 
-                replay_events = database.get_table("session_replay_events")
-                replay_events.fields["session"] = LazyJoin(
-                    from_field=["session_id"],
-                    join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v2,
-                )
-                cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
-
-                raw_replay_events = database.get_table("raw_session_replay_events")
-                raw_replay_events.fields["session"] = LazyJoin(
-                    from_field=["session_id"],
-                    join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v2,
-                )
-                cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
+                for replay_table_name in (
+                    "session_replay_events",
+                    "raw_session_replay_events",
+                    "grouped_session_replay_events",
+                ):
+                    replay_table = database.get_table(replay_table_name)
+                    replay_table.fields["session"] = LazyJoin(
+                        from_field=["session_id"],
+                        join_table=sessions,
+                        join_function=join_replay_table_to_sessions_table_v2,
+                    )
+                    cast(LazyJoin, replay_table.fields["events"]).join_table = events_table
             elif not database._is_direct_query() and modifiers.sessionTableVersion == SessionTableVersion.V3:
                 sessions = SessionsTableV3()
                 database.tables.add_child(TableNode(name="sessions", table=sessions), table_conflict_mode="override")
@@ -952,21 +949,18 @@ class Database(BaseModel):
                     join_function=join_events_table_to_sessions_table_v3,
                 )
 
-                replay_events = database.get_table("session_replay_events")
-                replay_events.fields["session"] = LazyJoin(
-                    from_field=["session_id"],
-                    join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v3,
-                )
-                cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
-
-                raw_replay_events = database.get_table("raw_session_replay_events")
-                raw_replay_events.fields["session"] = LazyJoin(
-                    from_field=["session_id"],
-                    join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v3,
-                )
-                cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
+                for replay_table_name in (
+                    "session_replay_events",
+                    "raw_session_replay_events",
+                    "grouped_session_replay_events",
+                ):
+                    replay_table = database.get_table(replay_table_name)
+                    replay_table.fields["session"] = LazyJoin(
+                        from_field=["session_id"],
+                        join_table=sessions,
+                        join_function=join_replay_table_to_sessions_table_v3,
+                    )
+                    cast(LazyJoin, replay_table.fields["events"]).join_table = events_table
 
         with timings.measure("virtual_fields"):
             if not database._is_direct_query():

@@ -13,6 +13,11 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, 
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
+# Column list must match the current sharded_session_replay_events DDL in
+# posthog/session_recordings/sql/session_replay_event_sql.py. Adding a required
+# column there means extending both this INSERT and the produce_replay_summary
+# kwargs below, otherwise every test using this helper starts failing against
+# ClickHouse instances that have the new column.
 INSERT_SINGLE_SESSION_REPLAY = """
 INSERT INTO sharded_session_replay_events (
     session_id,
