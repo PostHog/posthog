@@ -20,13 +20,17 @@ EVAL_REPORT_AGENT_TIMEOUT = 600.0  # 10 minutes
 # allowlist, unpausing the schedules would fire the agent for every team that's
 # created an evaluation in the last 24h.
 #
-# Remove this gating (or clear the set) when promoting eval-reports to full GA.
-# Manual `/generate/` via the API still works for any team regardless of the
-# allowlist — only the background schedulers are gated.
-DOGFOOD_TEAM_IDS: set[int] = {
-    2,
-    148051,
-}
+# GA rollout: remove the `team_id__in=DOGFOOD_TEAM_IDS` filter from both
+# scheduler fetch activities (do NOT empty the set — `team_id__in=frozenset()`
+# matches zero rows in Django and would silently disable scheduled reports for
+# everyone). Manual `/generate/` via the API still works for any team regardless
+# of the allowlist — only the background schedulers are gated.
+DOGFOOD_TEAM_IDS: frozenset[int] = frozenset(
+    {
+        2,
+        148051,
+    }
+)
 
 
 # Workflow names — all eval-reports Temporal surface is prefixed `llma-eval-reports-`

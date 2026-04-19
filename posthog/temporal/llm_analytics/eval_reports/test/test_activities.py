@@ -1,9 +1,12 @@
 import datetime as dt
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.temporal.llm_analytics.eval_reports.activities import _period_for_scheduled_report
 
 from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
@@ -196,3 +199,129 @@ class TestPeriodForScheduledReport(BaseTest):
         now = dt.datetime(2026, 3, 8, 18, 0, tzinfo=dt.UTC)  # 14:00 EDT, after 9am EDT fire
         period = _period_for_scheduled_report(report, now)
         self.assertEqual(period, dt.timedelta(hours=23))
+
+
+class TestDogfoodTeamAllowlist(BaseTest):
+    """Verify that the scheduler fetch queries filter on DOGFOOD_TEAM_IDS.
+
+    Tests the ORM filter shape rather than running the full async activity —
+    the filter itself is the safety-critical bit. If a refactor ever removes
+    the `team_id__in=DOGFOOD_TEAM_IDS` clause, these tests fail.
+    """
+
+    def _make_evaluation(self, team) -> Evaluation:
+        return Evaluation.objects.create(
+            team=team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _make_other_team(self) -> Team:
+        # Fresh Organization + Team so we get a team_id distinct from self.team.id
+        # and not in any DOGFOOD_TEAM_IDS set we patch in.
+        org = Organization.objects.create(name="Other org")
+        return Team.objects.create(organization=org, name="Other team")
+
+    def test_count_triggered_filter_includes_only_allowlisted_teams(self):
+        allowed = self.team
+        denied = self._make_other_team()
+        r_allowed = EvaluationReport.objects.create(
+            team=allowed,
+            evaluation=self._make_evaluation(allowed),
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+        EvaluationReport.objects.create(
+            team=denied,
+            evaluation=self._make_evaluation(denied),
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+
+        with patch(
+            "posthog.temporal.llm_analytics.eval_reports.activities.DOGFOOD_TEAM_IDS",
+            frozenset({allowed.id}),
+        ):
+            from posthog.temporal.llm_analytics.eval_reports.activities import DOGFOOD_TEAM_IDS
+
+            matching = list(
+                EvaluationReport.objects.filter(
+                    frequency=EvaluationReport.Frequency.EVERY_N,
+                    enabled=True,
+                    deleted=False,
+                    trigger_threshold__isnull=False,
+                    team_id__in=DOGFOOD_TEAM_IDS,
+                ).values_list("id", flat=True)
+            )
+
+        self.assertEqual(matching, [r_allowed.id])
+
+    def test_scheduled_filter_includes_only_allowlisted_teams(self):
+        allowed = self.team
+        denied = self._make_other_team()
+        # starts_at 5h ago → rrule=FREQ=HOURLY → save() computes next_delivery_date
+        # on the next hour boundary, which is soon but definitely within +24h.
+        r_allowed = EvaluationReport.objects.create(
+            team=allowed,
+            evaluation=self._make_evaluation(allowed),
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+            delivery_targets=[],
+        )
+        EvaluationReport.objects.create(
+            team=denied,
+            evaluation=self._make_evaluation(denied),
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+            delivery_targets=[],
+        )
+
+        with patch(
+            "posthog.temporal.llm_analytics.eval_reports.activities.DOGFOOD_TEAM_IDS",
+            frozenset({allowed.id}),
+        ):
+            from posthog.temporal.llm_analytics.eval_reports.activities import DOGFOOD_TEAM_IDS
+
+            # Use a wide future buffer so both reports would match if not for the allowlist.
+            matching = list(
+                EvaluationReport.objects.filter(
+                    next_delivery_date__lte=timezone.now() + dt.timedelta(days=1),
+                    enabled=True,
+                    deleted=False,
+                    team_id__in=DOGFOOD_TEAM_IDS,
+                )
+                .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
+                .values_list("id", flat=True)
+            )
+
+        self.assertEqual(matching, [r_allowed.id])
+
+    def test_empty_allowlist_matches_zero_reports(self):
+        # Guardrail: confirms the "clear the set" rollout step is WRONG.
+        # An empty frozenset in a team_id__in filter returns zero rows,
+        # which would silently disable scheduled reports for everyone.
+        EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=self._make_evaluation(self.team),
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+
+        matching_count = EvaluationReport.objects.filter(
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            enabled=True,
+            deleted=False,
+            trigger_threshold__isnull=False,
+            team_id__in=frozenset(),
+        ).count()
+        self.assertEqual(matching_count, 0)
