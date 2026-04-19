@@ -1,6 +1,7 @@
 import '@react-email/editor/themes/default.css'
 import '@react-email/editor/styles/bubble-menu.css'
 import '@react-email/editor/styles/slash-command.css'
+import './EmailTemplater.scss'
 
 import { EmailEditor, EmailEditorRef } from '@react-email/editor'
 import clsx from 'clsx'
@@ -9,22 +10,32 @@ import { ChildFunctionProps, Form } from 'kea-forms'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+    IconButton,
     IconChevronDown,
     IconChevronLeft,
     IconChevronRight,
     IconCollapse,
+    IconColumns,
     IconExpand,
     IconExternal,
+    IconImage,
+    IconLetter,
+    IconList,
+    IconMinus,
     IconPlus,
+    IconQuote,
     IconX,
 } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonMenu, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
@@ -105,28 +116,531 @@ function PlainTextEditor(): JSX.Element {
     )
 }
 
-function MergeTagsMenu(): JSX.Element | null {
-    const { mergeTags, emailEditorRef, isEmailEditorReady } = useValues(emailTemplaterLogic)
+const INSPECTOR_PALETTE = [
+    '#000000',
+    '#374151',
+    '#6b7280',
+    '#dc2626',
+    '#ea580c',
+    '#d97706',
+    '#65a30d',
+    '#059669',
+    '#0891b2',
+    '#2563eb',
+    '#7c3aed',
+    '#db2777',
+    '#ffffff',
+    '#f3f4f6',
+]
 
-    if (!mergeTags.length) {
-        return null
+function parseInlineStyle(style: string | undefined | null): Record<string, string> {
+    if (!style) {
+        return {}
+    }
+    return style
+        .split(';')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .reduce<Record<string, string>>((acc, part) => {
+            const [prop, ...rest] = part.split(':')
+            if (prop && rest.length) {
+                acc[prop.trim()] = rest.join(':').trim()
+            }
+            return acc
+        }, {})
+}
+
+function stringifyInlineStyle(style: Record<string, string>): string {
+    return Object.entries(style)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; ')
+}
+
+function mergeStyleAttr(existing: string | undefined | null, updates: Record<string, string | null>): string {
+    const parsed = parseInlineStyle(existing)
+    for (const [k, v] of Object.entries(updates)) {
+        if (v === null || v === '') {
+            delete parsed[k]
+        } else {
+            parsed[k] = v
+        }
+    }
+    return stringifyInlineStyle(parsed)
+}
+
+function getActiveBlockType(editor: any): string | null {
+    const parent = editor?.state?.selection?.$head?.parent
+    return parent?.type?.name ?? null
+}
+
+function AlignmentButtons({
+    value,
+    onChange,
+}: {
+    value: string | undefined
+    onChange: (a: 'left' | 'center' | 'right') => void
+}): JSX.Element {
+    return (
+        <div className="flex gap-1">
+            {(['left', 'center', 'right'] as const).map((a) => (
+                <LemonButton
+                    key={a}
+                    size="xsmall"
+                    type={value === a ? 'primary' : 'tertiary'}
+                    onClick={() => onChange(a)}
+                >
+                    {a[0].toUpperCase() + a.slice(1)}
+                </LemonButton>
+            ))}
+        </div>
+    )
+}
+
+function PixelInput({
+    value,
+    onChange,
+    placeholder,
+}: {
+    value: string | undefined
+    onChange: (px: string | null) => void
+    placeholder?: string
+}): JSX.Element {
+    const numeric = value ? parseInt(value, 10) : ''
+    return (
+        <LemonInput
+            size="small"
+            type="number"
+            value={Number.isFinite(numeric as number) ? (numeric as number) : undefined}
+            placeholder={placeholder ?? '0'}
+            suffix={<span className="text-secondary text-xs">px</span>}
+            onChange={(v) => onChange(v == null || v === 0 ? null : `${v}px`)}
+        />
+    )
+}
+
+function ButtonPanel({ editor }: { editor: any }): JSX.Element {
+    const attrs = editor.getAttributes('button')
+    const style = parseInlineStyle(attrs?.style)
+    const update = (updates: Record<string, string | null>, styleUpdates?: Record<string, string | null>): void => {
+        const nextStyle = styleUpdates ? mergeStyleAttr(attrs?.style, styleUpdates) : attrs?.style
+        editor
+            .chain()
+            .focus()
+            .updateAttributes('button', { ...attrs, ...updates, style: nextStyle || null })
+            .run()
+    }
+    return (
+        <div className="flex flex-col gap-3 p-3">
+            <div className="text-xs uppercase tracking-wide text-secondary">Button</div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Link URL</LemonLabel>
+                <LemonInput
+                    size="small"
+                    value={attrs?.href ?? ''}
+                    onChange={(v) => update({ href: v || '#' })}
+                    placeholder="https://"
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Alignment</LemonLabel>
+                <AlignmentButtons value={attrs?.alignment} onChange={(a) => update({ alignment: a })} />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Background</LemonLabel>
+                <LemonColorPicker
+                    colors={INSPECTOR_PALETTE}
+                    selectedColor={style['background-color'] ?? null}
+                    onSelectColor={(color) => update({}, { 'background-color': color })}
+                    showCustomColor
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Text color</LemonLabel>
+                <LemonColorPicker
+                    colors={INSPECTOR_PALETTE}
+                    selectedColor={style['color'] ?? null}
+                    onSelectColor={(color) => update({}, { color })}
+                    showCustomColor
+                />
+            </div>
+        </div>
+    )
+}
+
+function ImagePanel({ editor }: { editor: any }): JSX.Element {
+    const attrs = editor.getAttributes('image')
+    const update = (updates: Record<string, string | null>): void => {
+        editor.chain().focus().updateAttributes('image', updates).run()
+    }
+    return (
+        <div className="flex flex-col gap-3 p-3">
+            <div className="text-xs uppercase tracking-wide text-secondary">Image</div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Source URL</LemonLabel>
+                <LemonInput
+                    size="small"
+                    value={attrs?.src ?? ''}
+                    onChange={(v) => update({ src: v })}
+                    placeholder="https://"
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Alt text</LemonLabel>
+                <LemonInput
+                    size="small"
+                    value={attrs?.alt ?? ''}
+                    onChange={(v) => update({ alt: v })}
+                    placeholder="Describe this image"
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Link URL</LemonLabel>
+                <LemonInput
+                    size="small"
+                    value={attrs?.href ?? ''}
+                    onChange={(v) => update({ href: v || null })}
+                    placeholder="https://"
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Alignment</LemonLabel>
+                <AlignmentButtons value={attrs?.alignment} onChange={(a) => update({ alignment: a })} />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Width</LemonLabel>
+                <LemonInput
+                    size="small"
+                    value={attrs?.width ?? ''}
+                    onChange={(v) => update({ width: v || 'auto' })}
+                    placeholder="auto"
+                />
+            </div>
+        </div>
+    )
+}
+
+function TextBlockPanel({ editor, blockType }: { editor: any; blockType: string }): JSX.Element {
+    const attrs = editor.getAttributes(blockType)
+    const style = parseInlineStyle(attrs?.style)
+    const updateStyle = (updates: Record<string, string | null>): void => {
+        const nextStyle = mergeStyleAttr(attrs?.style, updates)
+        editor
+            .chain()
+            .focus()
+            .updateAttributes(blockType, { style: nextStyle || null })
+            .run()
+    }
+    return (
+        <div className="flex flex-col gap-3 p-3">
+            <div className="text-xs uppercase tracking-wide text-secondary">
+                {blockType.charAt(0).toUpperCase() + blockType.slice(1)}
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Text color</LemonLabel>
+                <LemonColorPicker
+                    colors={INSPECTOR_PALETTE}
+                    selectedColor={style['color'] ?? null}
+                    onSelectColor={(color) => updateStyle({ color })}
+                    showCustomColor
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Alignment</LemonLabel>
+                <AlignmentButtons
+                    value={attrs?.alignment}
+                    onChange={(a) => editor.chain().focus().setAlignment(a).run()}
+                />
+            </div>
+        </div>
+    )
+}
+
+function PageStylePanel({ editor }: { editor: any }): JSX.Element {
+    const bodyAttrs = editor.getAttributes('body')
+    const bodyStyle = parseInlineStyle(bodyAttrs?.style)
+
+    const updateBodyStyle = (updates: Record<string, string | null>): void => {
+        const nextStyle = mergeStyleAttr(bodyAttrs?.style, updates)
+        editor
+            .chain()
+            .focus()
+            .updateAttributes('body', { style: nextStyle || null })
+            .run()
+    }
+
+    const updateBodyAttr = (updates: Record<string, string | null>): void => {
+        editor.chain().focus().updateAttributes('body', updates).run()
     }
 
     return (
-        <LemonMenu
-            items={mergeTags.map((tag) => ({
-                label: tag.label,
-                onClick: () => {
-                    emailEditorRef?.editor?.chain().focus().insertContent(tag.value).run()
-                },
-            }))}
-            placement="bottom-end"
-        >
-            <LemonButton size="xsmall" type="secondary" disabledReason={isEmailEditorReady ? undefined : 'Loading…'}>
-                Insert merge tag
-            </LemonButton>
-        </LemonMenu>
+        <div className="flex flex-col gap-4 p-3">
+            <div className="flex flex-col gap-2">
+                <div className="text-xs uppercase tracking-wide text-secondary">Page</div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Background</LemonLabel>
+                    <LemonColorPicker
+                        colors={INSPECTOR_PALETTE}
+                        selectedColor={bodyStyle['background-color'] ?? null}
+                        onSelectColor={(color) => updateBodyStyle({ 'background-color': color })}
+                        showCustomColor
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Padding</LemonLabel>
+                    <PixelInput value={bodyStyle['padding']} onChange={(v) => updateBodyStyle({ padding: v })} />
+                </div>
+            </div>
+            <div className="flex flex-col gap-2">
+                <div className="text-xs uppercase tracking-wide text-secondary">Body</div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Text color</LemonLabel>
+                    <LemonColorPicker
+                        colors={INSPECTOR_PALETTE}
+                        selectedColor={bodyStyle['color'] ?? null}
+                        onSelectColor={(color) => updateBodyStyle({ color })}
+                        showCustomColor
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Width</LemonLabel>
+                    <LemonInput
+                        size="small"
+                        type="number"
+                        value={bodyAttrs?.width ? parseInt(String(bodyAttrs.width), 10) : undefined}
+                        placeholder="600"
+                        suffix={<span className="text-secondary text-xs">px</span>}
+                        onChange={(v) => updateBodyAttr({ width: v == null || v === 0 ? null : String(v) })}
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Corner radius</LemonLabel>
+                    <PixelInput
+                        value={bodyStyle['border-radius']}
+                        onChange={(v) => updateBodyStyle({ 'border-radius': v })}
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Border</LemonLabel>
+                    <PixelInput
+                        value={bodyStyle['border-width']}
+                        onChange={(v) =>
+                            updateBodyStyle({
+                                'border-width': v,
+                                'border-style': v ? 'solid' : null,
+                            })
+                        }
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Border color</LemonLabel>
+                    <LemonColorPicker
+                        colors={INSPECTOR_PALETTE}
+                        selectedColor={bodyStyle['border-color'] ?? null}
+                        onSelectColor={(color) => updateBodyStyle({ 'border-color': color })}
+                        showCustomColor
+                    />
+                </div>
+            </div>
+        </div>
     )
+}
+
+function ElementInspector(): JSX.Element {
+    const { emailEditorRef, isEmailEditorReady } = useValues(emailTemplaterLogic)
+    const [, setTick] = useState(0)
+    const [mode, setMode] = useState<'page' | 'element'>('page')
+
+    useEffect(() => {
+        const editor = emailEditorRef?.editor
+        if (!editor) {
+            return
+        }
+        const handler = (): void => {
+            setTick((t) => t + 1)
+            if (editor.isActive('button') || editor.isActive('image')) {
+                setMode('element')
+            }
+        }
+        editor.on('selectionUpdate', handler)
+        editor.on('transaction', handler)
+        return () => {
+            editor.off('selectionUpdate', handler)
+            editor.off('transaction', handler)
+        }
+    }, [emailEditorRef])
+
+    const editor = emailEditorRef?.editor
+    if (!editor || !isEmailEditorReady) {
+        return <div className="EmailTemplater__inspector shrink-0 border-l p-3 text-sm text-secondary">Loading…</div>
+    }
+
+    const isButton = editor.isActive('button')
+    const isImage = editor.isActive('image')
+    const blockType = getActiveBlockType(editor) ?? 'paragraph'
+
+    return (
+        <div className="EmailTemplater__inspector flex flex-col shrink-0 border-l">
+            <LemonTabs
+                activeKey={mode}
+                onChange={(k) => setMode(k as 'page' | 'element')}
+                className="px-2 shrink-0 border-b"
+                tabs={[
+                    { key: 'page', label: 'Page style' },
+                    { key: 'element', label: 'Element' },
+                ]}
+            />
+            <div className="flex-1 overflow-y-auto">
+                {mode === 'page' ? (
+                    <PageStylePanel editor={editor} />
+                ) : isButton ? (
+                    <ButtonPanel editor={editor} />
+                ) : isImage ? (
+                    <ImagePanel editor={editor} />
+                ) : (
+                    <TextBlockPanel editor={editor} blockType={blockType} />
+                )}
+            </div>
+        </div>
+    )
+}
+
+function BlockInserter(): JSX.Element {
+    const { emailEditorRef, isEmailEditorReady, mergeTags } = useValues(emailTemplaterLogic)
+    const disabledReason = isEmailEditorReady ? undefined : 'Loading…'
+    const fileInputRef = useRef<HTMLInputElement>(null)
+
+    const run = (fn: (chain: any) => any): void => {
+        const editor = emailEditorRef?.editor
+        if (!editor) {
+            return
+        }
+        fn(editor.chain().focus()).run()
+    }
+
+    const onImagePicked = async (file: File | null): Promise<void> => {
+        if (!file) {
+            return
+        }
+        const blobUrl = URL.createObjectURL(file)
+        run((c) => c.setImage({ src: blobUrl }))
+        try {
+            const { url } = await handleImageUpload(file)
+            emailEditorRef?.editor?.chain().focus().updateAttributes('image', { src: url }).run()
+        } catch {
+            // toast shown inside handleImageUpload
+        }
+    }
+
+    return (
+        <div className="EmailTemplater__rail flex flex-col gap-1 p-1 border-r shrink-0">
+            <LemonMenu
+                placement="right-start"
+                items={[
+                    { label: 'Paragraph', onClick: () => run((c) => c.clearNodes().setParagraph()) },
+                    {
+                        label: 'Heading 1',
+                        onClick: () => run((c) => c.clearNodes().toggleHeading({ level: 1 })),
+                    },
+                    {
+                        label: 'Heading 2',
+                        onClick: () => run((c) => c.clearNodes().toggleHeading({ level: 2 })),
+                    },
+                    {
+                        label: 'Heading 3',
+                        onClick: () => run((c) => c.clearNodes().toggleHeading({ level: 3 })),
+                    },
+                    { label: 'Bullet list', onClick: () => run((c) => c.clearNodes().toggleBulletList()) },
+                    { label: 'Numbered list', onClick: () => run((c) => c.clearNodes().toggleOrderedList()) },
+                    { label: 'Blockquote', onClick: () => run((c) => c.clearNodes().toggleBlockquote()) },
+                ]}
+            >
+                <LemonButton size="small" icon={<IconLetter />} tooltip="Text" disabledReason={disabledReason} />
+            </LemonMenu>
+            <LemonButton
+                size="small"
+                icon={<IconImage />}
+                tooltip="Image"
+                disabledReason={disabledReason}
+                onClick={() => fileInputRef.current?.click()}
+            />
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null
+                    e.target.value = ''
+                    void onImagePicked(file)
+                }}
+            />
+            <LemonButton
+                size="small"
+                icon={<IconButton />}
+                tooltip="Button"
+                disabledReason={disabledReason}
+                onClick={() => run((c) => c.setButton())}
+            />
+            <LemonButton
+                size="small"
+                icon={<IconList />}
+                tooltip="Bullet list"
+                disabledReason={disabledReason}
+                onClick={() => run((c) => c.clearNodes().toggleBulletList())}
+            />
+            <LemonButton
+                size="small"
+                icon={<IconQuote />}
+                tooltip="Blockquote"
+                disabledReason={disabledReason}
+                onClick={() => run((c) => c.clearNodes().toggleBlockquote())}
+            />
+            <LemonButton
+                size="small"
+                icon={<IconMinus />}
+                tooltip="Divider"
+                disabledReason={disabledReason}
+                onClick={() => run((c) => c.setHorizontalRule())}
+            />
+            <LemonMenu
+                placement="right-start"
+                items={[
+                    { label: 'Section', onClick: () => run((c) => c.insertSection()) },
+                    { label: '2 columns', onClick: () => run((c) => c.insertColumns(2)) },
+                    { label: '3 columns', onClick: () => run((c) => c.insertColumns(3)) },
+                    { label: '4 columns', onClick: () => run((c) => c.insertColumns(4)) },
+                ]}
+            >
+                <LemonButton size="small" icon={<IconColumns />} tooltip="Layout" disabledReason={disabledReason} />
+            </LemonMenu>
+            {mergeTags.length > 0 && (
+                <LemonMenu
+                    placement="right-start"
+                    items={mergeTags.map((tag) => ({
+                        label: tag.label,
+                        onClick: () => run((c) => c.insertContent(tag.value)),
+                    }))}
+                >
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlus />}
+                        tooltip="Insert merge tag"
+                        disabledReason={disabledReason}
+                    />
+                </LemonMenu>
+            )}
+        </div>
+    )
+}
+
+async function handleImageUpload(file: File): Promise<{ url: string }> {
+    try {
+        const response = await uploadFile(file)
+        return { url: response.image_location }
+    } catch (e: any) {
+        lemonToast.error(`Failed to upload image: ${e?.message ?? 'unknown error'}`)
+        throw e
+    }
 }
 
 function VisualEmailEditor(): JSX.Element {
@@ -136,18 +650,18 @@ function VisualEmailEditor(): JSX.Element {
     const initialContentRef = useRef(getEditorInitialContent(logicProps.value))
 
     return (
-        <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex justify-end px-2 py-1 border-b shrink-0 gap-2">
-                <MergeTagsMenu />
-            </div>
-            <div className={clsx('flex-1 overflow-auto', !isEmailEditorReady && 'opacity-50')}>
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+            <BlockInserter />
+            <div className={clsx('EmailTemplater__canvas flex-1 min-h-0', !isEmailEditorReady && 'opacity-50')}>
                 <EmailEditor
                     ref={(r: EmailEditorRef | null) => setEmailEditorRef(r)}
                     content={initialContentRef.current}
                     onReady={() => onEmailEditorReady()}
-                    className="h-full"
+                    onUploadImage={handleImageUpload}
+                    className="EmailTemplater__canvas-inner"
                 />
             </div>
+            <ElementInspector />
         </div>
     )
 }
@@ -212,11 +726,11 @@ function DestinationEmailTemplaterForm({
                             ]}
                             className="px-2 shrink-0 border-b"
                         />
-                        <div className="relative flex flex-col flex-1">
+                        <div className="relative flex flex-col flex-1 min-h-0">
                             <div
                                 className={clsx(
                                     activeContentTab === 'visual'
-                                        ? 'flex flex-col flex-1'
+                                        ? 'flex flex-col flex-1 min-h-0'
                                         : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
                                 )}
                             >
@@ -557,11 +1071,11 @@ function NativeEmailTemplaterForm({
                             ]}
                             className="px-2 shrink-0 border-b"
                         />
-                        <div className="relative flex flex-col flex-1">
+                        <div className="relative flex flex-col flex-1 min-h-0">
                             <div
                                 className={clsx(
                                     activeContentTab === 'visual'
-                                        ? 'flex flex-col flex-1'
+                                        ? 'flex flex-col flex-1 min-h-0'
                                         : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
                                 )}
                             >

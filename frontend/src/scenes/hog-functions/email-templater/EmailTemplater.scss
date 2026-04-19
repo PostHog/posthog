@@ -1,0 +1,117 @@
+// The bubble menu, slash-command menu, and link/button/image toolbars portal to document.body,
+// so the chrome selectors must live at the top level to reach them. Canvas-only rules stay scoped.
+
+[data-re-bubble-menu],
+[data-re-link-bm-toolbar],
+[data-re-btn-bm-toolbar],
+[data-re-img-bm-toolbar] {
+    font-size: 13px;
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation-3000);
+}
+
+[data-re-bubble-menu-item],
+[data-re-link-bm-item],
+[data-re-btn-bm-item],
+[data-re-img-bm-item] {
+    color: var(--color-text-primary);
+    border-radius: var(--radius);
+
+    &:hover {
+        background: var(--color-bg-fill-secondary);
+    }
+
+    &[data-active],
+    &[aria-pressed='true'] {
+        color: var(--color-text-primary);
+        background: var(--color-bg-fill-tertiary);
+    }
+}
+
+[data-re-bubble-menu-separator],
+[data-re-bubble-menu-group] {
+    background-color: var(--color-border-primary);
+    border-color: var(--color-border-primary);
+}
+
+[data-re-node-selector-trigger] {
+    color: var(--color-text-primary);
+
+    &:hover {
+        background: var(--color-bg-fill-secondary);
+    }
+}
+
+[data-re-node-selector-content],
+[data-re-slash-command-menu] {
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation-3000);
+}
+
+[data-re-node-selector-item],
+[data-re-slash-command-item] {
+    color: var(--color-text-primary);
+    border-radius: var(--radius);
+
+    &:hover,
+    &[data-selected='true'] {
+        background: var(--color-bg-fill-secondary);
+    }
+}
+
+[data-re-link-selector-input],
+[data-re-link-bm-input],
+[data-re-btn-bm-input] {
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    &:focus {
+        border-color: var(--color-accent);
+        outline: none;
+    }
+}
+
+.EmailTemplater__rail {
+    width: 44px;
+    background: var(--color-bg-surface-primary);
+}
+
+.EmailTemplater__inspector {
+    width: 260px;
+    background: var(--color-bg-surface-primary);
+}
+
+.EmailTemplater__canvas {
+    flex: 1;
+    overflow: hidden auto;
+    background: var(--color-bg-fill-secondary);
+}
+
+.EmailTemplater__canvas-inner {
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+
+    .ProseMirror {
+        width: 100%;
+        max-width: 640px;
+        min-height: 200px;
+        padding: 32px;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+
+        &:focus-visible {
+            outline: none;
+        }
+    }
+}
