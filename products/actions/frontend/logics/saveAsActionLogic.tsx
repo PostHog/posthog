@@ -28,9 +28,7 @@ export interface OpenSaveAsActionDialogPayload {
 }
 
 export function buildActionNameValidator(existingActionNames: Iterable<string>): (value: string) => string | undefined {
-    const existing = new Set(
-        [...existingActionNames].map((name) => name?.trim()).filter((name): name is string => Boolean(name))
-    )
+    const existing = new Set([...existingActionNames].map((name) => name.trim()).filter(Boolean))
     return (value: string) => {
         const trimmed = value?.trim()
         if (!trimmed) {
@@ -41,6 +39,19 @@ export function buildActionNameValidator(existingActionNames: Iterable<string>):
         }
         return undefined
     }
+}
+
+function getServerErrorMessage(error: unknown): string | undefined {
+    const data = (error as { data?: Record<string, unknown> } | undefined)?.data
+    if (!data || typeof data !== 'object') {
+        return undefined
+    }
+    if (typeof data.detail === 'string') {
+        return data.detail
+    }
+    const firstFieldMessage = (value: unknown): string | undefined =>
+        Array.isArray(value) && typeof value[0] === 'string' ? value[0] : undefined
+    return firstFieldMessage(data.name) ?? firstFieldMessage(data.non_field_errors)
 }
 
 export const saveAsActionLogic = kea<saveAsActionLogicType>([
@@ -104,9 +115,9 @@ export const saveAsActionLogic = kea<saveAsActionLogicType>([
                                 Action created. <Link to={urls.action(action.id)}>View action</Link>
                             </>
                         )
-                    } catch (error: any) {
+                    } catch (error) {
                         posthog.captureException(error, { action: 'save-as-action' })
-                        lemonToast.error(error?.data?.detail ?? 'Failed to create action. Please try again.')
+                        lemonToast.error(getServerErrorMessage(error) ?? 'Failed to create action. Please try again.')
                     }
                 },
             })

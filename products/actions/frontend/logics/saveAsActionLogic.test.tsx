@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -226,6 +227,39 @@ describe('saveAsActionLogic', () => {
         ])('%s → %s', (_desc, existing, input, expected) => {
             const validator = buildActionNameValidator(existing)
             expect(validator(input)).toBe(expected)
+        })
+    })
+
+    describe('server error messages', () => {
+        it.each([
+            [
+                'DRF field error on name',
+                { name: ['This project already has an action with this name, ID 123'] },
+                'This project already has an action with this name, ID 123',
+            ],
+            ['DRF non_field_errors', { non_field_errors: ['Oops'] }, 'Oops'],
+            ['top-level detail', { detail: 'Generic detail message' }, 'Generic detail message'],
+            ['empty body falls back to generic message', {}, 'Failed to create action. Please try again.'],
+        ])('surfaces %s in the error toast', async (_desc, responseBody, expectedToast) => {
+            const errorSpy = jest.spyOn(lemonToast, 'error')
+            useMocks({
+                post: {
+                    '/api/projects/:team/actions/': () => [400, responseBody],
+                },
+            })
+
+            saveAsActionLogic.actions.openSaveAsActionDialog({
+                suggestedName: 'Whatever',
+                step: { event: '$autocapture' },
+            })
+
+            await waitFor(() => expect(screen.getByDisplayValue('Whatever')).toBeInTheDocument())
+            const submitButton = screen.getByRole('button', { name: 'Submit' })
+            await userEvent.click(submitButton)
+
+            await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+            expect(errorSpy).toHaveBeenCalledWith(expectedToast)
+            errorSpy.mockRestore()
         })
     })
 })
