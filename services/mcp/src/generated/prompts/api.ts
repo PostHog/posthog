@@ -25,6 +25,7 @@ export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
         ),
+    created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),

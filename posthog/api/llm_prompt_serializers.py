@@ -74,6 +74,10 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional substring filter applied to prompt names and prompt content.",
     )
+    created_by_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter prompts by the ID of the user who created them.",
+    )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,
         required=False,

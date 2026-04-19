@@ -231,6 +231,35 @@ class TestLLMPromptAPI(APIBaseTest):
         names = [prompt["name"] for prompt in response.json()["results"]]
         assert names == ["large", "small"]
 
+    @parameterized.expand(
+        [
+            ("filters_to_matching_user", True, 1, status.HTTP_200_OK),
+            ("returns_empty_for_non_matching_user", False, 0, status.HTTP_200_OK),
+            ("rejects_non_numeric_value", None, None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filters_by_created_by_id(
+        self, mock_feature_enabled, _name, use_matching_user, expected_count, expected_status
+    ):
+        self.create_prompt_version(name="my-prompt")
+        other_user = self._create_user("other@posthog.com")
+        LLMPrompt.objects.create(
+            team=self.team, name="other-prompt", prompt="other", version=1, is_latest=True, created_by=other_user
+        )
+
+        if use_matching_user is None:
+            url = f"/api/environments/{self.team.id}/llm_prompts/?created_by_id=abc"
+        elif use_matching_user:
+            url = f"/api/environments/{self.team.id}/llm_prompts/?created_by_id={self.user.id}"
+        else:
+            url = f"/api/environments/{self.team.id}/llm_prompts/?created_by_id=999999"
+
+        response = self.client.get(url)
+
+        assert response.status_code == expected_status
+        if expected_count is not None:
+            assert response.json()["count"] == expected_count
+
     def test_fetch_prompt_by_name_returns_latest_by_default(self, mock_feature_enabled):
         first_version = self.create_prompt_version(name="test-prompt", version=1, is_latest=False, prompt="v1")
         latest_version = self.create_prompt_version(name="test-prompt", version=2, is_latest=True, prompt="v2")

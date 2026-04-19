@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Logs',
             activityScope: ActivityScope.LOG,
+            settingsSection: 'environment-logs',
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',

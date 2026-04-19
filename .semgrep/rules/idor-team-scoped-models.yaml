@@ -187,6 +187,7 @@ rules:
                               |TaskAutomation
                               |TaskRun
                               |EmailChannel
+                              |EvaluationReport
                               |Text
                               |Threshold
                               |Ticket
@@ -380,6 +381,7 @@ rules:
                         |TaskAutomation
                         |TaskRun
                         |EmailChannel
+                        |EvaluationReport
                         |Text
                         |Threshold
                         |Ticket
