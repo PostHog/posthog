@@ -14,7 +14,7 @@ export interface ListRecommendationCardProps extends Omit<
     RecommendationCardProps,
     'progress' | 'children' | 'description'
 > {
-    description?: string
+    description?: ReactNode
     items: ListRecommendationItem[]
     progressLabel: string
 }

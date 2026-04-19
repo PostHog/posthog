@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { AlertWizard } from 'scenes/hog-functions/AlertWizard/AlertWizard'
 import {
@@ -74,7 +74,15 @@ export function AlertsRecommendationCard({
                 recommendationId={recommendation.id}
                 nextRefreshAt={recommendation.next_refresh_at}
                 title="Alert coverage"
-                description="Stay ahead of new and resurfacing issues."
+                description={
+                    <>
+                        Stay ahead of new and resurfacing issues.{' '}
+                        <Link to={urls.settings('environment-error-tracking', 'error-tracking-alerting')}>
+                            See all alerts
+                        </Link>
+                        .
+                    </>
+                }
                 dismissed={dismissed}
                 items={items}
                 progressLabel="configured"

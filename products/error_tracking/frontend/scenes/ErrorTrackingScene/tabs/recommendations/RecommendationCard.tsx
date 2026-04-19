@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconRefresh, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
 
@@ -34,11 +34,8 @@ export function RecommendationCard({
                 <h3 className="font-semibold text-sm m-0">{title}</h3>
                 <div className="flex items-center gap-2">
                     {progress && (
-                        <>
-                            <span className="text-xs text-muted">
-                                {progress.current} / {progress.total} {progress.label}
-                            </span>
-                            <div className="w-20 h-1.5 bg-border rounded-full">
+                        <Tooltip title={`${progress.current} / ${progress.total} ${progress.label}`}>
+                            <div className="w-20 h-1.5 bg-border rounded-full cursor-default">
                                 <div
                                     className="h-1.5 bg-success rounded-full"
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -47,7 +44,7 @@ export function RecommendationCard({
                                     }}
                                 />
                             </div>
-                        </>
+                        </Tooltip>
                     )}
                     <LemonButton
                         size="xsmall"
