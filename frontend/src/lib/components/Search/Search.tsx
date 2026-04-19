@@ -20,6 +20,7 @@ import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/ic
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { filterSearchItems } from 'lib/components/Search/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -235,6 +236,45 @@ const useSearchContext = (): SearchContextValue => {
 }
 
 // ============================================================================
+// Hooks
+// ============================================================================
+
+const SEARCH_DEBOUNCE_DELAY = 200
+
+type GroupedItemsEntry = { category: string; items: SearchItem[]; isLoading?: boolean }
+
+function useDebouncedGroupedItems(
+    groupedItems: GroupedItemsEntry[],
+    searchValue: string,
+    enabled: boolean
+): GroupedItemsEntry[] {
+    const [stable, setStable] = useState(groupedItems)
+    const prevSearchRef = useRef(searchValue)
+    const searchJustChangedRef = useRef(false)
+
+    if (searchValue !== prevSearchRef.current) {
+        prevSearchRef.current = searchValue
+        searchJustChangedRef.current = true
+        setStable(groupedItems)
+    }
+
+    useEffect(() => {
+        if (!enabled) {
+            setStable(groupedItems)
+            return
+        }
+        if (searchJustChangedRef.current) {
+            searchJustChangedRef.current = false
+            return
+        }
+        const timer = setTimeout(() => setStable(groupedItems), SEARCH_DEBOUNCE_DELAY)
+        return () => clearTimeout(timer)
+    }, [groupedItems, enabled])
+
+    return enabled ? stable : groupedItems
+}
+
+// ============================================================================
 // Search.Root
 // ============================================================================
 
@@ -274,6 +314,7 @@ function SearchRoot({
     const { isDarkModeOn } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { updateUser } = useActions(userLogic)
+    const debounceEnabled = useFeatureFlag('SEARCH_DEBOUNCE_ALL')
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
 
@@ -446,10 +487,14 @@ function SearchRoot({
         return groups
     }, [filteredItems, allCategories, searchValue])
 
+    // Debounce grouped items so async results don't shift the highlighted item mid-keystroke.
+    // When searchValue changes, items update immediately; async result arrivals are batched.
+    const stableGroupedItems = useDebouncedGroupedItems(groupedItems, searchValue, debounceEnabled)
+
     // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
     // breaks at group boundaries where the two orderings diverge.
-    const orderedItems = useMemo(() => groupedItems.flatMap((g) => g.items), [groupedItems])
+    const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
@@ -457,7 +502,7 @@ function SearchRoot({
             searchValue,
             setSearchValue,
             filteredItems: orderedItems,
-            groupedItems,
+            groupedItems: stableGroupedItems,
             isSearching,
             isActive,
             inputRef,
@@ -470,7 +515,7 @@ function SearchRoot({
             logicKey,
             searchValue,
             orderedItems,
-            groupedItems,
+            stableGroupedItems,
             isSearching,
             isActive,
             handleItemClick,
