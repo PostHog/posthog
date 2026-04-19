@@ -74,6 +74,25 @@ describe('SaveAsActionBanner', () => {
                     ],
                 }),
             ],
+            [
+                'autocapture with text and selector',
+                makeFilter({
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: 'Submit',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                        {
+                            key: 'selector',
+                            value: '.btn',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Element,
+                        },
+                    ],
+                }),
+            ],
         ])('renders banner for %s', (_description, filter) => {
             renderBanner(filter)
             expect(screen.getByText(/Save this autocapture filter as a reusable action/)).toBeInTheDocument()
@@ -94,7 +113,21 @@ describe('SaveAsActionBanner', () => {
                     ],
                 }),
             ],
+            ['autocapture with empty properties', makeFilter({ properties: [] })],
             ['action type', makeFilter({ id: '123', name: 'My Action', type: EntityTypes.ACTIONS })],
+            [
+                'autocapture with only negated operators',
+                makeFilter({
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: 'Submit',
+                            operator: PropertyOperator.NotIContains,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                }),
+            ],
         ])('does not render banner for %s', (_description, filter) => {
             renderBanner(filter)
             expect(screen.queryByText(/Save this autocapture filter as a reusable action/)).not.toBeInTheDocument()

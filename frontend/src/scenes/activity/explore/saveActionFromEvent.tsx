@@ -11,8 +11,7 @@ export function isAutocaptureWithElements(event: EventType | RecordingEventType)
 export function eventToActionStep(event: AutocaptureEvent, dataAttributes: string[]): ActionStepType {
     const step: ActionStepType = {
         event: '$autocapture',
-        url: event.properties.$current_url,
-        url_matching: 'exact',
+        ...(event.properties.$current_url ? { url: event.properties.$current_url, url_matching: 'exact' } : {}),
         ...elementsToAction(event.elements),
     }
 

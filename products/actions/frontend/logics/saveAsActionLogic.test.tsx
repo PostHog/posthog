@@ -11,7 +11,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { initKeaTests } from '~/test/init'
 import { EntityTypes, EventType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { buildActionNameValidator, saveAsActionLogic } from './saveAsActionLogic'
+import { buildActionNameValidator, openSaveAsActionDialog, saveAsActionLogic } from './saveAsActionLogic'
 
 function makeAutocaptureEvent(overrides: Partial<EventType> = {}): EventType {
     return {
@@ -77,7 +77,7 @@ describe('saveAsActionLogic', () => {
 
     describe('openSaveAsActionDialog', () => {
         it('opens the shared dialog with the suggested name', async () => {
-            saveAsActionLogic.actions.openSaveAsActionDialog({
+            openSaveAsActionDialog({
                 suggestedName: 'My suggestion',
                 step: { event: '$autocapture' },
             })
@@ -88,7 +88,7 @@ describe('saveAsActionLogic', () => {
         })
 
         it('disables the submit button until a name is entered', async () => {
-            saveAsActionLogic.actions.openSaveAsActionDialog({
+            openSaveAsActionDialog({
                 suggestedName: '',
                 step: { event: '$autocapture' },
             })
@@ -106,7 +106,7 @@ describe('saveAsActionLogic', () => {
                 selector: '.btn',
             }
 
-            saveAsActionLogic.actions.openSaveAsActionDialog({ suggestedName: 'Named', step })
+            openSaveAsActionDialog({ suggestedName: 'Named', step })
 
             await waitFor(() => expect(screen.getByDisplayValue('Named')).toBeInTheDocument())
             await submitDialog()
@@ -118,7 +118,7 @@ describe('saveAsActionLogic', () => {
         })
 
         it('passes _create_in_folder through when provided', async () => {
-            saveAsActionLogic.actions.openSaveAsActionDialog({
+            openSaveAsActionDialog({
                 suggestedName: 'Named',
                 step: { event: '$autocapture' },
                 createInFolder: 'Unfiled/Actions',
@@ -132,7 +132,7 @@ describe('saveAsActionLogic', () => {
         })
 
         it('creates the action via API on successful submit', async () => {
-            saveAsActionLogic.actions.openSaveAsActionDialog({
+            openSaveAsActionDialog({
                 suggestedName: 'Named',
                 step: { event: '$autocapture' },
             })
@@ -147,7 +147,7 @@ describe('saveAsActionLogic', () => {
         it('still posts to the API when the server would return an error', async () => {
             postStatus = 500
 
-            saveAsActionLogic.actions.openSaveAsActionDialog({
+            openSaveAsActionDialog({
                 suggestedName: 'ErrorCase',
                 step: { event: '$autocapture' },
             })
@@ -185,6 +185,40 @@ describe('saveAsActionLogic', () => {
                 text_matching: 'exact',
             })
             expect(capturedBody._create_in_folder).toBeUndefined()
+        })
+
+        it('posts the full filter → action step mapping for text + selector', async () => {
+            saveAsActionLogic.actions.saveFromFilter(
+                makeFilter({
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: 'Submit',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                        {
+                            key: 'selector',
+                            value: '.btn',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Element,
+                        },
+                    ],
+                })
+            )
+
+            await waitFor(() => expect(screen.getByDisplayValue('Autocapture: "Submit"')).toBeInTheDocument())
+            await submitDialog()
+
+            await waitFor(() => expect(capturedBody).not.toBeNull())
+            expect(capturedBody.name).toBe('Autocapture: "Submit"')
+            expect(capturedBody.steps).toHaveLength(1)
+            expect(capturedBody.steps[0]).toMatchObject({
+                event: '$autocapture',
+                text: 'Submit',
+                text_matching: 'exact',
+                selector: '.btn',
+            })
         })
     })
 
@@ -225,8 +259,16 @@ describe('saveAsActionLogic', () => {
                 'An action with this name already exists',
             ],
         ])('%s → %s', (_desc, existing, input, expected) => {
-            const validator = buildActionNameValidator(existing)
+            const validator = buildActionNameValidator(() => existing)
             expect(validator(input)).toBe(expected)
+        })
+
+        it('reads existing names fresh on each call', () => {
+            let names: string[] = []
+            const validator = buildActionNameValidator(() => names)
+            expect(validator('Foo')).toBeUndefined()
+            names = ['Foo']
+            expect(validator('Foo')).toBe('An action with this name already exists')
         })
     })
 
@@ -248,7 +290,7 @@ describe('saveAsActionLogic', () => {
                 },
             })
 
-            saveAsActionLogic.actions.openSaveAsActionDialog({
+            openSaveAsActionDialog({
                 suggestedName: 'Whatever',
                 step: { event: '$autocapture' },
             })
