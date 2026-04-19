@@ -461,6 +461,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
     })),
 
     actionToUrl(({ values, props: logicProps }) => {
+        if (logicProps.disableUrlSync) {
+            return {}
+        }
+
         const buildURL = (): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
@@ -484,10 +488,6 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             return [currentLocation.pathname, searchParams, currentLocation.hashParams]
-        }
-
-        if (logicProps.disableUrlSync) {
-            return {}
         }
 
         return {

@@ -137,7 +137,7 @@ function AlertsRecommendationWizardContent({ onClose }: { onClose: () => void })
                     })
                     resetWizard()
                     onClose()
-                    router.actions.push(urls.errorTrackingConfiguration())
+                    router.actions.push(urls.settings('environment-error-tracking', 'error-tracking-alerting'))
                 }}
             />
         </div>
