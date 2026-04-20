@@ -9,7 +9,7 @@ that produced the consolidation. This activity only handles the Kafka produce.
 import structlog
 import temporalio
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.temporal.session_replay.session_summary.types.video import (
@@ -75,5 +75,6 @@ def _produce_to_kafka(inputs: VideoSummarySingleSessionInputs, tagging: SessionT
         "ai_highlighted": int(tagging.highlighted),
     }
 
-    producer = KafkaProducer()
-    producer.produce(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, data=data)
+    get_producer(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS).produce(
+        topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, data=data
+    )
